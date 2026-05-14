@@ -82,7 +82,7 @@ claude mcp add gangtise -e GANGTISE_ACCESS_KEY=your_key -e GANGTISE_SECRET_KEY=y
 | `GANGTISE_TOKEN` | — | 直接传 Bearer Token（优先于 Key/Secret，适合临时使用） |
 | `GANGTISE_BASE_URL` | `https://open.gangtise.com` | API 基础地址 |
 | `GANGTISE_TIMEOUT_MS` | `30000` | 单次请求超时（毫秒） |
-| `GANGTISE_MCP_ASYNC_TIMEOUT_MS` | `60000` | 异步 AI 任务等待超时（毫秒） |
+| `GANGTISE_MCP_ASYNC_TIMEOUT_MS` | `180000` | 异步 AI 任务等待超时（毫秒） |
 | `GANGTISE_TOKEN_CACHE_PATH` | `~/.config/gangtise/token.json` | Token 缓存文件路径 |
 | `GANGTISE_PAGE_CONCURRENCY` | `5` | 分页并发数 |
 | `GANGTISE_VERBOSE` | — | 设为 `1` 开启请求耗时日志（输出到 stderr） |
