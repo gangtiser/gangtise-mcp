@@ -472,5 +472,6 @@ export const ENDPOINTS = {
         path: "/application/open-vault/wechatgroupmsg/chatroomId",
         kind: "json",
         description: "List WeChat group chatroom IDs",
+        pagination: { enabled: true, maxPageSize: 50 },
     },
 };

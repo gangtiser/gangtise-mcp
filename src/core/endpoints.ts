@@ -491,5 +491,6 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-vault/wechatgroupmsg/chatroomId",
     kind: "json",
     description: "List WeChat group chatroom IDs",
+    pagination: { enabled: true, maxPageSize: 50 },
   },
 }
