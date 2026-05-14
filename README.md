@@ -55,6 +55,76 @@ claude mcp add gangtise \
 
 修改后重启 Claude Desktop 生效。
 
+### Cursor
+
+编辑 `~/.cursor/mcp.json`（全局）或项目根目录下 `.cursor/mcp.json`：
+
+```json
+{
+  "mcpServers": {
+    "gangtise": {
+      "command": "npx",
+      "args": ["-y", "gangtise-mcp"],
+      "env": {
+        "GANGTISE_ACCESS_KEY": "your_access_key",
+        "GANGTISE_SECRET_KEY": "your_secret_key"
+      }
+    }
+  }
+}
+```
+
+### Windsurf
+
+编辑 `~/.codeium/windsurf/mcp_config.json`：
+
+```json
+{
+  "mcpServers": {
+    "gangtise": {
+      "command": "npx",
+      "args": ["-y", "gangtise-mcp"],
+      "env": {
+        "GANGTISE_ACCESS_KEY": "your_access_key",
+        "GANGTISE_SECRET_KEY": "your_secret_key"
+      }
+    }
+  }
+}
+```
+
+### Cline（VS Code 插件）
+
+打开 VS Code → Cline 插件面板 → **MCP Servers** → **Edit MCP Settings**，加入：
+
+```json
+{
+  "gangtise": {
+    "command": "npx",
+    "args": ["-y", "gangtise-mcp"],
+    "env": {
+      "GANGTISE_ACCESS_KEY": "your_access_key",
+      "GANGTISE_SECRET_KEY": "your_secret_key"
+    }
+  }
+}
+```
+
+### 其他支持 MCP 的客户端
+
+配置格式通用，只需在对应客户端的 MCP 配置文件中加入：
+
+```json
+{
+  "command": "npx",
+  "args": ["-y", "gangtise-mcp"],
+  "env": {
+    "GANGTISE_ACCESS_KEY": "your_access_key",
+    "GANGTISE_SECRET_KEY": "your_secret_key"
+  }
+}
+```
+
 ## 环境变量
 
 | 变量 | 默认值 | 说明 |
