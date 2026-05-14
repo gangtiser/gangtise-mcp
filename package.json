@@ -1,6 +1,6 @@
 {
   "name": "gangtise-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "MCP server for Gangtise OpenAPI",
   "license": "MIT",
   "author": "gangtiser",
@@ -10,11 +10,24 @@
   },
   "homepage": "https://github.com/gangtiser/gangtise-mcp#readme",
   "bugs": "https://github.com/gangtiser/gangtise-mcp/issues",
-  "keywords": ["mcp", "gangtise", "openapi", "finance", "investment"],
+  "keywords": [
+    "mcp",
+    "gangtise",
+    "openapi",
+    "finance",
+    "investment"
+  ],
   "type": "module",
-  "engines": { "node": ">=20" },
-  "bin": { "gangtise-mcp": "dist/index.js" },
-  "files": ["dist/", "README.md"],
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "gangtise-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist/",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.ts",
