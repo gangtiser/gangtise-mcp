@@ -3,11 +3,11 @@ import { normalizeRows } from "../core/normalize.js";
 import { callKlineWithSharding } from "../core/quoteSharding.js";
 import { errorMessage } from "../core/errors.js";
 const commonKlineSchema = {
-    security: z.union([z.string(), z.array(z.string())]).optional().describe("Security code(s) e.g. '600519.SH' or ['600519.SH','000858.SZ']; use 'all' for full market"),
+    security: z.union([z.string(), z.array(z.string())]).optional().describe("证券代码，如 '600519.SH' 或 ['600519.SH','000858.SZ']；传 'all' 拉取全市场"),
     startDate: z.string().optional().describe("YYYY-MM-DD"),
     endDate: z.string().optional().describe("YYYY-MM-DD"),
-    limit: z.number().int().optional().describe("Max rows (default 6000, max 10000)"),
-    field: z.array(z.string()).optional().describe("Fields to return e.g. ['open','close','pctChange']"),
+    limit: z.number().int().optional().describe("最大返回行数（默认 6000，最大 10000）"),
+    field: z.array(z.string()).optional().describe("指定返回字段，如 ['open','close','pctChange']"),
 };
 function buildKlineBody(args) {
     const body = {};
@@ -45,24 +45,24 @@ function klineHandler(client, endpointKey, shardDays) {
 }
 export function registerQuoteTools(server, client) {
     server.registerTool("gangtise_day_kline", {
-        description: "A-share daily candlestick data (SH/SZ/BJ markets). Use security='all' with startDate/endDate for full-market queries (auto-sharded).",
+        description: "查询 A 股日 K 线数据（沪深北市场）。security='all' 配合 startDate/endDate 可拉取全市场行情（自动分片）。",
         inputSchema: commonKlineSchema,
     }, async (args) => klineHandler(client, "quote.day-kline", 2)(args));
     server.registerTool("gangtise_day_kline_hk", {
-        description: "Hong Kong stock daily candlestick data.",
+        description: "查询港股日 K 线数据。",
         inputSchema: commonKlineSchema,
     }, async (args) => klineHandler(client, "quote.day-kline-hk", 3)(args));
     server.registerTool("gangtise_index_day_kline", {
-        description: "Index daily candlestick data (SH/SZ/BJ indices).",
+        description: "查询指数日 K 线数据（沪深北指数）。",
         inputSchema: commonKlineSchema,
     }, async (args) => klineHandler(client, "quote.index-day-kline", 30)(args));
     server.registerTool("gangtise_minute_kline", {
-        description: "A-share minute-level candlestick data. Requires a single security code.",
+        description: "查询 A 股分钟级 K 线数据，需指定单只证券代码。",
         inputSchema: {
-            security: z.string().describe("Single security code e.g. '600519.SH'"),
+            security: z.string().describe("单只证券代码，如 '600519.SH'"),
             startTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
             endTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
-            limit: z.number().int().optional().describe("Max rows (default 5000, max 10000)"),
+            limit: z.number().int().optional().describe("最大返回行数（默认 5000，最大 10000）"),
             field: z.array(z.string()).optional(),
         },
     }, async ({ security, startTime, endTime, limit, field }) => {

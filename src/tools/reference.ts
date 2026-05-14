@@ -8,9 +8,9 @@ export function registerReferenceTools(server: McpServer, client: GangtiseClient
   server.registerTool(
     "gangtise_securities_search",
     {
-      description: "Search Gangtise securities by keyword, stock code, pinyin, or English name. Returns matching securities with their GTS codes.",
+      description: "按关键词搜索证券，支持股票名称、代码（如 600519）、拼音或英文名。返回匹配证券及其 GTS 代码。",
       inputSchema: {
-        keyword: z.string().describe("Search term: stock name, code (e.g. 600519), pinyin, or English name"),
+        keyword: z.string().describe("搜索词：股票名称、代码（如 600519）、拼音或英文名"),
       },
     },
     async ({ keyword }) => {

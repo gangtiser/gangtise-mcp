@@ -15,75 +15,75 @@ export interface AiToolOptions {
 const jsonSpecs: JsonToolSpec[] = [
   {
     name: "gangtise_knowledge_batch",
-    description: "Semantic search across Gangtise knowledge base (research reports, summaries, opinions, announcements, etc.). Supports up to 5 queries in one call.",
+    description: "在 Gangtise 知识库（研报、纪要、观点、公告等）中进行语义搜索，单次最多支持 5 个查询词。",
     endpointKey: "ai.knowledge-batch",
     paginated: false,
     inputSchema: {
-      query: z.array(z.string()).min(1).max(5).describe("Search queries (max 5)"),
-      top: z.number().int().min(1).max(20).optional().describe("Results per query (default 10, max 20)"),
+      query: z.array(z.string()).min(1).max(5).describe("搜索词列表（最多 5 个）"),
+      top: z.number().int().min(1).max(20).optional().describe("每个查询词返回的结果数（默认 10，最大 20）"),
       resourceType: z.array(z.number().int()).optional().describe("10=研报 | 11=外资研报 | 20=内部 | 40=观点 | 50=公告 | 51=港股公告 | 60=纪要 | 70=调研 | 80=网络纪要 | 90=公众号"),
       knowledgeName: z.string().optional().describe("system_knowledge_doc | tenant_knowledge_doc"),
     },
   },
   {
     name: "gangtise_security_clue_list",
-    description: "List AI-generated investment clues indexed by security or industry. Requires startTime and endTime.",
+    description: "查询 AI 生成的个股或行业投资线索列表，需传入时间范围。",
     endpointKey: "ai.security-clue.list",
     paginated: true,
     inputSchema: {
       from: z.number().int().min(0).optional(),
-      startTime: z.string().describe("YYYY-MM-DD HH:mm:ss (required)"),
-      endTime: z.string().describe("YYYY-MM-DD HH:mm:ss (required)"),
-      queryMode: z.string().describe("bySecurity | byIndustry (required)"),
-      gtsCode: z.string().optional().describe("Individual stock code or Shenwan industry code"),
-      source: z.string().optional().describe("researchReport | conference | announcement | view"),
+      startTime: z.string().describe("YYYY-MM-DD HH:mm:ss（必填）"),
+      endTime: z.string().describe("YYYY-MM-DD HH:mm:ss（必填）"),
+      queryMode: z.string().describe("bySecurity=按个股 | byIndustry=按行业（必填）"),
+      gtsCode: z.string().optional().describe("个股代码或申万行业代码"),
+      source: z.string().optional().describe("researchReport=研报 | conference=会议 | announcement=公告 | view=观点"),
     },
   },
   {
     name: "gangtise_theme_tracking",
-    description: "Get daily theme tracking report for a specific theme (morning or night edition).",
+    description: "获取指定主题的每日跟踪报告（早报或晚报版），需传入主题 ID 和日期。",
     endpointKey: "ai.theme-tracking",
     paginated: false,
     inputSchema: {
-      themeId: z.string().describe("Theme ID from gangtise_lookup type=theme-ids (required)"),
-      date: z.string().describe("YYYY-MM-DD, within last 30 days (required)"),
-      type: z.string().optional().describe("morning | night"),
+      themeId: z.string().describe("主题 ID，来自 gangtise_lookup type=theme-ids（必填）"),
+      date: z.string().describe("YYYY-MM-DD，仅支持最近 30 天（必填）"),
+      type: z.string().optional().describe("morning=早报 | night=晚报"),
     },
   },
   {
     name: "gangtise_hot_topic",
-    description: "List AI-generated hot topic briefings (morning, noon, afternoon, evening editions).",
+    description: "查询 AI 生成的热点话题简报列表，支持早报、午报、午后快讯、晚报等版别。",
     endpointKey: "ai.hot-topic",
     paginated: true,
     inputSchema: {
       from: z.number().int().min(0).optional(),
       startDate: z.string().optional().describe("YYYY-MM-DD"),
       endDate: z.string().optional().describe("YYYY-MM-DD"),
-      category: z.array(z.string()).optional().describe("morningBriefing | noonBriefing | afternoonFlash | eveningBriefing"),
+      category: z.array(z.string()).optional().describe("morningBriefing=早报 | noonBriefing=午报 | afternoonFlash=午后快讯 | eveningBriefing=晚报"),
       withRelatedSecurities: z.boolean().optional(),
       withCloseReading: z.boolean().optional(),
     },
   },
   {
     name: "gangtise_management_discuss_announcement",
-    description: "Get AI-extracted management discussion from financial report announcements (half-year/annual only).",
+    description: "从财报公告（半年报/年报）中提取 AI 整理的管理层讨论内容，仅支持中报和年报。",
     endpointKey: "ai.management-discuss-announcement",
     paginated: false,
     inputSchema: {
-      securityCode: z.string().describe("Security code e.g. '600519.SH'"),
-      reportDate: z.string().describe("xxxx-06-30 or xxxx-12-31 (half-year or annual only)"),
-      dimension: z.string().describe("businessOperation | financialPerformance | developmentAndRisk (required)"),
+      securityCode: z.string().describe("证券代码，如 '600519.SH'"),
+      reportDate: z.string().describe("xxxx-06-30（中报）或 xxxx-12-31（年报）"),
+      dimension: z.string().describe("businessOperation=经营情况 | financialPerformance=财务表现 | developmentAndRisk=发展与风险（必填）"),
     },
   },
   {
     name: "gangtise_management_discuss_earnings_call",
-    description: "Get AI-extracted management discussion from earnings call transcripts.",
+    description: "从业绩会会议纪要中提取 AI 整理的管理层讨论内容。",
     endpointKey: "ai.management-discuss-earnings-call",
     paginated: false,
     inputSchema: {
-      securityCode: z.string().describe("Security code e.g. '600519.SH'"),
+      securityCode: z.string().describe("证券代码，如 '600519.SH'"),
       reportDate: z.string().describe("xxxx-03-31 | xxxx-06-30 | xxxx-09-30 | xxxx-12-31"),
-      dimension: z.string().describe("businessOperation | financialPerformance | developmentAndRisk (required)"),
+      dimension: z.string().describe("businessOperation=经营情况 | financialPerformance=财务表现 | developmentAndRisk=发展与风险（必填）"),
     },
   },
 ]
@@ -91,10 +91,10 @@ const jsonSpecs: JsonToolSpec[] = [
 const downloadSpecs: DownloadToolSpec[] = [
   {
     name: "gangtise_knowledge_resource_download",
-    description: "Download a knowledge resource file by resourceId.",
+    description: "按 resourceId 下载知识库资源文件。",
     endpointKey: "ai.knowledge-resource.download",
     inputSchema: {
-      resourceId: z.string().describe("Resource ID from gangtise_knowledge_batch results"),
+      resourceId: z.string().describe("资源 ID，来自 gangtise_knowledge_batch 返回结果"),
     },
   },
 ]
@@ -133,7 +133,7 @@ function makeAsyncToolPair(
       description: config.description,
       inputSchema: {
         ...config.inputSchema,
-        waitSeconds: z.number().int().min(0).max(180).optional().describe("Max seconds to wait (default 60, max 180)"),
+        waitSeconds: z.number().int().min(0).max(180).optional().describe("最长等待秒数（默认 60，最大 180）"),
       },
     },
     async (args) => {
@@ -197,8 +197,8 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
   server.registerTool(
     "gangtise_one_pager",
     {
-      description: "Generate an AI one-pager (investment summary page) for a security. Returns Markdown content.",
-      inputSchema: { securityCode: z.string().describe("A-share or HK security code") },
+      description: "生成指定证券的 AI 一页纸投资摘要，返回 Markdown 内容。",
+      inputSchema: { securityCode: z.string().describe("A 股或港股证券代码") },
     },
     async (args) => makeAiContentHandler(client, "ai.one-pager")(args as Record<string, unknown>),
   )
@@ -206,8 +206,8 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
   server.registerTool(
     "gangtise_investment_logic",
     {
-      description: "Generate an AI investment logic synthesis for a security. Returns Markdown content.",
-      inputSchema: { securityCode: z.string().describe("A-share or HK security code") },
+      description: "生成指定证券的 AI 投资逻辑梳理报告，返回 Markdown 内容。",
+      inputSchema: { securityCode: z.string().describe("A 股或港股证券代码") },
     },
     async (args) => makeAiContentHandler(client, "ai.investment-logic")(args as Record<string, unknown>),
   )
@@ -215,8 +215,8 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
   server.registerTool(
     "gangtise_peer_comparison",
     {
-      description: "Generate an AI peer comparison / competitive landscape report for a security. Returns Markdown content.",
-      inputSchema: { securityCode: z.string().describe("A-share or HK security code") },
+      description: "生成指定证券的 AI 同业竞争格局对比报告，返回 Markdown 内容。",
+      inputSchema: { securityCode: z.string().describe("A 股或港股证券代码") },
     },
     async (args) => makeAiContentHandler(client, "ai.peer-comparison")(args as Record<string, unknown>),
   )
@@ -224,8 +224,8 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
   server.registerTool(
     "gangtise_research_outline",
     {
-      description: "Get an AI-generated company research outline for a security. Returns Markdown content.",
-      inputSchema: { securityCode: z.string().describe("A-share security code only") },
+      description: "获取指定证券的 AI 生成公司研究提纲，返回 Markdown 内容。",
+      inputSchema: { securityCode: z.string().describe("仅支持 A 股证券代码") },
     },
     async (args) => makeAiContentHandler(client, "ai.research-outline")(args as Record<string, unknown>),
   )
@@ -233,29 +233,29 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
   // Async tools: earnings-review
   makeAsyncToolPair(server, client, opts, {
     name: "gangtise_earnings_review",
-    description: "Generate an AI earnings review report. Submits task then waits up to waitSeconds (default 60s). Returns dataId on timeout.",
+    description: "生成 AI 业绩点评报告。提交任务后等待最多 waitSeconds 秒（默认 60s），超时返回 dataId。",
     inputSchema: {
-      securityCode: z.string().describe("A-share security code only"),
-      period: z.string().describe("Format: 2025q1 | 2025q3 | 2025interim | 2025annual"),
+      securityCode: z.string().describe("仅支持 A 股证券代码"),
+      period: z.string().describe("格式：2025q1 | 2025q3 | 2025interim | 2025annual"),
     },
     submitEndpoint: "ai.earnings-review.get-id",
     pollEndpoint: "ai.earnings-review.get-content",
     submitIdField: "dataId",
     checkName: "gangtise_earnings_review_check",
-    checkDescription: "Check status of a pending earnings review task by dataId.",
+    checkDescription: "按 dataId 查询业绩点评任务的生成状态。",
   })
 
   // Async tools: viewpoint-debate
   makeAsyncToolPair(server, client, opts, {
     name: "gangtise_viewpoint_debate",
-    description: "Generate an AI viewpoint debate on a given investment opinion. Submits task then waits up to waitSeconds (default 60s). Returns dataId on timeout.",
+    description: "对给定投资观点生成 AI 多空辩论报告。提交任务后等待最多 waitSeconds 秒（默认 60s），超时返回 dataId。",
     inputSchema: {
-      viewpoint: z.string().max(1000).describe("Investment viewpoint text (max 1000 chars)"),
+      viewpoint: z.string().max(1000).describe("投资观点文本（最多 1000 字）"),
     },
     submitEndpoint: "ai.viewpoint-debate.get-id",
     pollEndpoint: "ai.viewpoint-debate.get-content",
     submitIdField: "dataId",
     checkName: "gangtise_viewpoint_debate_check",
-    checkDescription: "Check status of a pending viewpoint debate task by dataId.",
+    checkDescription: "按 dataId 查询多空辩论任务的生成状态。",
   })
 }
