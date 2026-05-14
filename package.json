@@ -3,6 +3,14 @@
   "version": "0.1.0",
   "description": "MCP server for Gangtise OpenAPI",
   "license": "MIT",
+  "author": "gangtiser",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gangtiser/gangtise-mcp"
+  },
+  "homepage": "https://github.com/gangtiser/gangtise-mcp#readme",
+  "bugs": "https://github.com/gangtiser/gangtise-mcp/issues",
+  "keywords": ["mcp", "gangtise", "openapi", "finance", "investment"],
   "type": "module",
   "engines": { "node": ">=20" },
   "bin": { "gangtise-mcp": "dist/index.js" },
@@ -10,7 +18,8 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.ts",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",
