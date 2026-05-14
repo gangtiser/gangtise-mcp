@@ -9,7 +9,7 @@ const jsonSpecs = [
         endpointKey: "ai.knowledge-batch",
         paginated: false,
         inputSchema: {
-            query: z.array(z.string()).min(1).max(5).describe("搜索词列表（最多 5 个）"),
+            queryList: z.array(z.string()).min(1).max(5).describe("搜索词列表（最多 5 个）"),
             top: z.number().int().min(1).max(20).optional().describe("每个查询词返回的结果数（默认 10，最大 20）"),
             resourceType: z.array(z.number().int()).optional().describe("10=研报 | 11=外资研报 | 20=内部 | 40=观点 | 50=公告 | 51=港股公告 | 60=纪要 | 70=调研 | 80=网络纪要 | 90=公众号"),
             knowledgeName: z.string().optional().describe("system_knowledge_doc | tenant_knowledge_doc"),
@@ -25,7 +25,7 @@ const jsonSpecs = [
             startTime: z.string().describe("YYYY-MM-DD HH:mm:ss（必填）"),
             endTime: z.string().describe("YYYY-MM-DD HH:mm:ss（必填）"),
             queryMode: z.string().describe("bySecurity=按个股 | byIndustry=按行业（必填）"),
-            gtsCode: z.string().optional().describe("个股代码或申万行业代码"),
+            gtsCodeList: z.array(z.string()).optional().describe("个股代码或申万行业代码列表"),
             source: z.string().optional().describe("researchReport=研报 | conference=会议 | announcement=公告 | view=观点"),
         },
     },

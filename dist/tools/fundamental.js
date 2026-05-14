@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { registerJsonTool } from "./registry.js";
-const periodEnum = z.string().optional().describe("q1=一季报 | interim=中报 | q3=三季报 | annual=年报 | latest=最新");
-const quarterlyPeriodEnum = z.string().optional().describe("q1 | q2 | q3 | q4 | latest");
-const reportTypeEnum = z.string().optional().describe("consolidated=合并 | consolidatedRestated=合并调整 | standalone=母公司 | standaloneRestated=母公司调整");
+const periodEnum = z.array(z.string()).optional().describe("q1=一季报 | interim=中报 | q3=三季报 | annual=年报 | latest=最新");
+const quarterlyPeriodEnum = z.array(z.string()).optional().describe("q1 | q2 | q3 | q4 | latest");
+const reportTypeEnum = z.array(z.string()).optional().describe("consolidated=合并 | consolidatedRestated=合并调整 | standalone=母公司 | standaloneRestated=母公司调整");
 const securityCode = z.string().describe("证券代码，如 '600519.SH'");
 const dateRange = {
     startDate: z.string().optional().describe("YYYY-MM-DD"),
@@ -90,7 +90,7 @@ const specs = [
             securityCode,
             breakdown: z.string().describe("product=产品 | industry=行业 | region=地区（必填）"),
             ...dateRange,
-            period: z.string().optional().describe("interim=中报 | annual=年报"),
+            periodList: z.array(z.string()).optional().describe("interim=中报 | annual=年报"),
             field,
         },
     },
