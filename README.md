@@ -22,9 +22,21 @@
 
 ## 快速开始
 
-### 方式一：npx（推荐，无需安装）
+### Claude Code
 
-在 Claude Code 或 Claude Desktop 配置文件中直接使用：
+```bash
+claude mcp add gangtise \
+  -e GANGTISE_ACCESS_KEY=your_access_key \
+  -e GANGTISE_SECRET_KEY=your_secret_key \
+  -- npx -y gangtise-mcp
+```
+
+### Claude Desktop
+
+编辑配置文件（根据系统选择路径）：
+
+- **macOS**：`~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows**：`%APPDATA%\Claude\claude_desktop_config.json`
 
 ```json
 {
@@ -41,37 +53,7 @@
 }
 ```
 
-### 方式二：克隆仓库本地运行
-
-```bash
-git clone https://github.com/gangtiser/gangtise-mcp
-cd gangtise-mcp
-npm install
-npm run build
-```
-
-配置文件：
-
-```json
-{
-  "mcpServers": {
-    "gangtise": {
-      "command": "node",
-      "args": ["/path/to/gangtise-mcp/dist/index.js"],
-      "env": {
-        "GANGTISE_ACCESS_KEY": "your_access_key",
-        "GANGTISE_SECRET_KEY": "your_secret_key"
-      }
-    }
-  }
-}
-```
-
-### Claude Code 一键添加
-
-```bash
-claude mcp add gangtise -e GANGTISE_ACCESS_KEY=your_key -e GANGTISE_SECRET_KEY=your_secret -- npx -y gangtise-mcp
-```
+修改后重启 Claude Desktop 生效。
 
 ## 环境变量
 
@@ -92,6 +74,9 @@ claude mcp add gangtise -e GANGTISE_ACCESS_KEY=your_key -e GANGTISE_SECRET_KEY=y
 ## 开发
 
 ```bash
+git clone https://github.com/gangtiser/gangtise-mcp
+cd gangtise-mcp
+npm install
 npm run dev      # 直接运行源码（tsx，无需 build）
 npm run build    # 编译 TypeScript → dist/
 npm test         # 运行测试
