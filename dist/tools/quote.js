@@ -1,11 +1,12 @@
 import { z } from "zod";
 import { normalizeRows } from "../core/normalize.js";
 import { callKlineWithSharding } from "../core/quoteSharding.js";
+import { dateDesc, dateTimeDesc } from "../core/dateContext.js";
 import { errorMessage } from "../core/errors.js";
 const commonKlineSchema = {
     security: z.union([z.string(), z.array(z.string())]).optional().describe("证券代码，如 '600519.SH' 或 ['600519.SH','000858.SZ']；传 'all' 拉取全市场"),
-    startDate: z.string().optional().describe("YYYY-MM-DD"),
-    endDate: z.string().optional().describe("YYYY-MM-DD"),
+    startDate: z.string().optional().describe(dateDesc()),
+    endDate: z.string().optional().describe(dateDesc()),
     limit: z.number().int().optional().describe("最大返回行数（默认 6000，最大 10000）"),
     field: z.array(z.string()).optional().describe("指定返回字段，如 ['open','close','pctChange']"),
 };
@@ -60,8 +61,8 @@ export function registerQuoteTools(server, client) {
         description: "查询 A 股分钟级 K 线数据，需指定单只证券代码。",
         inputSchema: {
             security: z.string().describe("单只证券代码，如 '600519.SH'"),
-            startTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
-            endTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
+            startTime: z.string().optional().describe(dateTimeDesc()),
+            endTime: z.string().optional().describe(dateTimeDesc()),
             limit: z.number().int().optional().describe("最大返回行数（默认 5000，最大 10000）"),
             field: z.array(z.string()).optional(),
         },

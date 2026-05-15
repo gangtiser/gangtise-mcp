@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { registerJsonTool, registerDownloadTool } from "./registry.js";
+import { dateTimeDesc } from "../core/dateContext.js";
 const listSpecs = [
     {
         name: "gangtise_opinion_list",
@@ -8,8 +9,8 @@ const listSpecs = [
         paginated: true,
         inputSchema: {
             from: z.number().int().min(0).optional(),
-            startTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
-            endTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
+            startTime: z.string().optional().describe(dateTimeDesc()),
+            endTime: z.string().optional().describe(dateTimeDesc()),
             keyword: z.string().optional(),
             rankType: z.number().int().optional().describe("1=综合排序（默认）| 2=时间倒序"),
             researchAreaList: z.array(z.string()).optional().describe("研究方向 ID，来自 gangtise_lookup type=research-areas"),
@@ -27,8 +28,8 @@ const listSpecs = [
         paginated: true,
         inputSchema: {
             from: z.number().int().min(0).optional(),
-            startTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
-            endTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
+            startTime: z.string().optional().describe(dateTimeDesc()),
+            endTime: z.string().optional().describe(dateTimeDesc()),
             keyword: z.string().optional(),
             searchType: z.number().int().optional().describe("1=标题搜索（快）| 2=全文搜索"),
             rankType: z.number().int().optional().describe("1=综合排序（默认）| 2=时间倒序"),
@@ -48,8 +49,8 @@ const listSpecs = [
         paginated: true,
         inputSchema: {
             from: z.number().int().min(0).optional(),
-            startTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
-            endTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
+            startTime: z.string().optional().describe(dateTimeDesc()),
+            endTime: z.string().optional().describe(dateTimeDesc()),
             keyword: z.string().optional(),
             rankType: z.number().int().optional(),
             securityList: z.array(z.string()).optional(),
@@ -62,8 +63,8 @@ const listSpecs = [
         paginated: true,
         inputSchema: {
             from: z.number().int().min(0).optional(),
-            startTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
-            endTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
+            startTime: z.string().optional().describe(dateTimeDesc()),
+            endTime: z.string().optional().describe(dateTimeDesc()),
             keyword: z.string().optional(),
             rankType: z.number().int().optional(),
             securityList: z.array(z.string()).optional(),
@@ -76,8 +77,8 @@ const listSpecs = [
         paginated: true,
         inputSchema: {
             from: z.number().int().min(0).optional(),
-            startTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
-            endTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
+            startTime: z.string().optional().describe(dateTimeDesc()),
+            endTime: z.string().optional().describe(dateTimeDesc()),
             keyword: z.string().optional(),
             rankType: z.number().int().optional(),
         },
@@ -89,8 +90,8 @@ const listSpecs = [
         paginated: true,
         inputSchema: {
             from: z.number().int().min(0).optional(),
-            startTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
-            endTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
+            startTime: z.string().optional().describe(dateTimeDesc()),
+            endTime: z.string().optional().describe(dateTimeDesc()),
             keyword: z.string().optional(),
             rankType: z.number().int().optional(),
         },
@@ -102,8 +103,8 @@ const listSpecs = [
         paginated: true,
         inputSchema: {
             from: z.number().int().min(0).optional(),
-            startTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
-            endTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
+            startTime: z.string().optional().describe(dateTimeDesc()),
+            endTime: z.string().optional().describe(dateTimeDesc()),
             keyword: z.string().optional(),
             searchType: z.number().int().optional().describe("1=标题搜索 | 2=全文搜索"),
             rankType: z.number().int().optional(),
@@ -126,8 +127,8 @@ const listSpecs = [
         paginated: true,
         inputSchema: {
             from: z.number().int().min(0).optional(),
-            startTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
-            endTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
+            startTime: z.string().optional().describe(dateTimeDesc()),
+            endTime: z.string().optional().describe(dateTimeDesc()),
             keyword: z.string().optional(),
             rankType: z.number().int().optional(),
             securityList: z.array(z.string()).optional(),
@@ -140,8 +141,8 @@ const listSpecs = [
         paginated: true,
         inputSchema: {
             from: z.number().int().min(0).optional(),
-            startTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
-            endTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
+            startTime: z.string().optional().describe(dateTimeDesc()),
+            endTime: z.string().optional().describe(dateTimeDesc()),
             keyword: z.string().optional(),
             rankType: z.number().int().optional(),
             securityList: z.array(z.string()).optional(),
@@ -155,8 +156,8 @@ const listSpecs = [
         paginated: true,
         inputSchema: {
             from: z.number().int().min(0).optional(),
-            startTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
-            endTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
+            startTime: z.string().optional().describe(dateTimeDesc()),
+            endTime: z.string().optional().describe(dateTimeDesc()),
             keyword: z.string().optional(),
             securityList: z.array(z.string()).optional(),
         },
@@ -168,8 +169,8 @@ const listSpecs = [
         paginated: true,
         inputSchema: {
             from: z.number().int().min(0).optional(),
-            startTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
-            endTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
+            startTime: z.string().optional().describe(dateTimeDesc()),
+            endTime: z.string().optional().describe(dateTimeDesc()),
             keyword: z.string().optional(),
             rankType: z.number().int().optional(),
             securityList: z.array(z.string()).optional(),
@@ -182,8 +183,8 @@ const listSpecs = [
         paginated: true,
         inputSchema: {
             from: z.number().int().min(0).optional(),
-            startTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
-            endTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
+            startTime: z.string().optional().describe(dateTimeDesc()),
+            endTime: z.string().optional().describe(dateTimeDesc()),
             keyword: z.string().optional(),
             rankType: z.number().int().optional(),
             securityList: z.array(z.string()).optional(),

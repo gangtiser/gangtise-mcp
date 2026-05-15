@@ -2,6 +2,7 @@ import { z } from "zod";
 import { registerJsonTool, registerDownloadTool } from "./registry.js";
 import { pollAsyncContent } from "../core/asyncContent.js";
 import { ApiError, AsyncTimeoutError, errorMessage } from "../core/errors.js";
+import { dateDesc, dateTimeDesc, today, todayDate } from "../core/dateContext.js";
 const jsonSpecs = [
     {
         name: "gangtise_knowledge_batch",
@@ -22,22 +23,11 @@ const jsonSpecs = [
         paginated: true,
         inputSchema: {
             from: z.number().int().min(0).optional(),
-            startTime: z.string().describe("YYYY-MM-DD HH:mm:ss（必填）"),
-            endTime: z.string().describe("YYYY-MM-DD HH:mm:ss（必填）"),
+            startTime: z.string().describe(dateTimeDesc() + "（必填）"),
+            endTime: z.string().describe(dateTimeDesc() + "（必填）"),
             queryMode: z.string().describe("bySecurity=按个股 | byIndustry=按行业（必填）"),
             gtsCodeList: z.array(z.string()).optional().describe("个股代码或申万行业代码列表"),
             source: z.string().optional().describe("researchReport=研报 | conference=会议 | announcement=公告 | view=观点"),
-        },
-    },
-    {
-        name: "gangtise_theme_tracking",
-        description: "获取指定主题的每日跟踪报告（早报或晚报版），需传入主题 ID 和日期。",
-        endpointKey: "ai.theme-tracking",
-        paginated: false,
-        inputSchema: {
-            themeId: z.string().describe("主题 ID，来自 gangtise_lookup type=theme-ids（必填）"),
-            date: z.string().describe("YYYY-MM-DD，仅支持最近 30 天（必填）"),
-            type: z.string().optional().describe("morning=早报 | night=晚报"),
         },
     },
     {
@@ -47,8 +37,8 @@ const jsonSpecs = [
         paginated: true,
         inputSchema: {
             from: z.number().int().min(0).optional(),
-            startDate: z.string().optional().describe("YYYY-MM-DD"),
-            endDate: z.string().optional().describe("YYYY-MM-DD"),
+            startDate: z.string().optional().describe(dateDesc()),
+            endDate: z.string().optional().describe(dateDesc()),
             category: z.array(z.string()).optional().describe("morningBriefing=早报 | noonBriefing=午报 | afternoonFlash=午后快讯 | eveningBriefing=晚报"),
             withRelatedSecurities: z.boolean().optional(),
             withCloseReading: z.boolean().optional(),
@@ -155,6 +145,32 @@ export function registerAiTools(server, client, opts) {
     for (const spec of jsonSpecs) {
         registerJsonTool(server, client, spec);
     }
+    // gangtise_theme_tracking: registered directly to enforce 30-day date guard
+    server.registerTool("gangtise_theme_tracking", {
+        description: `[当前日期 ${today()}，时区 Asia/Shanghai。] 获取指定主题的每日跟踪报告（早报或晚报版），需传入主题 ID 和日期。`,
+        inputSchema: {
+            themeId: z.string().describe("主题 ID，来自 gangtise_lookup type=theme-ids（必填）"),
+            date: z.string().describe(`YYYY-MM-DD，仅支持最近 30 天（必填）。当前日期 ${today()}，请勿使用训练数据年份`),
+            type: z.string().optional().describe("morning=早报 | night=晚报"),
+        },
+    }, async (args) => {
+        try {
+            const { date, ...rest } = args;
+            const inputDate = new Date(`${date}T00:00:00+08:00`);
+            const diffDays = Math.floor((todayDate().getTime() - inputDate.getTime()) / 86_400_000);
+            if (diffDays > 30 || diffDays < 0) {
+                return {
+                    content: [{ type: "text", text: `date 超出最近 30 天范围。当前日期是 ${today()}，请按当前日期重新换算。` }],
+                    isError: true,
+                };
+            }
+            const result = await client.call("ai.theme-tracking", { date, ...rest });
+            return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+        }
+        catch (err) {
+            return { content: [{ type: "text", text: errorMessage(err) }], isError: true };
+        }
+    });
     // Spec-driven download tools
     for (const spec of downloadSpecs) {
         registerDownloadTool(server, client, spec);

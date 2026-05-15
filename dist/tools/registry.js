@@ -6,6 +6,7 @@ import { ENDPOINTS } from "../core/endpoints.js";
 import { normalizeRows } from "../core/normalize.js";
 import { downloadToResult } from "../core/download.js";
 import { errorMessage } from "../core/errors.js";
+import { dateContextPrefix } from "../core/dateContext.js";
 const INLINE_MAX_BYTES = 256_000;
 const PREVIEW_ITEMS = 20;
 function isPaginatedShape(value) {
@@ -86,7 +87,7 @@ export function registerJsonTool(server, client, spec) {
             fetchAll: z.boolean().optional().describe("Fetch all pages; may be slow for large datasets"),
         }
         : spec.inputSchema;
-    server.registerTool(spec.name, { description: spec.description, inputSchema: schema }, async (args) => {
+    server.registerTool(spec.name, { description: dateContextPrefix() + spec.description, inputSchema: schema }, async (args) => {
         try {
             const { fetchAll, ...rest } = args;
             const body = sanitizeArgs(rest, { paginated: spec.paginated, fetchAll: Boolean(fetchAll) });
@@ -99,7 +100,7 @@ export function registerJsonTool(server, client, spec) {
     });
 }
 export function registerDownloadTool(server, client, spec) {
-    server.registerTool(spec.name, { description: spec.description, inputSchema: spec.inputSchema }, async (args) => {
+    server.registerTool(spec.name, { description: dateContextPrefix() + spec.description, inputSchema: spec.inputSchema }, async (args) => {
         try {
             const endpoint = ENDPOINTS[spec.endpointKey];
             if (!endpoint)

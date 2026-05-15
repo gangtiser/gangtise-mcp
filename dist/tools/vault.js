@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { registerJsonTool, registerDownloadTool } from "./registry.js";
+import { dateTimeDesc } from "../core/dateContext.js";
 const listSpecs = [
     {
         name: "gangtise_drive_list",
@@ -11,8 +12,8 @@ const listSpecs = [
             keyword: z.string().optional(),
             fileType: z.number().int().optional().describe("1=文档 | 2=图片 | 3=视频 | 4=公众号 | 5=其他"),
             spaceType: z.number().int().optional().describe("1=个人空间 | 2=企业空间"),
-            startTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
-            endTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
+            startTime: z.string().optional().describe(dateTimeDesc()),
+            endTime: z.string().optional().describe(dateTimeDesc()),
         },
     },
     {
@@ -25,8 +26,8 @@ const listSpecs = [
             keyword: z.string().optional(),
             category: z.array(z.string()).optional().describe("upload=上传 | link=链接 | mobile=移动端 | gtNote=GT笔记 | pc=PC端 | share=分享"),
             spaceType: z.number().int().optional().describe("1=个人录音 | 2=企业录音"),
-            startTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
-            endTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
+            startTime: z.string().optional().describe(dateTimeDesc()),
+            endTime: z.string().optional().describe(dateTimeDesc()),
         },
     },
     {
@@ -41,8 +42,8 @@ const listSpecs = [
             security: z.string().optional(),
             institution: z.string().optional(),
             category: z.array(z.string()).optional().describe("earningsCall=业绩会 | strategyMeeting=策略会 | fundRoadshow=路演 | expertInterview=专家访谈 | fieldResearch=调研 | industryConference=行业会议 等"),
-            startTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
-            endTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
+            startTime: z.string().optional().describe(dateTimeDesc()),
+            endTime: z.string().optional().describe(dateTimeDesc()),
         },
     },
     {
@@ -57,8 +58,8 @@ const listSpecs = [
             industry: z.array(z.string()).optional(),
             category: z.array(z.string()).optional().describe("text=文字 | image=图片 | documents=文件 | url=链接"),
             tag: z.array(z.string()).optional().describe("roadShow=路演 | research=调研 | policy=政策 | macro=宏观 | industry=行业 | individual=个股 | hot=热点"),
-            startTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
-            endTime: z.string().optional().describe("YYYY-MM-DD HH:mm:ss"),
+            startTime: z.string().optional().describe(dateTimeDesc()),
+            endTime: z.string().optional().describe(dateTimeDesc()),
         },
     },
     {
