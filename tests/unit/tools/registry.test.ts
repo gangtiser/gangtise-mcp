@@ -1,9 +1,12 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import fs from "node:fs/promises"
+import path from "node:path"
+
+import { describe, it, expect, vi } from "vitest"
 import { z } from "zod"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
-import { registerJsonTool, registerDownloadTool, sanitizeArgs } from "../../../src/tools/registry.js"
+import { registerJsonTool, registerDownloadTool, sanitizeArgs, buildToolContent } from "../../../src/tools/registry.js"
 import type { GangtiseClient } from "../../../src/core/client.js"
 
 function makeMockClient(responseData: unknown = { list: [{ id: "1" }], total: 1 }) {
@@ -46,6 +49,79 @@ describe("sanitizeArgs", () => {
   it("respects explicit size when not fetchAll", () => {
     const result = sanitizeArgs({ size: 100 }, { paginated: true, fetchAll: false })
     expect(result).toHaveProperty("size", 100)
+  })
+})
+
+function makeLargeItems(count: number) {
+  return Array.from({ length: count }, (_, i) => ({ id: String(i), content: "a".repeat(600) }))
+}
+
+describe("buildToolContent", () => {
+  it("small response returns unchanged JSON", async () => {
+    const data = { list: [{ id: "1" }], total: 1 }
+    const content = await buildToolContent(data)
+    expect(content).toHaveLength(1)
+    expect(JSON.parse(content[0].text)).toEqual(data)
+  })
+
+  it("large { list, total } response truncates list and writes file", async () => {
+    const items = makeLargeItems(500)
+    const data = { list: items, total: 500, extra: "meta" }
+    const content = await buildToolContent(data)
+    const result = JSON.parse(content[0].text)
+
+    expect(result._truncated).toBe(true)
+    expect(result._total_items).toBe(500)
+    expect(result._preview_count).toBe(20)
+    expect(result.list).toHaveLength(20)
+    expect(result.total).toBe(500)
+    expect(result.extra).toBe("meta")
+    expect(result.has_more).toBe(true)
+    expect(result).not.toHaveProperty("next_from")
+    expect(result._total_bytes).toBe(Buffer.byteLength(JSON.stringify(data, null, 2), "utf8"))
+    expect(typeof result._saved_to).toBe("string")
+
+    const savedTo = result._saved_to as string
+    const fileContent = await fs.readFile(savedTo, "utf8")
+    expect(JSON.parse(fileContent)).toEqual(data)
+    await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
+  })
+
+  it("large top-level array wraps into { list, ... } with metadata", async () => {
+    const items = makeLargeItems(500)
+    const content = await buildToolContent(items)
+    const result = JSON.parse(content[0].text)
+
+    expect(result._truncated).toBe(true)
+    expect(result._total_items).toBe(500)
+    expect(result._preview_count).toBe(20)
+    expect(result.list).toHaveLength(20)
+    expect(result.has_more).toBe(true)
+    expect(result).not.toHaveProperty("next_from")
+    expect(result._total_bytes).toBe(Buffer.byteLength(JSON.stringify(items, null, 2), "utf8"))
+    expect(typeof result._saved_to).toBe("string")
+
+    const savedTo = result._saved_to as string
+    const fileContent = await fs.readFile(savedTo, "utf8")
+    expect(JSON.parse(fileContent)).toEqual(items)
+    await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
+  })
+
+  it("list.length === PREVIEW_ITEMS but large Chinese content: preview itself exceeds cap, falls back to metadata-only", async () => {
+    // 20 items × ~15KB Chinese text = ~300KB > 256KB threshold for both full and preview
+    const items = Array.from({ length: 20 }, (_, i) => ({ id: String(i), content: "中".repeat(5_000) }))
+    const data = { list: items, total: 500 }
+    const content = await buildToolContent(data)
+    const result = JSON.parse(content[0].text)
+
+    expect(result._truncated).toBe(true)
+    expect(result.total).toBe(500)       // server-side total preserved via ...rest
+    expect(result._total_items).toBe(20) // items in file, not server total
+    expect(result._preview_count).toBe(0) // list dropped because preview itself exceeded cap
+    expect(result.list).toBeUndefined()
+    expect(result.has_more).toBe(false)
+
+    await fs.rm(path.dirname(result._saved_to as string), { recursive: true, force: true })
   })
 })
 
