@@ -141,6 +141,21 @@ claude mcp add gangtise \
 
 认证优先级：`GANGTISE_TOKEN` > Token 缓存文件 > `GANGTISE_ACCESS_KEY` + `GANGTISE_SECRET_KEY`（自动换取并缓存 Token）。
 
+## 大响应处理
+
+当单次工具调用返回超过 256 KB 时，完整数据会写入本地临时文件（`/tmp/gangtise-mcp-*/response.json`），MCP 响应改为内联返回前 20 条预览及元数据：
+
+| 字段 | 说明 |
+|---|---|
+| `_truncated` | `true` — 表示响应已截断 |
+| `_saved_to` | 完整数据的临时文件路径 |
+| `_total_bytes` | 完整响应的 UTF-8 字节数 |
+| `_total_items` | 文件中的总条数 |
+| `_preview_count` | 本次内联返回的条数（最多 20） |
+| `has_more` | 文件中是否有超过预览的条目 |
+
+AI 可直接读取 `_saved_to` 路径获取完整数据。若单条内容过大导致 20 条预览本身也超过阈值，则只返回元数据，`_preview_count` 为 0。
+
 ## 开发
 
 ```bash
