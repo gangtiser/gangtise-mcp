@@ -7,6 +7,7 @@ import { registerQuoteTools } from "./tools/quote.js"
 import { registerFundamentalTools } from "./tools/fundamental.js"
 import { registerAiTools } from "./tools/ai.js"
 import { registerVaultTools } from "./tools/vault.js"
+import { registerAlternativeTools } from "./tools/alternative.js"
 
 export interface McpServerOptions {
   asyncTimeoutMs?: number
@@ -26,6 +27,7 @@ export function createGangtiseMcpServer(
   registerFundamentalTools(server, client)
   registerAiTools(server, client, { asyncTimeoutMs })
   registerVaultTools(server, client)
+  registerAlternativeTools(server, client)
 
   return server
 }

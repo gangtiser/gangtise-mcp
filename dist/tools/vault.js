@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { registerJsonTool, registerDownloadTool } from "./registry.js";
+import { registerJsonTool, registerDownloadTool, buildToolContent } from "./registry.js";
+import { normalizeRows } from "../core/normalize.js";
+import { errorMessage } from "../core/errors.js";
+import { dateContextPrefix } from "../core/dateContext.js";
 import { dateTimeDesc } from "../core/dateContext.js";
 const listSpecs = [
     {
@@ -41,7 +44,7 @@ const listSpecs = [
             researchArea: z.string().optional(),
             security: z.string().optional(),
             institution: z.string().optional(),
-            category: z.array(z.string()).optional().describe("earningsCall=业绩会 | strategyMeeting=策略会 | fundRoadshow=路演 | expertInterview=专家访谈 | fieldResearch=调研 | industryConference=行业会议 等"),
+            category: z.array(z.string()).optional().describe("earningsCall=业绩会 | strategyMeeting=策略会 | fundRoadshow=路演 | shareholdersMeeting=股东大会 | maMeeting=并购 | specialMeeting=专题会 | companyAnalysis=公司分析 | industryAnalysis=行业分析 | other=其他"),
             startTime: z.string().optional().describe(dateTimeDesc()),
             endTime: z.string().optional().describe(dateTimeDesc()),
         },
@@ -54,10 +57,11 @@ const listSpecs = [
         inputSchema: {
             from: z.number().int().min(0).optional(),
             keyword: z.string().optional(),
+            securityList: z.array(z.string()).optional().describe("证券代码列表，如 ['000001.SZ']"),
             wechatGroupId: z.array(z.string()).optional().describe("群 ID，来自 gangtise_wechat_chatroom_list"),
             industry: z.array(z.string()).optional(),
             category: z.array(z.string()).optional().describe("text=文字 | image=图片 | documents=文件 | url=链接"),
-            tag: z.array(z.string()).optional().describe("roadShow=路演 | research=调研 | policy=政策 | macro=宏观 | industry=行业 | individual=个股 | hot=热点"),
+            tag: z.array(z.string()).optional().describe("roadShow=路演 | research=调研 | strategyMeeting=策略会 | meetingSummary=会议纪要 | industryComment=行业点评 | companyComment=公司点评 | earningsReview=业绩点评"),
             startTime: z.string().optional().describe(dateTimeDesc()),
             endTime: z.string().optional().describe(dateTimeDesc()),
         },
@@ -71,6 +75,13 @@ const listSpecs = [
             from: z.number().int().min(0).optional(),
             roomName: z.array(z.string()).optional().describe("按群名称筛选"),
         },
+    },
+    {
+        name: "gangtise_stock_pool_list",
+        description: "查询用户的自选股池列表，返回池 ID 和名称。",
+        endpointKey: "vault.stock-pool.list",
+        paginated: false,
+        inputSchema: {},
     },
 ];
 const downloadSpecs = [
@@ -108,4 +119,19 @@ export function registerVaultTools(server, client) {
     for (const spec of downloadSpecs) {
         registerDownloadTool(server, client, spec);
     }
+    server.registerTool("gangtise_stock_pool_stocks", {
+        description: dateContextPrefix() + "查询指定自选股池中的证券列表。不传 poolIdList 时默认返回所有池的股票。",
+        inputSchema: {
+            poolIdList: z.array(z.string()).optional().describe("池 ID 列表，来自 gangtise_stock_pool_list；不传默认 ['all'] 即所有池"),
+        },
+    }, async (args) => {
+        try {
+            const { poolIdList = ["all"] } = args;
+            const result = await client.call("vault.stock-pool.stocks", { poolIdList });
+            return { content: await buildToolContent(normalizeRows(result)) };
+        }
+        catch (err) {
+            return { content: [{ type: "text", text: errorMessage(err) }], isError: true };
+        }
+    });
 }

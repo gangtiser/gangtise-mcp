@@ -62,7 +62,7 @@ const jsonSpecs: JsonToolSpec[] = [
     inputSchema: {
       securityCode: z.string().describe("证券代码，如 '600519.SH'"),
       reportDate: z.string().describe("xxxx-06-30（中报）或 xxxx-12-31（年报）"),
-      dimension: z.string().describe("businessOperation=经营情况 | financialPerformance=财务表现 | developmentAndRisk=发展与风险（必填）"),
+      dimension: z.string().describe("businessOperation=经营情况 | financialPerformance=财务表现 | developmentAndRisk=发展与风险 | all=全部维度（必填）"),
     },
   },
   {

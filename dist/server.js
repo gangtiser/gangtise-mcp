@@ -6,6 +6,7 @@ import { registerQuoteTools } from "./tools/quote.js";
 import { registerFundamentalTools } from "./tools/fundamental.js";
 import { registerAiTools } from "./tools/ai.js";
 import { registerVaultTools } from "./tools/vault.js";
+import { registerAlternativeTools } from "./tools/alternative.js";
 export function createGangtiseMcpServer(client, options = {}) {
     const server = new McpServer({ name: "gangtise-mcp", version: "0.1.0" });
     const asyncTimeoutMs = options.asyncTimeoutMs ?? 60_000;
@@ -16,5 +17,6 @@ export function createGangtiseMcpServer(client, options = {}) {
     registerFundamentalTools(server, client);
     registerAiTools(server, client, { asyncTimeoutMs });
     registerVaultTools(server, client);
+    registerAlternativeTools(server, client);
     return server;
 }

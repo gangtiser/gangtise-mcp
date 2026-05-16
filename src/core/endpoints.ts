@@ -321,6 +321,27 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     kind: "json",
     description: "Query earning forecast (consensus estimates)",
   },
+  "fundamental.income-statement-hk": {
+    key: "fundamental.income-statement-hk",
+    method: "POST",
+    path: "/application/open-fundamental/financial-report/income-statement/hk",
+    kind: "json",
+    description: "Query HK income statement (China GAAP)",
+  },
+  "fundamental.balance-sheet-hk": {
+    key: "fundamental.balance-sheet-hk",
+    method: "POST",
+    path: "/application/open-fundamental/financial-report/balance-sheet/hk",
+    kind: "json",
+    description: "Query HK balance sheet (China GAAP)",
+  },
+  "fundamental.cash-flow-hk": {
+    key: "fundamental.cash-flow-hk",
+    method: "POST",
+    path: "/application/open-fundamental/financial-report/cash-flow-statement/hk",
+    kind: "json",
+    description: "Query HK cash flow statement (China GAAP)",
+  },
 
   // ─── ai ───
   "ai.knowledge-batch": {
@@ -492,5 +513,35 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     kind: "json",
     description: "List WeChat group chatroom IDs",
     pagination: { enabled: true, maxPageSize: 50 },
+  },
+  "vault.stock-pool.list": {
+    key: "vault.stock-pool.list",
+    method: "POST",
+    path: "/application/open-vault/stock-pool/getPoolList",
+    kind: "json",
+    description: "List user stock pool IDs and names",
+  },
+  "vault.stock-pool.stocks": {
+    key: "vault.stock-pool.stocks",
+    method: "POST",
+    path: "/application/open-vault/stock-pool/getStockList",
+    kind: "json",
+    description: "List securities in stock pool(s)",
+  },
+
+  // ─── alternative ───
+  "alternative.edb-search": {
+    key: "alternative.edb-search",
+    method: "POST",
+    path: "/application/open-alternative/EDB/search",
+    kind: "json",
+    description: "Search industry indicator list by keyword",
+  },
+  "alternative.edb-data": {
+    key: "alternative.edb-data",
+    method: "POST",
+    path: "/application/open-alternative/EDB/getData",
+    kind: "json",
+    description: "Get industry indicator time-series data by indicator ID list",
   },
 }

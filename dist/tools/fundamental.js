@@ -3,6 +3,7 @@ import { registerJsonTool } from "./registry.js";
 import { dateDesc } from "../core/dateContext.js";
 const periodEnum = z.array(z.string()).optional().describe("q1=一季报 | interim=中报 | q3=三季报 | annual=年报 | latest=最新");
 const quarterlyPeriodEnum = z.array(z.string()).optional().describe("q1 | q2 | q3 | q4 | latest");
+const hkPeriodEnum = z.array(z.string()).optional().describe("q1 | h1=中报 | q3 | h2=年报 | nsd | annual | latest");
 const reportTypeEnum = z.array(z.string()).optional().describe("consolidated=合并 | consolidatedRestated=合并调整 | standalone=母公司 | standaloneRestated=母公司调整");
 const securityCode = z.string().describe("证券代码，如 '600519.SH'");
 const dateRange = {
@@ -10,11 +11,11 @@ const dateRange = {
     endDate: z.string().optional().describe(dateDesc()),
 };
 const fiscalYear = z.array(z.number().int()).optional().describe("财年列表，如 [2023, 2024]");
-const field = z.array(z.string()).optional().describe("指定返回字段");
+const fieldList = z.array(z.string()).optional().describe("指定返回字段");
 const specs = [
     {
         name: "gangtise_income_statement",
-        description: "查询利润表（累计口径），支持期间、财年、报告类型筛选。",
+        description: "查询A股利润表（累计口径），支持期间、财年、报告类型筛选。",
         endpointKey: "fundamental.income-statement",
         paginated: false,
         inputSchema: {
@@ -23,12 +24,12 @@ const specs = [
             fiscalYear,
             period: periodEnum,
             reportType: reportTypeEnum,
-            field,
+            fieldList,
         },
     },
     {
         name: "gangtise_income_statement_quarterly",
-        description: "查询单季利润表。",
+        description: "查询A股单季利润表。",
         endpointKey: "fundamental.income-statement-quarterly",
         paginated: false,
         inputSchema: {
@@ -37,12 +38,12 @@ const specs = [
             fiscalYear,
             period: quarterlyPeriodEnum,
             reportType: reportTypeEnum,
-            field,
+            fieldList,
         },
     },
     {
         name: "gangtise_balance_sheet",
-        description: "查询资产负债表，支持期间、财年、报告类型筛选。",
+        description: "查询A股资产负债表，支持期间、财年、报告类型筛选。",
         endpointKey: "fundamental.balance-sheet",
         paginated: false,
         inputSchema: {
@@ -51,12 +52,12 @@ const specs = [
             fiscalYear,
             period: periodEnum,
             reportType: reportTypeEnum,
-            field,
+            fieldList,
         },
     },
     {
         name: "gangtise_cash_flow",
-        description: "查询现金流量表（累计口径），支持期间、财年、报告类型筛选。",
+        description: "查询A股现金流量表（累计口径），支持期间、财年、报告类型筛选。",
         endpointKey: "fundamental.cash-flow",
         paginated: false,
         inputSchema: {
@@ -65,12 +66,12 @@ const specs = [
             fiscalYear,
             period: periodEnum,
             reportType: reportTypeEnum,
-            field,
+            fieldList,
         },
     },
     {
         name: "gangtise_cash_flow_quarterly",
-        description: "查询单季现金流量表。",
+        description: "查询A股单季现金流量表。",
         endpointKey: "fundamental.cash-flow-quarterly",
         paginated: false,
         inputSchema: {
@@ -79,7 +80,7 @@ const specs = [
             fiscalYear,
             period: quarterlyPeriodEnum,
             reportType: reportTypeEnum,
-            field,
+            fieldList,
         },
     },
     {
@@ -92,7 +93,7 @@ const specs = [
             breakdown: z.string().describe("product=产品 | industry=行业 | region=地区（必填）"),
             ...dateRange,
             periodList: z.array(z.string()).optional().describe("interim=中报 | annual=年报"),
-            field,
+            fieldList,
         },
     },
     {
@@ -106,7 +107,7 @@ const specs = [
             ...dateRange,
             limit: z.number().int().optional().describe("最大返回行数（默认 2000）"),
             skipNull: z.boolean().optional().describe("过滤掉 value 或 percentileRank 为空的行"),
-            field,
+            fieldList,
         },
     },
     {
@@ -131,6 +132,48 @@ const specs = [
             securityCode,
             ...dateRange,
             consensus: z.array(z.string()).optional().describe("netIncome=净利润 | netIncomeYoy=净利润增速 | eps | pe | bps | pb | peg | roe | ps"),
+        },
+    },
+    {
+        name: "gangtise_income_statement_hk",
+        description: "查询港股利润表（中国会计准则），支持期间、财年、报告类型筛选。",
+        endpointKey: "fundamental.income-statement-hk",
+        paginated: false,
+        inputSchema: {
+            securityCode,
+            ...dateRange,
+            fiscalYear,
+            period: hkPeriodEnum,
+            reportType: reportTypeEnum,
+            fieldList,
+        },
+    },
+    {
+        name: "gangtise_balance_sheet_hk",
+        description: "查询港股资产负债表（中国会计准则），支持期间、财年、报告类型筛选。",
+        endpointKey: "fundamental.balance-sheet-hk",
+        paginated: false,
+        inputSchema: {
+            securityCode,
+            ...dateRange,
+            fiscalYear,
+            period: hkPeriodEnum,
+            reportType: reportTypeEnum,
+            fieldList,
+        },
+    },
+    {
+        name: "gangtise_cash_flow_hk",
+        description: "查询港股现金流量表（中国会计准则），支持期间、财年、报告类型筛选。",
+        endpointKey: "fundamental.cash-flow-hk",
+        paginated: false,
+        inputSchema: {
+            securityCode,
+            ...dateRange,
+            fiscalYear,
+            period: hkPeriodEnum,
+            reportType: reportTypeEnum,
+            fieldList,
         },
     },
 ];
