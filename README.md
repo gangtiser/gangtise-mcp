@@ -2,6 +2,26 @@
 
 基于 [Gangtise OpenAPI](https://open.gangtise.com) 的 MCP（Model Context Protocol）服务，让 Claude 等 AI 助手直接访问 Gangtise 投研平台数据。
 
+## Changelog
+
+### 0.1.6
+- 新增港股三大报表：`gangtise_income_statement_hk`、`gangtise_balance_sheet_hk`、`gangtise_cash_flow_hk`（中国会计准则，period 支持 `q1/h1/q3/h2/nsd/annual/latest`）
+- 新增自选股池：`gangtise_stock_pool_list`、`gangtise_stock_pool_stocks`（不传参数默认返回所有池）
+- 新增另类数据（EDB）：`gangtise_edb_search`、`gangtise_edb_data`（自动归一化 `fieldList+dataList` 为对象数组）
+- 修复财报工具字段筛选参数：`field` 更正为 `fieldList`，影响所有利润表/资产负债表/现金流量表/估值工具（A股 + 港股）
+- 更新 `gangtise_management_discuss_announcement` dimension 新增 `all` 选项
+- 更新 `gangtise_wechat_message_list`：新增 `securityList` 参数，修正 `tag` 枚举值
+- 更新 `gangtise_my_conference_list` category 枚举与 CLI 同步
+
+### 0.1.5
+- 修复群消息分页
+
+### 0.1.4
+- 新增大响应截断与本地文件保存（超 256 KB 时写临时文件，内联返回前 20 条预览）
+
+### 0.1.3
+- 工具元数据注入当前日期，避免 AI 使用训练数据年份
+
 ## 功能覆盖
 
 | 类别 | 工具 |
@@ -167,26 +187,6 @@ npm run dev      # 直接运行源码（tsx，无需 build）
 npm run build    # 编译 TypeScript → dist/
 npm test         # 运行测试
 ```
-
-## Changelog
-
-### 0.1.6
-- 新增港股三大报表：`gangtise_income_statement_hk`、`gangtise_balance_sheet_hk`、`gangtise_cash_flow_hk`（中国会计准则，period 支持 `q1/h1/q3/h2/nsd/annual/latest`）
-- 新增自选股池：`gangtise_stock_pool_list`、`gangtise_stock_pool_stocks`（不传参数默认返回所有池）
-- 新增另类数据（EDB）：`gangtise_edb_search`、`gangtise_edb_data`（自动归一化 `fieldList+dataList` 为对象数组）
-- 修复财报工具字段筛选参数：`field` 更正为 `fieldList`，影响所有利润表/资产负债表/现金流量表/估值工具（A股 + 港股）
-- 更新 `gangtise_management_discuss_announcement` dimension 新增 `all` 选项
-- 更新 `gangtise_wechat_message_list`：新增 `securityList` 参数，修正 `tag` 枚举值
-- 更新 `gangtise_my_conference_list` category 枚举与 CLI 同步
-
-### 0.1.5
-- 修复群消息分页
-
-### 0.1.4
-- 新增大响应截断与本地文件保存（超 256 KB 时写临时文件，内联返回前 20 条预览）
-
-### 0.1.3
-- 工具元数据注入当前日期，避免 AI 使用训练数据年份
 
 ## License
 
