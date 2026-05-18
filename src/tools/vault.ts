@@ -16,8 +16,8 @@ const listSpecs: JsonToolSpec[] = [
     inputSchema: {
       from: z.number().int().min(0).optional(),
       keyword: z.string().optional(),
-      fileType: z.number().int().optional().describe("1=文档 | 2=图片 | 3=视频 | 4=公众号 | 5=其他"),
-      spaceType: z.number().int().optional().describe("1=个人空间 | 2=企业空间"),
+      fileTypeList: z.array(z.number().int()).optional().describe("1=文档 | 2=图片 | 3=视频 | 4=公众号 | 5=其他"),
+      spaceTypeList: z.array(z.number().int()).optional().describe("1=个人空间 | 2=企业空间"),
       startTime: z.string().optional().describe(dateTimeDesc()),
       endTime: z.string().optional().describe(dateTimeDesc()),
     },
@@ -30,8 +30,8 @@ const listSpecs: JsonToolSpec[] = [
     inputSchema: {
       from: z.number().int().min(0).optional(),
       keyword: z.string().optional(),
-      category: z.array(z.string()).optional().describe("upload=上传 | link=链接 | mobile=移动端 | gtNote=GT笔记 | pc=PC端 | share=分享"),
-      spaceType: z.number().int().optional().describe("1=个人录音 | 2=企业录音"),
+      categoryList: z.array(z.string()).optional().describe("upload=上传 | link=链接 | mobile=移动端 | gtNote=GT笔记 | pc=PC端 | share=分享"),
+      spaceTypeList: z.array(z.number().int()).optional().describe("1=个人录音 | 2=企业录音"),
       startTime: z.string().optional().describe(dateTimeDesc()),
       endTime: z.string().optional().describe(dateTimeDesc()),
     },
@@ -44,10 +44,10 @@ const listSpecs: JsonToolSpec[] = [
     inputSchema: {
       from: z.number().int().min(0).optional(),
       keyword: z.string().optional(),
-      researchArea: z.string().optional(),
-      security: z.string().optional(),
-      institution: z.string().optional(),
-      category: z.array(z.string()).optional().describe("earningsCall=业绩会 | strategyMeeting=策略会 | fundRoadshow=路演 | shareholdersMeeting=股东大会 | maMeeting=并购 | specialMeeting=专题会 | companyAnalysis=公司分析 | industryAnalysis=行业分析 | other=其他"),
+      researchAreaList: z.array(z.string()).optional(),
+      securityList: z.array(z.string()).optional(),
+      institutionList: z.array(z.string()).optional(),
+      categoryList: z.array(z.string()).optional().describe("earningsCall=业绩会 | strategyMeeting=策略会 | fundRoadshow=路演 | shareholdersMeeting=股东大会 | maMeeting=并购 | specialMeeting=专题会 | companyAnalysis=公司分析 | industryAnalysis=行业分析 | other=其他"),
       startTime: z.string().optional().describe(dateTimeDesc()),
       endTime: z.string().optional().describe(dateTimeDesc()),
     },
@@ -61,22 +61,12 @@ const listSpecs: JsonToolSpec[] = [
       from: z.number().int().min(0).optional(),
       keyword: z.string().optional(),
       securityList: z.array(z.string()).optional().describe("证券代码列表，如 ['000001.SZ']"),
-      wechatGroupId: z.array(z.string()).optional().describe("群 ID，来自 gangtise_wechat_chatroom_list"),
-      industry: z.array(z.string()).optional(),
-      category: z.array(z.string()).optional().describe("text=文字 | image=图片 | documents=文件 | url=链接"),
-      tag: z.array(z.string()).optional().describe("roadShow=路演 | research=调研 | strategyMeeting=策略会 | meetingSummary=会议纪要 | industryComment=行业点评 | companyComment=公司点评 | earningsReview=业绩点评"),
+      wechatGroupIdList: z.array(z.string()).optional().describe("群 ID，来自 gangtise_wechat_chatroom_list"),
+      industryIdList: z.array(z.string()).optional(),
+      categoryList: z.array(z.string()).optional().describe("text=文字 | image=图片 | documents=文件 | url=链接"),
+      tagList: z.array(z.string()).optional().describe("roadShow=路演 | research=调研 | strategyMeeting=策略会 | meetingSummary=会议纪要 | industryComment=行业点评 | companyComment=公司点评 | earningsReview=业绩点评"),
       startTime: z.string().optional().describe(dateTimeDesc()),
       endTime: z.string().optional().describe(dateTimeDesc()),
-    },
-  },
-  {
-    name: "gangtise_wechat_chatroom_list",
-    description: "查询可用的微信群 ID 和群名称列表。",
-    endpointKey: "vault.wechat-chatroom.list",
-    paginated: true,
-    inputSchema: {
-      from: z.number().int().min(0).optional(),
-      roomName: z.array(z.string()).optional().describe("按群名称筛选"),
     },
   },
   {
@@ -124,6 +114,29 @@ export function registerVaultTools(server: McpServer, client: GangtiseClient): v
   for (const spec of downloadSpecs) {
     registerDownloadTool(server, client, spec)
   }
+
+  server.registerTool(
+    "gangtise_wechat_chatroom_list",
+    {
+      description: dateContextPrefix() + "查询可用的微信群 ID 和群名称列表。",
+      inputSchema: {
+        from: z.number().int().min(0).optional(),
+        size: z.number().int().min(1).optional().describe("Max rows (default 20)"),
+        roomName: z.array(z.string()).optional().describe("按群名称筛选；多个会以逗号拼接发送"),
+      },
+    },
+    async (args) => {
+      try {
+        const { roomName, size, ...rest } = args as { roomName?: string[]; size?: number; from?: number }
+        const body: Record<string, unknown> = { ...rest, size: size ?? 20 }
+        if (roomName && roomName.length > 0) body.roomName = roomName.join(",")
+        const result = await client.call("vault.wechat-chatroom.list", body)
+        return { content: await buildToolContent(normalizeRows(result)) }
+      } catch (err) {
+        return { content: [{ type: "text" as const, text: errorMessage(err) }], isError: true }
+      }
+    },
+  )
 
   server.registerTool(
     "gangtise_stock_pool_stocks",

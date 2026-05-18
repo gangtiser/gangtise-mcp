@@ -4,6 +4,27 @@
 
 ## Changelog
 
+### 0.1.7
+- 修复一批入参字段名与后端不一致的问题（filter 之前被静默忽略或直接报错）：
+  - `gangtise_minute_kline`: `securityList` → `securityCode`（原报 "非有效A股"）
+  - `gangtise_knowledge_batch`: `queryList`/`resourceType`/`knowledgeName` → `queries`/`resourceTypes`/`knowledgeNames`（原返回 null）
+  - `gangtise_management_discuss_*`: `dimension` → `discussionDimension`（原报 "参数错误"）
+  - `gangtise_wechat_chatroom_list`: `roomName` 数组 → 逗号拼接字符串（原报 "请求参数解析失败"）
+  - 多个 list 工具单数 filter → 数组 `*List`：`opinion/summary/research` 的 `source/category/market/rating/...`；`hot_topic` 的 `category`；`record/wechat_message/my_conference` 的 `category/tag/...`；`earning_forecast` 的 `consensus`
+  - `research` 的 `minPages/maxPages` → `minReportPages/maxReportPages`
+- 修复 `gangtise_valuation_analysis` 的 `skipNull` 参数（之前声明但未生效，现客户端真实过滤）
+- 同步 CLI v0.13.x 完整入参集：
+  - `opinion_list`: +`chiefList` +`conceptList`
+  - `roadshow/site_visit/strategy/forum_list`: 补全 `researchAreaList/institutionList/securityList/categoryList/marketList/participantRoleList/brokerTypeList/objectList/permission`
+  - `foreign_report_list`: +`searchType/regionList/categoryList/industryList/brokerList/llmTagList/ratingList/ratingChangeList/minReportPages/maxReportPages`
+  - `foreign_opinion_list`: +`regionList/industryList/brokerList/ratingList/ratingChangeList`
+  - `independent_opinion_list`: +`industryList/ratingList/ratingChangeList`
+  - `announcement_list`: +`searchType/announcementTypeList`
+  - `announcement_hk_list`: +`searchType/rankType/categoryList`
+  - `drive_list`: `fileType/spaceType` → `fileTypeList/spaceTypeList`（数组）
+  - `record_list`: `spaceType` → `spaceTypeList`（数组）
+  - `securities_search`: +`category/top`
+
 ### 0.1.6
 - 新增港股三大报表：`gangtise_income_statement_hk`、`gangtise_balance_sheet_hk`、`gangtise_cash_flow_hk`（中国会计准则，period 支持 `q1/h1/q3/h2/nsd/annual/latest`）
 - 新增自选股池：`gangtise_stock_pool_list`、`gangtise_stock_pool_stocks`（不传参数默认返回所有池）

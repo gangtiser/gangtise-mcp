@@ -88,7 +88,7 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
     },
     async ({ security, startTime, endTime, limit, field }) => {
       try {
-        const body: Record<string, unknown> = { securityList: [security] }
+        const body: Record<string, unknown> = { securityCode: security }
         if (startTime) body.startTime = startTime
         if (endTime) body.endTime = endTime
         if (limit) body.limit = limit

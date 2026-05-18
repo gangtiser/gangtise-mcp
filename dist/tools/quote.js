@@ -68,7 +68,7 @@ export function registerQuoteTools(server, client) {
         },
     }, async ({ security, startTime, endTime, limit, field }) => {
         try {
-            const body = { securityList: [security] };
+            const body = { securityCode: security };
             if (startTime)
                 body.startTime = startTime;
             if (endTime)

@@ -20,10 +20,10 @@ const jsonSpecs: JsonToolSpec[] = [
     endpointKey: "ai.knowledge-batch",
     paginated: false,
     inputSchema: {
-      queryList: z.array(z.string()).min(1).max(5).describe("搜索词列表（最多 5 个）"),
+      queries: z.array(z.string()).min(1).max(5).describe("搜索词列表（最多 5 个）"),
       top: z.number().int().min(1).max(20).optional().describe("每个查询词返回的结果数（默认 10，最大 20）"),
-      resourceType: z.array(z.number().int()).optional().describe("10=研报 | 11=外资研报 | 20=内部 | 40=观点 | 50=公告 | 51=港股公告 | 60=纪要 | 70=调研 | 80=网络纪要 | 90=公众号"),
-      knowledgeName: z.string().optional().describe("system_knowledge_doc | tenant_knowledge_doc"),
+      resourceTypes: z.array(z.number().int()).optional().describe("10=研报 | 11=外资研报 | 20=内部 | 40=观点 | 50=公告 | 51=港股公告 | 60=纪要 | 70=调研 | 80=网络纪要 | 90=公众号"),
+      knowledgeNames: z.array(z.string()).optional().describe("system_knowledge_doc | tenant_knowledge_doc"),
     },
   },
   {
@@ -49,7 +49,7 @@ const jsonSpecs: JsonToolSpec[] = [
       from: z.number().int().min(0).optional(),
       startDate: z.string().optional().describe(dateDesc()),
       endDate: z.string().optional().describe(dateDesc()),
-      category: z.array(z.string()).optional().describe("morningBriefing=早报 | noonBriefing=午报 | afternoonFlash=午后快讯 | eveningBriefing=晚报"),
+      categoryList: z.array(z.string()).optional().describe("morningBriefing=早报 | noonBriefing=午报 | afternoonFlash=午后快讯 | eveningBriefing=晚报"),
       withRelatedSecurities: z.boolean().optional(),
       withCloseReading: z.boolean().optional(),
     },
@@ -62,7 +62,7 @@ const jsonSpecs: JsonToolSpec[] = [
     inputSchema: {
       securityCode: z.string().describe("证券代码，如 '600519.SH'"),
       reportDate: z.string().describe("xxxx-06-30（中报）或 xxxx-12-31（年报）"),
-      dimension: z.string().describe("businessOperation=经营情况 | financialPerformance=财务表现 | developmentAndRisk=发展与风险 | all=全部维度（必填）"),
+      discussionDimension: z.string().describe("businessOperation=经营情况 | financialPerformance=财务表现 | developmentAndRisk=发展与风险 | all=全部维度（必填）"),
     },
   },
   {
@@ -73,7 +73,7 @@ const jsonSpecs: JsonToolSpec[] = [
     inputSchema: {
       securityCode: z.string().describe("证券代码，如 '600519.SH'"),
       reportDate: z.string().describe("xxxx-03-31 | xxxx-06-30 | xxxx-09-30 | xxxx-12-31"),
-      dimension: z.string().describe("businessOperation=经营情况 | financialPerformance=财务表现 | developmentAndRisk=发展与风险（必填）"),
+      discussionDimension: z.string().describe("businessOperation=经营情况 | financialPerformance=财务表现 | developmentAndRisk=发展与风险（必填）"),
     },
   },
 ]

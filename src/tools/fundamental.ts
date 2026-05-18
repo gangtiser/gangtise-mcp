@@ -1,8 +1,10 @@
 import { z } from "zod"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { GangtiseClient } from "../core/client.js"
-import { registerJsonTool, type JsonToolSpec } from "./registry.js"
-import { dateDesc } from "../core/dateContext.js"
+import { registerJsonTool, buildToolContent, type JsonToolSpec } from "./registry.js"
+import { normalizeRows } from "../core/normalize.js"
+import { errorMessage } from "../core/errors.js"
+import { dateDesc, dateContextPrefix } from "../core/dateContext.js"
 
 const periodEnum = z.array(z.string()).optional().describe("q1=一季报 | interim=中报 | q3=三季报 | annual=年报 | latest=最新")
 const quarterlyPeriodEnum = z.array(z.string()).optional().describe("q1 | q2 | q3 | q4 | latest")
@@ -101,20 +103,6 @@ const specs: JsonToolSpec[] = [
     },
   },
   {
-    name: "gangtise_valuation_analysis",
-    description: "查询估值指标及历史分位数，支持 PE、PB、PEG、PS、PCF、EM。",
-    endpointKey: "fundamental.valuation-analysis",
-    paginated: false,
-    inputSchema: {
-      securityCode,
-      indicator: z.string().describe("peTtm | pbMrq | peg | psTtm | pcfTtm | em（必填）"),
-      ...dateRange,
-      limit: z.number().int().optional().describe("最大返回行数（默认 2000）"),
-      skipNull: z.boolean().optional().describe("过滤掉 value 或 percentileRank 为空的行"),
-      fieldList,
-    },
-  },
-  {
     name: "gangtise_top_holders",
     description: "查询前十大股东或前十大流通股东。",
     endpointKey: "fundamental.top-holders",
@@ -135,7 +123,7 @@ const specs: JsonToolSpec[] = [
     inputSchema: {
       securityCode,
       ...dateRange,
-      consensus: z.array(z.string()).optional().describe("netIncome=净利润 | netIncomeYoy=净利润增速 | eps | pe | bps | pb | peg | roe | ps"),
+      consensusList: z.array(z.string()).optional().describe("netIncome=净利润 | netIncomeYoy=净利润增速 | eps | pe | bps | pb | peg | roe | ps"),
     },
   },
   {
@@ -186,4 +174,41 @@ export function registerFundamentalTools(server: McpServer, client: GangtiseClie
   for (const spec of specs) {
     registerJsonTool(server, client, spec)
   }
+
+  server.registerTool(
+    "gangtise_valuation_analysis",
+    {
+      description: dateContextPrefix() + "查询估值指标及历史分位数，支持 PE、PB、PEG、PS、PCF、EM。",
+      inputSchema: {
+        securityCode,
+        indicator: z.string().describe("peTtm | pbMrq | peg | psTtm | pcfTtm | em（必填）"),
+        ...dateRange,
+        limit: z.number().int().optional().describe("最大返回行数（默认 2000）"),
+        skipNull: z.boolean().optional().describe("过滤掉 value 或 percentileRank 为空的行（客户端后处理）"),
+        fieldList,
+      },
+    },
+    async (args) => {
+      try {
+        const { skipNull, ...body } = args as Record<string, unknown>
+        const raw = await client.call("fundamental.valuation-analysis", body)
+        const normalized = normalizeRows(raw)
+        let result: unknown = normalized
+        if (skipNull && normalized && typeof normalized === "object" && !Array.isArray(normalized)) {
+          const rec = normalized as Record<string, unknown>
+          if (Array.isArray(rec.list)) {
+            const filtered = rec.list.filter((row): row is Record<string, unknown> => {
+              if (!row || typeof row !== "object") return false
+              const r = row as Record<string, unknown>
+              return r.value != null && r.percentileRank != null
+            })
+            result = { ...rec, list: filtered, total: filtered.length }
+          }
+        }
+        return { content: await buildToolContent(result) }
+      } catch (err) {
+        return { content: [{ type: "text" as const, text: errorMessage(err) }], isError: true }
+      }
+    },
+  )
 }

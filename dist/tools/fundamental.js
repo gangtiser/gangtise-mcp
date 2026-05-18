@@ -1,6 +1,8 @@
 import { z } from "zod";
-import { registerJsonTool } from "./registry.js";
-import { dateDesc } from "../core/dateContext.js";
+import { registerJsonTool, buildToolContent } from "./registry.js";
+import { normalizeRows } from "../core/normalize.js";
+import { errorMessage } from "../core/errors.js";
+import { dateDesc, dateContextPrefix } from "../core/dateContext.js";
 const periodEnum = z.array(z.string()).optional().describe("q1=一季报 | interim=中报 | q3=三季报 | annual=年报 | latest=最新");
 const quarterlyPeriodEnum = z.array(z.string()).optional().describe("q1 | q2 | q3 | q4 | latest");
 const hkPeriodEnum = z.array(z.string()).optional().describe("q1 | h1=中报 | q3 | h2=年报 | nsd | annual | latest");
@@ -97,20 +99,6 @@ const specs = [
         },
     },
     {
-        name: "gangtise_valuation_analysis",
-        description: "查询估值指标及历史分位数，支持 PE、PB、PEG、PS、PCF、EM。",
-        endpointKey: "fundamental.valuation-analysis",
-        paginated: false,
-        inputSchema: {
-            securityCode,
-            indicator: z.string().describe("peTtm | pbMrq | peg | psTtm | pcfTtm | em（必填）"),
-            ...dateRange,
-            limit: z.number().int().optional().describe("最大返回行数（默认 2000）"),
-            skipNull: z.boolean().optional().describe("过滤掉 value 或 percentileRank 为空的行"),
-            fieldList,
-        },
-    },
-    {
         name: "gangtise_top_holders",
         description: "查询前十大股东或前十大流通股东。",
         endpointKey: "fundamental.top-holders",
@@ -131,7 +119,7 @@ const specs = [
         inputSchema: {
             securityCode,
             ...dateRange,
-            consensus: z.array(z.string()).optional().describe("netIncome=净利润 | netIncomeYoy=净利润增速 | eps | pe | bps | pb | peg | roe | ps"),
+            consensusList: z.array(z.string()).optional().describe("netIncome=净利润 | netIncomeYoy=净利润增速 | eps | pe | bps | pb | peg | roe | ps"),
         },
     },
     {
@@ -181,4 +169,38 @@ export function registerFundamentalTools(server, client) {
     for (const spec of specs) {
         registerJsonTool(server, client, spec);
     }
+    server.registerTool("gangtise_valuation_analysis", {
+        description: dateContextPrefix() + "查询估值指标及历史分位数，支持 PE、PB、PEG、PS、PCF、EM。",
+        inputSchema: {
+            securityCode,
+            indicator: z.string().describe("peTtm | pbMrq | peg | psTtm | pcfTtm | em（必填）"),
+            ...dateRange,
+            limit: z.number().int().optional().describe("最大返回行数（默认 2000）"),
+            skipNull: z.boolean().optional().describe("过滤掉 value 或 percentileRank 为空的行（客户端后处理）"),
+            fieldList,
+        },
+    }, async (args) => {
+        try {
+            const { skipNull, ...body } = args;
+            const raw = await client.call("fundamental.valuation-analysis", body);
+            const normalized = normalizeRows(raw);
+            let result = normalized;
+            if (skipNull && normalized && typeof normalized === "object" && !Array.isArray(normalized)) {
+                const rec = normalized;
+                if (Array.isArray(rec.list)) {
+                    const filtered = rec.list.filter((row) => {
+                        if (!row || typeof row !== "object")
+                            return false;
+                        const r = row;
+                        return r.value != null && r.percentileRank != null;
+                    });
+                    result = { ...rec, list: filtered, total: filtered.length };
+                }
+            }
+            return { content: await buildToolContent(result) };
+        }
+        catch (err) {
+            return { content: [{ type: "text", text: errorMessage(err) }], isError: true };
+        }
+    });
 }
