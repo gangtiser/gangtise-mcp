@@ -36,7 +36,7 @@
     "prepublishOnly": "npm run build"
   },
   "simple-git-hooks": {
-    "pre-commit": "npm run build && git add dist/"
+    "pre-commit": "npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",
