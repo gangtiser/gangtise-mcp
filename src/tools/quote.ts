@@ -50,19 +50,28 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
   server.registerTool(
     "gangtise_day_kline",
     {
-      description: "查询 A 股日 K 线数据（沪深北市场）。security='all' 配合 startDate/endDate 可拉取全市场行情（自动分片）。",
+      description: "查询 A 股历史日 K 线数据（沪深北市场，仅历史；盘中实时请用 gangtise_realtime）。security='all' 配合 startDate/endDate 可拉取全市场行情（自动分片）。",
       inputSchema: commonKlineSchema,
     },
-    async (args) => klineHandler(client, "quote.day-kline", 2)(args as Record<string, unknown>),
+    async (args) => klineHandler(client, "quote.day-kline", 1)(args as Record<string, unknown>),
   )
 
   server.registerTool(
     "gangtise_day_kline_hk",
     {
-      description: "查询港股日 K 线数据。",
+      description: "查询港股历史日 K 线数据（仅历史；盘中实时请用 gangtise_realtime）。",
       inputSchema: commonKlineSchema,
     },
-    async (args) => klineHandler(client, "quote.day-kline-hk", 3)(args as Record<string, unknown>),
+    async (args) => klineHandler(client, "quote.day-kline-hk", 2)(args as Record<string, unknown>),
+  )
+
+  server.registerTool(
+    "gangtise_day_kline_us",
+    {
+      description: "查询美股历史日 K 线数据（NYSE/NASDAQ/AMEX，代码格式如 AAPL.O/.N/.A；仅历史，盘中实时请用 gangtise_realtime）。security='all' 配合 startDate/endDate 可拉取全市场（自动按 1 天/片分片）。",
+      inputSchema: commonKlineSchema,
+    },
+    async (args) => klineHandler(client, "quote.day-kline-us", 1)(args as Record<string, unknown>),
   )
 
   server.registerTool(
@@ -94,6 +103,28 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
         if (limit) body.limit = limit
         if (field) body.fieldList = field
         const result = await client.call("quote.minute-kline", body)
+        return { content: [{ type: "text" as const, text: JSON.stringify(normalizeRows(result), null, 2) }] }
+      } catch (err) {
+        return { content: [{ type: "text" as const, text: errorMessage(err) }], isError: true }
+      }
+    },
+  )
+
+  server.registerTool(
+    "gangtise_realtime",
+    {
+      description: "查询实时行情快照，单接口覆盖 A 股 / 港股 / 美股，可代码混合传入。非交易时间返回最近一个交易日的收盘快照；停牌证券返回停牌前最后一个有效快照。日 K 线接口（day-kline*）不含盘中数据，问\"现在/此刻\"请走本工具。",
+      inputSchema: {
+        security: z.union([z.string(), z.array(z.string())]).optional().describe("证券代码或全市场关键字：单/多只代码（'600519.SH' / ['600519.SH','00700.HK','AAPL.O']），或市场关键字 'aShares' / 'hkStocks' / 'usStocks' 拉取全市场（建议配合 field 精简返回）"),
+        field: z.array(z.string()).optional().describe("指定返回字段，如 ['latestPrice','pctChange','volume']"),
+      },
+    },
+    async ({ security, field }) => {
+      try {
+        const body: Record<string, unknown> = {}
+        if (security) body.securityList = Array.isArray(security) ? security : [security]
+        if (field) body.fieldList = field
+        const result = await client.call("quote.realtime", body)
         return { content: [{ type: "text" as const, text: JSON.stringify(normalizeRows(result), null, 2) }] }
       } catch (err) {
         return { content: [{ type: "text" as const, text: errorMessage(err) }], isError: true }
