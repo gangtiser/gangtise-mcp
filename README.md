@@ -4,6 +4,9 @@
 
 ## Changelog
 
+### 0.1.10 (2026-05-22)
+- 文档：补充"升级到最新版本"小节，说明 `npx -y gangtise-mcp` 会缓存旧版本导致新工具不可见的问题，给出钉版本 / 清 npx 缓存两种解决方法
+
 ### 0.1.9 (2026-05-22)
 - 修复 `security='all'` 全市场日 K 在分片内被静默截断的问题（同步 CLI v0.14.1 / v0.14.2）：
   - A 股全市场每天约 5500 行，原 2 天/片 ≈ 11000 行命中默认 6000 上限 → 改 1 天/片
@@ -180,6 +183,27 @@ claude mcp add gangtise \
   }
 }
 ```
+
+## 升级到最新版本
+
+`npx -y gangtise-mcp` **不会**每次都去 registry 拉最新版——npx 会把已下载的版本缓存到 `~/.npm/_npx/<hash>/` 下，后续启动直接复用。npm 发布了新版本但客户端工具列表没出现新工具时，多半就是这个原因。
+
+任选其一：
+
+**方法 1：配置里钉版本（推荐）** —— 把 args 改成 `["-y", "gangtise-mcp@latest"]` 或具体版本 `["-y", "gangtise-mcp@0.1.9"]`，重启 MCP 客户端即可强制拉新。
+
+**方法 2：清 npx 缓存**
+
+```bash
+# macOS / Linux
+rm -rf ~/.npm/_npx
+# Windows (PowerShell)
+Remove-Item -Recurse -Force $env:LOCALAPPDATA\npm-cache\_npx
+```
+
+清完缓存后，在 MCP 客户端里关掉再打开 gangtise 服务（或重启客户端），npx 会重新下载最新版。
+
+> 怎么确认当前跑的是哪个版本？查 `~/.npm/_npx/*/node_modules/gangtise-mcp/package.json` 的 `version` 字段。
 
 ## 环境变量
 
