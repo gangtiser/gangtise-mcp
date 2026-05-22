@@ -4,6 +4,9 @@
 
 ## Changelog
 
+### 0.1.11 (2026-05-22)
+- 修复 `gangtise_day_kline_us` 不传 `field` 时后端返回 999999 系统错误的问题：当调用方未指定 `field` 时，自动注入安全默认字段集 `[tradeDate, open, high, low, close, pctChange, volume, amount]`（A 股 / 港股不受影响）。等 Gangtise 后端修复后可移除
+
 ### 0.1.10 (2026-05-22)
 - 文档：补充"升级到最新版本"小节，说明 `npx -y gangtise-mcp` 会缓存旧版本导致新工具不可见的问题，给出钉版本 / 清 npx 缓存两种解决方法
 

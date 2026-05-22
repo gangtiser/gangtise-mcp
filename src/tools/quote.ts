@@ -6,6 +6,11 @@ import { callKlineWithSharding, type KlineBody } from "../core/quoteSharding.js"
 import { dateDesc, dateTimeDesc } from "../core/dateContext.js"
 import { errorMessage } from "../core/errors.js"
 
+/** Safe default field set for quote.day-kline-us. Backend's full default
+ * field set currently triggers 999999, so we inject these when caller
+ * doesn't pass field. Mirror of fields shown in CLI docs. */
+const US_KLINE_DEFAULT_FIELDS = ["tradeDate", "open", "high", "low", "close", "pctChange", "volume", "amount"]
+
 const commonKlineSchema = {
   security: z.union([z.string(), z.array(z.string())]).optional().describe("证券代码，如 '600519.SH' 或 ['600519.SH','000858.SZ']；传 'all' 拉取全市场"),
   startDate: z.string().optional().describe(dateDesc()),
@@ -71,7 +76,12 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
       description: "查询美股历史日 K 线数据（NYSE/NASDAQ/AMEX，代码格式如 AAPL.O/.N/.A；仅历史，盘中实时请用 gangtise_realtime）。security='all' 配合 startDate/endDate 可拉取全市场（自动按 1 天/片分片）。",
       inputSchema: commonKlineSchema,
     },
-    async (args) => klineHandler(client, "quote.day-kline-us", 1)(args as Record<string, unknown>),
+    async (args) => {
+      // Backend workaround: day-kline-us 不传 field 时后端默认字段集中有坏字段，
+      // 返回 999999 系统错误。显式指定字段可绕开。等后端修复后可移除此 fallback。
+      const patched = args.field ? args : { ...args, field: US_KLINE_DEFAULT_FIELDS }
+      return klineHandler(client, "quote.day-kline-us", 1)(patched as Record<string, unknown>)
+    },
   )
 
   server.registerTool(
