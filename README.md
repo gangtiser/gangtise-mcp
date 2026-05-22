@@ -187,7 +187,7 @@ claude mcp add gangtise \
 
 任选其一：
 
-**方法 1：配置里钉版本（推荐）** —— 把 args 改成 `["-y", "gangtise-mcp@latest"]` 或具体版本 `["-y", "gangtise-mcp@0.1.9"]`，重启 MCP 客户端即可强制拉新。
+**方法 1：配置里钉版本（推荐）** —— 把 args 改成 `["-y", "gangtise-mcp@latest"]` 或具体版本 `["-y", "gangtise-mcp@0.x.x"]`，重启 MCP 客户端即可强制拉新。
 
 **方法 2：清 npx 缓存**
 
