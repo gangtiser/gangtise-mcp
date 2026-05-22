@@ -5,3 +5,4 @@ dist/
 CLAUDE.md
 .claude/settings.local.json
 ~/.config/gangtise/
+.understand-anything/
