@@ -125,8 +125,8 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
     {
       description: "查询实时行情快照，单接口覆盖 A 股 / 港股 / 美股，可代码混合传入。非交易时间返回最近一个交易日的收盘快照；停牌证券返回停牌前最后一个有效快照。日 K 线接口（day-kline*）不含盘中数据，问\"现在/此刻\"请走本工具。",
       inputSchema: {
-        security: z.union([z.string(), z.array(z.string())]).optional().describe("证券代码或全市场关键字：单/多只代码（'600519.SH' / ['600519.SH','00700.HK','AAPL.O']），或市场关键字 'aShares' / 'hkStocks' / 'usStocks' 拉取全市场（建议配合 field 精简返回）"),
-        field: z.array(z.string()).optional().describe("指定返回字段，如 ['latestPrice','pctChange','volume']"),
+        security: z.union([z.string(), z.array(z.string())]).optional().describe("证券代码或全市场关键字：单/多只代码（'600519.SH' / ['600519.SH','00700.HK','AAPL.O']），或市场关键字 'aShares' / 'hkStocks' / 'usStocks' 拉取全市场。"),
+        field: z.array(z.string()).optional().describe("【默认不传 = 返回全量字段，最稳】仅当用户明确要精简、或查全市场（aShares/hkStocks/usStocks）想省 token 时才传。一旦传入必须显式包含识别字段 securityCode/exchange/tradeDate/tradeTime，否则多只查询无法对齐行与代码。示例：['securityCode','exchange','tradeDate','tradeTime','latestPrice','pctChange','volume']"),
       },
     },
     async ({ security, field }) => {
