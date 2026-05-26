@@ -84,7 +84,7 @@
 claude mcp add gangtise \
   -e GANGTISE_ACCESS_KEY=your_access_key \
   -e GANGTISE_SECRET_KEY=your_secret_key \
-  -- npx -y gangtise-mcp
+  -- npx -y gangtise-mcp@latest
 ```
 
 ### Claude Desktop
@@ -99,7 +99,7 @@ claude mcp add gangtise \
   "mcpServers": {
     "gangtise": {
       "command": "npx",
-      "args": ["-y", "gangtise-mcp"],
+      "args": ["-y", "gangtise-mcp@latest"],
       "env": {
         "GANGTISE_ACCESS_KEY": "your_access_key",
         "GANGTISE_SECRET_KEY": "your_secret_key"
@@ -120,7 +120,7 @@ claude mcp add gangtise \
   "mcpServers": {
     "gangtise": {
       "command": "npx",
-      "args": ["-y", "gangtise-mcp"],
+      "args": ["-y", "gangtise-mcp@latest"],
       "env": {
         "GANGTISE_ACCESS_KEY": "your_access_key",
         "GANGTISE_SECRET_KEY": "your_secret_key"
@@ -139,7 +139,7 @@ claude mcp add gangtise \
   "mcpServers": {
     "gangtise": {
       "command": "npx",
-      "args": ["-y", "gangtise-mcp"],
+      "args": ["-y", "gangtise-mcp@latest"],
       "env": {
         "GANGTISE_ACCESS_KEY": "your_access_key",
         "GANGTISE_SECRET_KEY": "your_secret_key"
@@ -157,7 +157,7 @@ claude mcp add gangtise \
 {
   "gangtise": {
     "command": "npx",
-    "args": ["-y", "gangtise-mcp"],
+    "args": ["-y", "gangtise-mcp@latest"],
     "env": {
       "GANGTISE_ACCESS_KEY": "your_access_key",
       "GANGTISE_SECRET_KEY": "your_secret_key"
@@ -173,7 +173,7 @@ claude mcp add gangtise \
 ```json
 {
   "command": "npx",
-  "args": ["-y", "gangtise-mcp"],
+  "args": ["-y", "gangtise-mcp@latest"],
   "env": {
     "GANGTISE_ACCESS_KEY": "your_access_key",
     "GANGTISE_SECRET_KEY": "your_secret_key"
