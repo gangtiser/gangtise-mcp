@@ -50,6 +50,7 @@ export async function buildToolContent(normalized: unknown): Promise<Array<{ typ
       list: previewList,
       _truncated: true,
       _saved_to: savedPath,
+      _read_with: "gangtise_read_response",
       _total_bytes: byteLength,
       _total_items: list.length,
       _preview_count: previewList.length,
@@ -61,6 +62,7 @@ export async function buildToolContent(normalized: unknown): Promise<Array<{ typ
       list: previewList,
       _truncated: true,
       _saved_to: savedPath,
+      _read_with: "gangtise_read_response",
       _total_bytes: byteLength,
       _total_items: normalized.length,
       _preview_count: previewList.length,
@@ -70,6 +72,7 @@ export async function buildToolContent(normalized: unknown): Promise<Array<{ typ
     preview = {
       _truncated: true,
       _saved_to: savedPath,
+      _read_with: "gangtise_read_response",
       _total_bytes: byteLength,
       _preview_count: 0,
       has_more: false,

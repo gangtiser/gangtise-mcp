@@ -4,6 +4,13 @@
 
 ## Changelog
 
+### 0.1.14 (2026-05-26)
+- 新增 `gangtise_read_response` 工具：当其他工具返回 `_truncated: true` 时，模型可调用此工具按 `offset` / `limit` 分片读取 `_saved_to` 完整数据
+  - 原先 `_saved_to` 路径只对自带文件读取能力的客户端（如 Claude Code）有效；Cherry Studio 等无内置文件读工具的客户端拿到路径也无法续读
+  - 现在所有 MCP 客户端均可通过工具调用方式取回完整大响应，不再依赖宿主进程的文件系统能力
+- 截断响应负载追加 `_read_with: "gangtise_read_response"` 字段，明确续读入口
+- 安全：`gangtise_read_response` 仅允许读取系统临时目录下 `gangtise-mcp-*` 前缀的本进程产物，拒绝其他路径
+
 ### 0.1.9 (2026-05-22)
 - 修复 `security='all'` 全市场日 K 在分片内被静默截断的问题（同步 CLI v0.14.1 / v0.14.2）：
   - A 股全市场每天约 5500 行，原 2 天/片 ≈ 11000 行命中默认 6000 上限 → 改 1 天/片
