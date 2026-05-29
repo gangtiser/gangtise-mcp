@@ -4,6 +4,11 @@
 
 ## Changelog
 
+### 0.1.16 (2026-05-29)
+- 同步 CLI v0.14.3：
+  - 下载类工具（研报 / 纪要 / 公告 / 云盘 / 录音等）在 token 过期（8000014 / 8000015）时自动刷新并重试一次，与 JSON 请求行为一致（此前仅 JSON 请求会自愈，下载会直接失败）
+  - 全市场 K 线分片 fan-out 并发改用 `GANGTISE_PAGE_CONCURRENCY`（与分页统一一个环境变量调度）
+
 ### 0.1.15 (2026-05-29)
 - 大响应截断兜底扩展到行情与 AI 工具：`gangtise_day_kline*` / `gangtise_minute_kline` / `gangtise_realtime` / `gangtise_securities_search` / `gangtise_theme_tracking` 现与分页 list 工具一致，超 256KB 自动转存临时文件并返回预览，配合 `gangtise_read_response` 续读，避免全市场快照 / 全市场 K 线撑爆上下文
   - AI 长文工具（一页纸 / 投资逻辑 / 同业对比 / 研究提纲 / 业绩点评 / 多空辩论）超限时转存 `.md`，`gangtise_read_response` 支持按字符分片续读
