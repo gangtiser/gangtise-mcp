@@ -62,6 +62,8 @@ describe("MCP server integration", () => {
     expect(names).toContain("gangtise_viewpoint_debate")
     expect(names).toContain("gangtise_drive_list")
     expect(names).toContain("gangtise_wechat_message_list")
+    expect(names).toContain("gangtise_concept_info")
+    expect(names).toContain("gangtise_concept_securities")
 
     // Should have a substantial number of tools
     expect(tools.length).toBeGreaterThan(40)
@@ -107,6 +109,22 @@ describe("MCP server integration", () => {
     await mcpClient.callTool({ name: "gangtise_income_statement", arguments: { securityCode: "600519.SH" } })
     const callArg = (mockClient.call as ReturnType<typeof vi.fn>).mock.calls[0][1] as Record<string, unknown>
     expect(callArg).not.toHaveProperty("size")
+  })
+
+  it("gangtise_concept_info calls concept-info endpoint with conceptId", async () => {
+    await mcpClient.callTool({ name: "gangtise_concept_info", arguments: { conceptId: "121000130" } })
+    expect(mockClient.call).toHaveBeenCalledWith(
+      "alternative.concept-info",
+      expect.objectContaining({ conceptId: "121000130" }),
+    )
+  })
+
+  it("gangtise_concept_securities calls concept-securities endpoint with conceptId", async () => {
+    await mcpClient.callTool({ name: "gangtise_concept_securities", arguments: { conceptId: "121000130" } })
+    expect(mockClient.call).toHaveBeenCalledWith(
+      "alternative.concept-securities",
+      expect.objectContaining({ conceptId: "121000130" }),
+    )
   })
 
   it("tools return isError on API failure", async () => {

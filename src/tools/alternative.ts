@@ -17,6 +17,26 @@ const specs: JsonToolSpec[] = [
       limit: z.number().int().min(1).max(200).optional().describe("最大返回数量（默认 100，最大 200）"),
     },
   },
+  {
+    name: "gangtise_concept_info",
+    description:
+      "查询题材指数（概念/主题）基本信息：返回题材整体画像（定义 / 投资逻辑 / 行业空间 / 竞争格局 / 催化事件）。仅返回最新截面数据，不支持历史回溯。conceptId 与主题跟踪 gangtise_theme_tracking 的 themeId 为同一套 ID 体系，可用 gangtise_lookup(type=theme-ids) 按名称查询（如 机器人 → 121000130）。",
+    endpointKey: "alternative.concept-info",
+    paginated: false,
+    inputSchema: {
+      conceptId: z.string().describe("题材指数 ID，如 '121000130'（机器人）。来自 gangtise_lookup(type=theme-ids)（必填）"),
+    },
+  },
+  {
+    name: "gangtise_concept_securities",
+    description:
+      "查询题材指数（概念/主题）成分股（题材深度 F8）：按分组结构返回当前成分股，每只含是否重点个股 isKey 与纳入理由 inclusionReason。conceptId 与主题跟踪 gangtise_theme_tracking 的 themeId 为同一套 ID 体系，可用 gangtise_lookup(type=theme-ids) 按名称查询（如 机器人 → 121000130）。",
+    endpointKey: "alternative.concept-securities",
+    paginated: false,
+    inputSchema: {
+      conceptId: z.string().describe("题材指数 ID，如 '121000130'（机器人）。来自 gangtise_lookup(type=theme-ids)（必填）"),
+    },
+  },
 ]
 
 export function registerAlternativeTools(server: McpServer, client: GangtiseClient): void {

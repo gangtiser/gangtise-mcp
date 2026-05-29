@@ -79,7 +79,7 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
   server.registerTool(
     "gangtise_index_day_kline",
     {
-      description: "查询指数日 K 线数据（沪深北指数）。",
+      description: "查询指数日 K 线数据（沪深北指数）。返回字段含指数名称 securityName（如\"上证指数\"）。",
       inputSchema: commonKlineSchema,
     },
     async (args) => klineHandler(client, "quote.index-day-kline", 30)(args as Record<string, unknown>),
