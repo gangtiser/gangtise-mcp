@@ -2,8 +2,8 @@ import { z } from "zod"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { GangtiseClient } from "../core/client.js"
 import { registerJsonTool, buildToolContent, type JsonToolSpec } from "./registry.js"
+import { toolHandler, contentResult } from "./helpers.js"
 import { normalizeRows } from "../core/normalize.js"
-import { errorMessage } from "../core/errors.js"
 import { dateDesc, dateContextPrefix } from "../core/dateContext.js"
 
 const specs: JsonToolSpec[] = [
@@ -35,24 +35,20 @@ export function registerAlternativeTools(server: McpServer, client: GangtiseClie
         endDate: z.string().describe(dateDesc() + "（必填）"),
       },
     },
-    async (args) => {
-      try {
-        const raw = await client.call("alternative.edb-data", args as Record<string, unknown>) as Record<string, unknown>
-        let normalized: unknown = raw
-        if (raw && Array.isArray(raw.fieldList) && Array.isArray(raw.dataList)) {
-          const fields = raw.fieldList as string[]
-          const list = (raw.dataList as unknown[][]).map((row) =>
-            fields.reduce<Record<string, unknown>>((acc, field, i) => {
-              acc[field] = row[i]
-              return acc
-            }, {}),
-          )
-          normalized = { list, total: list.length }
-        }
-        return { content: await buildToolContent(normalizeRows(normalized)) }
-      } catch (err) {
-        return { content: [{ type: "text" as const, text: errorMessage(err) }], isError: true }
+    toolHandler(async (args: Record<string, unknown>) => {
+      const raw = await client.call("alternative.edb-data", args) as Record<string, unknown>
+      let normalized: unknown = raw
+      if (raw && Array.isArray(raw.fieldList) && Array.isArray(raw.dataList)) {
+        const fields = raw.fieldList as string[]
+        const list = (raw.dataList as unknown[][]).map((row) =>
+          fields.reduce<Record<string, unknown>>((acc, field, i) => {
+            acc[field] = row[i]
+            return acc
+          }, {}),
+        )
+        normalized = { list, total: list.length }
       }
-    },
+      return contentResult(await buildToolContent(normalizeRows(normalized)))
+    }),
   )
 }

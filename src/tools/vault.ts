@@ -2,8 +2,8 @@ import { z } from "zod"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { GangtiseClient } from "../core/client.js"
 import { registerJsonTool, registerDownloadTool, buildToolContent, type JsonToolSpec, type DownloadToolSpec } from "./registry.js"
+import { toolHandler, contentResult } from "./helpers.js"
 import { normalizeRows } from "../core/normalize.js"
-import { errorMessage } from "../core/errors.js"
 import { dateContextPrefix } from "../core/dateContext.js"
 import { dateTimeDesc } from "../core/dateContext.js"
 
@@ -125,17 +125,13 @@ export function registerVaultTools(server: McpServer, client: GangtiseClient): v
         roomName: z.array(z.string()).optional().describe("按群名称筛选；多个会以逗号拼接发送"),
       },
     },
-    async (args) => {
-      try {
-        const { roomName, size, ...rest } = args as { roomName?: string[]; size?: number; from?: number }
-        const body: Record<string, unknown> = { ...rest, size: size ?? 20 }
-        if (roomName && roomName.length > 0) body.roomName = roomName.join(",")
-        const result = await client.call("vault.wechat-chatroom.list", body)
-        return { content: await buildToolContent(normalizeRows(result)) }
-      } catch (err) {
-        return { content: [{ type: "text" as const, text: errorMessage(err) }], isError: true }
-      }
-    },
+    toolHandler(async (args: Record<string, unknown>) => {
+      const { roomName, size, ...rest } = args as { roomName?: string[]; size?: number; from?: number }
+      const body: Record<string, unknown> = { ...rest, size: size ?? 20 }
+      if (roomName && roomName.length > 0) body.roomName = roomName.join(",")
+      const result = await client.call("vault.wechat-chatroom.list", body)
+      return contentResult(await buildToolContent(normalizeRows(result)))
+    }),
   )
 
   server.registerTool(
@@ -146,14 +142,10 @@ export function registerVaultTools(server: McpServer, client: GangtiseClient): v
         poolIdList: z.array(z.string()).optional().describe("池 ID 列表，来自 gangtise_stock_pool_list；不传默认 ['all'] 即所有池"),
       },
     },
-    async (args) => {
-      try {
-        const { poolIdList = ["all"] } = args as { poolIdList?: string[] }
-        const result = await client.call("vault.stock-pool.stocks", { poolIdList })
-        return { content: await buildToolContent(normalizeRows(result)) }
-      } catch (err) {
-        return { content: [{ type: "text" as const, text: errorMessage(err) }], isError: true }
-      }
-    },
+    toolHandler(async (args: Record<string, unknown>) => {
+      const { poolIdList = ["all"] } = args as { poolIdList?: string[] }
+      const result = await client.call("vault.stock-pool.stocks", { poolIdList })
+      return contentResult(await buildToolContent(normalizeRows(result)))
+    }),
   )
 }

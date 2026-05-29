@@ -2,7 +2,8 @@ import { z } from "zod"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { GangtiseClient } from "../core/client.js"
 import { normalizeRows } from "../core/normalize.js"
-import { errorMessage } from "../core/errors.js"
+import { buildToolContent } from "./registry.js"
+import { toolHandler, contentResult } from "./helpers.js"
 
 export function registerReferenceTools(server: McpServer, client: GangtiseClient): void {
   server.registerTool(
@@ -15,13 +16,9 @@ export function registerReferenceTools(server: McpServer, client: GangtiseClient
         top: z.number().int().min(1).optional().describe("最大返回条数"),
       },
     },
-    async (args) => {
-      try {
-        const result = await client.call("reference.securities-search", args)
-        return { content: [{ type: "text" as const, text: JSON.stringify(normalizeRows(result), null, 2) }] }
-      } catch (err) {
-        return { content: [{ type: "text" as const, text: errorMessage(err) }], isError: true }
-      }
-    },
+    toolHandler(async (args: Record<string, unknown>) => {
+      const result = await client.call("reference.securities-search", args)
+      return contentResult(await buildToolContent(normalizeRows(result)))
+    }),
   )
 }

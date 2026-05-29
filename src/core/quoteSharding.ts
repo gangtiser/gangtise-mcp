@@ -1,4 +1,5 @@
 import { runWithConcurrency } from "./transport.js"
+import { errorMessage } from "./errors.js"
 
 export interface KlineBody {
   securityList?: string[]
@@ -87,16 +88,31 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
     process.stderr.write(`[gangtise] sharding ${endpointKey} into ${shards.length} requests (${config.shardDays} day(s) each)\n`)
   }
 
-  const results = await runWithConcurrency(shards, config.concurrency ?? 5, async (shard) => {
-    return client.call(endpointKey, { ...allMarketBody, startDate: shard.startDate, endDate: shard.endDate })
+  type ShardOutcome =
+    | { ok: true; value: unknown }
+    | { ok: false; startDate: string; endDate: string; error: string; cause: unknown }
+
+  const results = await runWithConcurrency(shards, config.concurrency ?? 5, async (shard): Promise<ShardOutcome> => {
+    try {
+      const value = await client.call(endpointKey, { ...allMarketBody, startDate: shard.startDate, endDate: shard.endDate })
+      return { ok: true, value }
+    } catch (err) {
+      return { ok: false, startDate: shard.startDate, endDate: shard.endDate, error: errorMessage(err), cause: err }
+    }
   })
+
+  const failed = results.filter((r): r is Extract<ShardOutcome, { ok: false }> => !r.ok)
+  // Every shard failed → surface the original error instead of masking it as empty data.
+  if (failed.length === shards.length) {
+    throw failed[0].cause
+  }
 
   let fieldList: unknown[] | undefined
   let header: Record<string, unknown> | null = null
   const merged: unknown[] = []
   for (const r of results) {
-    if (!(r && typeof r === "object")) continue
-    const rec = r as Record<string, unknown>
+    if (!r.ok || !(r.value && typeof r.value === "object")) continue
+    const rec = r.value as Record<string, unknown>
     if (!header) header = rec
     if (!fieldList && Array.isArray(rec.fieldList)) fieldList = rec.fieldList
     if (Array.isArray(rec.list)) merged.push(...(rec.list as unknown[]))
@@ -105,5 +121,11 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   if (!header) return { list: [] }
   const out: Record<string, unknown> = { ...header, list: merged }
   if (fieldList) out.fieldList = fieldList
+  // Loud partial: surface which date shards were dropped so the caller never
+  // mistakes incomplete market data for a complete result.
+  if (failed.length > 0) {
+    out._partial = true
+    out._failed_shards = failed.map((f) => ({ startDate: f.startDate, endDate: f.endDate, error: f.error }))
+  }
   return out
 }

@@ -9,19 +9,38 @@ import type { CliConfig } from "./config.js"
 import { isTokenCacheValid, normalizeToken, readTokenCache, requireAccessCredentials, writeTokenCache, type TokenCache } from "./auth.js"
 import { ApiError, ValidationError } from "./errors.js"
 import { ENDPOINTS, type EndpointDefinition } from "./endpoints.js"
+import { Envelope, isEnvelope, unwrapEnvelope } from "./envelope.js"
 import { getLookupData } from "./lookupData/index.js"
 import { getDispatcher, isVerbose, logTiming, markRetryable, runWithConcurrency, withRetry } from "./transport.js"
 
-interface Envelope<T> {
-  code?: string | number
-  msg?: string
-  status?: boolean
-  success?: boolean
-  data?: T
-}
-
 const PAGINATION_CONCURRENCY = Number(process.env.GANGTISE_PAGE_CONCURRENCY ?? 5) || 5
 const AUTH_RETRY_CODES = new Set(["8000014", "8000015"])
+const MAX_PAGES = 1000
+
+export interface PageRequest {
+  from: number
+  size: number
+}
+
+/**
+ * Plans the page requests needed to cover [nextFrom, endFrom) in maxPageSize
+ * chunks, capping the total page count (including the already-fetched first
+ * page) at maxPages. Pure — extracted from requestPaginated for testing.
+ */
+export function planRemainingPages(nextFrom: number, endFrom: number, maxPageSize: number, maxPages: number): PageRequest[] {
+  const reqs: PageRequest[] = []
+  let cursor = nextFrom
+  while (cursor < endFrom) {
+    const size = Math.min(maxPageSize, endFrom - cursor)
+    reqs.push({ from: cursor, size })
+    cursor += size
+  }
+  // +1 accounts for the first page that was already fetched serially.
+  if (reqs.length + 1 > maxPages) {
+    reqs.length = Math.max(0, maxPages - 1)
+  }
+  return reqs
+}
 
 export interface DownloadResponse {
   data?: Uint8Array
@@ -86,39 +105,13 @@ export class GangtiseClient {
     return accessToken
   }
 
-  private isEnvelope<T>(parsed: unknown): parsed is Envelope<T> {
-    if (!parsed || typeof parsed !== 'object') return false
-    const obj = parsed as Record<string, unknown>
-    if (!('code' in obj)) return false
-    return 'msg' in obj || 'data' in obj || 'success' in obj || 'status' in obj
-  }
-
   private throwHttpError(parsed: unknown, statusCode: number): never {
-    if (this.isEnvelope(parsed)) {
+    if (isEnvelope(parsed)) {
       const code = parsed.code === undefined ? undefined : String(parsed.code)
       throw new ApiError(parsed.msg || `API request failed (HTTP ${statusCode})`, code, statusCode, parsed)
     }
 
     throw new ApiError(`API request failed (HTTP ${statusCode})`, undefined, statusCode, parsed)
-  }
-
-  private unwrapEnvelope<T>(parsed: Envelope<T>, statusCode?: number): T {
-    if (!this.isEnvelope<T>(parsed)) {
-      return parsed as T
-    }
-
-    const code = parsed.code === undefined ? undefined : String(parsed.code)
-    const ok = parsed.status === true || parsed.success === true || code === "000000" || code === "0"
-
-    if (!ok) {
-      throw new ApiError(parsed.msg || "API request failed", code, statusCode, parsed)
-    }
-
-    if ('data' in parsed) {
-      return parsed.data as T
-    }
-
-    return parsed as T
   }
 
   private async readLocalLookup(endpoint: EndpointDefinition) {
@@ -198,21 +191,9 @@ export class GangtiseClient {
     }
 
     // Build remaining page requests
-    type PageReq = { from: number; size: number }
-    const pageRequests: PageReq[] = []
-    let nextFrom = startFrom + firstPage.list.length
+    const nextFrom = startFrom + firstPage.list.length
     const endFrom = startFrom + target
-    while (nextFrom < endFrom) {
-      const remaining = endFrom - nextFrom
-      const size = Math.min(maxPageSize, remaining)
-      pageRequests.push({ from: nextFrom, size })
-      nextFrom += size
-    }
-
-    const MAX_PAGES = 1000
-    if (pageRequests.length + 1 > MAX_PAGES) {
-      pageRequests.length = MAX_PAGES - 1
-    }
+    const pageRequests = planRemainingPages(nextFrom, endFrom, maxPageSize, MAX_PAGES)
 
     let unexpectedShape = false
     let totalDrift = false
@@ -302,7 +283,7 @@ export class GangtiseClient {
       }
 
       try {
-        return this.unwrapEnvelope(parsed, response.statusCode)
+        return unwrapEnvelope(parsed, response.statusCode)
       } catch (error) {
         // Auto-recover from auth errors by forcing a token refresh once.
         if (
@@ -366,7 +347,7 @@ export class GangtiseClient {
           this.throwHttpError(parsed, response.statusCode)
         }
 
-        const data = this.unwrapEnvelope(parsed as Envelope<unknown>, response.statusCode)
+        const data = unwrapEnvelope(parsed as Envelope<unknown>, response.statusCode)
         if (data && typeof data === 'object' && 'url' in (data as Record<string, unknown>) && typeof (data as Record<string, unknown>).url === 'string') {
           return { url: String((data as Record<string, unknown>).url), contentType }
         }

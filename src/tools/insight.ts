@@ -4,6 +4,34 @@ import type { GangtiseClient } from "../core/client.js"
 import { registerJsonTool, registerDownloadTool, type JsonToolSpec, type DownloadToolSpec } from "./registry.js"
 import { dateTimeDesc } from "../core/dateContext.js"
 
+// roadshow / site-visit / strategy / forum are all schedule lists with an
+// identical filter set — share one schema and a spec builder.
+const scheduleListSchema = {
+  from: z.number().int().min(0).optional(),
+  startTime: z.string().optional().describe(dateTimeDesc()),
+  endTime: z.string().optional().describe(dateTimeDesc()),
+  keyword: z.string().optional(),
+  researchAreaList: z.array(z.string()).optional(),
+  institutionList: z.array(z.string()).optional(),
+  securityList: z.array(z.string()).optional(),
+  categoryList: z.array(z.string()).optional(),
+  marketList: z.array(z.string()).optional(),
+  participantRoleList: z.array(z.string()).optional(),
+  brokerTypeList: z.array(z.string()).optional(),
+  objectList: z.array(z.string()).optional().describe("company=公司 | industry=行业"),
+  permission: z.array(z.number().int()).optional(),
+}
+
+function scheduleSpec(name: string, label: string, endpointKey: string): JsonToolSpec {
+  return {
+    name,
+    description: `查询${label}日程列表，支持按研究方向、机构、证券、类别、市场、参会角色等筛选。`,
+    endpointKey,
+    paginated: true,
+    inputSchema: scheduleListSchema,
+  }
+}
+
 const listSpecs: JsonToolSpec[] = [
   {
     name: "gangtise_opinion_list",
@@ -47,90 +75,10 @@ const listSpecs: JsonToolSpec[] = [
       sourceList: z.array(z.number().int()).optional().describe("1=实时 | 2=公开"),
     },
   },
-  {
-    name: "gangtise_roadshow_list",
-    description: "查询路演日程列表，支持按研究方向、机构、证券、类别、市场、参会角色等筛选。",
-    endpointKey: "insight.roadshow.list",
-    paginated: true,
-    inputSchema: {
-      from: z.number().int().min(0).optional(),
-      startTime: z.string().optional().describe(dateTimeDesc()),
-      endTime: z.string().optional().describe(dateTimeDesc()),
-      keyword: z.string().optional(),
-      researchAreaList: z.array(z.string()).optional(),
-      institutionList: z.array(z.string()).optional(),
-      securityList: z.array(z.string()).optional(),
-      categoryList: z.array(z.string()).optional(),
-      marketList: z.array(z.string()).optional(),
-      participantRoleList: z.array(z.string()).optional(),
-      brokerTypeList: z.array(z.string()).optional(),
-      objectList: z.array(z.string()).optional().describe("company=公司 | industry=行业"),
-      permission: z.array(z.number().int()).optional(),
-    },
-  },
-  {
-    name: "gangtise_site_visit_list",
-    description: "查询调研日程列表，支持按研究方向、机构、证券、类别、市场、参会角色等筛选。",
-    endpointKey: "insight.site-visit.list",
-    paginated: true,
-    inputSchema: {
-      from: z.number().int().min(0).optional(),
-      startTime: z.string().optional().describe(dateTimeDesc()),
-      endTime: z.string().optional().describe(dateTimeDesc()),
-      keyword: z.string().optional(),
-      researchAreaList: z.array(z.string()).optional(),
-      institutionList: z.array(z.string()).optional(),
-      securityList: z.array(z.string()).optional(),
-      categoryList: z.array(z.string()).optional(),
-      marketList: z.array(z.string()).optional(),
-      participantRoleList: z.array(z.string()).optional(),
-      brokerTypeList: z.array(z.string()).optional(),
-      objectList: z.array(z.string()).optional().describe("company=公司 | industry=行业"),
-      permission: z.array(z.number().int()).optional(),
-    },
-  },
-  {
-    name: "gangtise_strategy_list",
-    description: "查询策略会日程列表，支持按研究方向、机构、证券、类别、市场、参会角色等筛选。",
-    endpointKey: "insight.strategy.list",
-    paginated: true,
-    inputSchema: {
-      from: z.number().int().min(0).optional(),
-      startTime: z.string().optional().describe(dateTimeDesc()),
-      endTime: z.string().optional().describe(dateTimeDesc()),
-      keyword: z.string().optional(),
-      researchAreaList: z.array(z.string()).optional(),
-      institutionList: z.array(z.string()).optional(),
-      securityList: z.array(z.string()).optional(),
-      categoryList: z.array(z.string()).optional(),
-      marketList: z.array(z.string()).optional(),
-      participantRoleList: z.array(z.string()).optional(),
-      brokerTypeList: z.array(z.string()).optional(),
-      objectList: z.array(z.string()).optional().describe("company=公司 | industry=行业"),
-      permission: z.array(z.number().int()).optional(),
-    },
-  },
-  {
-    name: "gangtise_forum_list",
-    description: "查询论坛日程列表，支持按研究方向、机构、证券、类别、市场、参会角色等筛选。",
-    endpointKey: "insight.forum.list",
-    paginated: true,
-    inputSchema: {
-      from: z.number().int().min(0).optional(),
-      startTime: z.string().optional().describe(dateTimeDesc()),
-      endTime: z.string().optional().describe(dateTimeDesc()),
-      keyword: z.string().optional(),
-      researchAreaList: z.array(z.string()).optional(),
-      institutionList: z.array(z.string()).optional(),
-      securityList: z.array(z.string()).optional(),
-      categoryList: z.array(z.string()).optional(),
-      marketList: z.array(z.string()).optional(),
-      participantRoleList: z.array(z.string()).optional(),
-      brokerTypeList: z.array(z.string()).optional(),
-      objectList: z.array(z.string()).optional().describe("company=公司 | industry=行业"),
-      permission: z.array(z.number().int()).optional(),
-    },
-  },
+  scheduleSpec("gangtise_roadshow_list", "路演", "insight.roadshow.list"),
+  scheduleSpec("gangtise_site_visit_list", "调研", "insight.site-visit.list"),
+  scheduleSpec("gangtise_strategy_list", "策略会", "insight.strategy.list"),
+  scheduleSpec("gangtise_forum_list", "论坛", "insight.forum.list"),
   {
     name: "gangtise_research_list",
     description: "查询券商研报列表，支持按证券、券商、行业、类别、评级、时间范围筛选。",

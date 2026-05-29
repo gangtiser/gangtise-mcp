@@ -1,5 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { GangtiseClient } from "./core/client.js"
+import { DEFAULT_ASYNC_TIMEOUT_MS } from "./core/config.js"
+import { getPackageVersion } from "./core/version.js"
 import { registerLookupTools } from "./tools/lookup.js"
 import { registerReferenceTools } from "./tools/reference.js"
 import { registerInsightTools } from "./tools/insight.js"
@@ -12,14 +14,15 @@ import { registerResponseTools } from "./tools/response.js"
 
 export interface McpServerOptions {
   asyncTimeoutMs?: number
+  version?: string
 }
 
 export function createGangtiseMcpServer(
   client: GangtiseClient,
   options: McpServerOptions = {},
 ): McpServer {
-  const server = new McpServer({ name: "gangtise-mcp", version: "0.1.0" })
-  const asyncTimeoutMs = options.asyncTimeoutMs ?? 60_000
+  const server = new McpServer({ name: "gangtise-mcp", version: options.version ?? getPackageVersion() })
+  const asyncTimeoutMs = options.asyncTimeoutMs ?? DEFAULT_ASYNC_TIMEOUT_MS
 
   registerLookupTools(server, client)
   registerReferenceTools(server, client)

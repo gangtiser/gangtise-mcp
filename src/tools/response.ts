@@ -10,6 +10,8 @@ import { errorMessage } from "../core/errors.js"
 const TMP_DIR_PREFIX = "gangtise-mcp-"
 const DEFAULT_LIMIT = 50
 const MAX_LIMIT = 500
+/** Per-call character window for raw text (Markdown/HTML) payloads. */
+const TEXT_CHUNK_CHARS = 100_000
 
 async function readSavedFile(savedTo: string): Promise<string> {
   let real: string
@@ -57,7 +59,28 @@ export function registerResponseTools(server: McpServer, _client: GangtiseClient
     async ({ saved_to, offset = 0, limit = DEFAULT_LIMIT }) => {
       try {
         const raw = await readSavedFile(saved_to)
-        const data = JSON.parse(raw)
+
+        let data: unknown
+        try {
+          data = JSON.parse(raw)
+        } catch {
+          // Raw text payload (Markdown/HTML) — slice by character offset.
+          const total = raw.length
+          const start = Math.min(offset, total)
+          const end = Math.min(start + TEXT_CHUNK_CHARS, total)
+          const slice = raw.slice(start, end)
+          const payload = {
+            _text: slice,
+            _saved_to: saved_to,
+            _total_chars: total,
+            _offset: start,
+            _returned: slice.length,
+            has_more: end < total,
+            next_offset: end < total ? end : null,
+            _note: `纯文本分片：按字符 offset 读取，每次返回最多 ${TEXT_CHUNK_CHARS} 字符（limit 对文本无效）`,
+          }
+          return { content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }] }
+        }
 
         let list: unknown[]
         let rest: Record<string, unknown> = {}

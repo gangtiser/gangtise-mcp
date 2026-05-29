@@ -4,6 +4,14 @@
 
 ## Changelog
 
+### 0.1.15 (2026-05-29)
+- 大响应截断兜底扩展到行情与 AI 工具：`gangtise_day_kline*` / `gangtise_minute_kline` / `gangtise_realtime` / `gangtise_securities_search` / `gangtise_theme_tracking` 现与分页 list 工具一致，超 256KB 自动转存临时文件并返回预览，配合 `gangtise_read_response` 续读，避免全市场快照 / 全市场 K 线撑爆上下文
+  - AI 长文工具（一页纸 / 投资逻辑 / 同业对比 / 研究提纲 / 业绩点评 / 多空辩论）超限时转存 `.md`，`gangtise_read_response` 支持按字符分片续读
+- 修复 MCP 上报版本号固定为 `0.1.0` 的问题，改为从 `package.json` 读取真实版本
+- `security='all'` 全市场 K 线分片改为容错：部分日期分片失败时返回已成功数据并标记 `_partial` / `_failed_shards`，仅当全部分片失败才报错（不再因单日失败丢弃整段）
+- 异步 AI 工具（业绩点评 / 多空辩论）默认等待时间统一为 180s（此前文档与实现不一致）
+- 启动时自动清理超过 24h 的 `gangtise-mcp-*` 临时目录
+
 ### 0.1.14 (2026-05-26)
 - 新增 `gangtise_read_response` 工具：当其他工具返回 `_truncated: true` 时，模型可调用此工具按 `offset` / `limit` 分片读取 `_saved_to` 完整数据
   - 原先 `_saved_to` 路径只对自带文件读取能力的客户端（如 Claude Code）有效；Cherry Studio 等无内置文件读工具的客户端拿到路径也无法续读

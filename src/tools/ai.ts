@@ -1,12 +1,11 @@
 import { z } from "zod"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { GangtiseClient } from "../core/client.js"
-import { registerJsonTool, registerDownloadTool, type JsonToolSpec, type DownloadToolSpec } from "./registry.js"
+import { registerJsonTool, registerDownloadTool, buildToolContent, buildTextResult, type JsonToolSpec, type DownloadToolSpec } from "./registry.js"
+import { toolHandler, textResult, contentResult } from "./helpers.js"
 import { pollAsyncContent } from "../core/asyncContent.js"
 import { normalizeRows } from "../core/normalize.js"
-import { ApiError, AsyncTimeoutError, errorMessage } from "../core/errors.js"
-import { ENDPOINTS } from "../core/endpoints.js"
-import { downloadToResult } from "../core/download.js"
+import { ApiError, AsyncTimeoutError, ValidationError } from "../core/errors.js"
 import { dateDesc, dateTimeDesc, today, todayDate } from "../core/dateContext.js"
 
 export interface AiToolOptions {
@@ -90,15 +89,13 @@ const downloadSpecs: DownloadToolSpec[] = [
 ]
 
 function makeAiContentHandler(client: GangtiseClient, endpointKey: string) {
-  return async (args: Record<string, unknown>) => {
-    try {
-      const result = await client.call(endpointKey, args) as { content?: string }
-      const text = result?.content ?? JSON.stringify(result, null, 2)
-      return { content: [{ type: "text" as const, text }] }
-    } catch (err) {
-      return { content: [{ type: "text" as const, text: errorMessage(err) }], isError: true }
+  return toolHandler(async (args: Record<string, unknown>) => {
+    const result = await client.call(endpointKey, args) as { content?: string }
+    if (typeof result?.content === "string") {
+      return contentResult(await buildTextResult(result.content))
     }
-  }
+    return contentResult(await buildToolContent(normalizeRows(result)))
+  })
 }
 
 function makeAsyncToolPair(
@@ -123,30 +120,26 @@ function makeAsyncToolPair(
       description: config.description,
       inputSchema: {
         ...config.inputSchema,
-        waitSeconds: z.number().int().min(0).max(180).optional().describe("最长等待秒数（默认 60，最大 180）"),
+        waitSeconds: z.number().int().min(0).max(180).optional().describe("最长等待秒数（默认 180，最大 180）"),
       },
     },
-    async (args) => {
-      try {
-        const { waitSeconds, ...submitArgs } = args as Record<string, unknown>
-        const timeoutMs = typeof waitSeconds === "number" ? waitSeconds * 1000 : opts.asyncTimeoutMs
-        const submitResult = await client.call(config.submitEndpoint, submitArgs) as Record<string, string>
-        const dataId = submitResult[config.submitIdField]
-        if (!dataId) throw new Error(`No ${config.submitIdField} in response`)
+    toolHandler(async (args: Record<string, unknown>) => {
+      const { waitSeconds, ...submitArgs } = args
+      const timeoutMs = typeof waitSeconds === "number" ? waitSeconds * 1000 : opts.asyncTimeoutMs
+      const submitResult = await client.call(config.submitEndpoint, submitArgs) as Record<string, string>
+      const dataId = submitResult[config.submitIdField]
+      if (!dataId) throw new Error(`No ${config.submitIdField} in response`)
 
-        try {
-          const polled = await pollAsyncContent(client, config.pollEndpoint, dataId, timeoutMs)
-          return { content: [{ type: "text" as const, text: polled.content }] }
-        } catch (err) {
-          if (err instanceof AsyncTimeoutError) {
-            return { content: [{ type: "text" as const, text: JSON.stringify({ dataId, status: "timeout", hint: `Call ${config.checkName} with this dataId in ~2 minutes` }) }] }
-          }
-          throw err
-        }
+      try {
+        const polled = await pollAsyncContent(client, config.pollEndpoint, dataId, timeoutMs)
+        return contentResult(await buildTextResult(polled.content))
       } catch (err) {
-        return { content: [{ type: "text" as const, text: errorMessage(err) }], isError: true }
+        if (err instanceof AsyncTimeoutError) {
+          return textResult(JSON.stringify({ dataId, status: "timeout", hint: `Call ${config.checkName} with this dataId in ~3 minutes` }))
+        }
+        throw err
       }
-    },
+    }),
   )
 
   // Single-shot check tool
@@ -156,19 +149,19 @@ function makeAsyncToolPair(
       description: config.checkDescription,
       inputSchema: { dataId: z.string() },
     },
-    async ({ dataId }) => {
+    toolHandler(async ({ dataId }: { dataId: string }) => {
       try {
         const result = await client.call(config.pollEndpoint, { dataId }) as { content?: string }
-        if (result.content) return { content: [{ type: "text" as const, text: result.content }] }
-        return { content: [{ type: "text" as const, text: JSON.stringify({ status: "pending", dataId }) }] }
+        if (result.content) return contentResult(await buildTextResult(result.content))
+        return textResult(JSON.stringify({ status: "pending", dataId }))
       } catch (err) {
         if (err instanceof ApiError && err.code === "410111")
           return { content: [{ type: "text" as const, text: JSON.stringify({ status: "failed", dataId }) }], isError: true }
         if (err instanceof ApiError && err.code === "410110")
-          return { content: [{ type: "text" as const, text: JSON.stringify({ status: "pending", dataId }) }] }
-        return { content: [{ type: "text" as const, text: errorMessage(err) }], isError: true }
+          return textResult(JSON.stringify({ status: "pending", dataId }))
+        throw err
       }
-    },
+    }),
   )
 }
 
@@ -189,23 +182,16 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
         type: z.string().optional().describe("morning=早报 | night=晚报"),
       },
     },
-    async (args) => {
-      try {
-        const { date, ...rest } = args as { date: string; [k: string]: unknown }
-        const inputDate = new Date(`${date}T00:00:00+08:00`)
-        const diffDays = Math.floor((todayDate().getTime() - inputDate.getTime()) / 86_400_000)
-        if (diffDays > 30 || diffDays < 0) {
-          return {
-            content: [{ type: "text" as const, text: `date 超出最近 30 天范围。当前日期是 ${today()}，请按当前日期重新换算。` }],
-            isError: true,
-          }
-        }
-        const result = await client.call("ai.theme-tracking", { date, ...rest })
-        return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] }
-      } catch (err) {
-        return { content: [{ type: "text" as const, text: errorMessage(err) }], isError: true }
+    toolHandler(async (args: Record<string, unknown>) => {
+      const { date, ...rest } = args as { date: string; [k: string]: unknown }
+      const inputDate = new Date(`${date}T00:00:00+08:00`)
+      const diffDays = Math.floor((todayDate().getTime() - inputDate.getTime()) / 86_400_000)
+      if (diffDays > 30 || diffDays < 0) {
+        throw new ValidationError(`date 超出最近 30 天范围。当前日期是 ${today()}，请按当前日期重新换算。`)
       }
-    },
+      const result = await client.call("ai.theme-tracking", { date, ...rest })
+      return contentResult(await buildToolContent(normalizeRows(result)))
+    }),
   )
 
   // Spec-driven download tools
@@ -253,7 +239,7 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
   // Async tools: earnings-review
   makeAsyncToolPair(server, client, opts, {
     name: "gangtise_earnings_review",
-    description: "生成 AI 业绩点评报告。提交任务后等待最多 waitSeconds 秒（默认 60s），超时返回 dataId。",
+    description: "生成 AI 业绩点评报告。提交任务后等待最多 waitSeconds 秒（默认 180s），超时返回 dataId。",
     inputSchema: {
       securityCode: z.string().describe("仅支持 A 股证券代码"),
       period: z.string().describe("格式：2025q1 | 2025q3 | 2025interim | 2025annual"),
@@ -268,7 +254,7 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
   // Async tools: viewpoint-debate
   makeAsyncToolPair(server, client, opts, {
     name: "gangtise_viewpoint_debate",
-    description: "对给定投资观点生成 AI 多空辩论报告。提交任务后等待最多 waitSeconds 秒（默认 60s），超时返回 dataId。",
+    description: "对给定投资观点生成 AI 多空辩论报告。提交任务后等待最多 waitSeconds 秒（默认 180s），超时返回 dataId。",
     inputSchema: {
       viewpoint: z.string().max(1000).describe("投资观点文本（最多 1000 字）"),
     },

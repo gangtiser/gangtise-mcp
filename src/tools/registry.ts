@@ -13,6 +13,7 @@ import { dateContextPrefix } from "../core/dateContext.js"
 
 const INLINE_MAX_BYTES = 256_000
 const PREVIEW_ITEMS = 20
+const TEXT_PREVIEW_CHARS = 4_000
 
 interface PaginatedShape {
   list: unknown[]
@@ -86,6 +87,36 @@ export async function buildToolContent(normalized: unknown): Promise<Array<{ typ
   }
 
   return [{ type: "text" as const, text: JSON.stringify(preview, null, 2) }]
+}
+
+/**
+ * Like buildToolContent but for plain text payloads (Markdown/HTML from AI
+ * tools, downloads, etc.). Small text is returned inline; oversized text is
+ * streamed to a temp .md file with a preview pointer so the MCP response never
+ * blows the context window. Page the rest with gangtise_read_response.
+ */
+export async function buildTextResult(text: string): Promise<Array<{ type: "text"; text: string }>> {
+  const byteLength = Buffer.byteLength(text, "utf8")
+  if (byteLength <= INLINE_MAX_BYTES) {
+    return [{ type: "text" as const, text }]
+  }
+
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "gangtise-mcp-"))
+  const savedPath = path.join(tempDir, "response.md")
+  await fs.writeFile(savedPath, text, "utf8")
+
+  const preview = text.slice(0, TEXT_PREVIEW_CHARS)
+  const meta = {
+    _truncated: true,
+    _saved_to: savedPath,
+    _read_with: "gangtise_read_response",
+    _total_bytes: byteLength,
+    _total_chars: text.length,
+    _preview_chars: preview.length,
+    has_more: text.length > preview.length,
+    _preview: preview,
+  }
+  return [{ type: "text" as const, text: JSON.stringify(meta, null, 2) }]
 }
 
 // Zod raw shape type (compatible with registerTool inputSchema)

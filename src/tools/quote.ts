@@ -4,7 +4,8 @@ import type { GangtiseClient } from "../core/client.js"
 import { normalizeRows } from "../core/normalize.js"
 import { callKlineWithSharding, type KlineBody } from "../core/quoteSharding.js"
 import { dateDesc, dateTimeDesc } from "../core/dateContext.js"
-import { errorMessage } from "../core/errors.js"
+import { buildToolContent } from "./registry.js"
+import { toolHandler, contentResult } from "./helpers.js"
 
 /** Safe default field set for quote.day-kline-us. Backend's full default
  * field set currently triggers 999999, so we inject these when caller
@@ -32,23 +33,14 @@ function buildKlineBody(args: Record<string, unknown>): KlineBody {
 }
 
 function klineHandler(client: GangtiseClient, endpointKey: string, shardDays: number) {
-  return async (args: Record<string, unknown>) => {
-    try {
-      const body = buildKlineBody(args)
-      const isAllMarket = body.securityList?.[0] === "all"
-      let result: unknown
-
-      if (isAllMarket && body.startDate && body.endDate) {
-        result = await callKlineWithSharding(client, endpointKey, body, { shardDays })
-      } else {
-        result = await client.call(endpointKey, body)
-      }
-
-      return { content: [{ type: "text" as const, text: JSON.stringify(normalizeRows(result), null, 2) }] }
-    } catch (err) {
-      return { content: [{ type: "text" as const, text: errorMessage(err) }], isError: true }
-    }
-  }
+  return toolHandler(async (args: Record<string, unknown>) => {
+    const body = buildKlineBody(args)
+    const isAllMarket = body.securityList?.[0] === "all"
+    const result = isAllMarket && body.startDate && body.endDate
+      ? await callKlineWithSharding(client, endpointKey, body, { shardDays })
+      : await client.call(endpointKey, body)
+    return contentResult(await buildToolContent(normalizeRows(result)))
+  })
 }
 
 export function registerQuoteTools(server: McpServer, client: GangtiseClient): void {
@@ -105,19 +97,15 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
         field: z.array(z.string()).optional(),
       },
     },
-    async ({ security, startTime, endTime, limit, field }) => {
-      try {
-        const body: Record<string, unknown> = { securityCode: security }
-        if (startTime) body.startTime = startTime
-        if (endTime) body.endTime = endTime
-        if (limit) body.limit = limit
-        if (field) body.fieldList = field
-        const result = await client.call("quote.minute-kline", body)
-        return { content: [{ type: "text" as const, text: JSON.stringify(normalizeRows(result), null, 2) }] }
-      } catch (err) {
-        return { content: [{ type: "text" as const, text: errorMessage(err) }], isError: true }
-      }
-    },
+    toolHandler(async ({ security, startTime, endTime, limit, field }: Record<string, unknown>) => {
+      const body: Record<string, unknown> = { securityCode: security }
+      if (startTime) body.startTime = startTime
+      if (endTime) body.endTime = endTime
+      if (limit) body.limit = limit
+      if (field) body.fieldList = field
+      const result = await client.call("quote.minute-kline", body)
+      return contentResult(await buildToolContent(normalizeRows(result)))
+    }),
   )
 
   server.registerTool(
@@ -129,16 +117,12 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
         field: z.array(z.string()).optional().describe("【默认不传 = 返回全量字段，最稳】仅当用户明确要精简、或查全市场（aShares/hkStocks/usStocks）想省 token 时才传。一旦传入必须显式包含识别字段 securityCode/tradeDate/tradeTime（exchange 可省略），否则多只查询无法对齐行与代码。示例：['securityCode','tradeDate','tradeTime','latestPrice','pctChange','volume']"),
       },
     },
-    async ({ security, field }) => {
-      try {
-        const body: Record<string, unknown> = {}
-        if (security) body.securityList = Array.isArray(security) ? security : [security]
-        if (field) body.fieldList = field
-        const result = await client.call("quote.realtime", body)
-        return { content: [{ type: "text" as const, text: JSON.stringify(normalizeRows(result), null, 2) }] }
-      } catch (err) {
-        return { content: [{ type: "text" as const, text: errorMessage(err) }], isError: true }
-      }
-    },
+    toolHandler(async ({ security, field }: Record<string, unknown>) => {
+      const body: Record<string, unknown> = {}
+      if (security) body.securityList = Array.isArray(security) ? security : [security]
+      if (field) body.fieldList = field
+      const result = await client.call("quote.realtime", body)
+      return contentResult(await buildToolContent(normalizeRows(result)))
+    }),
   )
 }

@@ -1,3 +1,6 @@
+import fs from "node:fs"
+import path from "node:path"
+
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
@@ -32,6 +35,11 @@ describe("MCP server integration", () => {
     mcpClient = await makeTestClient(mockClient)
   })
 
+  it("reports the package.json version to clients", async () => {
+    const pkg = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8"))
+    expect(mcpClient.getServerVersion()?.version).toBe(pkg.version)
+  })
+
   it("lists all registered tools", async () => {
     const { tools } = await mcpClient.listTools()
     const names = tools.map(t => t.name)
@@ -39,6 +47,11 @@ describe("MCP server integration", () => {
     expect(names).toContain("gangtise_lookup")
     expect(names).toContain("gangtise_securities_search")
     expect(names).toContain("gangtise_opinion_list")
+    // schedule tools share one extracted schema — guard all four stay registered
+    expect(names).toContain("gangtise_roadshow_list")
+    expect(names).toContain("gangtise_site_visit_list")
+    expect(names).toContain("gangtise_strategy_list")
+    expect(names).toContain("gangtise_forum_list")
     expect(names).toContain("gangtise_research_list")
     expect(names).toContain("gangtise_research_download")
     expect(names).toContain("gangtise_day_kline")

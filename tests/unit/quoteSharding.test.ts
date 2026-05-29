@@ -40,6 +40,35 @@ describe("callKlineWithSharding", () => {
     }
   })
 
+  it("returns a loud partial result when some shards fail", async () => {
+    const call = vi.fn().mockImplementation(async (_key: string, body: Record<string, unknown>) => {
+      if (body.startDate === "2026-04-03") throw new Error("shard 0403 failed")
+      return { fieldList: ["tradeDate"], list: [{ tradeDate: body.startDate }] }
+    })
+
+    const result = await callKlineWithSharding({ call }, "quote.day-kline", {
+      securityList: ["all"],
+      startDate: "2026-04-01",
+      endDate: "2026-04-05",
+    }, { shardDays: 1 }) as Record<string, unknown>
+
+    expect(result._partial).toBe(true)
+    expect(Array.isArray(result.list)).toBe(true)
+    expect((result.list as unknown[]).length).toBe(4) // 5 shards, 1 failed
+    expect(Array.isArray(result._failed_shards)).toBe(true)
+    expect((result._failed_shards as Array<{ startDate: string }>).some((s) => s.startDate === "2026-04-03")).toBe(true)
+  })
+
+  it("throws when every shard fails (does not mask a systemic error)", async () => {
+    const call = vi.fn().mockRejectedValue(new Error("auth expired"))
+
+    await expect(callKlineWithSharding({ call }, "quote.day-kline", {
+      securityList: ["all"],
+      startDate: "2026-04-01",
+      endDate: "2026-04-05",
+    }, { shardDays: 1 })).rejects.toThrow("auth expired")
+  })
+
   it("does not touch single-security queries", async () => {
     const seenBodies: Array<Record<string, unknown>> = []
     const call = vi.fn().mockImplementation(async (_key: string, body: Record<string, unknown>) => {

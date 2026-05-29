@@ -29,6 +29,13 @@ async function writeTmpJson(payload: unknown): Promise<string> {
   return file
 }
 
+async function writeTmpText(text: string): Promise<string> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "gangtise-mcp-"))
+  const file = path.join(dir, "response.md")
+  await fs.writeFile(file, text, "utf8")
+  return file
+}
+
 function parseText(result: unknown): Record<string, unknown> {
   return JSON.parse((result as { content: Array<{ text: string }> }).content[0].text)
 }
@@ -105,6 +112,36 @@ describe("gangtise_read_response", () => {
     expect(parsed._total_items).toBeNull()
     expect(parsed.has_more).toBe(false)
     expect((parsed.data as Record<string, unknown>).scalar).toBe(42)
+
+    await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
+  })
+
+  it("reads a raw text (markdown) payload as character slices", async () => {
+    const text = "天".repeat(250_000) // raw, non-JSON content
+    const savedTo = await writeTmpText(text)
+    const client = await makeConnectedPair()
+
+    const result = await client.callTool({
+      name: "gangtise_read_response",
+      arguments: { saved_to: savedTo, offset: 0 },
+    })
+
+    expect(result.isError).toBeFalsy()
+    const parsed = parseText(result)
+    expect(parsed._total_chars).toBe(250_000)
+    expect(parsed._offset).toBe(0)
+    expect(typeof parsed._text).toBe("string")
+    expect((parsed._text as string).length).toBeGreaterThan(0)
+    expect(parsed.has_more).toBe(true)
+    expect(typeof parsed.next_offset).toBe("number")
+
+    // continuation reads the tail
+    const tail = await client.callTool({
+      name: "gangtise_read_response",
+      arguments: { saved_to: savedTo, offset: parsed.next_offset as number },
+    })
+    const tailParsed = parseText(tail)
+    expect((tailParsed._text as string).length).toBeGreaterThan(0)
 
     await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
   })

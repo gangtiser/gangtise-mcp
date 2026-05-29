@@ -6,7 +6,7 @@ import { z } from "zod"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
-import { registerJsonTool, registerDownloadTool, sanitizeArgs, buildToolContent } from "../../../src/tools/registry.js"
+import { registerJsonTool, registerDownloadTool, sanitizeArgs, buildToolContent, buildTextResult } from "../../../src/tools/registry.js"
 import type { GangtiseClient } from "../../../src/core/client.js"
 
 function makeMockClient(responseData: unknown = { list: [{ id: "1" }], total: 1 }) {
@@ -122,6 +122,32 @@ describe("buildToolContent", () => {
     expect(result.has_more).toBe(false)
 
     await fs.rm(path.dirname(result._saved_to as string), { recursive: true, force: true })
+  })
+})
+
+describe("buildTextResult", () => {
+  it("returns short text inline unchanged", async () => {
+    const content = await buildTextResult("# 一页纸\n\n小内容")
+    expect(content).toHaveLength(1)
+    expect(content[0].text).toBe("# 一页纸\n\n小内容")
+  })
+
+  it("writes oversized text to a temp .md file and returns a preview pointer", async () => {
+    const big = "# 报告\n\n" + "段落内容。".repeat(60_000) // well over 256KB
+    const content = await buildTextResult(big)
+    const meta = JSON.parse(content[0].text)
+
+    expect(meta._truncated).toBe(true)
+    expect(meta._read_with).toBe("gangtise_read_response")
+    expect(typeof meta._saved_to).toBe("string")
+    expect((meta._saved_to as string).endsWith(".md")).toBe(true)
+    expect(meta._total_chars).toBe(big.length)
+    expect(typeof meta._preview).toBe("string")
+    expect((meta._preview as string).length).toBeLessThan(big.length)
+
+    const fileContent = await fs.readFile(meta._saved_to as string, "utf8")
+    expect(fileContent).toBe(big)
+    await fs.rm(path.dirname(meta._saved_to as string), { recursive: true, force: true })
   })
 })
 
