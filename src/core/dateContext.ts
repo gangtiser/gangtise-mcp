@@ -1,33 +1,86 @@
-const FMT_DATE = new Intl.DateTimeFormat("zh-CN", {
-  timeZone: "Asia/Shanghai",
+export const CURRENT_TIMEZONE = "Asia/Shanghai"
+
+const FMT_DATE_TIME = new Intl.DateTimeFormat("en-US", {
+  timeZone: CURRENT_TIMEZONE,
   year: "numeric",
   month: "2-digit",
   day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
 })
 
-const FMT_YEAR = new Intl.DateTimeFormat("zh-CN", {
-  timeZone: "Asia/Shanghai",
-  year: "numeric",
-})
-
-export function today(): string {
-  return FMT_DATE.format(new Date()).replace(/\//g, "-")
+interface DateTimeParts {
+  year: string
+  month: string
+  day: string
+  hour: string
+  minute: string
+  second: string
 }
 
-export function year(): string {
-  return FMT_YEAR.format(new Date()).replace("年", "")
+export interface CurrentDateContext {
+  currentDate: string
+  currentYear: string
+  currentDateTime: string
+  timezone: typeof CURRENT_TIMEZONE
+}
+
+function dateTimeParts(date: Date): DateTimeParts {
+  const parts = Object.fromEntries(
+    FMT_DATE_TIME.formatToParts(date)
+      .filter(part => part.type !== "literal")
+      .map(part => [part.type, part.value]),
+  ) as Partial<DateTimeParts>
+
+  return {
+    year: parts.year ?? "",
+    month: parts.month ?? "",
+    day: parts.day ?? "",
+    hour: parts.hour ?? "",
+    minute: parts.minute ?? "",
+    second: parts.second ?? "",
+  }
+}
+
+export function today(date = new Date()): string {
+  const parts = dateTimeParts(date)
+  return `${parts.year}-${parts.month}-${parts.day}`
+}
+
+export function year(date = new Date()): string {
+  return dateTimeParts(date).year
+}
+
+export function dateTime(date = new Date()): string {
+  const parts = dateTimeParts(date)
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`
+}
+
+export function currentDateContext(date = new Date()): CurrentDateContext {
+  return {
+    currentDate: today(date),
+    currentYear: year(date),
+    currentDateTime: dateTime(date),
+    timezone: CURRENT_TIMEZONE,
+  }
+}
+
+export function dateContextInstruction(): string {
+  return `涉及"今天/最近/今年/当前"等相对日期时，先调用 gangtise_current_date 获取当前日期（时区 ${CURRENT_TIMEZONE}），不要使用训练数据年份。`
 }
 
 export function dateContextPrefix(): string {
-  return `[当前日期 ${today()}，当前年份 ${year()}，时区 Asia/Shanghai。用户说"今天/最近/今年/当前"时按此日期换算，不要使用训练数据年份。] `
+  return `[${dateContextInstruction()}] `
 }
 
 export function dateDesc(): string {
-  return `YYYY-MM-DD。当前日期 ${today()}，当前年份 ${year()}`
+  return `YYYY-MM-DD。${dateContextInstruction()}`
 }
 
 export function dateTimeDesc(): string {
-  return `YYYY-MM-DD HH:mm:ss。当前日期 ${today()}，当前年份 ${year()}`
+  return `YYYY-MM-DD HH:mm:ss。${dateContextInstruction()}`
 }
 
 /** 返回 Asia/Shanghai 当前日期的 Date 对象（时间归零到 00:00:00 UTC+8）。 */

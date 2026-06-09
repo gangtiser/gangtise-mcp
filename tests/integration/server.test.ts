@@ -44,6 +44,7 @@ describe("MCP server integration", () => {
     const { tools } = await mcpClient.listTools()
     const names = tools.map(t => t.name)
 
+    expect(names).toContain("gangtise_current_date")
     expect(names).toContain("gangtise_lookup")
     expect(names).toContain("gangtise_securities_search")
     expect(names).toContain("gangtise_opinion_list")
@@ -67,6 +68,30 @@ describe("MCP server integration", () => {
 
     // Should have a substantial number of tools
     expect(tools.length).toBeGreaterThan(40)
+  })
+
+  it("keeps date-sensitive tool metadata free of startup-date literals", async () => {
+    const { tools } = await mcpClient.listTools()
+    const metadata = JSON.stringify(tools)
+
+    expect(metadata).toContain("gangtise_current_date")
+    expect(metadata).not.toMatch(/当前日期\s+\d{4}-\d{2}-\d{2}/)
+    expect(metadata).not.toMatch(/当前年份\s+\d{4}/)
+  })
+
+  it("gangtise_current_date returns runtime Asia/Shanghai date context", async () => {
+    const result = await mcpClient.callTool({ name: "gangtise_current_date", arguments: {} })
+    expect(result.isError).toBeFalsy()
+
+    const text = (result.content as Array<{ text: string }>)[0].text
+    const parsed = JSON.parse(text)
+
+    expect(parsed).toMatchObject({
+      timezone: "Asia/Shanghai",
+      currentDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      currentYear: expect.stringMatching(/^\d{4}$/),
+      currentDateTime: expect.stringMatching(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/),
+    })
   })
 
   it("gangtise_lookup returns data for each type", async () => {
