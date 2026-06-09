@@ -179,17 +179,19 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
       inputSchema: {
         themeId: z.string().describe("主题 ID，来自 gangtise_lookup type=theme-ids（必填）"),
         date: z.string().describe(`YYYY-MM-DD，仅支持最近 30 天（必填）。${dateContextInstruction()}`),
-        type: z.string().optional().describe("morning=早报 | night=晚报"),
+        type: z.union([z.string(), z.array(z.string())]).optional().describe("morning=早报 | night=晚报；可传单个值或数组"),
       },
     },
     toolHandler(async (args: Record<string, unknown>) => {
-      const { date, ...rest } = args as { date: string; [k: string]: unknown }
+      const { date, type, ...rest } = args as { date: string; type?: string | string[]; [k: string]: unknown }
       const inputDate = new Date(`${date}T00:00:00+08:00`)
       const diffDays = Math.floor((todayDate().getTime() - inputDate.getTime()) / 86_400_000)
       if (diffDays > 30 || diffDays < 0) {
         throw new ValidationError(`date 超出最近 30 天范围。当前日期是 ${today()}，请按当前日期重新换算。`)
       }
-      const result = await client.call("ai.theme-tracking", { date, ...rest })
+      const body: Record<string, unknown> = { date, ...rest }
+      if (type !== undefined) body.type = Array.isArray(type) ? type : [type]
+      const result = await client.call("ai.theme-tracking", body)
       return contentResult(await buildToolContent(normalizeRows(result)))
     }),
   )

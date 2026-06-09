@@ -4,6 +4,14 @@
 
 ## Changelog
 
+### 0.1.19 (2026-06-09)
+- 修复 `gangtise_theme_tracking` 的 `type` 参数：MCP 可传单个字符串或数组，内部统一转换为后端需要的数组格式
+- 加强下载文件名清洗，避免 `Content-Disposition` 中的路径片段影响临时文件保存位置
+- 修复显式配置 `GANGTISE_TOKEN` 时的认证恢复逻辑：刷新后重试使用新 token
+- `fetchAll` 命中分页上限时返回 `_partial` / `_page_cap` 元数据，避免静默截断
+- 行情 K 线工具的 `limit` 参数增加 `1..10000` 校验
+- 忽略本地 `.mcp.json` 配置文件，避免误提交个人 MCP 配置
+
 ### 0.1.18 (2026-06-09)
 - 新增 `gangtise_current_date`：运行时查询当前日期、年份、时间和时区，供模型换算今天/最近/今年/当前等相对日期
 - 日期敏感工具元数据不再注入启动时的具体日期，改为提示先调用 `gangtise_current_date`，避免长驻 MCP 进程显示过期日期

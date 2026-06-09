@@ -120,4 +120,62 @@ describe("GangtiseClient auth recovery", () => {
     await expect(client.call("insight.research.download", undefined, { reportId: "123" })).rejects.toMatchObject({ code: "8000015" })
     expect(downloadCalls).toBe(1)
   })
+
+  it("uses the refreshed token on retry even when an explicit token was configured", async () => {
+    const seenAuthorization: string[] = []
+    requestMock.mockImplementation((url: unknown, options?: { headers?: Record<string, string> }) => {
+      if (String(url).includes("/loginV2")) {
+        return Promise.resolve(rawJsonResponse({ code: "000000", data: { accessToken: "fresh", expiresIn: 7200, time: 1 } }))
+      }
+      seenAuthorization.push(options?.headers?.Authorization ?? "")
+      if (seenAuthorization.length === 1) {
+        return Promise.resolve(rawJsonResponse({ code: "8000014", msg: "access key error" }))
+      }
+      return Promise.resolve(jsonResponse({ answer: 42 }))
+    })
+
+    const client = new GangtiseClient({
+      baseUrl: "https://open.gangtise.com",
+      timeoutMs: 30_000,
+      token: "stale",
+      accessKey: "ak",
+      secretKey: "sk",
+      tokenCachePath,
+      asyncTimeoutMs: 60_000,
+    })
+
+    expect(await client.call("ai.one-pager", { securityCode: "600519.SH" })).toEqual({ answer: 42 })
+    expect(seenAuthorization).toEqual(["Bearer stale", "Bearer fresh"])
+  })
+})
+
+describe("GangtiseClient pagination", () => {
+  it("marks a fetch-all result partial when the page cap truncates the target range", async () => {
+    requestMock.mockImplementation((_url: unknown, options?: { body?: string }) => {
+      const body = JSON.parse(options?.body ?? "{}") as { from: number; size: number }
+      return Promise.resolve(jsonResponse({
+        total: 60_000,
+        list: Array.from({ length: body.size }, (_, i) => ({ id: body.from + i })),
+      }))
+    })
+
+    const client = new GangtiseClient({
+      baseUrl: "https://open.gangtise.com",
+      timeoutMs: 30_000,
+      token: "test-token",
+      tokenCachePath,
+      asyncTimeoutMs: 60_000,
+    })
+
+    const result = await client.call("insight.opinion.list", {}) as Record<string, unknown> & { list: unknown[] }
+
+    expect(result.list).toHaveLength(50_000)
+    expect(result._partial).toBe(true)
+    expect(result._partial_reason).toBe("page_cap")
+    expect(result._page_cap).toEqual({
+      maxPages: 1000,
+      targetItems: 60_000,
+      returnedItems: 50_000,
+    })
+  })
 })

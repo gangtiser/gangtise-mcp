@@ -4,5 +4,6 @@ dist/
 .env.*
 CLAUDE.md
 .claude/settings.local.json
+.mcp.json
 ~/.config/gangtise/
 .understand-anything/

@@ -41,6 +41,16 @@ function extFromContentType(contentType?: string): string {
   return MIME_EXT[mime] ?? ".bin"
 }
 
+function safeFilename(filename: string | undefined): string | undefined
+function safeFilename(filename: string | undefined, fallback: string): string
+function safeFilename(filename: string | undefined, fallback?: string): string | undefined {
+  if (!filename) return fallback
+  const basename = filename.split(/[\\/]/).pop()?.trim() ?? ""
+  const cleaned = basename.replace(/[\x00-\x1f\x7f]/g, "")
+  if (!cleaned || cleaned === "." || cleaned === "..") return fallback
+  return cleaned
+}
+
 /**
  * Downloads a file via the Gangtise client and returns a structured result.
  * For binary files, streams to a unique temp directory (not auto-cleaned).
@@ -60,19 +70,19 @@ export async function downloadToResult(
   if (raw.url) {
     // Clean up the unused temp file
     await fs.rm(tempDir, { recursive: true, force: true })
-    return { url: raw.url, filename: raw.filename }
+    return { url: raw.url, filename: safeFilename(raw.filename) }
   }
 
   // Case 2: Text content (Markdown, HTML, plain text)
   if (raw.text != null) {
     await fs.rm(tempDir, { recursive: true, force: true })
-    return { text: raw.text, filename: raw.filename, contentType: raw.contentType }
+    return { text: raw.text, filename: safeFilename(raw.filename), contentType: raw.contentType }
   }
 
   // Case 3: Streamed to disk (binary)
   if (raw.savedPath) {
     const ext = extFromContentType(raw.contentType)
-    const filename = raw.filename ?? `download${ext}`
+    const filename = safeFilename(raw.filename, `download${ext}`)
     // Rename to meaningful extension if needed
     const finalPath = path.join(tempDir, filename)
     if (finalPath !== raw.savedPath) {
@@ -84,7 +94,7 @@ export async function downloadToResult(
   // Case 4: In-memory binary (fallback for small files)
   if (raw.data) {
     const ext = extFromContentType(raw.contentType)
-    const filename = raw.filename ?? `download${ext}`
+    const filename = safeFilename(raw.filename, `download${ext}`)
     const finalPath = path.join(tempDir, filename)
     await fs.writeFile(finalPath, raw.data)
     return { savedPath: finalPath, filename, contentType: raw.contentType }

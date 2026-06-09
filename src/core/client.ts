@@ -59,13 +59,12 @@ export class GangtiseClient {
   constructor(private readonly config: CliConfig) {}
 
   private async getAuthorizationHeader(forceRefresh = false): Promise<string> {
-    if (this.config.token && !forceRefresh) {
-      return normalizeToken(this.config.token)
-    }
-
     if (!forceRefresh) {
       if (isTokenCacheValid(this.memoCache)) {
         return normalizeToken(this.memoCache!.accessToken)
+      }
+      if (this.config.token) {
+        return normalizeToken(this.config.token)
       }
       const cache = await readTokenCache(this.config.tokenCachePath)
       if (isTokenCacheValid(cache)) {
@@ -218,6 +217,10 @@ export class GangtiseClient {
     const nextFrom = startFrom + firstPage.list.length
     const endFrom = startFrom + target
     const pageRequests = planRemainingPages(nextFrom, endFrom, maxPageSize, MAX_PAGES)
+    const plannedEndFrom = pageRequests.length === 0
+      ? nextFrom
+      : pageRequests[pageRequests.length - 1].from + pageRequests[pageRequests.length - 1].size
+    const hitPageCap = plannedEndFrom < endFrom
 
     let unexpectedShape = false
     let totalDrift = false
@@ -247,11 +250,24 @@ export class GangtiseClient {
       process.stderr.write(`[gangtise] warning: 'total' changed across pages (data shifted during fetch)\n`)
     }
 
-    return {
+    const returnedList = requestedSize === undefined ? collected : collected.slice(0, requestedSize)
+    const response: Record<string, unknown> = {
       ...firstPage,
       total,
-      list: requestedSize === undefined ? collected : collected.slice(0, requestedSize),
+      list: returnedList,
     }
+
+    if (hitPageCap) {
+      response._partial = true
+      response._partial_reason = "page_cap"
+      response._page_cap = {
+        maxPages: MAX_PAGES,
+        targetItems: target,
+        returnedItems: returnedList.length,
+      }
+    }
+
+    return response
   }
 
   async login() {

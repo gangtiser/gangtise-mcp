@@ -16,7 +16,7 @@ const commonKlineSchema = {
   security: z.union([z.string(), z.array(z.string())]).optional().describe("证券代码，如 '600519.SH' 或 ['600519.SH','000858.SZ']；传 'all' 拉取全市场"),
   startDate: z.string().optional().describe(dateDesc()),
   endDate: z.string().optional().describe(dateDesc()),
-  limit: z.number().int().optional().describe("最大返回行数（默认 6000，最大 10000）"),
+  limit: z.number().int().min(1).max(10_000).optional().describe("最大返回行数（默认 6000，最大 10000）"),
   field: z.array(z.string()).optional().describe("指定返回字段，如 ['open','close','pctChange']"),
 }
 
@@ -27,7 +27,7 @@ function buildKlineBody(args: Record<string, unknown>): KlineBody {
   }
   if (args.startDate) body.startDate = args.startDate as string
   if (args.endDate) body.endDate = args.endDate as string
-  if (args.limit) body.limit = args.limit as number
+  if (args.limit !== undefined) body.limit = args.limit as number
   if (args.field) body.fieldList = args.field as string[]
   return body
 }
@@ -93,7 +93,7 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
         security: z.string().describe("单只证券代码，如 '600519.SH'"),
         startTime: z.string().optional().describe(dateTimeDesc()),
         endTime: z.string().optional().describe(dateTimeDesc()),
-        limit: z.number().int().optional().describe("最大返回行数（默认 5000，最大 10000）"),
+        limit: z.number().int().min(1).max(10_000).optional().describe("最大返回行数（默认 5000，最大 10000）"),
         field: z.array(z.string()).optional(),
       },
     },
@@ -101,7 +101,7 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
       const body: Record<string, unknown> = { securityCode: security }
       if (startTime) body.startTime = startTime
       if (endTime) body.endTime = endTime
-      if (limit) body.limit = limit
+      if (limit !== undefined) body.limit = limit
       if (field) body.fieldList = field
       const result = await client.call("quote.minute-kline", body)
       return contentResult(await buildToolContent(normalizeRows(result)))

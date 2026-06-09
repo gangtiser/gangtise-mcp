@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import { createGangtiseMcpServer } from "../../src/server.js"
+import { today } from "../../src/core/dateContext.js"
 import type { GangtiseClient } from "../../src/core/client.js"
 
 function makeMockClient() {
@@ -150,6 +151,27 @@ describe("MCP server integration", () => {
       "alternative.concept-securities",
       expect.objectContaining({ conceptId: "121000130" }),
     )
+  })
+
+  it("gangtise_theme_tracking normalizes a single type to the backend array shape", async () => {
+    await mcpClient.callTool({
+      name: "gangtise_theme_tracking",
+      arguments: { themeId: "121000130", date: today(), type: "morning" },
+    })
+    expect(mockClient.call).toHaveBeenCalledWith(
+      "ai.theme-tracking",
+      expect.objectContaining({ themeId: "121000130", date: today(), type: ["morning"] }),
+    )
+  })
+
+  it("gangtise_day_kline rejects non-positive limits before calling the API", async () => {
+    const result = await mcpClient.callTool({
+      name: "gangtise_day_kline",
+      arguments: { security: "600519.SH", limit: 0 },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(mockClient.call).not.toHaveBeenCalledWith("quote.day-kline", expect.anything())
   })
 
   it("tools return isError on API failure", async () => {
