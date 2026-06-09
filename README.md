@@ -284,6 +284,34 @@ npm run build    # 编译 TypeScript → dist/
 npm test         # 运行测试
 ```
 
+## 发布维护
+
+本包默认通过 GitHub Actions + npm Trusted Publisher 发布，不在本地执行 `npm publish`，也不需要长期 npm token。发布前确保 npm 包设置已信任本仓库的 `.github/workflows/npm-publish.yml` workflow；该 workflow 已配置 `permissions: id-token: write`，推送 `v*` tag 后会通过 OIDC 发布到 npm。
+
+标准流程：
+
+```bash
+npm version patch --no-git-tag-version
+# 更新 README Changelog，并完成代码/测试修改
+npm test
+npx tsc --noEmit
+npm run build
+git add .
+git commit -m "fix: <message>"
+git push origin main
+git tag v0.1.x
+git push origin v0.1.x
+```
+
+发布完成后确认：
+
+```bash
+gh run list --workflow npm-publish.yml --limit 1
+npm view gangtise-mcp version
+```
+
+如果 GitHub Actions 的 publish 步骤提示 OIDC/trusted publisher 失败，应先检查 npm 包的 Publishing access 设置是否绑定到 `gangtiser/gangtise-mcp` 和 `.github/workflows/npm-publish.yml`，不要改回本地 token 发布。
+
 ## License
 
 MIT
