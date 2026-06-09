@@ -6,7 +6,7 @@
   "author": "gangtiser",
   "repository": {
     "type": "git",
-    "url": "https://github.com/gangtiser/gangtise-mcp"
+    "url": "git+https://github.com/gangtiser/gangtise-mcp.git"
   },
   "homepage": "https://github.com/gangtiser/gangtise-mcp#readme",
   "bugs": "https://github.com/gangtiser/gangtise-mcp/issues",
