@@ -4,6 +4,11 @@
 
 ## Changelog
 
+### 0.1.21 (2026-06-10)
+- 全部 69 个工具声明 MCP `annotations: { readOnlyHint: true }`：本服务只做数据查询，支持该注解的客户端（如 VS Code Copilot）可跳过确认弹窗；并加集成测试防止后续新工具漏标
+- 补齐核心模块单测：`pollAsyncContent` 轮询（退避序列 / 410110 / 410111 / 超时）、`normalizeRows` 矩阵转换、异步工具对 submit→poll 流程，测试 85 → 98
+- 例行依赖小版本更新（undici 7.27、tsx 4.22、vitest 3.2.6 等；undici 8 因要求 Node ≥ 22.19 与本包 engines `>=20` 冲突，维持 7.x）
+
 ### 0.1.20 (2026-06-10)
 - 下载类工具补上 256KB 截断防护：超大文本载荷（研报 Markdown / 观点 HTML / 录音转写）落盘到临时文件并返回 `_truncated` 预览指针（配合 `gangtise_read_response` 分页读取），不再整段内联挤爆上下文
 - 日期指引去重：「先调用 `gangtise_current_date` 换算相对日期」改为通过 MCP server instructions 全局声明一次，工具/参数描述只保留格式说明——工具列表体积 79.6KB → 58.2KB（-27%），重复语句 124 处 → 0
