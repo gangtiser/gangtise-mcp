@@ -25,6 +25,7 @@ export function registerLookupTools(server: McpServer, _client: GangtiseClient):
           "research-areas=研究方向 | broker-orgs=券商机构 | meeting-orgs=会议机构 | industries=行业 | regions=地区 | announcement-categories=公告类别 | industry-codes=申万行业代码 | theme-ids=主题ID",
         ),
       },
+      annotations: { readOnlyHint: true },
     },
     async ({ type }) => {
       try {

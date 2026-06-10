@@ -80,6 +80,12 @@ describe("MCP server integration", () => {
     expect(metadata).not.toMatch(/当前年份\s+\d{4}/)
   })
 
+  it("marks every tool read-only via MCP annotations", async () => {
+    const { tools } = await mcpClient.listTools()
+    const missing = tools.filter(t => t.annotations?.readOnlyHint !== true).map(t => t.name)
+    expect(missing).toEqual([])
+  })
+
   it("declares date guidance once in server instructions, not per-tool descriptions", async () => {
     expect(mcpClient.getInstructions()).toContain("gangtise_current_date")
 

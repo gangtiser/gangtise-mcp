@@ -123,6 +123,7 @@ export function registerVaultTools(server: McpServer, client: GangtiseClient): v
         size: z.number().int().min(1).optional().describe("Max rows (default 20)"),
         roomName: z.array(z.string()).optional().describe("按群名称筛选；多个会以逗号拼接发送"),
       },
+      annotations: { readOnlyHint: true },
     },
     toolHandler(async (args: Record<string, unknown>) => {
       const { roomName, size, ...rest } = args as { roomName?: string[]; size?: number; from?: number }
@@ -140,6 +141,7 @@ export function registerVaultTools(server: McpServer, client: GangtiseClient): v
       inputSchema: {
         poolIdList: z.array(z.string()).optional().describe("池 ID 列表，来自 gangtise_stock_pool_list；不传默认 ['all'] 即所有池"),
       },
+      annotations: { readOnlyHint: true },
     },
     toolHandler(async (args: Record<string, unknown>) => {
       const { poolIdList = ["all"] } = args as { poolIdList?: string[] }

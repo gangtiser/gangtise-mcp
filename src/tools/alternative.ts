@@ -54,6 +54,7 @@ export function registerAlternativeTools(server: McpServer, client: GangtiseClie
         startDate: z.string().describe(dateDesc() + "（必填）"),
         endDate: z.string().describe(dateDesc() + "（必填）"),
       },
+      annotations: { readOnlyHint: true },
     },
     toolHandler(async (args: Record<string, unknown>) => {
       const raw = await client.call("alternative.edb-data", args) as Record<string, unknown>

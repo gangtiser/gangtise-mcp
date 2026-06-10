@@ -187,7 +187,7 @@ export function registerJsonTool(server: McpServer, client: GangtiseClient, spec
 
   server.registerTool(
     spec.name,
-    { description: spec.description, inputSchema: schema },
+    { description: spec.description, inputSchema: schema, annotations: { readOnlyHint: true } },
     async (args) => {
       try {
         const { fetchAll, ...rest } = args as Record<string, unknown>
@@ -204,7 +204,7 @@ export function registerJsonTool(server: McpServer, client: GangtiseClient, spec
 export function registerDownloadTool(server: McpServer, client: GangtiseClient, spec: DownloadToolSpec): void {
   server.registerTool(
     spec.name,
-    { description: spec.description, inputSchema: spec.inputSchema },
+    { description: spec.description, inputSchema: spec.inputSchema, annotations: { readOnlyHint: true } },
     async (args) => {
       try {
         const endpoint = ENDPOINTS[spec.endpointKey]

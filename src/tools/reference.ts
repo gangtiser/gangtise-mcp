@@ -15,6 +15,7 @@ export function registerReferenceTools(server: McpServer, client: GangtiseClient
         category: z.array(z.string()).optional().describe("按类别筛选，如 ['stock', 'fund', 'index']"),
         top: z.number().int().min(1).optional().describe("最大返回条数"),
       },
+      annotations: { readOnlyHint: true },
     },
     toolHandler(async (args: Record<string, unknown>) => {
       const result = await client.call("reference.securities-search", args)
