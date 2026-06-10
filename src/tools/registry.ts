@@ -7,7 +7,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { GangtiseClient } from "../core/client.js"
 import { ENDPOINTS } from "../core/endpoints.js"
 import { normalizeRows } from "../core/normalize.js"
-import { downloadToResult } from "../core/download.js"
+import { downloadToResult, type DownloadResult } from "../core/download.js"
 import { errorMessage } from "../core/errors.js"
 import { dateContextPrefix } from "../core/dateContext.js"
 
@@ -96,27 +96,46 @@ export async function buildToolContent(normalized: unknown): Promise<Array<{ typ
  * blows the context window. Page the rest with gangtise_read_response.
  */
 export async function buildTextResult(text: string): Promise<Array<{ type: "text"; text: string }>> {
-  const byteLength = Buffer.byteLength(text, "utf8")
-  if (byteLength <= INLINE_MAX_BYTES) {
+  if (Buffer.byteLength(text, "utf8") <= INLINE_MAX_BYTES) {
     return [{ type: "text" as const, text }]
   }
+  const meta = await spillTextMeta(text)
+  return [{ type: "text" as const, text: JSON.stringify(meta, null, 2) }]
+}
 
+/** Writes oversized text to a temp .md file and returns the truncation-pointer metadata. */
+async function spillTextMeta(text: string): Promise<Record<string, unknown>> {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "gangtise-mcp-"))
   const savedPath = path.join(tempDir, "response.md")
   await fs.writeFile(savedPath, text, "utf8")
 
   const preview = text.slice(0, TEXT_PREVIEW_CHARS)
-  const meta = {
+  return {
     _truncated: true,
     _saved_to: savedPath,
     _read_with: "gangtise_read_response",
-    _total_bytes: byteLength,
+    _total_bytes: Buffer.byteLength(text, "utf8"),
     _total_chars: text.length,
     _preview_chars: preview.length,
     has_more: text.length > preview.length,
     _preview: preview,
   }
-  return [{ type: "text" as const, text: JSON.stringify(meta, null, 2) }]
+}
+
+/**
+ * Serializes a DownloadResult for the MCP response. Oversized text payloads
+ * (Markdown research reports, HTML opinions, ASR transcripts) are spilled to a
+ * temp file with a preview pointer — same contract as buildTextResult — while
+ * url/savedPath metadata stays inline untouched.
+ */
+export async function buildDownloadContent(result: DownloadResult): Promise<Array<{ type: "text"; text: string }>> {
+  const json = JSON.stringify(result, null, 2)
+  if (result.text === undefined || Buffer.byteLength(json, "utf8") <= INLINE_MAX_BYTES) {
+    return [{ type: "text" as const, text: json }]
+  }
+  const { text, ...rest } = result
+  const meta = await spillTextMeta(text)
+  return [{ type: "text" as const, text: JSON.stringify({ ...rest, ...meta }, null, 2) }]
 }
 
 // Zod raw shape type (compatible with registerTool inputSchema)
@@ -193,7 +212,7 @@ export function registerDownloadTool(server: McpServer, client: GangtiseClient, 
         if (!endpoint) throw new Error(`Unknown endpoint: ${spec.endpointKey}`)
         const query = args as Record<string, string | number>
         const result = await downloadToResult(client, endpoint, query)
-        return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] }
+        return { content: await buildDownloadContent(result) }
       } catch (err) {
         return { content: [{ type: "text" as const, text: errorMessage(err) }], isError: true }
       }

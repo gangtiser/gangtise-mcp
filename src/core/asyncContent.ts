@@ -1,5 +1,6 @@
 import { ApiError } from "./errors.js"
 import { AsyncTimeoutError } from "./errors.js"
+import { DEFAULT_ASYNC_TIMEOUT_MS } from "./config.js"
 
 export const POLL_INITIAL_DELAY_MS = 5_000
 export const POLL_MAX_DELAY_MS = 30_000
@@ -22,7 +23,7 @@ export async function pollAsyncContent(
   client: AsyncContentClient,
   getContentEndpoint: string,
   dataId: string,
-  timeoutMs = 60_000,
+  timeoutMs = DEFAULT_ASYNC_TIMEOUT_MS,
 ): Promise<{ content: string }> {
   const deadline = Date.now() + timeoutMs
   let attempt = 0

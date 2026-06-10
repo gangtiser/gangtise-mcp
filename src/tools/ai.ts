@@ -185,6 +185,9 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
     toolHandler(async (args: Record<string, unknown>) => {
       const { date, type, ...rest } = args as { date: string; type?: string | string[]; [k: string]: unknown }
       const inputDate = new Date(`${date}T00:00:00+08:00`)
+      if (Number.isNaN(inputDate.getTime())) {
+        throw new ValidationError(`date 格式无效：'${date}'，应为 YYYY-MM-DD。`)
+      }
       const diffDays = Math.floor((todayDate().getTime() - inputDate.getTime()) / 86_400_000)
       if (diffDays > 30 || diffDays < 0) {
         throw new ValidationError(`date 超出最近 30 天范围。当前日期是 ${today()}，请按当前日期重新换算。`)

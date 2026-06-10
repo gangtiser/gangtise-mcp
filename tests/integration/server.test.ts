@@ -164,6 +164,17 @@ describe("MCP server integration", () => {
     )
   })
 
+  it("gangtise_theme_tracking rejects malformed dates before calling the API", async () => {
+    const result = await mcpClient.callTool({
+      name: "gangtise_theme_tracking",
+      arguments: { themeId: "121000130", date: "2026-13-99" },
+    })
+
+    expect(result.isError).toBe(true)
+    expect((result.content as Array<{ text: string }>)[0].text).toContain("格式无效")
+    expect(mockClient.call).not.toHaveBeenCalled()
+  })
+
   it("gangtise_day_kline rejects non-positive limits before calling the API", async () => {
     const result = await mcpClient.callTool({
       name: "gangtise_day_kline",

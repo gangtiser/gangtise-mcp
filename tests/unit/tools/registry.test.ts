@@ -151,6 +151,56 @@ describe("buildTextResult", () => {
   })
 })
 
+describe("registerDownloadTool", () => {
+  function makeDownloadServer(downloadResponse: unknown) {
+    const mockClient = {
+      call: vi.fn(),
+      download: vi.fn().mockResolvedValue(downloadResponse),
+    } as unknown as GangtiseClient
+    const server = new McpServer({ name: "test", version: "0.0.0" })
+    registerDownloadTool(server, mockClient, {
+      name: "test_download",
+      description: "Test download",
+      endpointKey: "insight.research.download",
+      inputSchema: { reportId: z.string() },
+    })
+    return server
+  }
+
+  it("returns small text results inline as full JSON", async () => {
+    const server = makeDownloadServer({ text: "# 小文档", contentType: "text/markdown" })
+    const mcpClient = await makeConnectedPair(server)
+    const result = await mcpClient.callTool({ name: "test_download", arguments: { reportId: "r1" } })
+    expect(result.isError).toBeFalsy()
+    const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text)
+    expect(parsed.text).toBe("# 小文档")
+    expect(parsed.contentType).toBe("text/markdown")
+  })
+
+  it("spills oversized text results to a temp file instead of inlining them", async () => {
+    const big = "研报内容。".repeat(60_000) // ~900KB, well over the 256KB inline cap
+    const server = makeDownloadServer({ text: big, contentType: "text/markdown" })
+    const mcpClient = await makeConnectedPair(server)
+    const result = await mcpClient.callTool({ name: "test_download", arguments: { reportId: "r1" } })
+    expect(result.isError).toBeFalsy()
+
+    const raw = (result.content as Array<{ text: string }>)[0].text
+    expect(Buffer.byteLength(raw, "utf8")).toBeLessThan(256_000)
+
+    const parsed = JSON.parse(raw)
+    expect(parsed._truncated).toBe(true)
+    expect(parsed._read_with).toBe("gangtise_read_response")
+    expect(typeof parsed._saved_to).toBe("string")
+    expect(parsed.contentType).toBe("text/markdown")
+    expect(parsed.text).toBeUndefined()
+    expect(typeof parsed._preview).toBe("string")
+
+    const fileContent = await fs.readFile(parsed._saved_to as string, "utf8")
+    expect(fileContent).toBe(big)
+    await fs.rm(path.dirname(parsed._saved_to as string), { recursive: true, force: true })
+  })
+})
+
 describe("registerJsonTool", () => {
   it("returns normalized JSON for list response", async () => {
     const mockClient = makeMockClient({ list: [{ id: "abc", name: "test" }], total: 1 })
