@@ -4,7 +4,7 @@ import type { GangtiseClient } from "../core/client.js"
 import { registerJsonTool, buildToolContent, type JsonToolSpec } from "./registry.js"
 import { toolHandler, contentResult } from "./helpers.js"
 import { normalizeRows } from "../core/normalize.js"
-import { dateDesc, dateContextPrefix } from "../core/dateContext.js"
+import { dateDesc } from "../core/dateContext.js"
 
 const periodEnum = z.array(z.string()).optional().describe("q1=一季报 | interim=中报 | q3=三季报 | annual=年报 | latest=最新")
 const quarterlyPeriodEnum = z.array(z.string()).optional().describe("q1 | q2 | q3 | q4 | latest")
@@ -178,7 +178,7 @@ export function registerFundamentalTools(server: McpServer, client: GangtiseClie
   server.registerTool(
     "gangtise_valuation_analysis",
     {
-      description: dateContextPrefix() + "查询估值指标及历史分位数，支持 PE、PB、PEG、PS、PCF、EM。",
+      description: "查询估值指标及历史分位数，支持 PE、PB、PEG、PS、PCF、EM。",
       inputSchema: {
         securityCode,
         indicator: z.string().describe("peTtm | pbMrq | peg | psTtm | pcfTtm | em（必填）"),

@@ -80,6 +80,15 @@ describe("MCP server integration", () => {
     expect(metadata).not.toMatch(/当前年份\s+\d{4}/)
   })
 
+  it("declares date guidance once in server instructions, not per-tool descriptions", async () => {
+    expect(mcpClient.getInstructions()).toContain("gangtise_current_date")
+
+    const { tools } = await mcpClient.listTools()
+    const metadata = JSON.stringify(tools)
+    const copies = metadata.split("先调用 gangtise_current_date").length - 1
+    expect(copies).toBe(0)
+  })
+
   it("gangtise_current_date returns runtime Asia/Shanghai date context", async () => {
     const result = await mcpClient.callTool({ name: "gangtise_current_date", arguments: {} })
     expect(result.isError).toBeFalsy()

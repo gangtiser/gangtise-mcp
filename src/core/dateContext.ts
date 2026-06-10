@@ -67,20 +67,17 @@ export function currentDateContext(date = new Date()): CurrentDateContext {
   }
 }
 
+/** Served once via McpServer instructions (server.ts) — do not repeat in tool/param descriptions. */
 export function dateContextInstruction(): string {
   return `涉及"今天/最近/今年/当前"等相对日期时，先调用 gangtise_current_date 获取当前日期（时区 ${CURRENT_TIMEZONE}），不要使用训练数据年份。`
 }
 
-export function dateContextPrefix(): string {
-  return `[${dateContextInstruction()}] `
-}
-
 export function dateDesc(): string {
-  return `YYYY-MM-DD。${dateContextInstruction()}`
+  return "YYYY-MM-DD"
 }
 
 export function dateTimeDesc(): string {
-  return `YYYY-MM-DD HH:mm:ss。${dateContextInstruction()}`
+  return "YYYY-MM-DD HH:mm:ss"
 }
 
 /** 返回 Asia/Shanghai 当前日期的 Date 对象（时间归零到 00:00:00 UTC+8）。 */

@@ -9,7 +9,6 @@ import { ENDPOINTS } from "../core/endpoints.js"
 import { normalizeRows } from "../core/normalize.js"
 import { downloadToResult, type DownloadResult } from "../core/download.js"
 import { errorMessage } from "../core/errors.js"
-import { dateContextPrefix } from "../core/dateContext.js"
 
 const INLINE_MAX_BYTES = 256_000
 const PREVIEW_ITEMS = 20
@@ -188,7 +187,7 @@ export function registerJsonTool(server: McpServer, client: GangtiseClient, spec
 
   server.registerTool(
     spec.name,
-    { description: dateContextPrefix() + spec.description, inputSchema: schema },
+    { description: spec.description, inputSchema: schema },
     async (args) => {
       try {
         const { fetchAll, ...rest } = args as Record<string, unknown>
@@ -205,7 +204,7 @@ export function registerJsonTool(server: McpServer, client: GangtiseClient, spec
 export function registerDownloadTool(server: McpServer, client: GangtiseClient, spec: DownloadToolSpec): void {
   server.registerTool(
     spec.name,
-    { description: dateContextPrefix() + spec.description, inputSchema: spec.inputSchema },
+    { description: spec.description, inputSchema: spec.inputSchema },
     async (args) => {
       try {
         const endpoint = ENDPOINTS[spec.endpointKey]

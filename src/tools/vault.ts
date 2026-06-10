@@ -4,7 +4,6 @@ import type { GangtiseClient } from "../core/client.js"
 import { registerJsonTool, registerDownloadTool, buildToolContent, type JsonToolSpec, type DownloadToolSpec } from "./registry.js"
 import { toolHandler, contentResult } from "./helpers.js"
 import { normalizeRows } from "../core/normalize.js"
-import { dateContextPrefix } from "../core/dateContext.js"
 import { dateTimeDesc } from "../core/dateContext.js"
 
 const listSpecs: JsonToolSpec[] = [
@@ -118,7 +117,7 @@ export function registerVaultTools(server: McpServer, client: GangtiseClient): v
   server.registerTool(
     "gangtise_wechat_chatroom_list",
     {
-      description: dateContextPrefix() + "查询可用的微信群 ID 和群名称列表。",
+      description: "查询可用的微信群 ID 和群名称列表。",
       inputSchema: {
         from: z.number().int().min(0).optional(),
         size: z.number().int().min(1).optional().describe("Max rows (default 20)"),
@@ -137,7 +136,7 @@ export function registerVaultTools(server: McpServer, client: GangtiseClient): v
   server.registerTool(
     "gangtise_stock_pool_stocks",
     {
-      description: dateContextPrefix() + "查询指定自选股池中的证券列表。不传 poolIdList 时默认返回所有池的股票。",
+      description: "查询指定自选股池中的证券列表。不传 poolIdList 时默认返回所有池的股票。",
       inputSchema: {
         poolIdList: z.array(z.string()).optional().describe("池 ID 列表，来自 gangtise_stock_pool_list；不传默认 ['all'] 即所有池"),
       },

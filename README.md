@@ -4,6 +4,12 @@
 
 ## Changelog
 
+### 0.1.20 (2026-06-10)
+- 下载类工具补上 256KB 截断防护：超大文本载荷（研报 Markdown / 观点 HTML / 录音转写）落盘到临时文件并返回 `_truncated` 预览指针（配合 `gangtise_read_response` 分页读取），不再整段内联挤爆上下文
+- 日期指引去重：「先调用 `gangtise_current_date` 换算相对日期」改为通过 MCP server instructions 全局声明一次，工具/参数描述只保留格式说明——工具列表体积 79.6KB → 58.2KB（-27%），重复语句 124 处 → 0
+- `gangtise_theme_tracking` 对无法解析的 `date` 直接报参数错误，不再绕过 30 天范围校验打到后端
+- 异步轮询默认超时与 `GANGTISE_MCP_ASYNC_TIMEOUT_MS` 默认值（180s）对齐，移除残留的 60s 字面量
+
 ### 0.1.19 (2026-06-09)
 - 修复 `gangtise_theme_tracking` 的 `type` 参数：MCP 可传单个字符串或数组，内部统一转换为后端需要的数组格式
 - 加强下载文件名清洗，避免 `Content-Disposition` 中的路径片段影响临时文件保存位置
