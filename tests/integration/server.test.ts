@@ -200,6 +200,37 @@ describe("MCP server integration", () => {
     expect(mockClient.call).not.toHaveBeenCalledWith("quote.day-kline", expect.anything())
   })
 
+  it("gangtise_earnings_review submits then polls until content arrives", async () => {
+    vi.mocked(mockClient.call).mockImplementation(async (key: string) => {
+      if (key === "ai.earnings-review.get-id") return { dataId: "task-1" }
+      if (key === "ai.earnings-review.get-content") return { content: "# 业绩点评" }
+      throw new Error(`unexpected endpoint: ${key}`)
+    })
+
+    const result = await mcpClient.callTool({
+      name: "gangtise_earnings_review",
+      arguments: { securityCode: "600519.SH", period: "2026q1" },
+    })
+
+    expect(result.isError).toBeFalsy()
+    expect((result.content as Array<{ text: string }>)[0].text).toBe("# 业绩点评")
+    expect(mockClient.call).toHaveBeenCalledWith("ai.earnings-review.get-id", { securityCode: "600519.SH", period: "2026q1" })
+    expect(mockClient.call).toHaveBeenCalledWith("ai.earnings-review.get-content", { dataId: "task-1" })
+  })
+
+  it("gangtise_earnings_review_check reports pending on 410110 instead of erroring", async () => {
+    const { ApiError } = await import("../../src/core/errors.js")
+    vi.mocked(mockClient.call).mockRejectedValue(new ApiError("processing", "410110"))
+
+    const result = await mcpClient.callTool({
+      name: "gangtise_earnings_review_check",
+      arguments: { dataId: "task-1" },
+    })
+
+    expect(result.isError).toBeFalsy()
+    expect(JSON.parse((result.content as Array<{ text: string }>)[0].text)).toEqual({ status: "pending", dataId: "task-1" })
+  })
+
   it("tools return isError on API failure", async () => {
     vi.mocked(mockClient.call).mockRejectedValueOnce(new Error("network error"))
     const result = await mcpClient.callTool({ name: "gangtise_opinion_list", arguments: {} })

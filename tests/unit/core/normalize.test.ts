@@ -1,0 +1,45 @@
+import { describe, it, expect } from "vitest"
+import { normalizeRows } from "../../../src/core/normalize.js"
+
+describe("normalizeRows", () => {
+  it("passes through primitives, null, and arrays unchanged", () => {
+    expect(normalizeRows(null)).toBeNull()
+    expect(normalizeRows("text")).toBe("text")
+    expect(normalizeRows([1, 2])).toEqual([1, 2])
+  })
+
+  it("zips fieldList + row arrays into keyed objects, preserving meta", () => {
+    const raw = {
+      fieldList: ["tradeDate", "close"],
+      list: [["2026-06-09", 1700.5], ["2026-06-10", 1711.0]],
+      total: 2,
+    }
+    expect(normalizeRows(raw)).toEqual({
+      total: 2,
+      list: [
+        { tradeDate: "2026-06-09", close: 1700.5 },
+        { tradeDate: "2026-06-10", close: 1711.0 },
+      ],
+    })
+  })
+
+  it("returns a bare array when fieldList + list come without meta", () => {
+    const raw = { fieldList: ["a"], list: [[1]] }
+    expect(normalizeRows(raw)).toEqual([{ a: 1 }])
+  })
+
+  it("leaves non-array rows in a fieldList response untouched", () => {
+    const raw = { fieldList: ["a"], list: [{ already: "object" }], total: 1 }
+    expect(normalizeRows(raw)).toEqual({ total: 1, list: [{ already: "object" }] })
+  })
+
+  it("unwraps a plain list, keeping meta only when present", () => {
+    expect(normalizeRows({ list: [1, 2], total: 2 })).toEqual({ total: 2, list: [1, 2] })
+    expect(normalizeRows({ list: [1, 2] })).toEqual([1, 2])
+  })
+
+  it("renames chatRoomList to list", () => {
+    expect(normalizeRows({ chatRoomList: [{ id: "g1" }], total: 1 }))
+      .toEqual({ total: 1, list: [{ id: "g1" }] })
+  })
+})
