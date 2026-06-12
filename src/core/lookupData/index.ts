@@ -1,15 +1,14 @@
-import type { IndustryCodeItem, LookupItem } from "./types.js"
+import type { LookupItem } from "./types.js"
 
-export type LookupKey = "broker-orgs" | "meeting-orgs" | "industry-codes"
+export type LookupKey = "broker-orgs" | "meeting-orgs"
 
-type LookupData = LookupItem[] | IndustryCodeItem[]
+type LookupData = LookupItem[]
 
 const cache = new Map<string, LookupData>()
 
 const loaders: Record<LookupKey, () => Promise<{ [k: string]: LookupData }>> = {
   "broker-orgs": () => import("./broker-orgs.js"),
   "meeting-orgs": () => import("./meeting-orgs.js"),
-  "industry-codes": () => import("./industry-codes.js"),
 }
 
 export async function getLookupData(key: LookupKey): Promise<LookupData> {

@@ -116,7 +116,7 @@ describe("MCP server integration", () => {
   })
 
   it("gangtise_lookup returns data for each type", async () => {
-    const types = ["broker-orgs", "meeting-orgs", "industry-codes"]
+    const types = ["broker-orgs", "meeting-orgs"]
     for (const type of types) {
       const result = await mcpClient.callTool({ name: "gangtise_lookup", arguments: { type } })
       expect(result.isError).toBeFalsy()
@@ -133,7 +133,7 @@ describe("MCP server integration", () => {
   })
 
   it("gangtise_lookup rejects types retired in favor of the constants API", async () => {
-    for (const type of ["research-areas", "industries", "regions", "announcement-categories", "theme-ids"]) {
+    for (const type of ["research-areas", "industries", "regions", "announcement-categories", "theme-ids", "industry-codes"]) {
       const result = await mcpClient.callTool({ name: "gangtise_lookup", arguments: { type } })
       expect(result.isError).toBe(true)
     }

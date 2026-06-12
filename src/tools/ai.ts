@@ -35,7 +35,7 @@ const jsonSpecs: JsonToolSpec[] = [
       startTime: z.string().describe(dateTimeDesc() + "（必填）"),
       endTime: z.string().describe(dateTimeDesc() + "（必填）"),
       queryMode: z.string().describe("bySecurity=按个股 | byIndustry=按行业（必填）"),
-      gtsCodeList: z.array(z.string()).optional().describe("个股代码或申万行业代码列表"),
+      gtsCodeList: z.array(z.string()).optional().describe("个股代码（如 600519.SH）或申万行业代码（如 821035.SWI）列表。全量 31 个行业代码用 gangtise_sector_constituents sectorId=2000000014；单个行业可用 gangtise_securities_search（如 keyword=申万银行 category=['index']）"),
       source: z.string().optional().describe("researchReport=研报 | conference=会议 | announcement=公告 | view=观点"),
     },
   },

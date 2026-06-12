@@ -49,7 +49,7 @@ const referenceSpecs: JsonToolSpec[] = [
   {
     name: "gangtise_sector_constituents",
     description:
-      "查询板块的全量成分股名单（gtsCode / gtsName）。sectorId 必须来自 gangtise_sector_search；返回 0 条通常是误用了题材 conceptId。题材成分股（含分组/重点标记）用 gangtise_concept_securities。",
+      "查询板块的全量成分股名单（gtsCode / gtsName）。sectorId 必须来自 gangtise_sector_search；返回 0 条通常是误用了题材 conceptId。题材成分股（含分组/重点标记）用 gangtise_concept_securities。申万行业代码全量列表（821xxx.SWI，共 31 个）：sectorId=2000000014（申万一级行业指数，取「指数数据板块」层级的节点；「指数成份类」层级的同名节点返回 0 条）。",
     endpointKey: "reference.sector-constituents",
     inputSchema: {
       sectorId: z.string().describe("板块 ID，来自 gangtise_sector_search（必填）"),

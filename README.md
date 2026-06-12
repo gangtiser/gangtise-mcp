@@ -4,6 +4,12 @@
 
 ## Changelog
 
+### 0.1.23 (2026-06-12)
+- 同步 CLI v0.16.0：移除申万行业代码本地表，`gangtise_lookup` 仅剩券商机构 / 会议机构两类
+  - 31 个申万一级行业指数代码（`821xxx.SWI`，供 `gangtise_security_clue_list` 的 `gtsCodeList` 使用）改走板块 API 两步获取：`gangtise_sector_search`（申万一级行业指数 → 取「指数数据板块」层级节点 `2000000014`）→ `gangtise_sector_constituents`
+  - 单个行业代码也可直接 `gangtise_securities_search`（如 `keyword=申万银行` + `category=['index']`）
+  - 相关工具描述已更新获取路径，并标注「指数成份类」层级同名节点查成分返回 0 条的陷阱
+
 ### 0.1.22 (2026-06-12)
 - 同步 CLI reference 常量/题材/板块 API（CLI v0.15.1 之后的 f2d2a00）：
   - 新增 `gangtise_constant_category`：常量分类清单及各分类适用的接口参数（usageScopes）
@@ -122,7 +128,7 @@
 | 类别 | 工具 |
 |---|---|
 | 上下文 | `gangtise_current_date` — 查询运行时当前日期、年份、时间和时区 |
-| 参考数据 | `gangtise_constant_category` / `gangtise_constant_list` — 行业、城市、公告分类、区域等常量；`gangtise_concept_search` — 题材 ID 搜索；`gangtise_sector_search` / `gangtise_sector_constituents` — 板块及成分股；`gangtise_lookup` — 券商机构、会议机构、申万行业代码（本地表） |
+| 参考数据 | `gangtise_constant_category` / `gangtise_constant_list` — 行业、城市、公告分类、区域等常量；`gangtise_concept_search` — 题材 ID 搜索；`gangtise_sector_search` / `gangtise_sector_constituents` — 板块及成分股（含申万行业代码 `821xxx.SWI`）；`gangtise_lookup` — 券商机构、会议机构（本地表） |
 | 证券检索 | `gangtise_securities_search` |
 | 观点/研报 | 国内首席观点、纪要、券商研报、外资研报、外资独立观点、公告（A股/港股） |
 | 路演/调研 | 路演、调研、策略会、论坛 |
