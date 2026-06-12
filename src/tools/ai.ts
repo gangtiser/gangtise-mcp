@@ -179,7 +179,7 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
     {
       description: "获取指定主题的每日跟踪报告（早报或晚报版），需传入主题 ID 和日期。",
       inputSchema: {
-        themeId: z.string().describe("主题 ID，来自 gangtise_lookup type=theme-ids（必填）"),
+        themeId: z.string().describe("主题 ID，来自 gangtise_concept_search（必填）"),
         date: z.string().describe("YYYY-MM-DD，仅支持最近 30 天（必填）"),
         type: z.union([z.string(), z.array(z.string())]).optional().describe("morning=早报 | night=晚报；可传单个值或数组"),
       },

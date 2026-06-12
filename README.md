@@ -4,6 +4,16 @@
 
 ## Changelog
 
+### 0.1.22 (2026-06-12)
+- 同步 CLI reference 常量/题材/板块 API（CLI v0.15.1 之后的 f2d2a00）：
+  - 新增 `gangtise_constant_category`：常量分类清单及各分类适用的接口参数（usageScopes）
+  - 新增 `gangtise_constant_list`：按分类查全部常量值（中信/申万/Gangtise 行业、国内城市、A股/港股公告分类、区域），树形分类含 `children` 嵌套；`constants` 响应自动归一化为 `list`
+  - 新增 `gangtise_concept_search`：按关键词（中文名/拼音/分组名）搜索题材 ID，供 `gangtise_concept_info` / `gangtise_concept_securities` / `gangtise_theme_tracking` 使用
+  - 新增 `gangtise_sector_search` / `gangtise_sector_constituents`：板块 ID 搜索与全量成分股名单
+  - `gangtise_lookup` 收窄为常量 API 未覆盖的 3 类本地表（券商机构 / 会议机构 / 申万行业代码），移除研究方向/行业/地区/公告类别/主题 ID 本地数据（约 -2700 行静态表，改由上述 API 实时提供）
+  - 日程类工具（路演/调研/策略会/论坛）新增 `locationList` 筛选（domesticCity 常量 ID）
+- 同步 CLI v0.15.1 错误码提示：补充 410110（异步生成中）/ 410111（生成失败终态）/ 410004（数据未找到）/ 430004（下载失败）/ 430007（行情超限）/ 433007（数据源不匹配）/ 10011401（白名单未开通）
+
 ### 0.1.21 (2026-06-10)
 - 全部 69 个工具声明 MCP `annotations: { readOnlyHint: true }`：本服务只做数据查询，支持该注解的客户端（如 VS Code Copilot）可跳过确认弹窗；并加集成测试防止后续新工具漏标
 - 补齐核心模块单测：`pollAsyncContent` 轮询（退避序列 / 410110 / 410111 / 超时）、`normalizeRows` 矩阵转换、异步工具对 submit→poll 流程，测试 85 → 98
@@ -112,7 +122,7 @@
 | 类别 | 工具 |
 |---|---|
 | 上下文 | `gangtise_current_date` — 查询运行时当前日期、年份、时间和时区 |
-| 参考数据 | `gangtise_lookup` — 研究方向、券商、行业、地区、公告类别、申万行业代码、主题 ID |
+| 参考数据 | `gangtise_constant_category` / `gangtise_constant_list` — 行业、城市、公告分类、区域等常量；`gangtise_concept_search` — 题材 ID 搜索；`gangtise_sector_search` / `gangtise_sector_constituents` — 板块及成分股；`gangtise_lookup` — 券商机构、会议机构、申万行业代码（本地表） |
 | 证券检索 | `gangtise_securities_search` |
 | 观点/研报 | 国内首席观点、纪要、券商研报、外资研报、外资独立观点、公告（A股/港股） |
 | 路演/调研 | 路演、调研、策略会、论坛 |

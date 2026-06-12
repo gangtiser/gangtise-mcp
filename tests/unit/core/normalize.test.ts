@@ -42,4 +42,22 @@ describe("normalizeRows", () => {
     expect(normalizeRows({ chatRoomList: [{ id: "g1" }], total: 1 }))
       .toEqual({ total: 1, list: [{ id: "g1" }] })
   })
+
+  it("renames constants to list, preserving category metadata", () => {
+    const raw = {
+      category: "citicIndustry",
+      structureType: "flat",
+      maxLevel: 1,
+      constantCount: 2,
+      constants: [{ constantId: "1", constantName: "石油石化", level: 1 }, { constantId: "2", constantName: "煤炭", level: 1 }],
+    }
+    expect(normalizeRows(raw)).toEqual({
+      category: "citicIndustry",
+      structureType: "flat",
+      maxLevel: 1,
+      constantCount: 2,
+      list: raw.constants,
+    })
+    expect(normalizeRows({ constants: [{ constantId: "1" }] })).toEqual([{ constantId: "1" }])
+  })
 })

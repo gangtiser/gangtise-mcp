@@ -20,12 +20,13 @@ const scheduleListSchema = {
   brokerTypeList: z.array(z.string()).optional(),
   objectList: z.array(z.string()).optional().describe("company=公司 | industry=行业"),
   permission: z.array(z.number().int()).optional(),
+  locationList: z.array(z.string()).optional().describe("地点 ID（domesticCity 常量），来自 gangtise_constant_list category=domesticCity"),
 }
 
 function scheduleSpec(name: string, label: string, endpointKey: string): JsonToolSpec {
   return {
     name,
-    description: `查询${label}日程列表，支持按研究方向、机构、证券、类别、市场、参会角色等筛选。`,
+    description: `查询${label}日程列表，支持按研究方向、机构、证券、类别、市场、参会角色、地点等筛选。`,
     endpointKey,
     paginated: true,
     inputSchema: scheduleListSchema,
@@ -44,7 +45,7 @@ const listSpecs: JsonToolSpec[] = [
       endTime: z.string().optional().describe(dateTimeDesc()),
       keyword: z.string().optional(),
       rankType: z.number().int().optional().describe("1=综合排序（默认）| 2=时间倒序"),
-      researchAreaList: z.array(z.string()).optional().describe("研究方向 ID，来自 gangtise_lookup type=research-areas"),
+      researchAreaList: z.array(z.string()).optional().describe("研究方向 ID，来自 gangtise_constant_list（citicIndustry / gangtiseIndustry 分类）"),
       chiefList: z.array(z.string()).optional().describe("首席分析师 ID 列表"),
       securityList: z.array(z.string()).optional().describe("证券代码列表，如 ['600519.SH']"),
       brokerList: z.array(z.string()).optional().describe("券商机构 ID，来自 gangtise_lookup type=broker-orgs"),
@@ -116,7 +117,7 @@ const listSpecs: JsonToolSpec[] = [
       searchType: z.number().int().optional().describe("1=标题搜索 | 2=全文搜索"),
       rankType: z.number().int().optional().describe("1=综合排序 | 2=时间倒序"),
       securityList: z.array(z.string()).optional(),
-      regionList: z.array(z.string()).optional().describe("地区 ID，来自 gangtise_lookup type=regions"),
+      regionList: z.array(z.string()).optional().describe("地区 ID，来自 gangtise_constant_list category=regionCategory"),
       categoryList: z.array(z.string()).optional(),
       industryList: z.array(z.string()).optional(),
       brokerList: z.array(z.string()).optional(),
@@ -141,7 +142,7 @@ const listSpecs: JsonToolSpec[] = [
       rankType: z.number().int().optional().describe("1=综合排序 | 2=时间倒序"),
       securityList: z.array(z.string()).optional(),
       announcementTypeList: z.array(z.string()).optional(),
-      categoryList: z.array(z.string()).optional().describe("公告类别 ID，来自 gangtise_lookup type=announcement-categories"),
+      categoryList: z.array(z.string()).optional().describe("公告类别 ID，来自 gangtise_constant_list category=aShareAnnouncementCategory"),
     },
   },
   {
@@ -157,7 +158,7 @@ const listSpecs: JsonToolSpec[] = [
       searchType: z.number().int().optional().describe("1=标题搜索 | 2=全文搜索"),
       rankType: z.number().int().optional().describe("1=综合排序 | 2=时间倒序"),
       securityList: z.array(z.string()).optional(),
-      categoryList: z.array(z.string()).optional(),
+      categoryList: z.array(z.string()).optional().describe("公告类别 ID，来自 gangtise_constant_list category=hkShareAnnouncementCategory"),
     },
   },
   {
@@ -171,7 +172,7 @@ const listSpecs: JsonToolSpec[] = [
       endTime: z.string().optional().describe(dateTimeDesc()),
       keyword: z.string().optional(),
       rankType: z.number().int().optional().describe("1=综合排序 | 2=时间倒序"),
-      regionList: z.array(z.string()).optional().describe("地区 ID，来自 gangtise_lookup type=regions"),
+      regionList: z.array(z.string()).optional().describe("地区 ID，来自 gangtise_constant_list category=regionCategory"),
       industryList: z.array(z.string()).optional(),
       securityList: z.array(z.string()).optional(),
       brokerList: z.array(z.string()).optional(),

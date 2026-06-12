@@ -66,6 +66,11 @@ describe("MCP server integration", () => {
     expect(names).toContain("gangtise_wechat_message_list")
     expect(names).toContain("gangtise_concept_info")
     expect(names).toContain("gangtise_concept_securities")
+    expect(names).toContain("gangtise_constant_category")
+    expect(names).toContain("gangtise_constant_list")
+    expect(names).toContain("gangtise_concept_search")
+    expect(names).toContain("gangtise_sector_search")
+    expect(names).toContain("gangtise_sector_constituents")
 
     // Should have a substantial number of tools
     expect(tools.length).toBeGreaterThan(40)
@@ -111,10 +116,7 @@ describe("MCP server integration", () => {
   })
 
   it("gangtise_lookup returns data for each type", async () => {
-    const types = [
-      "research-areas", "broker-orgs", "meeting-orgs", "industries",
-      "regions", "announcement-categories", "industry-codes", "theme-ids",
-    ]
+    const types = ["broker-orgs", "meeting-orgs", "industry-codes"]
     for (const type of types) {
       const result = await mcpClient.callTool({ name: "gangtise_lookup", arguments: { type } })
       expect(result.isError).toBeFalsy()
@@ -128,6 +130,45 @@ describe("MCP server integration", () => {
     const result = await mcpClient.callTool({ name: "gangtise_lookup", arguments: { type: "nonexistent" } })
     // Schema validation should reject this — result will be an error
     expect(result.isError).toBe(true)
+  })
+
+  it("gangtise_lookup rejects types retired in favor of the constants API", async () => {
+    for (const type of ["research-areas", "industries", "regions", "announcement-categories", "theme-ids"]) {
+      const result = await mcpClient.callTool({ name: "gangtise_lookup", arguments: { type } })
+      expect(result.isError).toBe(true)
+    }
+  })
+
+  it("gangtise_constant_list calls the constants endpoint with category", async () => {
+    await mcpClient.callTool({ name: "gangtise_constant_list", arguments: { category: "citicIndustry" } })
+    expect(mockClient.call).toHaveBeenCalledWith(
+      "reference.constant-list",
+      expect.objectContaining({ category: "citicIndustry" }),
+    )
+  })
+
+  it("gangtise_concept_search calls the concepts endpoint with keyword", async () => {
+    await mcpClient.callTool({ name: "gangtise_concept_search", arguments: { keyword: "机器人", top: 3 } })
+    expect(mockClient.call).toHaveBeenCalledWith(
+      "reference.concept-search",
+      expect.objectContaining({ keyword: "机器人", top: 3 }),
+    )
+  })
+
+  it("gangtise_sector_constituents calls the sectors endpoint with sectorId", async () => {
+    await mcpClient.callTool({ name: "gangtise_sector_constituents", arguments: { sectorId: "1000001005" } })
+    expect(mockClient.call).toHaveBeenCalledWith(
+      "reference.sector-constituents",
+      expect.objectContaining({ sectorId: "1000001005" }),
+    )
+  })
+
+  it("schedule list tools accept locationList", async () => {
+    await mcpClient.callTool({ name: "gangtise_roadshow_list", arguments: { locationList: ["10001"] } })
+    expect(mockClient.call).toHaveBeenCalledWith(
+      "insight.roadshow.list",
+      expect.objectContaining({ locationList: ["10001"] }),
+    )
   })
 
   it("gangtise_opinion_list calls API with default size: 20", async () => {
