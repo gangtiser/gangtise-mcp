@@ -20,9 +20,17 @@ const referenceSpecs: JsonToolSpec[] = [
     endpointKey: "reference.constant-list",
     inputSchema: {
       category: z
-        .string()
+        .enum([
+          "citicIndustry",
+          "swIndustry",
+          "gangtiseIndustry",
+          "domesticCity",
+          "aShareAnnouncementCategory",
+          "hkShareAnnouncementCategory",
+          "regionCategory",
+        ])
         .describe(
-          "分类代码（必填）：citicIndustry | swIndustry | gangtiseIndustry | domesticCity | aShareAnnouncementCategory | hkShareAnnouncementCategory | regionCategory，完整清单见 gangtise_constant_category",
+          "分类代码（必填）：citicIndustry=中信一级行业 | swIndustry=申万一级行业 | gangtiseIndustry=Gangtise行业 | domesticCity=国内城市 | aShareAnnouncementCategory=A股公告分类 | hkShareAnnouncementCategory=港股公告分类 | regionCategory=区域分类，完整清单见 gangtise_constant_category",
         ),
     },
   },
@@ -32,7 +40,11 @@ const referenceSpecs: JsonToolSpec[] = [
       "按关键词搜索题材（概念/主题）ID，支持中文名、简称、拼音首字母（如 jqr）、分组名。返回 conceptId / conceptName / matchScore。该 ID 供 gangtise_concept_info / gangtise_concept_securities 的 conceptId 和 gangtise_theme_tracking 的 themeId 使用（同一套 ID）。",
     endpointKey: "reference.concept-search",
     inputSchema: {
-      keyword: z.string().describe("搜索词：题材中文名/简称、拼音首字母（如 jqr）、分组名（如 灵巧手）"),
+      keyword: z
+        .string()
+        .trim()
+        .min(1, "搜索词不能为空")
+        .describe("搜索词：题材中文名/简称、拼音首字母（如 jqr）、分组名（如 灵巧手）"),
       top: z.number().int().min(1).max(10).optional().describe("最大返回条数（默认 10，上限 10）"),
     },
   },
@@ -42,7 +54,12 @@ const referenceSpecs: JsonToolSpec[] = [
       "按关键词搜索板块 ID（行业/概念/指数成份等分类树节点），返回 sectorId / sectorName / hierarchy（层级路径）/ matchScore。同名板块可能出现在多个层级，用 hierarchy 区分。sectorId 供 gangtise_sector_constituents 使用，与题材 conceptId 是两套 ID，不通用。",
     endpointKey: "reference.sector-search",
     inputSchema: {
-      keyword: z.string().optional().describe("搜索词：板块中文名/简称、拼音首字母"),
+      keyword: z
+        .string()
+        .optional()
+        .describe(
+          "搜索词（缺省时返回分类树顶层节点，用于浏览）：板块中文名/简称；拼音首字母仅对概念类板块有效（如 bj=白酒），申万行业/沪深300 等指数类节点请用中文",
+        ),
       top: z.number().int().min(1).max(10).optional().describe("最大返回条数（默认 10，上限 10）"),
     },
   },
@@ -52,7 +69,7 @@ const referenceSpecs: JsonToolSpec[] = [
       "查询板块的全量成分股名单（gtsCode / gtsName）。sectorId 必须来自 gangtise_sector_search；返回 0 条通常是误用了题材 conceptId。题材成分股（含分组/重点标记）用 gangtise_concept_securities。申万行业代码全量列表（821xxx.SWI，共 31 个）：sectorId=2000000014（申万一级行业指数，取「指数数据板块」层级的节点；「指数成份类」层级的同名节点返回 0 条）。",
     endpointKey: "reference.sector-constituents",
     inputSchema: {
-      sectorId: z.string().describe("板块 ID，来自 gangtise_sector_search（必填）"),
+      sectorId: z.string().min(1, "sectorId 不能为空").describe("板块 ID，来自 gangtise_sector_search（必填）"),
     },
   },
 ]
@@ -63,7 +80,7 @@ export function registerReferenceTools(server: McpServer, client: GangtiseClient
     {
       description: "按关键词搜索证券，支持股票名称、代码（如 600519）、拼音或英文名。返回匹配证券及其 GTS 代码。",
       inputSchema: {
-        keyword: z.string().describe("搜索词：股票名称、代码（如 600519）、拼音或英文名"),
+        keyword: z.string().trim().min(1, "搜索词不能为空").describe("搜索词：股票名称、代码（如 600519）、拼音或英文名"),
         category: z.array(z.string()).optional().describe("按类别筛选，如 ['stock', 'fund', 'index']"),
         top: z.number().int().min(1).optional().describe("最大返回条数"),
       },

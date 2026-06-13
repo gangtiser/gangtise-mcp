@@ -4,6 +4,15 @@
 
 ## Changelog
 
+### 0.1.24 (2026-06-13)
+- 接口路由审计后的校验与指路加固（无新增/删除工具，仍 74 个）：
+  - `gangtise_constant_list` 的 `category` 收窄为枚举：传错（拼写/大小写）在本地即拦截并回显 7 个合法值，不再静默返回 `null`
+  - 上游对 `swIndustry` / `citicIndustry` 等分类返回空数据时，归一化为稳定的 `list: []`（此前键名在 `list` 与 `constants: null` 间漂移）
+  - `gangtise_concept_search` / `gangtise_securities_search` 的 `keyword` 与 `gangtise_sector_constituents` 的 `sectorId` 加非空校验（`keyword` 先 trim），空串/纯空白在本地拦截，不再把裸「参数错误」透传给调用方；`gangtise_sector_search` 的 `keyword` 仍可缺省（返回分类树顶层节点用于浏览）
+  - 新增错误码 `410001`（通用参数错误）提示，按 ID 来源引导改用对应 reference 工具
+  - 补全 `industryList`（5 个工具）/ `researchAreaList`（纪要、路演/调研/策略会/论坛、会议录音）/ `industryIdList`（微信消息）的参数描述，写明 ID 来自 `gangtise_constant_list` 及各工具适用的分类
+  - `gangtise_lookup` 重定向清单补「研究方向」；`gangtise_sector_search` 的 `keyword` 描述澄清拼音首字母仅对概念类板块有效，申万/沪深300 等指数类节点请用中文
+
 ### 0.1.23 (2026-06-12)
 - 同步 CLI v0.16.0：移除申万行业代码本地表，`gangtise_lookup` 仅剩券商机构 / 会议机构两类
   - 31 个申万一级行业指数代码（`821xxx.SWI`，供 `gangtise_security_clue_list` 的 `gtsCodeList` 使用）改走板块 API 两步获取：`gangtise_sector_search`（申万一级行业指数 → 取「指数数据板块」层级节点 `2000000014`）→ `gangtise_sector_constituents`

@@ -163,6 +163,36 @@ describe("MCP server integration", () => {
     )
   })
 
+  it("gangtise_concept_search rejects an empty keyword before calling the API", async () => {
+    const result = await mcpClient.callTool({ name: "gangtise_concept_search", arguments: { keyword: "" } })
+    expect(result.isError).toBe(true)
+    expect(mockClient.call).not.toHaveBeenCalled()
+  })
+
+  it("gangtise_concept_search rejects a whitespace-only keyword before calling the API", async () => {
+    const result = await mcpClient.callTool({ name: "gangtise_concept_search", arguments: { keyword: "   " } })
+    expect(result.isError).toBe(true)
+    expect(mockClient.call).not.toHaveBeenCalled()
+  })
+
+  it("gangtise_securities_search rejects an empty keyword before calling the API", async () => {
+    const result = await mcpClient.callTool({ name: "gangtise_securities_search", arguments: { keyword: "" } })
+    expect(result.isError).toBe(true)
+    expect(mockClient.call).not.toHaveBeenCalled()
+  })
+
+  it("gangtise_sector_constituents rejects an empty sectorId before calling the API", async () => {
+    const result = await mcpClient.callTool({ name: "gangtise_sector_constituents", arguments: { sectorId: "" } })
+    expect(result.isError).toBe(true)
+    expect(mockClient.call).not.toHaveBeenCalled()
+  })
+
+  it("gangtise_constant_list rejects an unknown category before calling the API", async () => {
+    const result = await mcpClient.callTool({ name: "gangtise_constant_list", arguments: { category: "foo" } })
+    expect(result.isError).toBe(true)
+    expect(mockClient.call).not.toHaveBeenCalled()
+  })
+
   it("schedule list tools accept locationList", async () => {
     await mcpClient.callTool({ name: "gangtise_roadshow_list", arguments: { locationList: ["10001"] } })
     expect(mockClient.call).toHaveBeenCalledWith(

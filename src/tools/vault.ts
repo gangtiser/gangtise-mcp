@@ -43,7 +43,7 @@ const listSpecs: JsonToolSpec[] = [
     inputSchema: {
       from: z.number().int().min(0).optional(),
       keyword: z.string().optional(),
-      researchAreaList: z.array(z.string()).optional(),
+      researchAreaList: z.array(z.string()).optional().describe("研究方向 ID，来自 gangtise_constant_list（citicIndustry / gangtiseIndustry 分类）"),
       securityList: z.array(z.string()).optional(),
       institutionList: z.array(z.string()).optional(),
       categoryList: z.array(z.string()).optional().describe("earningsCall=业绩会 | strategyMeeting=策略会 | fundRoadshow=路演 | shareholdersMeeting=股东大会 | maMeeting=并购 | specialMeeting=专题会 | companyAnalysis=公司分析 | industryAnalysis=行业分析 | other=其他"),
@@ -61,7 +61,7 @@ const listSpecs: JsonToolSpec[] = [
       keyword: z.string().optional(),
       securityList: z.array(z.string()).optional().describe("证券代码列表，如 ['000001.SZ']"),
       wechatGroupIdList: z.array(z.string()).optional().describe("群 ID，来自 gangtise_wechat_chatroom_list"),
-      industryIdList: z.array(z.string()).optional(),
+      industryIdList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list"),
       categoryList: z.array(z.string()).optional().describe("text=文字 | image=图片 | documents=文件 | url=链接"),
       tagList: z.array(z.string()).optional().describe("roadShow=路演 | research=调研 | strategyMeeting=策略会 | meetingSummary=会议纪要 | industryComment=行业点评 | companyComment=公司点评 | earningsReview=业绩点评"),
       startTime: z.string().optional().describe(dateTimeDesc()),

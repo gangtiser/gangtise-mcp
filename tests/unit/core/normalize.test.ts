@@ -60,4 +60,22 @@ describe("normalizeRows", () => {
     })
     expect(normalizeRows({ constants: [{ constantId: "1" }] })).toEqual([{ constantId: "1" }])
   })
+
+  it("normalizes a null constants payload to an empty list, keeping the key stable", () => {
+    const raw = {
+      category: "swIndustry",
+      structureType: "flat",
+      maxLevel: 1,
+      constantCount: null,
+      constants: null,
+    }
+    expect(normalizeRows(raw)).toEqual({
+      category: "swIndustry",
+      structureType: "flat",
+      maxLevel: 1,
+      constantCount: null,
+      list: [],
+    })
+    expect(normalizeRows({ constants: null })).toEqual([])
+  })
 })

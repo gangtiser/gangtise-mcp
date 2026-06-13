@@ -29,6 +29,7 @@ const ERROR_HINTS: Record<string, string> = {
   "903301": "今日调用次数已达上限。",
   "410110": "异步内容生成中，稍后用对应 *_check 工具查询。",
   "410111": "异步内容生成失败（终态），请更换参数后重新提交。",
+  "410001": "请求参数无效，请检查必填参数及 ID 来源：板块 ID 用 gangtise_sector_search，行业/公告类别/地区 ID 用 gangtise_constant_list，题材 ID 用 gangtise_concept_search。",
   "410004": "数据未找到，请检查查询条件。",
   "430004": "下载失败（官方未文档化错误码），请确认 reportId 有效或更换 fileType 重试。",
   "430007": "行情查询超出限制，请缩短日期范围。",
