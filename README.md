@@ -4,6 +4,9 @@
 
 ## Changelog
 
+### 0.1.26 (2026-06-15)
+- 修复 `gangtise_opinion_list.researchAreaList` 描述遗漏：对齐 v0.17.0 路由建议，统一改为 `category=gangtiseIndustry`（与其他所有 researchAreaList 参数一致；`industryList` 仍用 citicIndustry）
+
 ### 0.1.25 (2026-06-15)
 - 同步 CLI v0.17.0：
   - 日程类 4 个工具的 schema 各自只暴露 API spec 真支持的字段（之前共享一套 11 字段的大 schema，传不支持字段静默无效）：

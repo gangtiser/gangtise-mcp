@@ -66,7 +66,7 @@ const listSpecs: JsonToolSpec[] = [
       endTime: z.string().optional().describe(dateTimeDesc()),
       keyword: z.string().optional(),
       rankType: z.number().int().optional().describe("1=综合排序（默认）| 2=时间倒序"),
-      researchAreaList: z.array(z.string()).optional().describe("研究方向 ID，来自 gangtise_constant_list（citicIndustry / gangtiseIndustry 分类）"),
+      researchAreaList: z.array(z.string()).optional().describe("研究方向 ID，来自 gangtise_constant_list category=gangtiseIndustry（行业 1008001xx + 方向 122000xxx：宏观/策略/固收/金工/海外/其他）"),
       chiefList: z.array(z.string()).optional().describe("首席分析师 ID 列表"),
       securityList: z.array(z.string()).optional().describe("证券代码列表，如 ['600519.SH']"),
       brokerList: z.array(z.string()).optional().describe("券商机构 ID，来自 gangtise_lookup type=broker-orgs"),
