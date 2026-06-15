@@ -87,18 +87,21 @@
 
 ## 功能覆盖
 
-| 类别 | 工具 |
-|---|---|
-| 上下文 | `gangtise_current_date` — 查询运行时当前日期、年份、时间和时区 |
-| 参考数据 | `gangtise_constant_category` / `gangtise_constant_list` — 行业、城市、公告分类、区域等常量；`gangtise_concept_search` — 题材 ID 搜索；`gangtise_sector_search` / `gangtise_sector_constituents` — 板块及成分股（含申万行业代码 `821xxx.SWI`）；`gangtise_lookup` — 券商机构、会议机构（本地表） |
-| 证券检索 | `gangtise_securities_search` |
-| 观点/研报 | 国内首席观点、纪要、券商研报、外资研报、外资独立观点、公告（A股/港股） |
-| 路演/调研 | 路演、调研、策略会、论坛 |
-| 行情 | A 股/港股/美股日 K（仅历史）、A 股分钟 K、指数日 K、实时行情快照（A/港/美） |
-| 基本面 | A股/港股利润表、资产负债表、现金流量表（累计/单季）、主营业务、估值、股东、盈利预测 |
-| AI 能力 | 知识库检索、一页通、投资逻辑、同业对比、线索、主题跟踪、业绩点评、观点辩证、管理层讨论 |
-| 云盘/语音 | 网盘文件、录音转写、我的会议、群消息、自选股池 |
-| 另类数据 | EDB 行业经济指标搜索与时序数据查询、题材指数基本信息与成分股 |
+<table>
+<thead><tr><th width="100">类别</th><th>工具</th></tr></thead>
+<tbody>
+<tr><td>上下文</td><td><code>gangtise_current_date</code> — 查询运行时当前日期、年份、时间和时区</td></tr>
+<tr><td>参考数据</td><td><code>gangtise_constant_category</code> / <code>gangtise_constant_list</code> — 行业、城市、公告分类、区域等常量；<code>gangtise_concept_search</code> — 题材 ID 搜索；<code>gangtise_sector_search</code> / <code>gangtise_sector_constituents</code> — 板块及成分股（含申万行业代码 <code>821xxx.SWI</code>）；<code>gangtise_lookup</code> — 券商机构、会议机构（本地表）</td></tr>
+<tr><td>证券检索</td><td><code>gangtise_securities_search</code></td></tr>
+<tr><td>观点/研报</td><td>国内首席观点、纪要、券商研报、外资研报、外资独立观点、公告（A股/港股）</td></tr>
+<tr><td>路演/调研</td><td>路演、调研、策略会、论坛</td></tr>
+<tr><td>行情</td><td>A 股/港股/美股日 K（仅历史）、A 股分钟 K、指数日 K、实时行情快照（A/港/美）</td></tr>
+<tr><td>基本面</td><td>A股/港股利润表、资产负债表、现金流量表（累计/单季）、主营业务、估值、股东、盈利预测</td></tr>
+<tr><td>AI 能力</td><td>知识库检索、一页通、投资逻辑、同业对比、线索、主题跟踪、业绩点评、观点辩证、管理层讨论</td></tr>
+<tr><td>云盘/语音</td><td>网盘文件、录音转写、我的会议、群消息、自选股池</td></tr>
+<tr><td>另类数据</td><td>EDB 行业经济指标搜索与时序数据查询、题材指数基本信息与成分股</td></tr>
+</tbody>
+</table>
 
 ## 前置要求
 
