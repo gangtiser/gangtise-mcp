@@ -4,32 +4,53 @@ import type { GangtiseClient } from "../core/client.js"
 import { registerJsonTool, registerDownloadTool, type JsonToolSpec, type DownloadToolSpec } from "./registry.js"
 import { dateTimeDesc } from "../core/dateContext.js"
 
-// roadshow / site-visit / strategy / forum are all schedule lists with an
-// identical filter set — share one schema and a spec builder.
-const scheduleListSchema = {
-  from: z.number().int().min(0).optional(),
-  startTime: z.string().optional().describe(dateTimeDesc()),
-  endTime: z.string().optional().describe(dateTimeDesc()),
-  keyword: z.string().optional(),
-  researchAreaList: z.array(z.string()).optional().describe("研究方向 ID，来自 gangtise_constant_list（citicIndustry / gangtiseIndustry 分类）"),
-  institutionList: z.array(z.string()).optional(),
-  securityList: z.array(z.string()).optional(),
-  categoryList: z.array(z.string()).optional(),
-  marketList: z.array(z.string()).optional(),
-  participantRoleList: z.array(z.string()).optional(),
-  brokerTypeList: z.array(z.string()).optional(),
-  objectList: z.array(z.string()).optional().describe("company=公司 | industry=行业"),
-  permission: z.array(z.number().int()).optional(),
-  locationList: z.array(z.string()).optional().describe("地点 ID（domesticCity 常量），来自 gangtise_constant_list category=domesticCity"),
+// Each schedule endpoint accepts a different subset of filters (per API spec).
+// Previously all four shared one big schema, so unsupported filters (e.g.
+// strategy --research-area) silently sent and returned 0. Now each tool only
+// declares its real fields. CLI v0.17.0 made the same change in source.
+const SCHED_RESEARCH_AREA_DESC = "研究方向 ID，来自 gangtise_constant_list category=gangtiseIndustry（行业 1008001xx + 方向 122000xxx：宏观/策略/固收/金工/海外/其他）"
+const SCHED_LOCATION_DESC = "地点 ID（省级），来自 gangtise_constant_list category=domesticCity"
+
+type ScheduleFields = {
+  researchArea?: boolean
+  institution?: boolean
+  security?: boolean
+  object?: boolean
+  category?: string
+  market?: string
+  participantRole?: boolean
+  brokerType?: boolean
+  permission?: boolean
+  location?: boolean
 }
 
-function scheduleSpec(name: string, label: string, endpointKey: string): JsonToolSpec {
+function scheduleInputSchema(fields: ScheduleFields): Record<string, z.ZodTypeAny> {
+  const schema: Record<string, z.ZodTypeAny> = {
+    from: z.number().int().min(0).optional(),
+    startTime: z.string().optional().describe(dateTimeDesc()),
+    endTime: z.string().optional().describe(dateTimeDesc()),
+    keyword: z.string().optional(),
+  }
+  if (fields.researchArea) schema.researchAreaList = z.array(z.string()).optional().describe(SCHED_RESEARCH_AREA_DESC)
+  if (fields.institution) schema.institutionList = z.array(z.string()).optional().describe("机构 ID")
+  if (fields.security) schema.securityList = z.array(z.string()).optional()
+  if (fields.object) schema.objectList = z.array(z.string()).optional().describe("company=公司 | industry=行业")
+  if (fields.category) schema.categoryList = z.array(z.string()).optional().describe(fields.category)
+  if (fields.market) schema.marketList = z.array(z.string()).optional().describe(fields.market)
+  if (fields.participantRole) schema.participantRoleList = z.array(z.string()).optional().describe("management=管理层 | expert=专家")
+  if (fields.brokerType) schema.brokerTypeList = z.array(z.string()).optional().describe("cnBroker=内资 | otherBroker=外资")
+  if (fields.permission) schema.permission = z.array(z.number().int()).optional().describe("1=公开 | 2=私密")
+  if (fields.location) schema.locationList = z.array(z.string()).optional().describe(SCHED_LOCATION_DESC)
+  return schema
+}
+
+function scheduleSpec(name: string, label: string, endpointKey: string, fields: ScheduleFields): JsonToolSpec {
   return {
     name,
-    description: `查询${label}日程列表，支持按研究方向、机构、证券、类别、市场、参会角色、地点等筛选。`,
+    description: `查询${label}日程列表。`,
     endpointKey,
     paginated: true,
-    inputSchema: scheduleListSchema,
+    inputSchema: scheduleInputSchema(fields),
   }
 }
 
@@ -49,7 +70,7 @@ const listSpecs: JsonToolSpec[] = [
       chiefList: z.array(z.string()).optional().describe("首席分析师 ID 列表"),
       securityList: z.array(z.string()).optional().describe("证券代码列表，如 ['600519.SH']"),
       brokerList: z.array(z.string()).optional().describe("券商机构 ID，来自 gangtise_lookup type=broker-orgs"),
-      industryList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list（citicIndustry / swIndustry 分类）"),
+      industryList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx，全场景首选）"),
       conceptList: z.array(z.string()).optional().describe("概念 ID 列表"),
       llmTagList: z.array(z.string()).optional().describe("strongRcmd=强推 | earningsReview=业绩点评 | topBroker=头部券商 | newFortune=新财富"),
       sourceList: z.array(z.string()).optional().describe("realTime=实时 | openSource=公开"),
@@ -67,7 +88,7 @@ const listSpecs: JsonToolSpec[] = [
       keyword: z.string().optional(),
       searchType: z.number().int().optional().describe("1=标题搜索（快）| 2=全文搜索"),
       rankType: z.number().int().optional().describe("1=综合排序（默认）| 2=时间倒序"),
-      researchAreaList: z.array(z.string()).optional().describe("研究方向 ID，来自 gangtise_constant_list（citicIndustry / swIndustry / gangtiseIndustry 分类）"),
+      researchAreaList: z.array(z.string()).optional().describe("研究方向 ID，来自 gangtise_constant_list category=gangtiseIndustry（行业 1008001xx + 方向 122000xxx：宏观/策略/固收/金工/海外/其他）"),
       securityList: z.array(z.string()).optional(),
       institutionList: z.array(z.string()).optional(),
       categoryList: z.array(z.string()).optional().describe("earningsCall=业绩会 | strategyMeeting=策略会 | fundRoadshow=路演 | expertInterview=专家访谈 | fieldResearch=调研 | industryConference=行业会议 等"),
@@ -76,10 +97,24 @@ const listSpecs: JsonToolSpec[] = [
       sourceList: z.array(z.number().int()).optional().describe("1=实时 | 2=公开"),
     },
   },
-  scheduleSpec("gangtise_roadshow_list", "路演", "insight.roadshow.list"),
-  scheduleSpec("gangtise_site_visit_list", "调研", "insight.site-visit.list"),
-  scheduleSpec("gangtise_strategy_list", "策略会", "insight.strategy.list"),
-  scheduleSpec("gangtise_forum_list", "论坛", "insight.forum.list"),
+  scheduleSpec("gangtise_roadshow_list", "路演", "insight.roadshow.list", {
+    researchArea: true, institution: true, security: true, location: true,
+    category: "路演类型：earningsCall=业绩会 | strategyMeeting=策略会 | companyAnalysis=公司分析 | industryAnalysis=行业分析 | fundRoadshow=基金路演",
+    market: "市场：aShares=A股 | hkStocks=港股 | usChinaConcept=中概 | usStocks=美股",
+    participantRole: true, brokerType: true, permission: true,
+  }),
+  scheduleSpec("gangtise_site_visit_list", "调研", "insight.site-visit.list", {
+    researchArea: true, institution: true, security: true, location: true, object: true,
+    category: "调研形式：single=单场 | series=系列",
+    market: "市场：aShares=A股 | hkStocks=港股 | usChinaConcept=中概（调研无美股）",
+    permission: true,
+  }),
+  scheduleSpec("gangtise_strategy_list", "策略会", "insight.strategy.list", {
+    institution: true, location: true,
+  }),
+  scheduleSpec("gangtise_forum_list", "论坛", "insight.forum.list", {
+    researchArea: true, location: true,
+  }),
   {
     name: "gangtise_research_list",
     description: "查询券商研报列表，支持按证券、券商、行业、类别、评级、时间范围筛选。",
@@ -94,7 +129,7 @@ const listSpecs: JsonToolSpec[] = [
       rankType: z.number().int().optional(),
       brokerList: z.array(z.string()).optional(),
       securityList: z.array(z.string()).optional(),
-      industryList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list（citicIndustry / swIndustry 分类）"),
+      industryList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx，全场景首选）"),
       categoryList: z.array(z.string()).optional().describe("macro=宏观 | strategy=策略 | industry=行业 | company=个股 | bond=债券 | fund=基金 | quantitative=量化 等"),
       llmTagList: z.array(z.string()).optional().describe("inDepth=深度报告 | earningsReview=业绩点评 | industryStrategy=行业策略"),
       ratingList: z.array(z.string()).optional().describe("buy=买入 | overweight=增持 | neutral=中性 | underweight=减持 | sell=卖出"),
@@ -119,7 +154,7 @@ const listSpecs: JsonToolSpec[] = [
       securityList: z.array(z.string()).optional(),
       regionList: z.array(z.string()).optional().describe("地区 ID，来自 gangtise_constant_list category=regionCategory"),
       categoryList: z.array(z.string()).optional(),
-      industryList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list（citicIndustry / swIndustry 分类）"),
+      industryList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx，全场景首选）"),
       brokerList: z.array(z.string()).optional(),
       llmTagList: z.array(z.string()).optional(),
       ratingList: z.array(z.string()).optional(),
@@ -130,7 +165,7 @@ const listSpecs: JsonToolSpec[] = [
   },
   {
     name: "gangtise_announcement_list",
-    description: "查询 A 股公告列表，支持按证券、公告类型、类别、时间范围筛选。",
+    description: "查询 A 股公告列表，支持按证券、公告分类、时间范围筛选。",
     endpointKey: "insight.announcement.list",
     paginated: true,
     inputSchema: {
@@ -141,8 +176,7 @@ const listSpecs: JsonToolSpec[] = [
       searchType: z.number().int().optional().describe("1=标题搜索 | 2=全文搜索"),
       rankType: z.number().int().optional().describe("1=综合排序 | 2=时间倒序"),
       securityList: z.array(z.string()).optional(),
-      announcementTypeList: z.array(z.string()).optional(),
-      categoryList: z.array(z.string()).optional().describe("公告类别 ID，来自 gangtise_constant_list category=aShareAnnouncementCategory"),
+      categoryList: z.array(z.string()).optional().describe("公告分类 ID，来自 gangtise_constant_list category=aShareAnnouncementCategory"),
     },
   },
   {
@@ -173,7 +207,7 @@ const listSpecs: JsonToolSpec[] = [
       keyword: z.string().optional(),
       rankType: z.number().int().optional().describe("1=综合排序 | 2=时间倒序"),
       regionList: z.array(z.string()).optional().describe("地区 ID，来自 gangtise_constant_list category=regionCategory"),
-      industryList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list（gangtiseIndustry / swIndustry 分类）"),
+      industryList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx，全场景首选）"),
       securityList: z.array(z.string()).optional(),
       brokerList: z.array(z.string()).optional(),
       ratingList: z.array(z.string()).optional(),
@@ -191,7 +225,7 @@ const listSpecs: JsonToolSpec[] = [
       endTime: z.string().optional().describe(dateTimeDesc()),
       keyword: z.string().optional(),
       rankType: z.number().int().optional().describe("1=综合排序 | 2=时间倒序"),
-      industryList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list（swIndustry 分类）"),
+      industryList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx，全场景首选）"),
       securityList: z.array(z.string()).optional(),
       ratingList: z.array(z.string()).optional(),
       ratingChangeList: z.array(z.string()).optional(),

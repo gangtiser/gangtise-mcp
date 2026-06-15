@@ -4,6 +4,20 @@
 
 ## Changelog
 
+### 0.1.25 (2026-06-15)
+- 同步 CLI v0.17.0：
+  - 日程类 4 个工具的 schema 各自只暴露 API spec 真支持的字段（之前共享一套 11 字段的大 schema，传不支持字段静默无效）：
+    - `gangtise_roadshow_list`：researchArea / institution / security / location / category / market / participantRole / brokerType / permission
+    - `gangtise_site_visit_list`：researchArea / institution / security / location / **object** / category / market / permission（移除 participantRole / brokerType）
+    - `gangtise_strategy_list`：仅 institution / location
+    - `gangtise_forum_list`：仅 researchArea / location
+    - 各 category / market 的枚举值因工具而异（路演 5 类、调研 2 类等），描述里已分别写明
+  - `gangtise_announcement_list`：移除服务端忽略的 `announcementTypeList`（A 股公告分类筛选用 `categoryList`）
+- 同步 CLI v0.17.0 实测路由建议：
+  - `industryList`（5 个 insight 工具）+ `industryIdList`（wechat-message）：统一用 `gangtise_constant_list category=citicIndustry`（`1008001xx`，全场景首选；尤其 wechat 只认中信码，传申万码会静默返全量）
+  - `researchAreaList`（schedule 4 个 + summary + my_conference）：统一用 `gangtise_constant_list category=gangtiseIndustry`（行业 `1008001xx` + 方向 `122000xxx`：宏观/策略/固收/金工/海外/其他）
+- v0.1.24 时上游 defer 的三处数据缺口现已全部修复，相关警示无需保留（`constants:null → list:[]` 防御性归一化代码继续保留）
+
 ### 0.1.24 (2026-06-13)
 - 接口路由审计后的校验与指路加固（无新增/删除工具，仍 74 个）：
   - `gangtise_constant_list` 的 `category` 收窄为枚举：传错（拼写/大小写）在本地即拦截并回显 7 个合法值，不再静默返回 `null`

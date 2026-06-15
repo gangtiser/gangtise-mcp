@@ -201,6 +201,48 @@ describe("MCP server integration", () => {
     )
   })
 
+  it("schedule list tools expose only API-spec-supported business fields", async () => {
+    const { tools } = await mcpClient.listTools()
+    const props = (name: string) => {
+      const t = tools.find(x => x.name === name)
+      return Object.keys((t?.inputSchema as { properties?: Record<string, unknown> })?.properties ?? {})
+    }
+
+    // strategy: only institution / location (+ shared paginated/time/keyword/from/size)
+    expect(props("gangtise_strategy_list")).toEqual(expect.arrayContaining(["institutionList", "locationList"]))
+    expect(props("gangtise_strategy_list")).not.toContain("researchAreaList")
+    expect(props("gangtise_strategy_list")).not.toContain("securityList")
+    expect(props("gangtise_strategy_list")).not.toContain("categoryList")
+    expect(props("gangtise_strategy_list")).not.toContain("participantRoleList")
+
+    // forum: only researchArea / location
+    expect(props("gangtise_forum_list")).toEqual(expect.arrayContaining(["researchAreaList", "locationList"]))
+    expect(props("gangtise_forum_list")).not.toContain("securityList")
+    expect(props("gangtise_forum_list")).not.toContain("institutionList")
+
+    // site-visit: has object, dropped participantRole / brokerType
+    expect(props("gangtise_site_visit_list")).toEqual(expect.arrayContaining(["objectList"]))
+    expect(props("gangtise_site_visit_list")).not.toContain("participantRoleList")
+    expect(props("gangtise_site_visit_list")).not.toContain("brokerTypeList")
+
+    // roadshow: full set, no object
+    expect(props("gangtise_roadshow_list")).toEqual(
+      expect.arrayContaining([
+        "researchAreaList", "institutionList", "securityList", "categoryList",
+        "marketList", "participantRoleList", "brokerTypeList", "permission", "locationList",
+      ]),
+    )
+    expect(props("gangtise_roadshow_list")).not.toContain("objectList")
+  })
+
+  it("gangtise_announcement_list no longer exposes the server-ignored announcementTypeList", async () => {
+    const { tools } = await mcpClient.listTools()
+    const ann = tools.find(t => t.name === "gangtise_announcement_list")
+    const keys = Object.keys((ann?.inputSchema as { properties?: Record<string, unknown> })?.properties ?? {})
+    expect(keys).toContain("categoryList")
+    expect(keys).not.toContain("announcementTypeList")
+  })
+
   it("gangtise_opinion_list calls API with default size: 20", async () => {
     await mcpClient.callTool({ name: "gangtise_opinion_list", arguments: {} })
     expect(mockClient.call).toHaveBeenCalledWith(
