@@ -4,6 +4,11 @@
 
 ## Changelog
 
+### 0.1.27 (2026-06-15)
+- 修复 `gangtise_knowledge_resource_download`：query param 从 `resourceId` 改为 `resourceType`(number) + `sourceId`(string)，与 CLI 及 API 实际接口对齐（原 `resourceId` 字段会 404/无效）
+- 修复 `gangtise_security_clue_list`：`source` 从 `string` 改为 `string[]`，与 CLI `maybeArray()` 行为一致（API 接受数组）
+- 补全 `gangtise_knowledge_batch`：补充可选的 `startTime`/`endTime`（epoch 毫秒）时间筛选参数，与 CLI 对齐
+
 ### 0.1.26 (2026-06-15)
 - 修复 `gangtise_opinion_list.researchAreaList` 描述遗漏：对齐 v0.17.0 路由建议，统一改为 `category=gangtiseIndustry`（与其他所有 researchAreaList 参数一致；`industryList` 仍用 citicIndustry）
 

@@ -23,6 +23,8 @@ const jsonSpecs: JsonToolSpec[] = [
       top: z.number().int().min(1).max(20).optional().describe("每个查询词返回的结果数（默认 10，最大 20）"),
       resourceTypes: z.array(z.number().int()).optional().describe("10=研报 | 11=外资研报 | 20=内部 | 40=观点 | 50=公告 | 51=港股公告 | 60=纪要 | 70=调研 | 80=网络纪要 | 90=公众号"),
       knowledgeNames: z.array(z.string()).optional().describe("system_knowledge_doc | tenant_knowledge_doc"),
+      startTime: z.number().int().min(0).optional().describe("开始时间（epoch 毫秒）"),
+      endTime: z.number().int().min(0).optional().describe("结束时间（epoch 毫秒）"),
     },
   },
   {
@@ -36,7 +38,7 @@ const jsonSpecs: JsonToolSpec[] = [
       endTime: z.string().describe(dateTimeDesc() + "（必填）"),
       queryMode: z.string().describe("bySecurity=按个股 | byIndustry=按行业（必填）"),
       gtsCodeList: z.array(z.string()).optional().describe("个股代码（如 600519.SH）或申万行业代码（如 821035.SWI）列表。全量 31 个行业代码用 gangtise_sector_constituents sectorId=2000000014；单个行业可用 gangtise_securities_search（如 keyword=申万银行 category=['index']）"),
-      source: z.string().optional().describe("researchReport=研报 | conference=会议 | announcement=公告 | view=观点"),
+      source: z.array(z.string()).optional().describe("researchReport=研报 | conference=会议 | announcement=公告 | view=观点"),
     },
   },
   {
@@ -80,10 +82,11 @@ const jsonSpecs: JsonToolSpec[] = [
 const downloadSpecs: DownloadToolSpec[] = [
   {
     name: "gangtise_knowledge_resource_download",
-    description: "按 resourceId 下载知识库资源文件。",
+    description: "按资源类型和 sourceId 下载知识库资源文件。sourceId 来自 gangtise_knowledge_batch 返回结果。",
     endpointKey: "ai.knowledge-resource.download",
     inputSchema: {
-      resourceId: z.string().describe("资源 ID，来自 gangtise_knowledge_batch 返回结果"),
+      resourceType: z.number().int().describe("资源类型（必填）：10=研报 | 11=外资研报 | 20=内部 | 40=观点 | 50=公告 | 51=港股公告 | 60=纪要 | 70=调研 | 80=网络纪要 | 90=公众号"),
+      sourceId: z.string().describe("资源 ID，来自 gangtise_knowledge_batch 返回结果（必填）"),
     },
   },
 ]
