@@ -4,155 +4,86 @@
 
 ## Changelog
 
-### 0.1.27 (2026-06-15)
-- 修复 `gangtise_knowledge_resource_download`：query param 从 `resourceId` 改为 `resourceType`(number) + `sourceId`(string)，与 CLI 及 API 实际接口对齐（原 `resourceId` 字段会 404/无效）
-- 修复 `gangtise_security_clue_list`：`source` 从 `string` 改为 `string[]`，与 CLI `maybeArray()` 行为一致（API 接受数组）
-- 补全 `gangtise_knowledge_batch`：补充可选的 `startTime`/`endTime`（epoch 毫秒）时间筛选参数，与 CLI 对齐
-
-### 0.1.26 (2026-06-15)
-- 修复 `gangtise_opinion_list.researchAreaList` 描述遗漏：对齐 v0.17.0 路由建议，统一改为 `category=gangtiseIndustry`（与其他所有 researchAreaList 参数一致；`industryList` 仍用 citicIndustry）
-
-### 0.1.25 (2026-06-15)
-- 同步 CLI v0.17.0：
-  - 日程类 4 个工具的 schema 各自只暴露 API spec 真支持的字段（之前共享一套 11 字段的大 schema，传不支持字段静默无效）：
-    - `gangtise_roadshow_list`：researchArea / institution / security / location / category / market / participantRole / brokerType / permission
-    - `gangtise_site_visit_list`：researchArea / institution / security / location / **object** / category / market / permission（移除 participantRole / brokerType）
-    - `gangtise_strategy_list`：仅 institution / location
-    - `gangtise_forum_list`：仅 researchArea / location
-    - 各 category / market 的枚举值因工具而异（路演 5 类、调研 2 类等），描述里已分别写明
-  - `gangtise_announcement_list`：移除服务端忽略的 `announcementTypeList`（A 股公告分类筛选用 `categoryList`）
-- 同步 CLI v0.17.0 实测路由建议：
-  - `industryList`（5 个 insight 工具）+ `industryIdList`（wechat-message）：统一用 `gangtise_constant_list category=citicIndustry`（`1008001xx`，全场景首选；尤其 wechat 只认中信码，传申万码会静默返全量）
-  - `researchAreaList`（schedule 4 个 + summary + my_conference）：统一用 `gangtise_constant_list category=gangtiseIndustry`（行业 `1008001xx` + 方向 `122000xxx`：宏观/策略/固收/金工/海外/其他）
-- v0.1.24 时上游 defer 的三处数据缺口现已全部修复，相关警示无需保留（`constants:null → list:[]` 防御性归一化代码继续保留）
+### 0.1.25–0.1.27 (2026-06-15)
+- 同步 CLI v0.17.0：日程类 4 工具各自只暴露 API spec 支持的字段（之前共享 11 字段大 schema，传不支持字段静默无效）
+  - `gangtise_roadshow_list`：researchArea / institution / security / location / category / market / participantRole / brokerType / permission
+  - `gangtise_site_visit_list`：同上去掉 participantRole/brokerType，加 object；market 范围排除美股
+  - `gangtise_strategy_list`：仅 institution / location
+  - `gangtise_forum_list`：仅 researchArea / location
+- `gangtise_announcement_list` 移除服务端忽略的 `announcementTypeList`（A 股公告分类筛选用 `categoryList`）
+- 对齐 CLI v0.17.0 路由建议：`industryList` / `industryIdList` 统一用 `category=citicIndustry`（`1008001xx`）；`researchAreaList` 统一用 `category=gangtiseIndustry`（行业 + 宏观/策略/固收等方向 `122000xxx`）
+- 修复 `gangtise_knowledge_resource_download` query param：`resourceId` → `resourceType`(int) + `sourceId`(str)（原字段名打错，下载必然失败）
+- 修复 `gangtise_security_clue_list` 的 `source` 类型：`string` → `string[]`，与 CLI 及 API 对齐
+- 补全 `gangtise_knowledge_batch` 的 `startTime` / `endTime` 参数（epoch 毫秒，CLI 有 MCP 之前缺失）
+- 补全 `gangtise_opinion_list.researchAreaList` 描述，对齐 `category=gangtiseIndustry`（其他工具已在 v0.1.24 更新，此处遗漏）
 
 ### 0.1.24 (2026-06-13)
 - 接口路由审计后的校验与指路加固（无新增/删除工具，仍 74 个）：
-  - `gangtise_constant_list` 的 `category` 收窄为枚举：传错（拼写/大小写）在本地即拦截并回显 7 个合法值，不再静默返回 `null`
-  - 上游对 `swIndustry` / `citicIndustry` 等分类返回空数据时，归一化为稳定的 `list: []`（此前键名在 `list` 与 `constants: null` 间漂移）
-  - `gangtise_concept_search` / `gangtise_securities_search` 的 `keyword` 与 `gangtise_sector_constituents` 的 `sectorId` 加非空校验（`keyword` 先 trim），空串/纯空白在本地拦截，不再把裸「参数错误」透传给调用方；`gangtise_sector_search` 的 `keyword` 仍可缺省（返回分类树顶层节点用于浏览）
-  - 新增错误码 `410001`（通用参数错误）提示，按 ID 来源引导改用对应 reference 工具
-  - 补全 `industryList`（5 个工具）/ `researchAreaList`（纪要、路演/调研/策略会/论坛、会议录音）/ `industryIdList`（微信消息）的参数描述，写明 ID 来自 `gangtise_constant_list` 及各工具适用的分类
-  - `gangtise_lookup` 重定向清单补「研究方向」；`gangtise_sector_search` 的 `keyword` 描述澄清拼音首字母仅对概念类板块有效，申万/沪深300 等指数类节点请用中文
+  - `gangtise_constant_list` 的 `category` 收窄为枚举：传错在本地即拦截并回显 7 个合法值，不再静默返回 `null`
+  - 上游返回空数据时归一化为稳定的 `list: []`（此前键名在 `list` 与 `constants: null` 间漂移）
+  - `gangtise_concept_search` / `gangtise_securities_search` 的 `keyword` 与 `gangtise_sector_constituents` 的 `sectorId` 加非空校验，空串/纯空白本地拦截
+  - 新增错误码 `410001` 提示，按 ID 来源引导改用对应 reference 工具
+  - 补全 `industryList` / `researchAreaList` / `industryIdList` 参数描述，写明 ID 来源分类
+  - `gangtise_sector_search` 描述澄清拼音首字母仅对概念类板块有效，申万/指数类请用中文
 
-### 0.1.23 (2026-06-12)
-- 同步 CLI v0.16.0：移除申万行业代码本地表，`gangtise_lookup` 仅剩券商机构 / 会议机构两类
-  - 31 个申万一级行业指数代码（`821xxx.SWI`，供 `gangtise_security_clue_list` 的 `gtsCodeList` 使用）改走板块 API 两步获取：`gangtise_sector_search`（申万一级行业指数 → 取「指数数据板块」层级节点 `2000000014`）→ `gangtise_sector_constituents`
-  - 单个行业代码也可直接 `gangtise_securities_search`（如 `keyword=申万银行` + `category=['index']`）
-  - 相关工具描述已更新获取路径，并标注「指数成份类」层级同名节点查成分返回 0 条的陷阱
+### 0.1.22–0.1.23 (2026-06-12)
+- 同步 CLI v0.16.0：移除申万行业代码本地表，`gangtise_lookup` 仅剩券商机构 / 会议机构
+  - 31 个申万行业指数代码（`821xxx.SWI`）改走板块 API：`gangtise_sector_search`（取「指数数据板块」层级节点 `2000000014`）→ `gangtise_sector_constituents`；单个行业也可直接 `gangtise_securities_search`（如 `keyword=申万银行 category=['index']`）
+- 同步 CLI reference 常量/题材/板块 API：
+  - 新增 `gangtise_constant_category` / `gangtise_constant_list`：行业、城市、公告分类、区域等常量（树形分类含 `children`，`constants` 自动归一化为 `list`）
+  - 新增 `gangtise_concept_search`：按中文名/拼音/分组名搜索题材 ID
+  - 新增 `gangtise_sector_search` / `gangtise_sector_constituents`：板块 ID 搜索与全量成分股
+  - `gangtise_lookup` 退出研究方向/行业/地区/公告类别/主题 ID 本地数据（-2700 行静态表，改由上述 API 实时提供）
+  - 日程类工具新增 `locationList` 筛选（domesticCity 常量 ID）
+- 同步 CLI v0.15.1 错误码提示（410110/410111/410004/430004/430007/433007/10011401）
 
-### 0.1.22 (2026-06-12)
-- 同步 CLI reference 常量/题材/板块 API（CLI v0.15.1 之后的 f2d2a00）：
-  - 新增 `gangtise_constant_category`：常量分类清单及各分类适用的接口参数（usageScopes）
-  - 新增 `gangtise_constant_list`：按分类查全部常量值（中信/申万/Gangtise 行业、国内城市、A股/港股公告分类、区域），树形分类含 `children` 嵌套；`constants` 响应自动归一化为 `list`
-  - 新增 `gangtise_concept_search`：按关键词（中文名/拼音/分组名）搜索题材 ID，供 `gangtise_concept_info` / `gangtise_concept_securities` / `gangtise_theme_tracking` 使用
-  - 新增 `gangtise_sector_search` / `gangtise_sector_constituents`：板块 ID 搜索与全量成分股名单
-  - `gangtise_lookup` 收窄为常量 API 未覆盖的 3 类本地表（券商机构 / 会议机构 / 申万行业代码），移除研究方向/行业/地区/公告类别/主题 ID 本地数据（约 -2700 行静态表，改由上述 API 实时提供）
-  - 日程类工具（路演/调研/策略会/论坛）新增 `locationList` 筛选（domesticCity 常量 ID）
-- 同步 CLI v0.15.1 错误码提示：补充 410110（异步生成中）/ 410111（生成失败终态）/ 410004（数据未找到）/ 430004（下载失败）/ 430007（行情超限）/ 433007（数据源不匹配）/ 10011401（白名单未开通）
+### 0.1.20–0.1.21 (2026-06-10)
+- 全部工具声明 `annotations: { readOnlyHint: true }`，支持该注解的客户端（如 VS Code Copilot）可跳过确认弹窗
+- 补齐核心模块单测：`pollAsyncContent` 轮询、`normalizeRows` 矩阵转换、异步工具 submit→poll，测试 85 → 98
+- 下载类工具补 256KB 截断防护：超大载荷写临时文件，返回 `_truncated` 预览指针，配合 `gangtise_read_response` 续读
+- 日期指引去重：通过 MCP server instructions 全局声明，工具列表体积 79.6KB → 58.2KB（-27%）
+- `gangtise_theme_tracking` 对无效 `date` 直接报参数错误；异步轮询超时与 `GANGTISE_MCP_ASYNC_TIMEOUT_MS` 对齐
 
-### 0.1.21 (2026-06-10)
-- 全部 69 个工具声明 MCP `annotations: { readOnlyHint: true }`：本服务只做数据查询，支持该注解的客户端（如 VS Code Copilot）可跳过确认弹窗；并加集成测试防止后续新工具漏标
-- 补齐核心模块单测：`pollAsyncContent` 轮询（退避序列 / 410110 / 410111 / 超时）、`normalizeRows` 矩阵转换、异步工具对 submit→poll 流程，测试 85 → 98
-- 例行依赖小版本更新（undici 7.27、tsx 4.22、vitest 3.2.6 等；undici 8 因要求 Node ≥ 22.19 与本包 engines `>=20` 冲突，维持 7.x）
+<details>
+<summary>历史版本（0.1.3–0.1.19）</summary>
 
-### 0.1.20 (2026-06-10)
-- 下载类工具补上 256KB 截断防护：超大文本载荷（研报 Markdown / 观点 HTML / 录音转写）落盘到临时文件并返回 `_truncated` 预览指针（配合 `gangtise_read_response` 分页读取），不再整段内联挤爆上下文
-- 日期指引去重：「先调用 `gangtise_current_date` 换算相对日期」改为通过 MCP server instructions 全局声明一次，工具/参数描述只保留格式说明——工具列表体积 79.6KB → 58.2KB（-27%），重复语句 124 处 → 0
-- `gangtise_theme_tracking` 对无法解析的 `date` 直接报参数错误，不再绕过 30 天范围校验打到后端
-- 异步轮询默认超时与 `GANGTISE_MCP_ASYNC_TIMEOUT_MS` 默认值（180s）对齐，移除残留的 60s 字面量
-
-### 0.1.19 (2026-06-09)
-- 修复 `gangtise_theme_tracking` 的 `type` 参数：MCP 可传单个字符串或数组，内部统一转换为后端需要的数组格式
-- 加强下载文件名清洗，避免 `Content-Disposition` 中的路径片段影响临时文件保存位置
-- 修复显式配置 `GANGTISE_TOKEN` 时的认证恢复逻辑：刷新后重试使用新 token
+### 0.1.18–0.1.19 (2026-06-09)
+- 新增 `gangtise_current_date`：运行时查询当前日期/时间/时区，供相对日期换算
+- 修复 `gangtise_theme_tracking` 的 `type` 参数：可传单字符串或数组，内部统一转数组
+- 修复显式配置 `GANGTISE_TOKEN` 时认证恢复逻辑：刷新后重试使用新 token
 - `fetchAll` 命中分页上限时返回 `_partial` / `_page_cap` 元数据，避免静默截断
-- 行情 K 线工具的 `limit` 参数增加 `1..10000` 校验
-- 忽略本地 `.mcp.json` 配置文件，避免误提交个人 MCP 配置
+- K 线工具 `limit` 参数增加 `1..10000` 校验；加强下载文件名清洗；忽略本地 `.mcp.json`
 
-### 0.1.18 (2026-06-09)
-- 新增 `gangtise_current_date`：运行时查询当前日期、年份、时间和时区，供模型换算今天/最近/今年/当前等相对日期
-- 日期敏感工具元数据不再注入启动时的具体日期，改为提示先调用 `gangtise_current_date`，避免长驻 MCP 进程显示过期日期
-
-### 0.1.17 (2026-05-29)
-- 同步 CLI v0.15.0：
-  - 新增 `gangtise_concept_info`：题材指数基本信息，返回题材整体画像（定义 / 投资逻辑 / 行业空间 / 竞争格局 / 催化事件），仅最新截面、不支持历史回溯
-  - 新增 `gangtise_concept_securities`：题材指数成分股（题材深度 F8），按分组结构返回当前成分股，每只含是否重点个股 `isKey` 与纳入理由 `inclusionReason`
-  - 两者 `conceptId` 与主题跟踪 `gangtise_theme_tracking` 的 `themeId` 同一套 ID 体系，可用 `gangtise_lookup`（`type=theme-ids`）按名称查询（如 机器人 → `121000130`）
-  - `gangtise_index_day_kline` 返回字段新增 `securityName`（指数名称，如"上证指数"）
-
-### 0.1.16 (2026-05-29)
-- 同步 CLI v0.14.3：
-  - 下载类工具（研报 / 纪要 / 公告 / 云盘 / 录音等）在 token 过期（8000014 / 8000015）时自动刷新并重试一次，与 JSON 请求行为一致（此前仅 JSON 请求会自愈，下载会直接失败）
-  - 全市场 K 线分片 fan-out 并发改用 `GANGTISE_PAGE_CONCURRENCY`（与分页统一一个环境变量调度）
-
-### 0.1.15 (2026-05-29)
-- 大响应截断兜底扩展到行情与 AI 工具：`gangtise_day_kline*` / `gangtise_minute_kline` / `gangtise_realtime` / `gangtise_securities_search` / `gangtise_theme_tracking` 现与分页 list 工具一致，超 256KB 自动转存临时文件并返回预览，配合 `gangtise_read_response` 续读，避免全市场快照 / 全市场 K 线撑爆上下文
-  - AI 长文工具（一页纸 / 投资逻辑 / 同业对比 / 研究提纲 / 业绩点评 / 多空辩论）超限时转存 `.md`，`gangtise_read_response` 支持按字符分片续读
-- 修复 MCP 上报版本号固定为 `0.1.0` 的问题，改为从 `package.json` 读取真实版本
-- `security='all'` 全市场 K 线分片改为容错：部分日期分片失败时返回已成功数据并标记 `_partial` / `_failed_shards`，仅当全部分片失败才报错（不再因单日失败丢弃整段）
-- 异步 AI 工具（业绩点评 / 多空辩论）默认等待时间统一为 180s（此前文档与实现不一致）
-- 启动时自动清理超过 24h 的 `gangtise-mcp-*` 临时目录
+### 0.1.15–0.1.17 (2026-05-29)
+- 同步 CLI v0.15.0：新增 `gangtise_concept_info`（题材指数画像）/ `gangtise_concept_securities`（题材 F8 成分股）；`gangtise_index_day_kline` 新增 `securityName` 返回字段
+- 同步 CLI v0.14.3：下载类工具 token 过期自动刷新重试；全市场 K 线分片并发改用 `GANGTISE_PAGE_CONCURRENCY`
+- 大响应截断扩展到行情/AI 工具（`day_kline*` / `realtime` / `securities_search` / `theme_tracking`）
+- 修复 MCP 上报版本号固定为 `0.1.0` 的问题
+- `security='all'` K 线分片改为容错：部分分片失败返回成功数据 + `_partial`/`_failed_shards` 标记
+- 异步 AI 工具默认等待时间统一为 180s；启动时自动清理 24h+ 临时目录
 
 ### 0.1.14 (2026-05-26)
-- 新增 `gangtise_read_response` 工具：当其他工具返回 `_truncated: true` 时，模型可调用此工具按 `offset` / `limit` 分片读取 `_saved_to` 完整数据
-  - 原先 `_saved_to` 路径只对自带文件读取能力的客户端（如 Claude Code）有效；Cherry Studio 等无内置文件读工具的客户端拿到路径也无法续读
-  - 现在所有 MCP 客户端均可通过工具调用方式取回完整大响应，不再依赖宿主进程的文件系统能力
-- 截断响应负载追加 `_read_with: "gangtise_read_response"` 字段，明确续读入口
-- 安全：`gangtise_read_response` 仅允许读取系统临时目录下 `gangtise-mcp-*` 前缀的本进程产物，拒绝其他路径
+- 新增 `gangtise_read_response`：当其他工具返回 `_truncated: true` 时，按 `offset`/`limit` 分片续读完整数据；截断响应追加 `_read_with` 字段；仅允许读取本进程 `gangtise-mcp-*` 临时产物
 
-### 0.1.9 (2026-05-22)
-- 修复 `security='all'` 全市场日 K 在分片内被静默截断的问题（同步 CLI v0.14.1 / v0.14.2）：
-  - A 股全市场每天约 5500 行，原 2 天/片 ≈ 11000 行命中默认 6000 上限 → 改 1 天/片
-  - 港股全市场每天约 2770 行，原 3 天/片 ≈ 8300 行命中 6000 上限 → 改 2 天/片
-  - 美股全市场每天约 5800 行，原 2 天/片 ≈ 11600 行命中 6000 上限 → 改 1 天/片
-  - `callKlineWithSharding` 在 `security='all'` 路径自动注入 `limit=10000`（API 上限）；用户显式传的 `limit` 不变；单只证券查询不受影响
-
-### 0.1.8 (2026-05-22)
-- 同步 CLI v0.14.0：
-  - 新增 `gangtise_day_kline_us`：美股历史日 K 线（NYSE / NASDAQ / AMEX，代码格式 `AAPL.O` / `.N` / `.A`），`security='all'` 自动按 2 天/片分片
-  - 新增 `gangtise_realtime`：实时行情快照，单接口覆盖 A 股 / 港股 / 美股，支持代码混合或 `aShares` / `hkStocks` / `usStocks` 市场关键字批量
-  - 更新 `gangtise_day_kline` / `gangtise_day_kline_hk` 描述，明确仅返回历史数据，盘中实时改走 `gangtise_realtime`
-- 注意：`gangtise_valuation_analysis` 返回字段不再包含 `p10` / `p25` / `p75` / `p90`（后端字段精简，工具入参未变）
+### 0.1.8–0.1.9 (2026-05-22)
+- 同步 CLI v0.14.0：新增 `gangtise_day_kline_us`（美股日 K）/ `gangtise_realtime`（A/港/美实时快照）
+- 修复 `security='all'` 全市场日 K 分片内静默截断（A/美股改 1 天/片，港股改 2 天/片）
 
 ### 0.1.7 (2026-05-18)
-- 修复一批入参字段名与后端不一致的问题（filter 之前被静默忽略或直接报错）：
-  - `gangtise_minute_kline`: `securityList` → `securityCode`（原报 "非有效A股"）
-  - `gangtise_knowledge_batch`: `queryList`/`resourceType`/`knowledgeName` → `queries`/`resourceTypes`/`knowledgeNames`（原返回 null）
-  - `gangtise_management_discuss_*`: `dimension` → `discussionDimension`（原报 "参数错误"）
-  - `gangtise_wechat_chatroom_list`: `roomName` 数组 → 逗号拼接字符串（原报 "请求参数解析失败"）
-  - 多个 list 工具单数 filter → 数组 `*List`：`opinion/summary/research` 的 `source/category/market/rating/...`；`hot_topic` 的 `category`；`record/wechat_message/my_conference` 的 `category/tag/...`；`earning_forecast` 的 `consensus`
-  - `research` 的 `minPages/maxPages` → `minReportPages/maxReportPages`
-- 修复 `gangtise_valuation_analysis` 的 `skipNull` 参数（之前声明但未生效，现客户端真实过滤）
-- 同步 CLI v0.13.x 完整入参集：
-  - `opinion_list`: +`chiefList` +`conceptList`
-  - `roadshow/site_visit/strategy/forum_list`: 补全 `researchAreaList/institutionList/securityList/categoryList/marketList/participantRoleList/brokerTypeList/objectList/permission`
-  - `foreign_report_list`: +`searchType/regionList/categoryList/industryList/brokerList/llmTagList/ratingList/ratingChangeList/minReportPages/maxReportPages`
-  - `foreign_opinion_list`: +`regionList/industryList/brokerList/ratingList/ratingChangeList`
-  - `independent_opinion_list`: +`industryList/ratingList/ratingChangeList`
-  - `announcement_list`: +`searchType/announcementTypeList`
-  - `announcement_hk_list`: +`searchType/rankType/categoryList`
-  - `drive_list`: `fileType/spaceType` → `fileTypeList/spaceTypeList`（数组）
-  - `record_list`: `spaceType` → `spaceTypeList`（数组）
-  - `securities_search`: +`category/top`
+- 修复一批入参字段名与后端不一致（`securityList→securityCode`、`queryList→queries`、`dimension→discussionDimension`、多工具单数 filter→数组 `*List` 等）
+- 修复 `gangtise_valuation_analysis` 的 `skipNull` 参数未生效问题
+- 同步 CLI v0.13.x 完整入参集
 
 ### 0.1.6 (2026-05-16)
-- 新增港股三大报表：`gangtise_income_statement_hk`、`gangtise_balance_sheet_hk`、`gangtise_cash_flow_hk`（中国会计准则，period 支持 `q1/h1/q3/h2/nsd/annual/latest`）
-- 新增自选股池：`gangtise_stock_pool_list`、`gangtise_stock_pool_stocks`（不传参数默认返回所有池）
-- 新增另类数据（EDB）：`gangtise_edb_search`、`gangtise_edb_data`（自动归一化 `fieldList+dataList` 为对象数组）
-- 修复财报工具字段筛选参数：`field` 更正为 `fieldList`，影响所有利润表/资产负债表/现金流量表/估值工具（A股 + 港股）
-- 更新 `gangtise_management_discuss_announcement` dimension 新增 `all` 选项
-- 更新 `gangtise_wechat_message_list`：新增 `securityList` 参数，修正 `tag` 枚举值
-- 更新 `gangtise_my_conference_list` category 枚举与 CLI 同步
+- 新增港股三大报表（`income_statement_hk`/`balance_sheet_hk`/`cash_flow_hk`）、自选股池（`stock_pool_list`/`stock_pool_stocks`）、EDB 另类数据（`edb_search`/`edb_data`）
+- 修复财报工具 `field` → `fieldList`；补充 `gangtise_management_discuss_announcement` dimension `all` 选项
 
-### 0.1.5
-- 修复群消息分页
+### 0.1.3–0.1.5
+- `0.1.5` 修复群消息分页
+- `0.1.4` 新增大响应截断与本地文件保存（超 256 KB 写临时文件，内联前 20 条预览）
+- `0.1.3` 工具元数据注入当前日期上下文
 
-### 0.1.4
-- 新增大响应截断与本地文件保存（超 256 KB 时写临时文件，内联返回前 20 条预览）
-
-### 0.1.3
-- 工具元数据提示当前日期上下文，避免 AI 使用训练数据年份
+</details>
 
 ## 功能覆盖
 
