@@ -14,7 +14,12 @@ import { getLookupData } from "./lookupData/index.js"
 import { getDispatcher, isVerbose, logTiming, markRetryable, runWithConcurrency, withRetry } from "./transport.js"
 
 const PAGINATION_CONCURRENCY = Number(process.env.GANGTISE_PAGE_CONCURRENCY ?? 5) || 5
-const AUTH_RETRY_CODES = new Set(["8000014", "8000015"])
+// Error codes that warrant one forced token refresh + retry:
+//   8000014 / 8000015 — access/secret key errors (arrive as HTTP 200 envelopes)
+//   0000001008 — "token is invalid" (HTTP 401): a cached token rejected
+//     server-side even though not locally expired (e.g. the session was
+//     superseded by a newer login elsewhere).
+const AUTH_RETRY_CODES = new Set(["8000014", "8000015", "0000001008"])
 const MAX_PAGES = 1000
 
 export interface PageRequest {
@@ -324,13 +329,14 @@ export class GangtiseClient {
         throw new ApiError(message, undefined, response.statusCode, text.slice(0, 500))
       }
 
-      if (response.statusCode >= 400) {
-        this.throwHttpError(parsed, response.statusCode)
-      }
-
       try {
+        if (response.statusCode >= 400) {
+          this.throwHttpError(parsed, response.statusCode)
+        }
         return unwrapEnvelope(parsed, response.statusCode)
       } catch (error) {
+        // Run through auth recovery for BOTH 4xx (e.g. 401 token-invalid) and
+        // 200-envelope auth errors, so a server-rejected cached token refreshes.
         await this.refreshAuthIfRecoverable(error, useAuth, authState)
         throw error
       }
@@ -378,12 +384,11 @@ export class GangtiseClient {
           return { text, contentType }
         }
 
-        if (response.statusCode >= 400) {
-          this.throwHttpError(parsed, response.statusCode)
-        }
-
         let data: unknown
         try {
+          if (response.statusCode >= 400) {
+            this.throwHttpError(parsed, response.statusCode)
+          }
           data = unwrapEnvelope(parsed as Envelope<unknown>, response.statusCode)
         } catch (error) {
           await this.refreshAuthIfRecoverable(error, true, authState)
