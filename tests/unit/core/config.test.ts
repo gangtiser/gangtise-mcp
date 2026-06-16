@@ -1,0 +1,76 @@
+import { afterEach, beforeEach, describe, expect, it } from "vitest"
+
+import {
+  loadConfig,
+  DEFAULT_BASE_URL,
+  DEFAULT_TIMEOUT_MS,
+  DEFAULT_ASYNC_TIMEOUT_MS,
+  DEFAULT_TOKEN_CACHE_PATH,
+} from "../../../src/core/config.js"
+
+const KEYS = [
+  "GANGTISE_BASE_URL",
+  "GANGTISE_TIMEOUT_MS",
+  "GANGTISE_MCP_ASYNC_TIMEOUT_MS",
+  "GANGTISE_ACCESS_KEY",
+  "GANGTISE_SECRET_KEY",
+  "GANGTISE_TOKEN",
+  "GANGTISE_TOKEN_CACHE_PATH",
+] as const
+
+describe("loadConfig", () => {
+  const saved: Record<string, string | undefined> = {}
+
+  beforeEach(() => {
+    for (const k of KEYS) {
+      saved[k] = process.env[k]
+      delete process.env[k]
+    }
+  })
+  afterEach(() => {
+    for (const k of KEYS) {
+      if (saved[k] === undefined) delete process.env[k]
+      else process.env[k] = saved[k]
+    }
+  })
+
+  it("falls back to documented defaults when no env is set", () => {
+    const c = loadConfig()
+    expect(c.baseUrl).toBe(DEFAULT_BASE_URL)
+    expect(c.timeoutMs).toBe(DEFAULT_TIMEOUT_MS)
+    expect(c.asyncTimeoutMs).toBe(DEFAULT_ASYNC_TIMEOUT_MS)
+    expect(c.tokenCachePath).toBe(DEFAULT_TOKEN_CACHE_PATH)
+    expect(c.accessKey).toBeUndefined()
+    expect(c.secretKey).toBeUndefined()
+    expect(c.token).toBeUndefined()
+  })
+
+  it("reads overrides from env", () => {
+    process.env.GANGTISE_BASE_URL = "https://example.test"
+    process.env.GANGTISE_TIMEOUT_MS = "5000"
+    process.env.GANGTISE_MCP_ASYNC_TIMEOUT_MS = "90000"
+    process.env.GANGTISE_ACCESS_KEY = "ak"
+    process.env.GANGTISE_SECRET_KEY = "sk"
+    process.env.GANGTISE_TOKEN = "tok"
+    process.env.GANGTISE_TOKEN_CACHE_PATH = "/tmp/custom-token.json"
+
+    const c = loadConfig()
+    expect(c.baseUrl).toBe("https://example.test")
+    expect(c.timeoutMs).toBe(5000)
+    expect(c.asyncTimeoutMs).toBe(90000)
+    expect(c.accessKey).toBe("ak")
+    expect(c.secretKey).toBe("sk")
+    expect(c.token).toBe("tok")
+    expect(c.tokenCachePath).toBe("/tmp/custom-token.json")
+  })
+
+  it("ignores empty, non-numeric, zero, and negative timeouts", () => {
+    for (const bad of ["", "abc", "0", "-5"]) {
+      process.env.GANGTISE_TIMEOUT_MS = bad
+      process.env.GANGTISE_MCP_ASYNC_TIMEOUT_MS = bad
+      const c = loadConfig()
+      expect(c.timeoutMs).toBe(DEFAULT_TIMEOUT_MS)
+      expect(c.asyncTimeoutMs).toBe(DEFAULT_ASYNC_TIMEOUT_MS)
+    }
+  })
+})
