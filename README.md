@@ -4,6 +4,16 @@
 
 ## Changelog
 
+### 0.1.28 (2026-06-16)
+内部健壮性与发布链路加固（无 CLI 同步，无工具入参变更）：
+- 分页：某页返回异常结构或 `total` 中途漂移时，响应标记 `_partial` + `_partial_reason`（此前静默返回不完整列表，仅 verbose 日志）
+- AI 异步提交（`gangtise_earnings_review` / `gangtise_viewpoint_debate`）遇 5xx 不再自动重试，避免重复建任务、重复扣分
+- 修复 auth 刷新失败掩盖原始 API 错误：重新登录失败时抛出原始请求错误而非次生错误
+- `gangtise_read_response` 仅允许读取本进程生成的临时文件（此前只校验目录名前缀，与工具描述不符）
+- 并发请求首个失败即停止后续取数并消除潜在未捕获拒绝；下载写盘失败时清理临时目录；`gangtise_lookup` 统一走大响应截断保护
+- CI 增加 Node 20/22/24 矩阵；发布流程校验 git tag 与 `package.json` 版本一致并启用 npm provenance；`build` 先清理 `dist/`
+- 新增 config / auth / 分页 partial / 并发失败 等单测（115 → 133）
+
 ### 0.1.25–0.1.27 (2026-06-15)
 - 同步 CLI v0.17.0：日程类 4 工具各自只暴露 API spec 支持的字段（之前共享 11 字段大 schema，传不支持字段静默无效）
   - `gangtise_roadshow_list`：researchArea / institution / security / location / category / market / participantRole / brokerType / permission
