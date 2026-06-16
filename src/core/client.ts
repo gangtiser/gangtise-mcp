@@ -123,7 +123,13 @@ export class GangtiseClient {
     ) {
       authState.retried = true
       this.memoCache = null
-      await this.getAuthorizationHeader(true)
+      try {
+        await this.getAuthorizationHeader(true)
+      } catch {
+        // Refresh itself failed (bad keys / network) — surface the ORIGINAL api
+        // error to the caller (which re-throws it), not the secondary refresh error.
+        return
+      }
       throw markRetryable(new ApiError(error.message, error.code, error.statusCode, error.details))
     }
   }
@@ -251,14 +257,20 @@ export class GangtiseClient {
       list: returnedList,
     }
 
+    const partialReasons: string[] = []
     if (hitPageCap) {
-      response._partial = true
-      response._partial_reason = "page_cap"
+      partialReasons.push("page_cap")
       response._page_cap = {
         maxPages: MAX_PAGES,
         targetItems: target,
         returnedItems: returnedList.length,
       }
+    }
+    if (unexpectedShape) partialReasons.push("unexpected_page_shape")
+    if (totalDrift) partialReasons.push("total_drift")
+    if (partialReasons.length > 0) {
+      response._partial = true
+      response._partial_reason = partialReasons.join(",")
     }
 
     return response
@@ -323,6 +335,7 @@ export class GangtiseClient {
         throw error
       }
     }, {
+      retries: endpoint.noRetry ? 0 : undefined,
       onRetry: (attempt, error, delay) => {
         if (!isVerbose()) return
         const msg = error instanceof Error ? error.message : String(error)

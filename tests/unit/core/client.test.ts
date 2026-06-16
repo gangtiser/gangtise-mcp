@@ -50,6 +50,16 @@ function keyClient() {
   })
 }
 
+function tokenClient() {
+  return new GangtiseClient({
+    baseUrl: "https://open.gangtise.com",
+    timeoutMs: 30_000,
+    token: "test-token",
+    tokenCachePath,
+    asyncTimeoutMs: 60_000,
+  })
+}
+
 beforeEach(() => requestMock.mockReset())
 afterEach(async () => {
   await fs.unlink(tokenCachePath).catch(() => {})
@@ -177,5 +187,39 @@ describe("GangtiseClient pagination", () => {
       targetItems: 60_000,
       returnedItems: 50_000,
     })
+  })
+
+  it("flags the result partial when a later page returns an unexpected shape", async () => {
+    requestMock.mockImplementation((_url: unknown, options?: { body?: string }) => {
+      const body = JSON.parse(options?.body ?? "{}") as { from: number; size: number }
+      if (body.from === 0) {
+        return Promise.resolve(jsonResponse({
+          total: 100,
+          list: Array.from({ length: body.size }, (_, i) => ({ id: body.from + i })),
+        }))
+      }
+      return Promise.resolve(jsonResponse({ note: "broken" }))
+    })
+
+    const result = await tokenClient().call("insight.opinion.list", {}) as Record<string, unknown> & { list: unknown[] }
+
+    expect(result.list).toHaveLength(50)
+    expect(result._partial).toBe(true)
+    expect(result._partial_reason).toContain("unexpected_page_shape")
+  })
+})
+
+describe("GangtiseClient noRetry endpoints", () => {
+  it("does not retry an async-AI submit endpoint on a 5xx (avoids duplicate jobs)", async () => {
+    let calls = 0
+    requestMock.mockImplementation(() => {
+      calls += 1
+      return Promise.resolve(rawJsonResponse({ code: "500", msg: "server error" }, 500))
+    })
+    // 500 is otherwise retryable (see transport.test.ts); submit endpoints opt out via noRetry.
+    await expect(
+      tokenClient().call("ai.earnings-review.get-id", { securityCode: "600519.SH", period: "2025q1" }),
+    ).rejects.toBeTruthy()
+    expect(calls).toBe(1)
   })
 })

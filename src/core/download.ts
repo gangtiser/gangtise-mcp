@@ -1,10 +1,10 @@
 import fs from "node:fs/promises"
-import os from "node:os"
 import path from "node:path"
 
 import type { GangtiseClient } from "./client.js"
 import type { EndpointDefinition } from "./endpoints.js"
 import { DownloadError } from "./errors.js"
+import { createManagedTempDir } from "./tempCleanup.js"
 
 export interface DownloadResult {
   /** Presigned or redirect URL (caller should pass to user) */
@@ -61,7 +61,7 @@ export async function downloadToResult(
   query: Record<string, string | number>,
 ): Promise<DownloadResult> {
   // For binary downloads, generate a unique temp dir first
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "gangtise-mcp-"))
+  const tempDir = await createManagedTempDir()
   const tempPath = path.join(tempDir, "download.bin")
 
   const raw = await client.download(endpoint, query, { streamTo: tempPath })
@@ -81,23 +81,33 @@ export async function downloadToResult(
 
   // Case 3: Streamed to disk (binary)
   if (raw.savedPath) {
-    const ext = extFromContentType(raw.contentType)
-    const filename = safeFilename(raw.filename, `download${ext}`)
-    // Rename to meaningful extension if needed
-    const finalPath = path.join(tempDir, filename)
-    if (finalPath !== raw.savedPath) {
-      await fs.rename(raw.savedPath, finalPath)
+    try {
+      const ext = extFromContentType(raw.contentType)
+      const filename = safeFilename(raw.filename, `download${ext}`)
+      // Rename to meaningful extension if needed
+      const finalPath = path.join(tempDir, filename)
+      if (finalPath !== raw.savedPath) {
+        await fs.rename(raw.savedPath, finalPath)
+      }
+      return { savedPath: finalPath, filename, contentType: raw.contentType }
+    } catch (err) {
+      await fs.rm(tempDir, { recursive: true, force: true })
+      throw err
     }
-    return { savedPath: finalPath, filename, contentType: raw.contentType }
   }
 
   // Case 4: In-memory binary (fallback for small files)
   if (raw.data) {
-    const ext = extFromContentType(raw.contentType)
-    const filename = safeFilename(raw.filename, `download${ext}`)
-    const finalPath = path.join(tempDir, filename)
-    await fs.writeFile(finalPath, raw.data)
-    return { savedPath: finalPath, filename, contentType: raw.contentType }
+    try {
+      const ext = extFromContentType(raw.contentType)
+      const filename = safeFilename(raw.filename, `download${ext}`)
+      const finalPath = path.join(tempDir, filename)
+      await fs.writeFile(finalPath, raw.data)
+      return { savedPath: finalPath, filename, contentType: raw.contentType }
+    } catch (err) {
+      await fs.rm(tempDir, { recursive: true, force: true })
+      throw err
+    }
   }
 
   await fs.rm(tempDir, { recursive: true, force: true })

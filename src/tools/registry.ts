@@ -1,5 +1,4 @@
 import fs from "node:fs/promises"
-import os from "node:os"
 import path from "node:path"
 
 import { z } from "zod"
@@ -9,6 +8,7 @@ import { ENDPOINTS } from "../core/endpoints.js"
 import { normalizeRows } from "../core/normalize.js"
 import { downloadToResult, type DownloadResult } from "../core/download.js"
 import { errorMessage } from "../core/errors.js"
+import { createManagedTempDir } from "../core/tempCleanup.js"
 
 const INLINE_MAX_BYTES = 256_000
 const PREVIEW_ITEMS = 20
@@ -36,7 +36,7 @@ export async function buildToolContent(normalized: unknown): Promise<Array<{ typ
     return [{ type: "text" as const, text: json }]
   }
 
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "gangtise-mcp-"))
+  const tempDir = await createManagedTempDir()
   const savedPath = path.join(tempDir, "response.json")
   await fs.writeFile(savedPath, json, "utf8")
 
@@ -104,7 +104,7 @@ export async function buildTextResult(text: string): Promise<Array<{ type: "text
 
 /** Writes oversized text to a temp .md file and returns the truncation-pointer metadata. */
 async function spillTextMeta(text: string): Promise<Record<string, unknown>> {
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "gangtise-mcp-"))
+  const tempDir = await createManagedTempDir()
   const savedPath = path.join(tempDir, "response.md")
   await fs.writeFile(savedPath, text, "utf8")
 

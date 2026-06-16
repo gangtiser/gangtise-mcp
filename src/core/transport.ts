@@ -25,16 +25,27 @@ export async function runWithConcurrency<T, R>(
   const limit = Math.max(1, Math.min(concurrency, items.length))
   const results: R[] = new Array(items.length)
   let next = 0
+  let firstError: unknown = null
 
   async function worker(): Promise<void> {
-    while (true) {
+    // Stop pulling new work once any worker has failed, so we don't waste
+    // requests after the batch is already doomed.
+    while (firstError === null) {
       const index = next++
       if (index >= items.length) return
-      results[index] = await fn(items[index], index)
+      try {
+        results[index] = await fn(items[index], index)
+      } catch (err) {
+        // Capture the first failure and resolve quietly — re-throwing here would
+        // surface as an unhandled rejection once Promise.all has already settled.
+        if (firstError === null) firstError = err
+        return
+      }
     }
   }
 
   await Promise.all(Array.from({ length: limit }, () => worker()))
+  if (firstError !== null) throw firstError
   return results
 }
 

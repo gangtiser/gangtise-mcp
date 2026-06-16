@@ -27,6 +27,19 @@ describe("runWithConcurrency", () => {
   it("returns [] for an empty input", async () => {
     expect(await runWithConcurrency([], 4, async (x) => x)).toEqual([])
   })
+
+  it("rejects with the first error and stops pulling remaining items", async () => {
+    const seen: number[] = []
+    await expect(
+      runWithConcurrency([1, 2, 3, 4, 5, 6], 2, async (x) => {
+        seen.push(x)
+        if (x === 2) throw new Error("boom")
+        await sleep(2)
+        return x
+      }),
+    ).rejects.toThrow("boom")
+    expect(seen).not.toContain(6)
+  })
 })
 
 describe("withRetry", () => {

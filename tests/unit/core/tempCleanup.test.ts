@@ -1,5 +1,9 @@
+import fs from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+
 import { describe, expect, it } from "vitest"
-import { selectStaleTempDirs } from "../../../src/core/tempCleanup.js"
+import { selectStaleTempDirs, createManagedTempDir, isOwnedTempPath } from "../../../src/core/tempCleanup.js"
 
 const DAY = 86_400_000
 const now = 1_700_000_000_000
@@ -24,5 +28,16 @@ describe("selectStaleTempDirs", () => {
   it("ignores dirs that do not match the prefix", () => {
     const entries = [{ name: "other-prefix-aaa", mtimeMs: now - 10 * DAY }]
     expect(selectStaleTempDirs(entries, "gangtise-mcp-", now, DAY)).toEqual([])
+  })
+})
+
+describe("createManagedTempDir / isOwnedTempPath", () => {
+  it("treats files in a process-created temp dir as owned and rejects others", async () => {
+    const dir = await createManagedTempDir()
+    const file = path.join(dir, "response.json")
+    await fs.writeFile(file, "{}", "utf8")
+    expect(isOwnedTempPath(await fs.realpath(file))).toBe(true)
+    expect(isOwnedTempPath(await fs.realpath(os.tmpdir()))).toBe(false)
+    await fs.rm(dir, { recursive: true, force: true })
   })
 })

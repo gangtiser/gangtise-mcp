@@ -2,7 +2,8 @@ import { z } from "zod"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { GangtiseClient } from "../core/client.js"
 import { getLookupData, type LookupKey } from "../core/lookupData/index.js"
-import { errorMessage } from "../core/errors.js"
+import { toolHandler, contentResult } from "./helpers.js"
+import { buildToolContent } from "./registry.js"
 
 const LOOKUP_TYPES = [
   "broker-orgs",
@@ -21,13 +22,8 @@ export function registerLookupTools(server: McpServer, _client: GangtiseClient):
       },
       annotations: { readOnlyHint: true },
     },
-    async ({ type }) => {
-      try {
-        const data = await getLookupData(type as LookupKey)
-        return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] }
-      } catch (err) {
-        return { content: [{ type: "text" as const, text: errorMessage(err) }], isError: true }
-      }
-    },
+    toolHandler(async ({ type }: { type: string }) => {
+      return contentResult(await buildToolContent(await getLookupData(type as LookupKey)))
+    }),
   )
 }

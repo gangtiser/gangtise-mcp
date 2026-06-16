@@ -8,6 +8,28 @@ const TMP_DIR_PREFIX = "gangtise-mcp-"
 /** Temp dirs from truncated responses / downloads older than this are swept on startup. */
 const DEFAULT_MAX_AGE_MS = 24 * 60 * 60 * 1000
 
+/**
+ * Realpath-resolved temp dirs created by THIS process via createManagedTempDir.
+ * gangtise_read_response consults this so it only ever reads files this server
+ * run produced — not arbitrary gangtise-mcp-* files another process left in tmp.
+ */
+const ownedTempDirs = new Set<string>()
+
+/** Creates a unique gangtise-mcp- temp dir and records it as owned by this process. */
+export async function createManagedTempDir(): Promise<string> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), TMP_DIR_PREFIX))
+  ownedTempDirs.add(await fs.realpath(dir))
+  return dir
+}
+
+/** True when `realPath` (already realpath-resolved) lives in a temp dir this process created. */
+export function isOwnedTempPath(realPath: string): boolean {
+  for (const dir of ownedTempDirs) {
+    if (realPath === dir || realPath.startsWith(dir + path.sep)) return true
+  }
+  return false
+}
+
 interface DirEntryStat {
   name: string
   mtimeMs: number

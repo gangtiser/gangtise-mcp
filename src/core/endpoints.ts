@@ -8,6 +8,8 @@ export interface EndpointDefinition {
     enabled: true
     maxPageSize: number
   }
+  /** Disable transport-level retries. Set for non-idempotent mutations (async-AI submit) where a retried 5xx could create a duplicate job / double-charge credits. */
+  noRetry?: boolean
 }
 
 export const ENDPOINTS: Record<string, EndpointDefinition> = {
@@ -400,6 +402,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-ai/agent/earnings-review-getid",
     kind: "json",
     description: "Get earnings review ID",
+    noRetry: true,
   },
   "ai.earnings-review.get-content": {
     key: "ai.earnings-review.get-content",
@@ -450,6 +453,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-ai/agent/viewpoint-debate-getid",
     kind: "json",
     description: "Get viewpoint debate ID",
+    noRetry: true,
   },
   "ai.viewpoint-debate.get-content": {
     key: "ai.viewpoint-debate.get-content",

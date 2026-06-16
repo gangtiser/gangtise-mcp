@@ -8,6 +8,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { registerResponseTools } from "../../../src/tools/response.js"
 import { buildToolContent } from "../../../src/tools/registry.js"
+import { createManagedTempDir } from "../../../src/core/tempCleanup.js"
 import type { GangtiseClient } from "../../../src/core/client.js"
 
 const mockClient = { call: async () => ({}), download: async () => ({}) } as unknown as GangtiseClient
@@ -23,14 +24,14 @@ async function makeConnectedPair() {
 }
 
 async function writeTmpJson(payload: unknown): Promise<string> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "gangtise-mcp-"))
+  const dir = await createManagedTempDir()
   const file = path.join(dir, "response.json")
   await fs.writeFile(file, JSON.stringify(payload), "utf8")
   return file
 }
 
 async function writeTmpText(text: string): Promise<string> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "gangtise-mcp-"))
+  const dir = await createManagedTempDir()
   const file = path.join(dir, "response.md")
   await fs.writeFile(file, text, "utf8")
   return file
@@ -153,7 +154,7 @@ describe("gangtise_read_response", () => {
       arguments: { saved_to: "/etc/passwd" },
     })
     expect(result.isError).toBe(true)
-    expect((result.content as Array<{ text: string }>)[0].text).toMatch(/tmpdir|not found/)
+    expect((result.content as Array<{ text: string }>)[0].text).toMatch(/server process|gangtise-mcp-/)
   })
 
   it("rejects tmpdir paths whose parent does not match the gangtise-mcp- prefix", async () => {
