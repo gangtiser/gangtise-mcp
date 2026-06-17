@@ -64,7 +64,15 @@ export async function downloadToResult(
   const tempDir = await createManagedTempDir()
   const tempPath = path.join(tempDir, "download.bin")
 
-  const raw = await client.download(endpoint, query, { streamTo: tempPath })
+  let raw: Awaited<ReturnType<typeof client.download>>
+  try {
+    raw = await client.download(endpoint, query, { streamTo: tempPath })
+  } catch (err) {
+    // A mid-stream failure can leave a truncated download.bin behind; drop the
+    // whole temp dir so a failed download never lingers as a partial file.
+    await fs.rm(tempDir, { recursive: true, force: true })
+    throw err
+  }
 
   // Case 1: API returned a redirect/presigned URL
   if (raw.url) {

@@ -51,4 +51,22 @@ describe("downloadToResult", () => {
       }
     }
   })
+
+  it("removes the temp dir when the streamed download fails mid-way", async () => {
+    let streamedTo: string | undefined
+    const client = {
+      download: async (_endpoint: EndpointDefinition, _query: Record<string, string | number>, options?: { streamTo?: string }) => {
+        streamedTo = options?.streamTo
+        // simulate the truncated file a mid-stream failure leaves on disk
+        if (streamedTo) await fs.writeFile(streamedTo, "partial bytes")
+        throw new Error("stream boom")
+      },
+    } as unknown as GangtiseClient
+
+    await expect(downloadToResult(client, endpoint, {})).rejects.toThrow("stream boom")
+
+    // a failed download must not leave the temp dir or its partial file behind
+    expect(streamedTo).toBeDefined()
+    await expect(fs.access(path.dirname(streamedTo as string))).rejects.toThrow()
+  })
 })
