@@ -231,6 +231,24 @@ const listSpecs: JsonToolSpec[] = [
       ratingChangeList: z.array(z.string()).optional(),
     },
   },
+  {
+    name: "gangtise_official_account_list",
+    description: "查询产业公众号资讯列表，支持按公众号、证券、文章类型、行业、时间范围、关键词筛选；返回含模型摘要及关联行业/题材/证券列表。",
+    endpointKey: "insight.official-account.list",
+    paginated: true,
+    inputSchema: {
+      from: z.number().int().min(0).optional(),
+      startTime: z.string().optional().describe(dateTimeDesc()),
+      endTime: z.string().optional().describe(dateTimeDesc()),
+      keyword: z.string().optional().describe("需用数据中的具体词（如 泡泡玛特），不要用整句白话"),
+      searchType: z.number().int().optional().describe("1=标题搜索（默认）| 2=全文搜索"),
+      rankType: z.number().int().optional().describe("1=综合排序（默认）| 2=时间倒序"),
+      accountIdList: z.array(z.string()).optional().describe("公众号 ID，来自本工具返回的 accountId"),
+      securityList: z.array(z.string()).optional().describe("证券代码列表，如 ['000001.SZ']"),
+      categoryList: z.array(z.string()).optional().describe("文章类型：news=新闻资讯 | law=法律法规 | report=报告类 | view=个人观点 | data=产业数据 | event=日程活动 | meeting=会议纪要 | notice=通知 | recruit=招聘 | investEdu=投资科普 | brand=品牌宣传 | notes=个人随笔 | other=其他"),
+      industryList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx，全场景首选）"),
+    },
+  },
 ]
 
 const downloadSpecs: DownloadToolSpec[] = [
@@ -285,6 +303,15 @@ const downloadSpecs: DownloadToolSpec[] = [
     inputSchema: {
       opinionId: z.string().describe("观点 ID，来自 gangtise_independent_opinion_list"),
       fileType: z.number().int().describe("1=原文 HTML | 2=中文翻译 HTML（必填）"),
+    },
+  },
+  {
+    name: "gangtise_official_account_download",
+    description: "按 articleId 下载产业公众号文章，返回 txt 文本或 HTML。",
+    endpointKey: "insight.official-account.download",
+    inputSchema: {
+      articleId: z.string().describe("文章 ID，来自 gangtise_official_account_list"),
+      fileType: z.number().int().optional().describe("1=txt（默认）| 2=HTML"),
     },
   },
 ]

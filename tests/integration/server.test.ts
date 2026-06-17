@@ -56,6 +56,8 @@ describe("MCP server integration", () => {
     expect(names).toContain("gangtise_forum_list")
     expect(names).toContain("gangtise_research_list")
     expect(names).toContain("gangtise_research_download")
+    expect(names).toContain("gangtise_official_account_list")
+    expect(names).toContain("gangtise_official_account_download")
     expect(names).toContain("gangtise_day_kline")
     expect(names).toContain("gangtise_income_statement")
     expect(names).toContain("gangtise_one_pager")
@@ -241,6 +243,29 @@ describe("MCP server integration", () => {
     const keys = Object.keys((ann?.inputSchema as { properties?: Record<string, unknown> })?.properties ?? {})
     expect(keys).toContain("categoryList")
     expect(keys).not.toContain("announcementTypeList")
+  })
+
+  it("gangtise_official_account_list forwards documented filters with default size", async () => {
+    await mcpClient.callTool({
+      name: "gangtise_official_account_list",
+      arguments: { categoryList: ["report"], searchType: 2, accountIdList: ["acc-1"] },
+    })
+    expect(mockClient.call).toHaveBeenCalledWith(
+      "insight.official-account.list",
+      expect.objectContaining({ categoryList: ["report"], searchType: 2, accountIdList: ["acc-1"], size: 20 }),
+    )
+  })
+
+  it("gangtise_official_account_download downloads the article by articleId", async () => {
+    ;(mockClient.download as ReturnType<typeof vi.fn>).mockResolvedValue({ text: "article body", contentType: "text/plain" })
+    const result = await mcpClient.callTool({
+      name: "gangtise_official_account_download",
+      arguments: { articleId: "art-1", fileType: 1 },
+    })
+    expect(result.isError).toBeFalsy()
+    const [endpointArg, queryArg] = (mockClient.download as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(endpointArg.key).toBe("insight.official-account.download")
+    expect(queryArg).toMatchObject({ articleId: "art-1", fileType: 1 })
   })
 
   it("gangtise_opinion_list calls API with default size: 20", async () => {

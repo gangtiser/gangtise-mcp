@@ -4,6 +4,13 @@
 
 ## Changelog
 
+### 0.1.30 (2026-06-17)
+- 同步 CLI v0.18.0：新增「产业公众号资讯」2 个工具
+  - `gangtise_official_account_list`：查询公众号资讯列表，支持 `keyword`（需用数据中的具体词，非整句白话）/ `accountIdList`（公众号 ID）/ `securityList` / `categoryList`（文章类型枚举：news / law / report / view / data / event / meeting / notice / recruit / investEdu / brand / notes / other）/ `industryList`（citicIndustry）/ `searchType`（1=标题 | 2=全文）/ `rankType`（1=综合 | 2=时间倒序）；返回含模型生成摘要 `summary` 及关联行业/题材/证券列表
+  - `gangtise_official_account_download`：按 `articleId` 下载公众号文章，`fileType` 1=txt（默认）| 2=HTML
+- 修复：下载流式写盘中途失败时，清理残缺临时文件与整个临时目录（对齐 CLI v0.17.1；此前遗漏，失败的下载会残留 temp 目录直到下次启动清扫）
+- CLI v0.17.1 的分页 cap 警告，MCP 早有等价且更优实现（结构化 `_partial` / `_page_cap` 字段，而非 stderr 警告）；token 服务端失效自愈 `0000001008` 已在 0.1.29 同步
+
 ### 0.1.29 (2026-06-16)
 - token 自动续期覆盖「服务端失效」场景：缓存 token 被服务端判失效（HTTP 401，错误码 `0000001008`，常见于在别处重新登录挤掉了原会话）时，客户端自动重新登录并重试一次。此前仅 `8000014/8000015`（HTTP 200 信封）会触发续期，而 4xx 响应在进入续期逻辑前就抛错，导致 Cherry Studio 等 MCP 客户端遇到 token 失效只能手动重登；现在会自愈。
 
