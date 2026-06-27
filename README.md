@@ -4,6 +4,18 @@
 
 ## Changelog
 
+### 0.1.31 (2026-06-27)
+- 同步 CLI v0.19.0 + v0.20.0：新增 10 个工具，覆盖证券级数据指标（EDE）、美股财报/公告、个股看点、首席搜索
+  - **证券级数据指标（EDE）** 3 工具：`gangtise_indicator_search`（按名称搜指标 code 及可传参数 `parameterList`，取数前必先 search，勿猜编码）/ `gangtise_indicator_cross_section`（多指标 × 多证券，单日截面）/ `gangtise_indicator_time_series`（多指标 × 单证券 或 单指标 × 多证券，按区间）；复权等分指标参数用 `indicatorParamList`（`adjustmentType` 1=不复权 | 2=前复权 | 3=后复权）；EDE 双层信封自动剥离（含内层错误码透出），二维矩阵展平为 `{date, security, 指标:值}` 宽表
+  - **美股财报** 3 工具：`gangtise_income_statement_us` / `gangtise_balance_sheet_us` / `gangtise_cash_flow_us`（参数同 A 股/港股财报）
+  - **美股公告** 2 工具：`gangtise_announcement_us_list`（按证券/类别 `usShareAnnouncementCategory`/时间筛选）/ `gangtise_announcement_us_download`（`fileType` 1=原始 PDF（默认）| 2=Markdown）
+  - **个股看点** `gangtise_stock_summary`：按证券返回精炼投研总结，`securityList` 必填（A 股/港股代码，或市场关键词 `aShares`/`hkStocks`），空列表本地拦截防全市场误扣分
+  - **首席搜索** `gangtise_chiefs_search`：按姓名/机构/团队搜首席分析师 ID，供 `gangtise_opinion_list.chiefList` 使用
+- `gangtise_announcement_hk_download` 新增 `fileType`（1=原始（默认）| 2=Markdown），此前无格式选项
+- `gangtise_constant_list` 的 `category` 枚举补 `usShareAnnouncementCategory`（美股公告分类，`103980xxx` 段）
+- CLI v0.20.0 的几项修复 MCP 早有等价实现或语义不适用：分页 fail-soft 见 0.1.28 的 `_partial` 标记；`gangtise_hot_topic` 的 `withRelatedSecurities`/`withCloseReading` 本就是显式可选布尔；`gangtise_knowledge_batch.queries` 已 `min(1)` 强制非空；MCP 不导出 CSV
+- 扩展测试覆盖：新增 EDE 矩阵展平单测 + 美股/指标/个股看点集成测试（共 154）
+
 ### 0.1.30 (2026-06-17)
 - 同步 CLI v0.18.0：新增「产业公众号资讯」2 个工具
   - `gangtise_official_account_list`：查询公众号资讯列表，支持 `keyword`（需用数据中的具体词，非整句白话）/ `accountIdList`（公众号 ID）/ `securityList` / `categoryList`（文章类型枚举：news / law / report / view / data / event / meeting / notice / recruit / investEdu / brand / notes / other）/ `industryList`（citicIndustry）/ `searchType`（1=标题 | 2=全文）/ `rankType`（1=综合 | 2=时间倒序）；返回含模型生成摘要 `summary` 及关联行业/题材/证券列表
@@ -111,15 +123,16 @@
 <thead><tr><th width="100">类别</th><th>工具</th></tr></thead>
 <tbody>
 <tr><td>上下文</td><td><code>gangtise_current_date</code> — 查询运行时当前日期、年份、时间和时区</td></tr>
-<tr><td>参考数据</td><td><code>gangtise_constant_category</code> / <code>gangtise_constant_list</code> — 行业、城市、公告分类、区域等常量；<code>gangtise_concept_search</code> — 题材 ID 搜索；<code>gangtise_sector_search</code> / <code>gangtise_sector_constituents</code> — 板块及成分股（含申万行业代码 <code>821xxx.SWI</code>）；<code>gangtise_lookup</code> — 券商机构、会议机构（本地表）</td></tr>
+<tr><td>参考数据</td><td><code>gangtise_constant_category</code> / <code>gangtise_constant_list</code> — 行业、城市、公告分类、区域等常量；<code>gangtise_concept_search</code> — 题材 ID 搜索；<code>gangtise_sector_search</code> / <code>gangtise_sector_constituents</code> — 板块及成分股（含申万行业代码 <code>821xxx.SWI</code>）；<code>gangtise_chiefs_search</code> — 首席分析师 ID 搜索；<code>gangtise_lookup</code> — 券商机构、会议机构（本地表）</td></tr>
 <tr><td>证券检索</td><td><code>gangtise_securities_search</code></td></tr>
-<tr><td>观点/研报</td><td>国内首席观点、纪要、券商研报、外资研报、外资独立观点、公告（A股/港股）</td></tr>
+<tr><td>观点/研报</td><td>国内首席观点、纪要、券商研报、外资研报、外资独立观点、公告（A股/港股/美股）</td></tr>
 <tr><td>路演/调研</td><td>路演、调研、策略会、论坛</td></tr>
 <tr><td>行情</td><td>A 股/港股/美股日 K（仅历史）、A 股分钟 K、指数日 K、实时行情快照（A/港/美）</td></tr>
-<tr><td>基本面</td><td>A股/港股利润表、资产负债表、现金流量表（累计/单季）、主营业务、估值、股东、盈利预测</td></tr>
-<tr><td>AI 能力</td><td>知识库检索、一页通、投资逻辑、同业对比、线索、主题跟踪、业绩点评、观点辩证、管理层讨论</td></tr>
+<tr><td>基本面</td><td>A股/港股/美股利润表、资产负债表、现金流量表（累计/单季）、主营业务、估值、股东、盈利预测</td></tr>
+<tr><td>AI 能力</td><td>知识库检索、个股看点、一页通、投资逻辑、同业对比、线索、主题跟踪、业绩点评、观点辩证、管理层讨论</td></tr>
 <tr><td>云盘/语音</td><td>网盘文件、录音转写、我的会议、群消息、自选股池</td></tr>
 <tr><td>另类数据</td><td>EDB 行业经济指标搜索与时序数据查询、题材指数基本信息与成分股</td></tr>
+<tr><td>数据指标</td><td><code>gangtise_indicator_search</code> — 证券级数据指标（EDE）搜索；<code>gangtise_indicator_cross_section</code> / <code>gangtise_indicator_time_series</code> — 指标截面/时序（支持复权等分指标参数，二维矩阵展平为宽表）</td></tr>
 </tbody>
 </table>
 

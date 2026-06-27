@@ -73,6 +73,16 @@ describe("MCP server integration", () => {
     expect(names).toContain("gangtise_concept_search")
     expect(names).toContain("gangtise_sector_search")
     expect(names).toContain("gangtise_sector_constituents")
+    expect(names).toContain("gangtise_chiefs_search")
+    expect(names).toContain("gangtise_stock_summary")
+    expect(names).toContain("gangtise_income_statement_us")
+    expect(names).toContain("gangtise_balance_sheet_us")
+    expect(names).toContain("gangtise_cash_flow_us")
+    expect(names).toContain("gangtise_announcement_us_list")
+    expect(names).toContain("gangtise_announcement_us_download")
+    expect(names).toContain("gangtise_indicator_search")
+    expect(names).toContain("gangtise_indicator_cross_section")
+    expect(names).toContain("gangtise_indicator_time_series")
 
     // Should have a substantial number of tools
     expect(tools.length).toBeGreaterThan(40)
@@ -374,5 +384,106 @@ describe("MCP server integration", () => {
     const result = await mcpClient.callTool({ name: "gangtise_opinion_list", arguments: {} })
     expect(result.isError).toBe(true)
     expect((result.content as Array<{ text: string }>)[0].text).toContain("network error")
+  })
+
+  it("gangtise_stock_summary rejects an empty securityList before calling the API", async () => {
+    const result = await mcpClient.callTool({ name: "gangtise_stock_summary", arguments: { securityList: [] } })
+    expect(result.isError).toBe(true)
+    expect(mockClient.call).not.toHaveBeenCalled()
+  })
+
+  it("gangtise_stock_summary rejects blank-string entries in securityList", async () => {
+    const result = await mcpClient.callTool({ name: "gangtise_stock_summary", arguments: { securityList: ["   "] } })
+    expect(result.isError).toBe(true)
+    expect(mockClient.call).not.toHaveBeenCalled()
+  })
+
+  it("gangtise_stock_summary forwards securityList to the stock-summary endpoint", async () => {
+    await mcpClient.callTool({ name: "gangtise_stock_summary", arguments: { securityList: ["600519.SH"] } })
+    expect(mockClient.call).toHaveBeenCalledWith(
+      "ai.stock-summary.list",
+      expect.objectContaining({ securityList: ["600519.SH"] }),
+    )
+  })
+
+  it("gangtise_chiefs_search forwards keyword to the chiefs endpoint", async () => {
+    await mcpClient.callTool({ name: "gangtise_chiefs_search", arguments: { keyword: "张三", top: 5 } })
+    expect(mockClient.call).toHaveBeenCalledWith(
+      "reference.chiefs-search",
+      expect.objectContaining({ keyword: "张三", top: 5 }),
+    )
+  })
+
+  it("gangtise_announcement_us_list forwards filters with default size: 20", async () => {
+    await mcpClient.callTool({
+      name: "gangtise_announcement_us_list",
+      arguments: { securityList: ["TSLA.O"], categoryList: ["103980001"] },
+    })
+    expect(mockClient.call).toHaveBeenCalledWith(
+      "insight.announcement-us.list",
+      expect.objectContaining({ securityList: ["TSLA.O"], categoryList: ["103980001"], size: 20 }),
+    )
+  })
+
+  it("gangtise_announcement_hk_download now accepts a fileType query param", async () => {
+    ;(mockClient.download as ReturnType<typeof vi.fn>).mockResolvedValue({ text: "ann body", contentType: "text/plain" })
+    const result = await mcpClient.callTool({
+      name: "gangtise_announcement_hk_download",
+      arguments: { announcementId: "ann-1", fileType: 2 },
+    })
+    expect(result.isError).toBeFalsy()
+    const [endpointArg, queryArg] = (mockClient.download as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(endpointArg.key).toBe("insight.announcement-hk.download")
+    expect(queryArg).toMatchObject({ announcementId: "ann-1", fileType: 2 })
+  })
+
+  it("gangtise_indicator_search rejects an empty keyword before calling the API", async () => {
+    const result = await mcpClient.callTool({ name: "gangtise_indicator_search", arguments: { keyword: "" } })
+    expect(result.isError).toBe(true)
+    expect(mockClient.call).not.toHaveBeenCalled()
+  })
+
+  it("gangtise_indicator_cross_section unwraps the inner envelope and flattens to a wide table", async () => {
+    vi.mocked(mockClient.call).mockResolvedValueOnce({
+      code: "000000",
+      status: true,
+      data: {
+        date: "2026-06-26",
+        securityCodeList: ["600519.SH"],
+        securityNameList: ["贵州茅台"],
+        indicatorCodeList: ["qte_close"],
+        indicatorNameList: ["收盘价"],
+        values: [[1800]],
+      },
+    })
+    const result = await mcpClient.callTool({
+      name: "gangtise_indicator_cross_section",
+      arguments: { indicatorCodeList: ["qte_close"], securityCodeList: ["600519.SH"], date: "2026-06-26" },
+    })
+    expect(result.isError).toBeFalsy()
+    expect(mockClient.call).toHaveBeenCalledWith(
+      "indicator.cross-section",
+      expect.objectContaining({ indicatorCodeList: ["qte_close"], securityCodeList: ["600519.SH"], date: "2026-06-26" }),
+    )
+    const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text)
+    expect(parsed.list[0]).toMatchObject({ security: "600519.SH", name: "贵州茅台", 收盘价: 1800 })
+  })
+
+  it("gangtise_indicator_cross_section rejects an empty indicatorCodeList before calling the API", async () => {
+    const result = await mcpClient.callTool({
+      name: "gangtise_indicator_cross_section",
+      arguments: { indicatorCodeList: [], securityCodeList: ["600519.SH"], date: "2026-06-26" },
+    })
+    expect(result.isError).toBe(true)
+    expect(mockClient.call).not.toHaveBeenCalled()
+  })
+
+  it("gangtise_indicator_time_series rejects an omitted securityCodeList before calling the API", async () => {
+    const result = await mcpClient.callTool({
+      name: "gangtise_indicator_time_series",
+      arguments: { indicatorCodeList: ["qte_close"], startDate: "2026-06-25", endDate: "2026-06-26" },
+    })
+    expect(result.isError).toBe(true)
+    expect(mockClient.call).not.toHaveBeenCalled()
   })
 })

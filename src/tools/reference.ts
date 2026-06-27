@@ -7,9 +7,19 @@ import { toolHandler, contentResult } from "./helpers.js"
 
 const referenceSpecs: JsonToolSpec[] = [
   {
+    name: "gangtise_chiefs_search",
+    description:
+      "按姓名 / 机构 / 团队搜索首席分析师 ID，返回 chiefId 等。该 ID 供 gangtise_opinion_list 的 chiefList 使用。",
+    endpointKey: "reference.chiefs-search",
+    inputSchema: {
+      keyword: z.string().trim().min(1, "搜索词不能为空").describe("搜索词：首席姓名、机构或团队名"),
+      top: z.number().int().min(1).max(10).optional().describe("最大返回条数（默认 10，上限 10）"),
+    },
+  },
+  {
     name: "gangtise_constant_category",
     description:
-      "查询常量分类列表：返回所有常量分类及每个分类适用于哪些接口的哪些参数（usageScopes）。当前分类：citicIndustry=中信一级行业 | swIndustry=申万一级行业 | gangtiseIndustry=Gangtise行业 | domesticCity=国内城市 | aShareAnnouncementCategory=A股公告分类 | hkShareAnnouncementCategory=港股公告分类 | regionCategory=区域分类。",
+      "查询常量分类列表：返回所有常量分类及每个分类适用于哪些接口的哪些参数（usageScopes）。当前分类：citicIndustry=中信一级行业 | swIndustry=申万一级行业 | gangtiseIndustry=Gangtise行业 | domesticCity=国内城市 | aShareAnnouncementCategory=A股公告分类 | hkShareAnnouncementCategory=港股公告分类 | usShareAnnouncementCategory=美股公告分类 | regionCategory=区域分类。",
     endpointKey: "reference.constant-category",
     inputSchema: {},
   },
@@ -27,10 +37,11 @@ const referenceSpecs: JsonToolSpec[] = [
           "domesticCity",
           "aShareAnnouncementCategory",
           "hkShareAnnouncementCategory",
+          "usShareAnnouncementCategory",
           "regionCategory",
         ])
         .describe(
-          "分类代码（必填）：citicIndustry=中信一级行业 | swIndustry=申万一级行业 | gangtiseIndustry=Gangtise行业 | domesticCity=国内城市 | aShareAnnouncementCategory=A股公告分类 | hkShareAnnouncementCategory=港股公告分类 | regionCategory=区域分类，完整清单见 gangtise_constant_category",
+          "分类代码（必填）：citicIndustry=中信一级行业 | swIndustry=申万一级行业 | gangtiseIndustry=Gangtise行业 | domesticCity=国内城市 | aShareAnnouncementCategory=A股公告分类 | hkShareAnnouncementCategory=港股公告分类 | usShareAnnouncementCategory=美股公告分类 | regionCategory=区域分类，完整清单见 gangtise_constant_category",
         ),
     },
   },

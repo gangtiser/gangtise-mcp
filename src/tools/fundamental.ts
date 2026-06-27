@@ -9,6 +9,7 @@ import { dateDesc } from "../core/dateContext.js"
 const periodEnum = z.array(z.string()).optional().describe("q1=一季报 | interim=中报 | q3=三季报 | annual=年报 | latest=最新")
 const quarterlyPeriodEnum = z.array(z.string()).optional().describe("q1 | q2 | q3 | q4 | latest")
 const hkPeriodEnum = z.array(z.string()).optional().describe("q1 | h1=中报 | q3 | h2=年报 | nsd | annual | latest")
+const usPeriodEnum = z.array(z.string()).optional().describe("q1 | h1=中报 | q3 | nsd | annual=年报 | latest")
 const reportTypeEnum = z.array(z.string()).optional().describe("consolidated=合并 | consolidatedRestated=合并调整 | standalone=母公司 | standaloneRestated=母公司调整")
 const securityCode = z.string().describe("证券代码，如 '600519.SH'")
 const dateRange = {
@@ -164,6 +165,48 @@ const specs: JsonToolSpec[] = [
       ...dateRange,
       fiscalYear,
       period: hkPeriodEnum,
+      reportType: reportTypeEnum,
+      fieldList,
+    },
+  },
+  {
+    name: "gangtise_income_statement_us",
+    description: "查询美股利润表，支持期间、财年、报告类型筛选。证券代码如 'TSLA.O'。",
+    endpointKey: "fundamental.income-statement-us",
+    paginated: false,
+    inputSchema: {
+      securityCode,
+      ...dateRange,
+      fiscalYear,
+      period: usPeriodEnum,
+      reportType: reportTypeEnum,
+      fieldList,
+    },
+  },
+  {
+    name: "gangtise_balance_sheet_us",
+    description: "查询美股资产负债表，支持期间、财年、报告类型筛选。证券代码如 'TSLA.O'。",
+    endpointKey: "fundamental.balance-sheet-us",
+    paginated: false,
+    inputSchema: {
+      securityCode,
+      ...dateRange,
+      fiscalYear,
+      period: usPeriodEnum,
+      reportType: reportTypeEnum,
+      fieldList,
+    },
+  },
+  {
+    name: "gangtise_cash_flow_us",
+    description: "查询美股现金流量表，支持期间、财年、报告类型筛选。证券代码如 'TSLA.O'。",
+    endpointKey: "fundamental.cash-flow-us",
+    paginated: false,
+    inputSchema: {
+      securityCode,
+      ...dateRange,
+      fiscalYear,
+      period: usPeriodEnum,
       reportType: reportTypeEnum,
       fieldList,
     },

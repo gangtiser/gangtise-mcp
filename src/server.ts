@@ -12,6 +12,7 @@ import { registerFundamentalTools } from "./tools/fundamental.js"
 import { registerAiTools } from "./tools/ai.js"
 import { registerVaultTools } from "./tools/vault.js"
 import { registerAlternativeTools } from "./tools/alternative.js"
+import { registerIndicatorTools } from "./tools/indicator.js"
 import { registerResponseTools } from "./tools/response.js"
 
 export interface McpServerOptions {
@@ -44,6 +45,7 @@ export function createGangtiseMcpServer(
   registerAiTools(server, client, { asyncTimeoutMs })
   registerVaultTools(server, client)
   registerAlternativeTools(server, client)
+  registerIndicatorTools(server, client)
   registerResponseTools(server, client)
 
   return server

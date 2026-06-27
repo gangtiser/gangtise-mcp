@@ -14,6 +14,20 @@ export interface AiToolOptions {
 
 const jsonSpecs: JsonToolSpec[] = [
   {
+    name: "gangtise_stock_summary",
+    description: "查询个股看点（精炼投研总结），按证券返回；无看点的证券不返回、不扣分。",
+    endpointKey: "ai.stock-summary.list",
+    paginated: false,
+    inputSchema: {
+      securityList: z
+        .array(z.string().trim().min(1))
+        .min(1, "securityList 不能为空")
+        .describe(
+          "证券代码列表（A股/港股，如 ['600519.SH','00700.HK']，单次最多 6000），或市场关键词 aShares=A股全市场 | hkStocks=港股全市场。必填，避免误触发全市场扣费",
+        ),
+    },
+  },
+  {
     name: "gangtise_knowledge_batch",
     description: "在 Gangtise 知识库（研报、纪要、观点、公告等）中进行语义搜索，单次最多支持 5 个查询词。",
     endpointKey: "ai.knowledge-batch",

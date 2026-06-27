@@ -196,6 +196,22 @@ const listSpecs: JsonToolSpec[] = [
     },
   },
   {
+    name: "gangtise_announcement_us_list",
+    description: "查询美股公告列表，支持按证券、类别、时间范围筛选。",
+    endpointKey: "insight.announcement-us.list",
+    paginated: true,
+    inputSchema: {
+      from: z.number().int().min(0).optional(),
+      startTime: z.string().optional().describe(dateTimeDesc()),
+      endTime: z.string().optional().describe(dateTimeDesc()),
+      keyword: z.string().optional(),
+      searchType: z.number().int().optional().describe("1=标题搜索 | 2=全文搜索"),
+      rankType: z.number().int().optional().describe("1=综合排序 | 2=时间倒序"),
+      securityList: z.array(z.string()).optional().describe("证券代码列表，如 ['TSLA.O']"),
+      categoryList: z.array(z.string()).optional().describe("公告类别 ID，来自 gangtise_constant_list category=usShareAnnouncementCategory"),
+    },
+  },
+  {
     name: "gangtise_foreign_opinion_list",
     description: "查询外资机构观点列表（高盛、摩根士丹利等），支持按证券、地区、行业、券商、评级、时间范围筛选。",
     endpointKey: "insight.foreign-opinion.list",
@@ -294,6 +310,16 @@ const downloadSpecs: DownloadToolSpec[] = [
     endpointKey: "insight.announcement-hk.download",
     inputSchema: {
       announcementId: z.string().describe("公告 ID，来自 gangtise_announcement_hk_list"),
+      fileType: z.number().int().optional().describe("1=原始（默认）| 2=Markdown"),
+    },
+  },
+  {
+    name: "gangtise_announcement_us_download",
+    description: "下载美股公告文件。",
+    endpointKey: "insight.announcement-us.download",
+    inputSchema: {
+      announcementId: z.string().describe("公告 ID，来自 gangtise_announcement_us_list"),
+      fileType: z.number().int().optional().describe("1=原始 PDF（默认）| 2=Markdown"),
     },
   },
   {
