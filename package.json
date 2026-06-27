@@ -1,6 +1,6 @@
 {
   "name": "gangtise-mcp",
-  "version": "0.1.31",
+  "version": "0.1.32",
   "description": "MCP server for Gangtise OpenAPI",
   "license": "MIT",
   "author": "gangtiser",

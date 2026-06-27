@@ -4,6 +4,11 @@
 
 ## Changelog
 
+### 0.1.32 (2026-06-27)
+- 修复 `gangtise_independent_opinion_download`：参数名 `opinionId` → `independentOpinionId`（上游 API 与 `gangtise_independent_opinion_list` 返回字段均为 `independentOpinionId`；旧名导致任何调用都返回 HTTP 400，该工具自注册起即不可用）。已对真实 API 端到端验证修复。
+- `gangtise_one_pager` / `gangtise_investment_logic` / `gangtise_peer_comparison` / `gangtise_research_outline`：后端返回空内容时给出「该证券暂无相关 AI 生成内容」提示，替代此前的空白文本块。
+- 全量接口真实联调：86 个 MCP 工具端到端真跑（上述 download 参数名 bug 即由此发现并修复）。
+
 ### 0.1.31 (2026-06-27)
 - 同步 CLI v0.19.0 + v0.20.0：新增 10 个工具，覆盖证券级数据指标（EDE）、美股财报/公告、个股看点、首席搜索
   - **证券级数据指标（EDE）** 3 工具：`gangtise_indicator_search`（按名称搜指标 code 及可传参数 `parameterList`，取数前必先 search，勿猜编码）/ `gangtise_indicator_cross_section`（多指标 × 多证券，单日截面）/ `gangtise_indicator_time_series`（多指标 × 单证券 或 单指标 × 多证券，按区间）；复权等分指标参数用 `indicatorParamList`（`adjustmentType` 1=不复权 | 2=前复权 | 3=后复权）；EDE 双层信封自动剥离（含内层错误码透出），二维矩阵展平为 `{date, security, 指标:值}` 宽表

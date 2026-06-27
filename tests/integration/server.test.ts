@@ -486,4 +486,31 @@ describe("MCP server integration", () => {
     expect(result.isError).toBe(true)
     expect(mockClient.call).not.toHaveBeenCalled()
   })
+
+  it("gangtise_independent_opinion_download forwards independentOpinionId (not opinionId) to the API", async () => {
+    ;(mockClient.download as ReturnType<typeof vi.fn>).mockResolvedValue({ text: "opinion html", contentType: "text/html" })
+    const result = await mcpClient.callTool({
+      name: "gangtise_independent_opinion_download",
+      arguments: { independentOpinionId: "9959358", fileType: 1 },
+    })
+    expect(result.isError).toBeFalsy()
+    const [endpointArg, queryArg] = (mockClient.download as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(endpointArg.key).toBe("insight.independent-opinion.download")
+    expect(queryArg).toMatchObject({ independentOpinionId: "9959358", fileType: 1 })
+  })
+
+  it("gangtise_independent_opinion_download rejects the old opinionId param name", async () => {
+    const result = await mcpClient.callTool({
+      name: "gangtise_independent_opinion_download",
+      arguments: { opinionId: "9959358", fileType: 1 },
+    })
+    expect(result.isError).toBe(true)
+  })
+
+  it("gangtise_one_pager returns a friendly note when the AI content is empty", async () => {
+    ;(mockClient.call as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ content: "" })
+    const result = await mcpClient.callTool({ name: "gangtise_one_pager", arguments: { securityCode: "600519.SH" } })
+    expect(result.isError).toBeFalsy()
+    expect((result.content as Array<{ text: string }>)[0].text).toContain("暂无")
+  })
 })

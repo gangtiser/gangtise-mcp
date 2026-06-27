@@ -109,6 +109,7 @@ function makeAiContentHandler(client: GangtiseClient, endpointKey: string) {
   return toolHandler(async (args: Record<string, unknown>) => {
     const result = await client.call(endpointKey, args) as { content?: string }
     if (typeof result?.content === "string") {
+      if (!result.content.trim()) return textResult("该证券暂无相关 AI 生成内容（后端未生成或数据缺失）。")
       return contentResult(await buildTextResult(result.content))
     }
     return contentResult(await buildToolContent(normalizeRows(result)))

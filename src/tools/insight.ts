@@ -327,7 +327,7 @@ const downloadSpecs: DownloadToolSpec[] = [
     description: "下载境外独立研究员观点文件，返回 HTML 内容（原文或中文翻译）。",
     endpointKey: "insight.independent-opinion.download",
     inputSchema: {
-      opinionId: z.string().describe("观点 ID，来自 gangtise_independent_opinion_list"),
+      independentOpinionId: z.string().describe("观点 ID，来自 gangtise_independent_opinion_list 的 independentOpinionId 字段"),
       fileType: z.number().int().describe("1=原文 HTML | 2=中文翻译 HTML（必填）"),
     },
   },
