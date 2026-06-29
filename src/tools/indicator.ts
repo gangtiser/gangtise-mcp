@@ -6,6 +6,7 @@ import { toolHandler, contentResult } from "./helpers.js"
 import { normalizeRows } from "../core/normalize.js"
 import { unwrapIndicatorData, flattenCrossSection, flattenTimeSeries } from "../core/indicatorMatrix.js"
 import { dateDesc } from "../core/dateContext.js"
+import { ValidationError } from "../core/errors.js"
 
 const indicatorCodeList = z
   .array(z.string())
@@ -96,6 +97,16 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
       annotations: { readOnlyHint: true },
     },
     toolHandler(async (args: Record<string, unknown>) => {
+      // Time-series flattens along exactly one varying dimension. With both >1
+      // the [series][date] matrix is ambiguous and flattenTimeSeries would
+      // silently drop the indicator dimension — reject before hitting the API.
+      const indicators = (args.indicatorCodeList as string[] | undefined) ?? []
+      const securities = (args.securityCodeList as string[] | undefined) ?? []
+      if (indicators.length > 1 && securities.length > 1) {
+        throw new ValidationError(
+          "时间序列仅支持「多指标 × 单证券」或「单指标 × 多证券」，indicatorCodeList 与 securityCodeList 不能同时多于 1 个；请拆分为多次查询，或改用 gangtise_indicator_cross_section（单日多指标 × 多证券）。",
+        )
+      }
       const raw = await client.call("indicator.time-series", args)
       return contentResult(await buildToolContent(flattenTimeSeries(unwrapIndicatorData(raw))))
     }),

@@ -1,3 +1,7 @@
+function wrapList(meta: Record<string, unknown>, list: unknown[]): unknown {
+  return Object.keys(meta).length > 0 ? { ...meta, list } : list
+}
+
 export function normalizeRows(value: unknown): unknown {
   if (!value || typeof value !== "object") {
     return value
@@ -18,27 +22,22 @@ export function normalizeRows(value: unknown): unknown {
       }, {})
     })
     const { fieldList, list, ...meta } = record
-    const hasMeta = Object.keys(meta).length > 0
-    return hasMeta ? { ...meta, list: normalizedList } : normalizedList
+    return wrapList(meta, normalizedList)
   }
 
   if (Array.isArray(record.list)) {
     const { list, ...meta } = record
-    const hasMeta = Object.keys(meta).length > 0
-    return hasMeta ? { ...meta, list } : list
+    return wrapList(meta, list)
   }
 
   if (Array.isArray(record.chatRoomList)) {
     const { chatRoomList, ...meta } = record
-    const hasMeta = Object.keys(meta).length > 0
-    return hasMeta ? { ...meta, list: chatRoomList } : chatRoomList
+    return wrapList(meta, chatRoomList)
   }
 
   if ("constants" in record) {
     const { constants, ...meta } = record
-    const list = Array.isArray(constants) ? constants : []
-    const hasMeta = Object.keys(meta).length > 0
-    return hasMeta ? { ...meta, list } : list
+    return wrapList(meta, Array.isArray(constants) ? constants : [])
   }
 
   return value

@@ -1,4 +1,4 @@
-import { runWithConcurrency } from "./transport.js"
+import { runWithConcurrency, isVerbose } from "./transport.js"
 import { errorMessage } from "./errors.js"
 
 export interface KlineBody {
@@ -87,7 +87,7 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   }
 
   const shards = buildShards(start, end, config.shardDays)
-  if (process.env.GANGTISE_VERBOSE === "1" || process.env.GANGTISE_VERBOSE === "true") {
+  if (isVerbose()) {
     process.stderr.write(`[gangtise] sharding ${endpointKey} into ${shards.length} requests (${config.shardDays} day(s) each)\n`)
   }
 

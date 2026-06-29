@@ -223,6 +223,30 @@ describe("GangtiseClient pagination", () => {
     expect(result._partial).toBe(true)
     expect(result._partial_reason).toContain("unexpected_page_shape")
   })
+
+  it("returns the pages it got and flags partial when a later page hard-fails", async () => {
+    requestMock.mockImplementation((_url: unknown, options?: { body?: string }) => {
+      const body = JSON.parse(options?.body ?? "{}") as { from: number; size: number }
+      if (body.from === 0) {
+        return Promise.resolve(jsonResponse({
+          total: 100,
+          list: Array.from({ length: body.size }, (_, i) => ({ id: body.from + i })),
+        }))
+      }
+      // Later page fails with a non-retryable error — must not sink the whole batch.
+      return Promise.resolve(rawJsonResponse({ code: "400", msg: "boom" }, 400))
+    })
+
+    const result = await tokenClient().call("insight.opinion.list", {}) as Record<string, unknown> & {
+      list: unknown[]
+      _failed_pages: unknown[]
+    }
+
+    expect(result.list).toHaveLength(50)
+    expect(result._partial).toBe(true)
+    expect(result._partial_reason).toContain("failed_pages")
+    expect(result._failed_pages).toHaveLength(1)
+  })
 })
 
 describe("GangtiseClient noRetry endpoints", () => {

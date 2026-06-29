@@ -5,7 +5,7 @@ import { registerJsonTool, registerDownloadTool, buildToolContent, buildTextResu
 import { toolHandler, textResult, contentResult } from "./helpers.js"
 import { pollAsyncContent } from "../core/asyncContent.js"
 import { normalizeRows } from "../core/normalize.js"
-import { ApiError, AsyncTimeoutError, ValidationError } from "../core/errors.js"
+import { ApiError, AsyncTimeoutError, ValidationError, errorMessage } from "../core/errors.js"
 import { dateDesc, dateTimeDesc, today, todayDate } from "../core/dateContext.js"
 
 export interface AiToolOptions {
@@ -156,7 +156,13 @@ function makeAsyncToolPair(
         if (err instanceof AsyncTimeoutError) {
           return textResult(JSON.stringify({ dataId, status: "timeout", hint: `Call ${config.checkName} with this dataId in ~3 minutes` }))
         }
-        throw err
+        // Submit already succeeded (and may be billed); never swallow the dataId on
+        // a mid-poll failure, or the user can't recover the job via _check. 410111
+        // is a terminal backend failure; anything else is transient → suggest retry.
+        if (err instanceof ApiError && err.code === "410111") {
+          return { ...textResult(JSON.stringify({ dataId, status: "failed", error: errorMessage(err) })), isError: true }
+        }
+        return textResult(JSON.stringify({ dataId, status: "error", error: errorMessage(err), hint: `Call ${config.checkName} with this dataId to retry` }))
       }
     }),
   )

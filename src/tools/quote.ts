@@ -12,10 +12,23 @@ import { toolHandler, contentResult } from "./helpers.js"
  * doesn't pass field. Mirror of fields shown in CLI docs. */
 const US_KLINE_DEFAULT_FIELDS = ["tradeDate", "open", "high", "low", "close", "pctChange", "volume", "amount"]
 
+// Reject malformed dates at the schema boundary so a security='all' query never
+// silently degrades (unparseable -> single capped request) or silently shifts
+// (JS Date rolls "2026-02-30" to 2026-03-02). The round-trip check rejects any
+// date JS would normalize away; the !isNaN guard short-circuits so toISOString()
+// never throws on a fully invalid value like "2026-13-45".
+const dateString = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "日期格式须为 YYYY-MM-DD（须零填充，如 2026-04-01）")
+  .refine((v) => {
+    const d = new Date(`${v}T00:00:00Z`)
+    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v
+  }, "无效日期（不存在的日历日期，请检查月份/日期取值）")
+
 const commonKlineSchema = {
   security: z.union([z.string(), z.array(z.string())]).optional().describe("证券代码，如 '600519.SH' 或 ['600519.SH','000858.SZ']；传 'all' 拉取全市场"),
-  startDate: z.string().optional().describe(dateDesc()),
-  endDate: z.string().optional().describe(dateDesc()),
+  startDate: dateString.optional().describe(dateDesc()),
+  endDate: dateString.optional().describe(dateDesc()),
   limit: z.number().int().min(1).max(10_000).optional().describe("最大返回行数（默认 6000，最大 10000）"),
   field: z.array(z.string()).optional().describe("指定返回字段，如 ['open','close','pctChange']"),
 }

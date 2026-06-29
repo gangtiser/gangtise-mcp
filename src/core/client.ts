@@ -7,7 +7,7 @@ import { request } from "undici"
 
 import type { CliConfig } from "./config.js"
 import { isTokenCacheValid, normalizeToken, readTokenCache, requireAccessCredentials, writeTokenCache, type TokenCache } from "./auth.js"
-import { ApiError, ValidationError } from "./errors.js"
+import { ApiError, ValidationError, errorMessage } from "./errors.js"
 import { ENDPOINTS, type EndpointDefinition } from "./endpoints.js"
 import { Envelope, isEnvelope, unwrapEnvelope } from "./envelope.js"
 import { getLookupData } from "./lookupData/index.js"
@@ -229,18 +229,27 @@ export class GangtiseClient {
 
     let unexpectedShape = false
     let totalDrift = false
+    const failedPages: Array<{ from: number; size: number; error: string }> = []
     const pages = await runWithConcurrency(pageRequests, PAGINATION_CONCURRENCY, async (req) => {
-      const page = await this.requestJson<Record<string, unknown>>(endpoint, {
-        ...initialBody,
-        from: req.from,
-        size: req.size,
-      })
-      if (!this.isPaginatedListResponse(page)) {
-        unexpectedShape = true
+      try {
+        const page = await this.requestJson<Record<string, unknown>>(endpoint, {
+          ...initialBody,
+          from: req.from,
+          size: req.size,
+        })
+        if (!this.isPaginatedListResponse(page)) {
+          unexpectedShape = true
+          return [] as unknown[]
+        }
+        if (page.total !== total) totalDrift = true
+        return page.list
+      } catch (err) {
+        // Collect the failure instead of fail-fasting the whole batch: return the
+        // pages we did get, flagged _partial — same loud-partial contract as
+        // quoteSharding, so a dropped page never masquerades as complete data.
+        failedPages.push({ from: req.from, size: req.size, error: errorMessage(err) })
         return [] as unknown[]
       }
-      if (page.total !== total) totalDrift = true
-      return page.list
     })
 
     for (const list of pages) {
@@ -273,6 +282,10 @@ export class GangtiseClient {
     }
     if (unexpectedShape) partialReasons.push("unexpected_page_shape")
     if (totalDrift) partialReasons.push("total_drift")
+    if (failedPages.length > 0) {
+      partialReasons.push("failed_pages")
+      response._failed_pages = failedPages
+    }
     if (partialReasons.length > 0) {
       response._partial = true
       response._partial_reason = partialReasons.join(",")
