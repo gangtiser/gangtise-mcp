@@ -2,13 +2,14 @@ import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
   isTokenCacheValid,
   normalizeToken,
   readTokenCache,
   requireAccessCredentials,
+  writeTokenCache,
   type TokenCache,
 } from "../../../src/core/auth.js"
 
@@ -86,5 +87,57 @@ describe("requireAccessCredentials", () => {
   it("throws when either is missing", () => {
     expect(() => requireAccessCredentials(undefined, "sk")).toThrow()
     expect(() => requireAccessCredentials("ak", undefined)).toThrow()
+  })
+})
+
+describe("writeTokenCache", () => {
+  const tmpDirs: string[] = []
+  afterEach(async () => {
+    await Promise.all(tmpDirs.map((d) => fs.rm(d, { recursive: true, force: true })))
+    tmpDirs.length = 0
+  })
+  async function tmpFile(): Promise<string> {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "gangtise-mcp-authwrite-"))
+    tmpDirs.push(dir)
+    return path.join(dir, "token.json")
+  }
+
+  // fs.writeFile's `mode` only applies on creation, so writing in place over an
+  // existing token.json kept its lax perms. The atomic temp+rename must force 0600.
+  it("forces 0600 even over a pre-existing world-readable file", async () => {
+    const file = await tmpFile()
+    await fs.writeFile(file, "stale", { mode: 0o644 })
+    await fs.chmod(file, 0o644) // pin lax perms regardless of umask
+    await writeTokenCache(file, cache(123))
+    expect((await fs.stat(file)).mode & 0o777).toBe(0o600)
+  })
+
+  it("round-trips the cache content", async () => {
+    const file = await tmpFile()
+    await writeTokenCache(file, cache(456))
+    expect(await readTokenCache(file)).toMatchObject({ accessToken: "tok", expiresAt: 456 })
+  })
+
+  it("leaves no temp sibling behind on success", async () => {
+    const file = await tmpFile()
+    await writeTokenCache(file, cache(789))
+    expect(await fs.readdir(path.dirname(file))).toEqual(["token.json"])
+  })
+
+  // The write can fail after the temp file is created (e.g. ENOSPC mid-write).
+  // Cleanup must cover that, not only a failed rename.
+  it("removes the temp file when the write itself fails, not only on rename", async () => {
+    const file = await tmpFile()
+    const realWriteFile = fs.writeFile.bind(fs)
+    const spy = vi.spyOn(fs, "writeFile").mockImplementation((async (...args: unknown[]) => {
+      await (realWriteFile as (...a: unknown[]) => Promise<void>)(...args) // temp file created…
+      throw new Error("ENOSPC: no space left")                            // …then the write fails
+    }) as unknown as typeof fs.writeFile)
+    try {
+      await expect(writeTokenCache(file, cache(1))).rejects.toThrow("ENOSPC")
+      expect(await fs.readdir(path.dirname(file))).toEqual([])
+    } finally {
+      spy.mockRestore()
+    }
   })
 })

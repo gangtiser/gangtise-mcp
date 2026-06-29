@@ -5,6 +5,7 @@ import { registerJsonTool, registerDownloadTool, buildToolContent, type JsonTool
 import { toolHandler, contentResult } from "./helpers.js"
 import { normalizeRows } from "../core/normalize.js"
 import { dateTimeDesc } from "../core/dateContext.js"
+import { errorMessage } from "../core/errors.js"
 
 const listSpecs: JsonToolSpec[] = [
   {
@@ -120,17 +121,73 @@ export function registerVaultTools(server: McpServer, client: GangtiseClient): v
       description: "查询可用的微信群 ID 和群名称列表。",
       inputSchema: {
         from: z.number().int().min(0).optional(),
-        size: z.number().int().min(1).optional().describe("Max rows (default 20)"),
+        size: z.number().int().min(1).optional().describe("最大返回条数；省略则自动翻页拉取全部群（接口无 total，按页上限 50 串行翻页）"),
         roomName: z.array(z.string()).optional().describe("按群名称筛选；多个会以逗号拼接发送"),
       },
       annotations: { readOnlyHint: true },
     },
     toolHandler(async (args: Record<string, unknown>) => {
-      const { roomName, size, ...rest } = args as { roomName?: string[]; size?: number; from?: number }
-      const body: Record<string, unknown> = { ...rest, size: size ?? 20 }
-      if (roomName && roomName.length > 0) body.roomName = roomName.join(",")
-      const result = await client.call("vault.wechat-chatroom.list", body)
-      return contentResult(await buildToolContent(normalizeRows(result)))
+      const { roomName, size: requestedSize, from } = args as { roomName?: string[]; size?: number; from?: number }
+      const baseBody: Record<string, unknown> = {}
+      if (roomName && roomName.length > 0) baseBody.roomName = roomName.join(",")
+
+      // No `total` in the response and the server caps each page at 50, so omitting
+      // `size` must serial-page to fetch every group (a single size>50 request would
+      // silently return only 50). `size`, when given, is a total cap across pages.
+      const MAX_PAGE = 50
+      const MAX_PAGES = 1000
+      const collected: unknown[] = []
+      let firstPage: Record<string, unknown> | null = null
+      let cursor = typeof from === "number" ? from : 0
+      let hitPageCap = false
+      let unexpectedShape = false
+      const failedPages: Array<{ from: number; size: number; error: string }> = []
+
+      for (let page = 0; ; page++) {
+        const remaining = requestedSize === undefined ? MAX_PAGE : requestedSize - collected.length
+        if (requestedSize !== undefined && remaining <= 0) break
+        const pageSize = Math.min(MAX_PAGE, remaining)
+        let pageData: Record<string, unknown>
+        try {
+          pageData = (await client.call("vault.wechat-chatroom.list", { ...baseBody, from: cursor, size: pageSize })) as Record<string, unknown>
+        } catch (err) {
+          // First page fails fast (nothing collected yet); a later page fails soft so
+          // the rows already fetched survive — same contract as client.requestPaginated.
+          if (page === 0) throw err
+          failedPages.push({ from: cursor, size: pageSize, error: errorMessage(err) })
+          break
+        }
+        if (firstPage === null) firstPage = pageData
+        const list = Array.isArray(pageData?.chatRoomList) ? (pageData.chatRoomList as unknown[]) : null
+        if (list === null) {
+          // First response not a list shape → return it untouched; a later page losing
+          // shape keeps the rows already collected (loud _partial, not silent loss).
+          if (page === 0) return contentResult(await buildToolContent(normalizeRows(firstPage)))
+          unexpectedShape = true
+          break
+        }
+        collected.push(...list)
+        if (list.length < pageSize) break
+        if (page + 1 >= MAX_PAGES) {
+          hitPageCap = true
+          break
+        }
+        cursor += list.length
+      }
+
+      const out: Record<string, unknown> = { ...(firstPage ?? {}), chatRoomList: collected }
+      const reasons: string[] = []
+      if (hitPageCap) reasons.push("page_cap")
+      if (unexpectedShape) reasons.push("unexpected_page_shape")
+      if (failedPages.length > 0) {
+        reasons.push("failed_pages")
+        out._failed_pages = failedPages
+      }
+      if (reasons.length > 0) {
+        out._partial = true
+        out._partial_reason = reasons.join(",")
+      }
+      return contentResult(await buildToolContent(normalizeRows(out)))
     }),
   )
 

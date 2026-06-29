@@ -1,5 +1,6 @@
 import fs from "node:fs/promises"
 import path from "node:path"
+import { randomUUID } from "node:crypto"
 
 import { ConfigError } from "./errors.js"
 
@@ -28,7 +29,20 @@ export async function readTokenCache(filePath: string): Promise<TokenCache | nul
 
 export async function writeTokenCache(filePath: string, cache: TokenCache): Promise<void> {
   await fs.mkdir(path.dirname(filePath), { recursive: true })
-  await fs.writeFile(filePath, JSON.stringify(cache, null, 2), { encoding: "utf8", mode: 0o600 })
+  // Write to a fresh 0600 temp file then rename over the target. Writing in place
+  // would (a) keep an existing file's lax perms — `mode` only applies on creation —
+  // and (b) risk a truncated file on crash. A temp file is 0600 from the first byte
+  // and rename is atomic, carrying the 0600 perms over. (Mirrors gangtise CLI v0.21.0.)
+  const tmp = `${filePath}.tmp-${randomUUID()}`
+  try {
+    await fs.writeFile(tmp, JSON.stringify(cache, null, 2), { encoding: "utf8", mode: 0o600 })
+    await fs.rename(tmp, filePath)
+  } catch (error) {
+    // Covers a failed write (temp may be half-created, e.g. ENOSPC) as well as a
+    // failed rename — never leave the temp sibling behind.
+    await fs.unlink(tmp).catch(() => {})
+    throw error
+  }
 }
 
 export function isTokenCacheValid(cache: TokenCache | null, bufferSeconds = 300): boolean {
