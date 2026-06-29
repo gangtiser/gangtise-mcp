@@ -140,7 +140,10 @@ function makeAsyncToolPair(
         ...config.inputSchema,
         waitSeconds: z.number().int().min(0).max(180).optional().describe("最长等待秒数（默认 180，最大 180）"),
       },
-      annotations: { readOnlyHint: true },
+      // NOT read-only: submitting creates a billed, non-idempotent task (the submit
+      // endpoint carries noRetry). Leave the hint false so agentic clients confirm
+      // before auto-invoking. The _check poll tool below stays read-only.
+      annotations: { readOnlyHint: false },
     },
     toolHandler(async (args: Record<string, unknown>) => {
       const { waitSeconds, ...submitArgs } = args

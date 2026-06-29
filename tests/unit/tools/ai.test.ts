@@ -1,0 +1,94 @@
+import { describe, it, expect, vi } from "vitest"
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
+import { Client } from "@modelcontextprotocol/sdk/client/index.js"
+import { registerAiTools } from "../../../src/tools/ai.js"
+import { ApiError } from "../../../src/core/errors.js"
+import type { GangtiseClient } from "../../../src/core/client.js"
+
+const SUBMIT = "ai.earnings-review.get-id"
+const POLL = "ai.earnings-review.get-content"
+
+// Submit always returns a dataId; the poll behavior is supplied per test.
+function makeClient(poll: (body: Record<string, unknown>) => Promise<unknown>) {
+  const call = vi.fn(async (key: string, body: Record<string, unknown>) => {
+    if (key === SUBMIT) return { dataId: "d1" }
+    if (key === POLL) return poll(body)
+    return {}
+  })
+  return { call, download: vi.fn() } as unknown as GangtiseClient
+}
+
+async function connect(client: GangtiseClient) {
+  const server = new McpServer({ name: "test", version: "0.0.0" })
+  registerAiTools(server, client, { asyncTimeoutMs: 5_000 })
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+  await server.connect(serverTransport)
+  const mcp = new Client({ name: "test", version: "0.0.1" })
+  await mcp.connect(clientTransport)
+  return mcp
+}
+
+function parse(result: unknown): Record<string, unknown> {
+  return JSON.parse((result as { content: Array<{ text: string }> }).content[0].text)
+}
+function text(result: unknown): string {
+  return (result as { content: Array<{ text: string }> }).content[0].text
+}
+
+const args = { securityCode: "600519.SH", period: "2025annual" }
+
+describe("gangtise_earnings_review (async submit→poll)", () => {
+  it("returns the content when polling succeeds", async () => {
+    const mcp = await connect(makeClient(async () => ({ content: "# 业绩点评" })))
+    const result = await mcp.callTool({ name: "gangtise_earnings_review", arguments: { ...args, waitSeconds: 5 } })
+    expect(result.isError).toBeFalsy()
+    expect(text(result)).toContain("业绩点评")
+  })
+
+  it("retains dataId and flags isError on a terminal 410111 failure", async () => {
+    const mcp = await connect(makeClient(async () => { throw new ApiError("failed", "410111") }))
+    const result = await mcp.callTool({ name: "gangtise_earnings_review", arguments: { ...args, waitSeconds: 5 } })
+    expect(result.isError).toBe(true)
+    expect(parse(result)).toMatchObject({ dataId: "d1", status: "failed" })
+  })
+
+  it("retains dataId on a transient mid-poll error (recoverable, not isError)", async () => {
+    const mcp = await connect(makeClient(async () => { throw new ApiError("rate limited", "903301") }))
+    const result = await mcp.callTool({ name: "gangtise_earnings_review", arguments: { ...args, waitSeconds: 5 } })
+    expect(result.isError).toBeFalsy()
+    const parsed = parse(result)
+    expect(parsed).toMatchObject({ dataId: "d1", status: "error" })
+    expect(parsed.hint).toContain("gangtise_earnings_review_check")
+  })
+
+  it("returns dataId with timeout status when not ready before the deadline", async () => {
+    const mcp = await connect(makeClient(async () => ({}))) // never has content
+    const result = await mcp.callTool({ name: "gangtise_earnings_review", arguments: { ...args, waitSeconds: 0 } })
+    expect(result.isError).toBeFalsy()
+    expect(parse(result)).toMatchObject({ dataId: "d1", status: "timeout" })
+  })
+})
+
+describe("gangtise_earnings_review_check", () => {
+  it("reports pending on 410110", async () => {
+    const mcp = await connect(makeClient(async () => { throw new ApiError("pending", "410110") }))
+    const result = await mcp.callTool({ name: "gangtise_earnings_review_check", arguments: { dataId: "d1" } })
+    expect(result.isError).toBeFalsy()
+    expect(parse(result)).toMatchObject({ status: "pending", dataId: "d1" })
+  })
+
+  it("reports failed (isError) on 410111", async () => {
+    const mcp = await connect(makeClient(async () => { throw new ApiError("failed", "410111") }))
+    const result = await mcp.callTool({ name: "gangtise_earnings_review_check", arguments: { dataId: "d1" } })
+    expect(result.isError).toBe(true)
+    expect(parse(result)).toMatchObject({ status: "failed", dataId: "d1" })
+  })
+
+  it("returns the content once ready", async () => {
+    const mcp = await connect(makeClient(async () => ({ content: "# 终稿" })))
+    const result = await mcp.callTool({ name: "gangtise_earnings_review_check", arguments: { dataId: "d1" } })
+    expect(result.isError).toBeFalsy()
+    expect(text(result)).toContain("终稿")
+  })
+})

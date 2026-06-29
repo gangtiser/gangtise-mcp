@@ -117,6 +117,55 @@ describe("gangtise_read_response", () => {
     await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
   })
 
+  it("returns a mid-size non-list object whole (over the char window, under the byte budget)", async () => {
+    // ~80KB of ASCII: more chars than the per-chunk window but well under 256KB, so the
+    // byte-based decision returns it whole rather than needlessly char-slicing it.
+    const savedTo = await writeTmpJson({ blob: "a".repeat(80_000) })
+    const client = await makeConnectedPair()
+    const result = await client.callTool({
+      name: "gangtise_read_response",
+      arguments: { saved_to: savedTo },
+    })
+    expect(result.isError).toBeFalsy()
+    const parsed = parseText(result)
+    expect((parsed.data as Record<string, unknown>).blob).toBe("a".repeat(80_000))
+    expect(parsed._json_chunk).toBeUndefined()
+
+    await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
+  })
+
+  it("chunks a large non-list object instead of inlining the whole blob", async () => {
+    // A >256KB object that normalizeRows didn't shape into { list } gets spilled with
+    // a metadata-only preview; read-back must not dump the whole thing back into context.
+    const savedTo = await writeTmpJson({ report: "数".repeat(200_000), meta: { ok: true } })
+    const client = await makeConnectedPair()
+
+    const result = await client.callTool({
+      name: "gangtise_read_response",
+      arguments: { saved_to: savedTo, offset: 0 },
+    })
+
+    expect(result.isError).toBeFalsy()
+    const rawText = (result.content as Array<{ text: string }>)[0].text
+    // The point of chunking: the read-back response must stay within the inline byte
+    // budget. 100K Chinese chars would serialize to ~300KB and blow it.
+    expect(Buffer.byteLength(rawText, "utf8")).toBeLessThanOrEqual(256_000)
+    const parsed = JSON.parse(rawText)
+    expect(typeof parsed._json_chunk).toBe("string")
+    expect(parsed.has_more).toBe(true)
+    expect(typeof parsed.next_offset).toBe("number")
+    expect(parsed.data).toBeUndefined() // not inlined whole
+
+    // continuation reads further into the JSON
+    const tail = await client.callTool({
+      name: "gangtise_read_response",
+      arguments: { saved_to: savedTo, offset: parsed.next_offset as number },
+    })
+    expect((parseText(tail)._json_chunk as string).length).toBeGreaterThan(0)
+
+    await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
+  })
+
   it("reads a raw text (markdown) payload as character slices", async () => {
     const text = "天".repeat(250_000) // raw, non-JSON content
     const savedTo = await writeTmpText(text)
@@ -128,6 +177,7 @@ describe("gangtise_read_response", () => {
     })
 
     expect(result.isError).toBeFalsy()
+    expect(Buffer.byteLength((result.content as Array<{ text: string }>)[0].text, "utf8")).toBeLessThanOrEqual(256_000)
     const parsed = parseText(result)
     expect(parsed._total_chars).toBe(250_000)
     expect(parsed._offset).toBe(0)

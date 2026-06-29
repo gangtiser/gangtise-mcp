@@ -97,10 +97,13 @@ describe("MCP server integration", () => {
     expect(metadata).not.toMatch(/当前年份\s+\d{4}/)
   })
 
-  it("marks every tool read-only via MCP annotations", async () => {
+  it("marks tools read-only except the billed async submit tools", async () => {
     const { tools } = await mcpClient.listTools()
-    const missing = tools.filter(t => t.annotations?.readOnlyHint !== true).map(t => t.name)
-    expect(missing).toEqual([])
+    const nonReadOnly = tools.filter(t => t.annotations?.readOnlyHint !== true).map(t => t.name).sort()
+    // Async submit tools create a billed, non-idempotent task (endpoints carry noRetry),
+    // so they must NOT be read-only — clients shouldn't auto-invoke them unconfirmed.
+    // Their _check polling tools stay read-only.
+    expect(nonReadOnly).toEqual(["gangtise_earnings_review", "gangtise_viewpoint_debate"])
   })
 
   it("declares date guidance once in server instructions, not per-tool descriptions", async () => {

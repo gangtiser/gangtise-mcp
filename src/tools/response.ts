@@ -8,8 +8,16 @@ import { isOwnedTempPath } from "../core/tempCleanup.js"
 
 const DEFAULT_LIMIT = 50
 const MAX_LIMIT = 500
-/** Per-call character window for raw text (Markdown/HTML) payloads. */
-const TEXT_CHUNK_CHARS = 100_000
+/** Per-call character window for raw text / large-object chunk payloads. Sized so
+ * the worst case (all 3-byte UTF-8 chars, e.g. Chinese — the max per UTF-16 unit)
+ * stays under the 256KB inline byte budget: 70_000 × 3 ≈ 210KB, leaving headroom
+ * for the JSON envelope. JSON.stringify never escapes multibyte chars, so non-ASCII
+ * is the byte-worst case here. */
+const TEXT_CHUNK_CHARS = 70_000
+/** Inline byte budget — mirrors registry.ts's spill threshold. A read-back object
+ * larger than this is char-sliced into chunks; one at or under it is returned whole.
+ * Byte-based (not char-based) so it stays consistent with how the payload was spilled. */
+const INLINE_MAX_BYTES = 256_000
 
 async function readSavedFile(savedTo: string): Promise<string> {
   let real: string
@@ -91,6 +99,27 @@ export function registerResponseTools(server: McpServer, _client: GangtiseClient
           list = obj.list as unknown[]
           rest = Object.fromEntries(Object.entries(obj).filter(([k]) => k !== "list"))
         } else {
+          // Non-list object. A small one is returned whole; a large one (e.g. a
+          // >256KB object that was spilled with a metadata-only preview) is char-sliced
+          // so read-back can't re-inline the whole blob and defeat the truncation.
+          const objText = JSON.stringify(data, null, 2)
+          if (Buffer.byteLength(objText, "utf8") > INLINE_MAX_BYTES) {
+            const total = objText.length
+            const start = Math.min(offset, total)
+            const end = Math.min(start + TEXT_CHUNK_CHARS, total)
+            const slice = objText.slice(start, end)
+            const payload = {
+              _json_chunk: slice,
+              _saved_to: saved_to,
+              _total_chars: total,
+              _offset: start,
+              _returned: slice.length,
+              has_more: end < total,
+              next_offset: end < total ? end : null,
+              _note: `大对象按字符 offset 分片：每次最多 ${TEXT_CHUNK_CHARS} 字符，拼接各片得到完整 JSON（limit 对此形状无效）`,
+            }
+            return { content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }] }
+          }
           const payload = {
             data,
             _saved_to: saved_to,
