@@ -4,6 +4,21 @@
 
 ## Changelog
 
+### 0.1.33 (2026-06-29)
+- 数据可靠性硬化（来自多轮审计）：
+  - 分页：后续页失败返回已取页 + `_partial` / `_failed_pages`，不再整批作废（对齐分片的 loud-partial 契约）
+  - 异步 AI：轮询中途失败（超时 / 410111 / 其他）保留 `dataId`，已扣费任务可经 `*_check` 找回
+  - 全市场日 K 线：schema 拒绝畸形或不存在的日历日期（`2026-4-1` / `2026-13-45` / `2026-02-30`），避免 `security:'all'` 静默降级为单次截断或日期被改写
+  - 指标时序：拒绝「多指标 × 多证券」歧义矩阵（此前静默丢一个维度）
+- 同步 CLI v0.21.0：
+  - `gangtise_wechat_chatroom_list` 省略 `size` 改为自动翻页拉取全部群（接口无 `total`，按页上限 50 串行翻页；传 `size` 为跨页总量上限），不再静默只返 20 条；后续页失败 fail-soft
+  - token 缓存改为临时文件 + 原子 `rename` 写入（0600 从第一字节），消除旧文件宽松权限残留与崩溃截断
+- 审计跟进修复：
+  - `gangtise_read_response` 大对象按字节预算分片，不再整坨内联回上下文（续读不再绕过 256KB 截断）
+  - `gangtise_earnings_review` / `gangtise_viewpoint_debate` 提交工具去除 `readOnlyHint`（计费、不可重试，客户端不应免确认自动调用）；对应 `_check` 仍只读
+  - `engines.node` 提升至 `>=20.18.1`（匹配 undici 7.27.2）
+- 测试扩展：新增日期校验、指标互斥守卫、chatroom 翻页 / fail-soft、token 原子写、异步 submit→poll 对、大响应字节分片等单测（共 189）
+
 ### 0.1.32 (2026-06-27)
 - 修复 `gangtise_independent_opinion_download`：参数名 `opinionId` → `independentOpinionId`（上游 API 与 `gangtise_independent_opinion_list` 返回字段均为 `independentOpinionId`；旧名导致任何调用都返回 HTTP 400，该工具自注册起即不可用）。已对真实 API 端到端验证修复。
 - `gangtise_one_pager` / `gangtise_investment_logic` / `gangtise_peer_comparison` / `gangtise_research_outline`：后端返回空内容时给出「该证券暂无相关 AI 生成内容」提示，替代此前的空白文本块。
