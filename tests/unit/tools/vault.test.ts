@@ -34,6 +34,30 @@ function rooms(result: { content: unknown }): unknown[] {
   return Array.isArray(parsed) ? parsed : ((parsed.list as unknown[]) ?? (parsed.chatRoomList as unknown[]) ?? [])
 }
 
+describe("schema validation (X5 tightening)", () => {
+  // Live-tested: upstream returns [] for poolIdList: [] instead of the
+  // documented "all pools" default — reject it locally so the model omits the
+  // param (or passes real IDs) instead of silently getting an empty answer.
+  it("rejects an empty poolIdList without calling the API", async () => {
+    const { client, call } = makeChatroomClient(0)
+    const mcp = await connect(client)
+    const result = await mcp.callTool({ name: "gangtise_stock_pool_stocks", arguments: { poolIdList: [] } })
+    expect(result.isError).toBe(true)
+    expect(call).not.toHaveBeenCalled()
+  })
+
+  it("rejects a malformed drive-list startTime without calling the API", async () => {
+    const { client, call } = makeChatroomClient(0)
+    const mcp = await connect(client)
+    const result = await mcp.callTool({
+      name: "gangtise_drive_list",
+      arguments: { startTime: "2026-6-1 09:00:00" },
+    })
+    expect(result.isError).toBe(true)
+    expect(call).not.toHaveBeenCalled()
+  })
+})
+
 describe("gangtise_wechat_chatroom_list", () => {
   it("serial-paginates past the 50-row server cap when size is omitted", async () => {
     const { client, call } = makeChatroomClient(80)

@@ -5,7 +5,7 @@ import { buildToolContent } from "./registry.js"
 import { toolHandler, contentResult } from "./helpers.js"
 import { normalizeRows } from "../core/normalize.js"
 import { unwrapIndicatorData, flattenCrossSection, flattenTimeSeries } from "../core/indicatorMatrix.js"
-import { dateDesc } from "../core/dateContext.js"
+import { dateDesc, dateString } from "../core/dateContext.js"
 import { ValidationError } from "../core/errors.js"
 
 const indicatorCodeList = z
@@ -66,7 +66,7 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
       inputSchema: {
         indicatorCodeList,
         securityCodeList,
-        date: z.string().describe(dateDesc() + "（必填）"),
+        date: dateString.describe(dateDesc() + "（必填）"),
         currency,
         scale,
         indicatorParamList,
@@ -87,8 +87,8 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
       inputSchema: {
         indicatorCodeList,
         securityCodeList,
-        startDate: z.string().describe(dateDesc() + "（必填）"),
-        endDate: z.string().describe(dateDesc() + "（必填）"),
+        startDate: dateString.describe(dateDesc() + "（必填）"),
+        endDate: dateString.describe(dateDesc() + "（必填）"),
         calendarType: z.string().optional().describe("日历类型：ND=自然日 | TD=交易日（默认）| WD=工作日"),
         currency,
         scale,

@@ -4,7 +4,7 @@ import type { GangtiseClient } from "../core/client.js"
 import { registerJsonTool, buildToolContent, type JsonToolSpec } from "./registry.js"
 import { toolHandler, contentResult } from "./helpers.js"
 import { normalizeRows } from "../core/normalize.js"
-import { dateDesc } from "../core/dateContext.js"
+import { dateDesc, dateString } from "../core/dateContext.js"
 
 const periodEnum = z.array(z.string()).optional().describe("q1=一季报 | interim=中报 | q3=三季报 | annual=年报 | latest=最新")
 const quarterlyPeriodEnum = z.array(z.string()).optional().describe("q1 | q2 | q3 | q4 | latest")
@@ -13,8 +13,8 @@ const usPeriodEnum = z.array(z.string()).optional().describe("q1 | h1=中报 | q
 const reportTypeEnum = z.array(z.string()).optional().describe("consolidated=合并 | consolidatedRestated=合并调整 | standalone=母公司 | standaloneRestated=母公司调整")
 const securityCode = z.string().describe("证券代码，如 '600519.SH'")
 const dateRange = {
-  startDate: z.string().optional().describe(dateDesc()),
-  endDate: z.string().optional().describe(dateDesc()),
+  startDate: dateString.optional().describe(dateDesc()),
+  endDate: dateString.optional().describe(dateDesc()),
 }
 const fiscalYear = z.array(z.number().int()).optional().describe("财年列表，如 [2023, 2024]")
 const fieldList = z.array(z.string()).optional().describe("指定返回字段")

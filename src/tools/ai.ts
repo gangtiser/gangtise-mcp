@@ -6,7 +6,7 @@ import { toolHandler, textResult, contentResult } from "./helpers.js"
 import { pollAsyncContent } from "../core/asyncContent.js"
 import { normalizeRows } from "../core/normalize.js"
 import { ApiError, AsyncTimeoutError, ValidationError, errorMessage } from "../core/errors.js"
-import { dateDesc, dateTimeDesc, today, todayDate } from "../core/dateContext.js"
+import { dateDesc, dateString, dateTimeDesc, dateTimeString, quarterEndDate, today, todayDate } from "../core/dateContext.js"
 
 export interface AiToolOptions {
   asyncTimeoutMs: number
@@ -48,8 +48,8 @@ const jsonSpecs: JsonToolSpec[] = [
     paginated: true,
     inputSchema: {
       from: z.number().int().min(0).optional(),
-      startTime: z.string().describe(dateTimeDesc() + "（必填）"),
-      endTime: z.string().describe(dateTimeDesc() + "（必填）"),
+      startTime: dateTimeString.describe(dateTimeDesc() + "（必填）"),
+      endTime: dateTimeString.describe(dateTimeDesc() + "（必填）"),
       queryMode: z.string().describe("bySecurity=按个股 | byIndustry=按行业（必填）"),
       gtsCodeList: z.array(z.string()).optional().describe("个股代码（如 600519.SH）或申万行业代码（如 821035.SWI）列表。全量 31 个行业代码用 gangtise_sector_constituents sectorId=2000000014；单个行业可用 gangtise_securities_search（如 keyword=申万银行 category=['index']）"),
       source: z.array(z.string()).optional().describe("researchReport=研报 | conference=会议 | announcement=公告 | view=观点"),
@@ -62,8 +62,8 @@ const jsonSpecs: JsonToolSpec[] = [
     paginated: true,
     inputSchema: {
       from: z.number().int().min(0).optional(),
-      startDate: z.string().optional().describe(dateDesc()),
-      endDate: z.string().optional().describe(dateDesc()),
+      startDate: dateString.optional().describe(dateDesc()),
+      endDate: dateString.optional().describe(dateDesc()),
       categoryList: z.array(z.string()).optional().describe("morningBriefing=早报 | noonBriefing=午报 | afternoonFlash=午后快讯 | eveningBriefing=晚报"),
       withRelatedSecurities: z.boolean().optional(),
       withCloseReading: z.boolean().optional(),
@@ -76,7 +76,7 @@ const jsonSpecs: JsonToolSpec[] = [
     paginated: false,
     inputSchema: {
       securityCode: z.string().describe("证券代码，如 '600519.SH'"),
-      reportDate: z.string().describe("xxxx-06-30（中报）或 xxxx-12-31（年报）"),
+      reportDate: quarterEndDate("06-30", "12-31").describe("xxxx-06-30（中报）或 xxxx-12-31（年报）"),
       discussionDimension: z.string().describe("businessOperation=经营情况 | financialPerformance=财务表现 | developmentAndRisk=发展与风险 | all=全部维度（必填）"),
     },
   },
@@ -87,7 +87,7 @@ const jsonSpecs: JsonToolSpec[] = [
     paginated: false,
     inputSchema: {
       securityCode: z.string().describe("证券代码，如 '600519.SH'"),
-      reportDate: z.string().describe("xxxx-03-31 | xxxx-06-30 | xxxx-09-30 | xxxx-12-31"),
+      reportDate: quarterEndDate("03-31", "06-30", "09-30", "12-31").describe("xxxx-03-31 | xxxx-06-30 | xxxx-09-30 | xxxx-12-31"),
       discussionDimension: z.string().describe("businessOperation=经营情况 | financialPerformance=财务表现 | developmentAndRisk=发展与风险（必填）"),
     },
   },
@@ -214,7 +214,7 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
       description: "获取指定主题的每日跟踪报告（早报或晚报版），需传入主题 ID 和日期。",
       inputSchema: {
         themeId: z.string().describe("主题 ID，来自 gangtise_concept_search（必填）"),
-        date: z.string().describe("YYYY-MM-DD，仅支持最近 30 天（必填）"),
+        date: dateString.describe("YYYY-MM-DD，仅支持最近 30 天（必填）"),
         type: z.union([z.string(), z.array(z.string())]).optional().describe("morning=早报 | night=晚报；可传单个值或数组"),
       },
       annotations: { readOnlyHint: true },

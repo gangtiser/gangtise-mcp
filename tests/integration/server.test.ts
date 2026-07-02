@@ -337,7 +337,9 @@ describe("MCP server integration", () => {
     })
 
     expect(result.isError).toBe(true)
-    expect((result.content as Array<{ text: string }>)[0].text).toContain("格式无效")
+    // Rejected at the zod schema boundary since the X5 tightening (previously a
+    // runtime ValidationError inside the handler) — match either message shape.
+    expect((result.content as Array<{ text: string }>)[0].text).toMatch(/无效日期|格式须为/)
     expect(mockClient.call).not.toHaveBeenCalled()
   })
 

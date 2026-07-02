@@ -105,6 +105,41 @@ describe("gangtise_earnings_review_check", () => {
   })
 })
 
+describe("schema validation (X5 tightening)", () => {
+  it("rejects a non-quarter-end reportDate without calling the API", async () => {
+    const client = makeClient(async () => ({}))
+    const mcp = await connect(client)
+    const result = await mcp.callTool({
+      name: "gangtise_management_discuss_announcement",
+      arguments: { securityCode: "600519.SH", reportDate: "2026-05-15", discussionDimension: "all" },
+    })
+    expect(result.isError).toBe(true)
+    expect(client.call).not.toHaveBeenCalled()
+  })
+
+  it("accepts an interim-report date and calls the API", async () => {
+    const client = makeClient(async () => ({}))
+    const mcp = await connect(client)
+    const result = await mcp.callTool({
+      name: "gangtise_management_discuss_announcement",
+      arguments: { securityCode: "600519.SH", reportDate: "2026-06-30", discussionDimension: "all" },
+    })
+    expect(result.isError).toBeFalsy()
+    expect(client.call).toHaveBeenCalledTimes(1)
+  })
+
+  it("rejects a date-only startTime on security_clue_list without calling the API", async () => {
+    const client = makeClient(async () => ({}))
+    const mcp = await connect(client)
+    const result = await mcp.callTool({
+      name: "gangtise_security_clue_list",
+      arguments: { startTime: "2026-06-01", endTime: "2026-06-30 23:59:59", queryMode: "bySecurity" },
+    })
+    expect(result.isError).toBe(true)
+    expect(client.call).not.toHaveBeenCalled()
+  })
+})
+
 describe("empty-content completion via submit→poll", () => {
   it("returns the friendly empty-content note instead of an empty text block", async () => {
     const mcp = await connect(makeClient(async () => ({ content: "" })))

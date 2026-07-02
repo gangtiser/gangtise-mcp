@@ -4,7 +4,7 @@ import type { GangtiseClient } from "../core/client.js"
 import { registerJsonTool, registerDownloadTool, buildToolContent, type JsonToolSpec, type DownloadToolSpec } from "./registry.js"
 import { toolHandler, contentResult } from "./helpers.js"
 import { normalizeRows } from "../core/normalize.js"
-import { dateTimeDesc } from "../core/dateContext.js"
+import { dateTimeDesc, dateTimeString } from "../core/dateContext.js"
 import { errorMessage } from "../core/errors.js"
 
 const listSpecs: JsonToolSpec[] = [
@@ -18,8 +18,8 @@ const listSpecs: JsonToolSpec[] = [
       keyword: z.string().optional(),
       fileTypeList: z.array(z.number().int()).optional().describe("1=文档 | 2=图片 | 3=视频 | 4=公众号 | 5=其他"),
       spaceTypeList: z.array(z.number().int()).optional().describe("1=个人空间 | 2=企业空间"),
-      startTime: z.string().optional().describe(dateTimeDesc()),
-      endTime: z.string().optional().describe(dateTimeDesc()),
+      startTime: dateTimeString.optional().describe(dateTimeDesc()),
+      endTime: dateTimeString.optional().describe(dateTimeDesc()),
     },
   },
   {
@@ -32,8 +32,8 @@ const listSpecs: JsonToolSpec[] = [
       keyword: z.string().optional(),
       categoryList: z.array(z.string()).optional().describe("upload=上传 | link=链接 | mobile=移动端 | gtNote=GT笔记 | pc=PC端 | share=分享"),
       spaceTypeList: z.array(z.number().int()).optional().describe("1=个人录音 | 2=企业录音"),
-      startTime: z.string().optional().describe(dateTimeDesc()),
-      endTime: z.string().optional().describe(dateTimeDesc()),
+      startTime: dateTimeString.optional().describe(dateTimeDesc()),
+      endTime: dateTimeString.optional().describe(dateTimeDesc()),
     },
   },
   {
@@ -48,8 +48,8 @@ const listSpecs: JsonToolSpec[] = [
       securityList: z.array(z.string()).optional(),
       institutionList: z.array(z.string()).optional(),
       categoryList: z.array(z.string()).optional().describe("earningsCall=业绩会 | strategyMeeting=策略会 | fundRoadshow=路演 | shareholdersMeeting=股东大会 | maMeeting=并购 | specialMeeting=专题会 | companyAnalysis=公司分析 | industryAnalysis=行业分析 | other=其他"),
-      startTime: z.string().optional().describe(dateTimeDesc()),
-      endTime: z.string().optional().describe(dateTimeDesc()),
+      startTime: dateTimeString.optional().describe(dateTimeDesc()),
+      endTime: dateTimeString.optional().describe(dateTimeDesc()),
     },
   },
   {
@@ -65,8 +65,8 @@ const listSpecs: JsonToolSpec[] = [
       industryIdList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx；wechat 只认中信码，传申万码会静默返全量）"),
       categoryList: z.array(z.string()).optional().describe("text=文字 | image=图片 | documents=文件 | url=链接"),
       tagList: z.array(z.string()).optional().describe("roadShow=路演 | research=调研 | strategyMeeting=策略会 | meetingSummary=会议纪要 | industryComment=行业点评 | companyComment=公司点评 | earningsReview=业绩点评"),
-      startTime: z.string().optional().describe(dateTimeDesc()),
-      endTime: z.string().optional().describe(dateTimeDesc()),
+      startTime: dateTimeString.optional().describe(dateTimeDesc()),
+      endTime: dateTimeString.optional().describe(dateTimeDesc()),
     },
   },
   {
@@ -196,7 +196,9 @@ export function registerVaultTools(server: McpServer, client: GangtiseClient): v
     {
       description: "查询指定自选股池中的证券列表。不传 poolIdList 时默认返回所有池的股票。",
       inputSchema: {
-        poolIdList: z.array(z.string()).optional().describe("池 ID 列表，来自 gangtise_stock_pool_list；不传默认 ['all'] 即所有池"),
+        // Live-tested: upstream returns [] for an empty list instead of the
+        // "all pools" default — reject it locally so the model omits the param.
+        poolIdList: z.array(z.string()).min(1, "poolIdList 不能为空数组——查询所有池请省略该参数").optional().describe("池 ID 列表，来自 gangtise_stock_pool_list；不传默认 ['all'] 即所有池"),
       },
       annotations: { readOnlyHint: true },
     },

@@ -4,6 +4,13 @@
 
 ## Changelog
 
+### 0.1.37 (2026-07-02)
+- Schema 全面收紧（原审查搁置项 X5）：畸形日期/时间在本地 schema 层快速失败，不再透传给上游被静默改写（JS Date 会把 2026-02-30 滚成 2026-03-02）或返回不透明错误
+  - `dateString`（YYYY-MM-DD + 日历 round-trip 校验，原 quote.ts 私有实现）与新增 `dateTimeString`（YYYY-MM-DD HH:mm:ss，时分秒范围 + 日历校验）、`quarterEndDate`（季末报告期）提取至 `dateContext.ts` 统一导出
+  - 覆盖全部日期/时间参数：fundamental（三大报表 startDate/endDate）、alternative（EDB）、indicator（截面 date / 时序 startDate/endDate）、insight（日程类 4 组 startTime/endTime）、vault（云盘/录音/会议/微信 4 组 startTime/endTime）、ai（线索 startTime/endTime、热点 startDate/endDate、主题跟踪 date、管理层讨论 reportDate——后者按接口限定 中报/年报 或 四季末）、quote（分钟线 startTime/endTime）
+  - `gangtise_stock_pool_stocks` 的 `poolIdList` 拒绝空数组（实测上游对 `[]` 返回空列表而非文档承诺的"所有池"默认值，静默错答案）——查所有池请省略该参数
+- 测试 210 → 227（schema 边界单元测试 + 工具级拒绝/通过用例；已对真实 API 冒烟验证合法值不受影响）
+
 ### 0.1.36 (2026-07-02)
 - 对抗式审查第三批（工程加固）+ 补测试时发现的真 bug：
   - **修复 indicator（EDE）内层失败信封漏判**：失败信封不带 `data` 键（`{code,status:false,msg}`）时，`unwrapIndicatorData` 因判定条件要求 `data` 存在而原样放行，三个 indicator 工具把权限/配额错误当"成功数据"返回。现按 `code`/`status` 判定失败（补齐信封证据守卫防误伤）。注：同门 CLI 同款实现有同样问题，待同步

@@ -4,7 +4,7 @@ import type { GangtiseClient } from "../core/client.js"
 import { registerJsonTool, buildToolContent, type JsonToolSpec } from "./registry.js"
 import { toolHandler, contentResult } from "./helpers.js"
 import { normalizeRows } from "../core/normalize.js"
-import { dateDesc } from "../core/dateContext.js"
+import { dateDesc, dateString } from "../core/dateContext.js"
 
 const specs: JsonToolSpec[] = [
   {
@@ -51,8 +51,8 @@ export function registerAlternativeTools(server: McpServer, client: GangtiseClie
       description: "按指标 ID 批量查询 EDB 行业指标时序数据（最多 10 个指标）。指标 ID 来自 gangtise_edb_search。",
       inputSchema: {
         indicatorIdList: z.array(z.string()).min(1).max(10).describe("指标 ID 列表（最多 10 个），来自 gangtise_edb_search"),
-        startDate: z.string().describe(dateDesc() + "（必填）"),
-        endDate: z.string().describe(dateDesc() + "（必填）"),
+        startDate: dateString.describe(dateDesc() + "（必填）"),
+        endDate: dateString.describe(dateDesc() + "（必填）"),
       },
       annotations: { readOnlyHint: true },
     },

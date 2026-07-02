@@ -3,7 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { GangtiseClient } from "../core/client.js"
 import { normalizeRows } from "../core/normalize.js"
 import { callKlineWithSharding, type KlineBody } from "../core/quoteSharding.js"
-import { dateDesc, dateTimeDesc } from "../core/dateContext.js"
+import { dateDesc, dateString, dateTimeDesc, dateTimeString } from "../core/dateContext.js"
 import { buildToolContent } from "./registry.js"
 import { toolHandler, contentResult } from "./helpers.js"
 
@@ -11,19 +11,6 @@ import { toolHandler, contentResult } from "./helpers.js"
  * field set currently triggers 999999, so we inject these when caller
  * doesn't pass field. Mirror of fields shown in CLI docs. */
 const US_KLINE_DEFAULT_FIELDS = ["tradeDate", "open", "high", "low", "close", "pctChange", "volume", "amount"]
-
-// Reject malformed dates at the schema boundary so a security='all' query never
-// silently degrades (unparseable -> single capped request) or silently shifts
-// (JS Date rolls "2026-02-30" to 2026-03-02). The round-trip check rejects any
-// date JS would normalize away; the !isNaN guard short-circuits so toISOString()
-// never throws on a fully invalid value like "2026-13-45".
-const dateString = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, "日期格式须为 YYYY-MM-DD（须零填充，如 2026-04-01）")
-  .refine((v) => {
-    const d = new Date(`${v}T00:00:00Z`)
-    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v
-  }, "无效日期（不存在的日历日期，请检查月份/日期取值）")
 
 const commonKlineSchema = {
   security: z.union([z.string(), z.array(z.string())]).optional().describe("证券代码，如 '600519.SH' 或 ['600519.SH','000858.SZ']；传 'all' 拉取全市场（须同时提供 startDate 和 endDate——上游对开区间的全市场查询返回空数据或报「行情查询超出限制」）"),
@@ -110,8 +97,8 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
       description: "查询 A 股分钟级 K 线数据，需指定单只证券代码。",
       inputSchema: {
         security: z.string().describe("单只证券代码，如 '600519.SH'"),
-        startTime: z.string().optional().describe(dateTimeDesc()),
-        endTime: z.string().optional().describe(dateTimeDesc()),
+        startTime: dateTimeString.optional().describe(dateTimeDesc()),
+        endTime: dateTimeString.optional().describe(dateTimeDesc()),
         limit: z.number().int().min(1).max(10_000).optional().describe("最大返回行数（默认 5000，最大 10000）"),
         field: z.array(z.string()).optional(),
       },

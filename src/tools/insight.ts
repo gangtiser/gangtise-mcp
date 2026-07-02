@@ -2,7 +2,7 @@ import { z } from "zod"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { GangtiseClient } from "../core/client.js"
 import { registerJsonTool, registerDownloadTool, type JsonToolSpec, type DownloadToolSpec } from "./registry.js"
-import { dateTimeDesc } from "../core/dateContext.js"
+import { dateTimeDesc, dateTimeString } from "../core/dateContext.js"
 
 // Each schedule endpoint accepts a different subset of filters (per API spec).
 // Previously all four shared one big schema, so unsupported filters (e.g.
@@ -27,8 +27,8 @@ type ScheduleFields = {
 function scheduleInputSchema(fields: ScheduleFields): Record<string, z.ZodTypeAny> {
   const schema: Record<string, z.ZodTypeAny> = {
     from: z.number().int().min(0).optional(),
-    startTime: z.string().optional().describe(dateTimeDesc()),
-    endTime: z.string().optional().describe(dateTimeDesc()),
+    startTime: dateTimeString.optional().describe(dateTimeDesc()),
+    endTime: dateTimeString.optional().describe(dateTimeDesc()),
     keyword: z.string().optional(),
   }
   if (fields.researchArea) schema.researchAreaList = z.array(z.string()).optional().describe(SCHED_RESEARCH_AREA_DESC)
@@ -62,8 +62,8 @@ const listSpecs: JsonToolSpec[] = [
     paginated: true,
     inputSchema: {
       from: z.number().int().min(0).optional(),
-      startTime: z.string().optional().describe(dateTimeDesc()),
-      endTime: z.string().optional().describe(dateTimeDesc()),
+      startTime: dateTimeString.optional().describe(dateTimeDesc()),
+      endTime: dateTimeString.optional().describe(dateTimeDesc()),
       keyword: z.string().optional(),
       rankType: z.number().int().optional().describe("1=综合排序（默认）| 2=时间倒序"),
       researchAreaList: z.array(z.string()).optional().describe("研究方向 ID，来自 gangtise_constant_list category=gangtiseIndustry（行业 1008001xx + 方向 122000xxx：宏观/策略/固收/金工/海外/其他）"),
@@ -83,8 +83,8 @@ const listSpecs: JsonToolSpec[] = [
     paginated: true,
     inputSchema: {
       from: z.number().int().min(0).optional(),
-      startTime: z.string().optional().describe(dateTimeDesc()),
-      endTime: z.string().optional().describe(dateTimeDesc()),
+      startTime: dateTimeString.optional().describe(dateTimeDesc()),
+      endTime: dateTimeString.optional().describe(dateTimeDesc()),
       keyword: z.string().optional(),
       searchType: z.number().int().optional().describe("1=标题搜索（快）| 2=全文搜索"),
       rankType: z.number().int().optional().describe("1=综合排序（默认）| 2=时间倒序"),
@@ -122,8 +122,8 @@ const listSpecs: JsonToolSpec[] = [
     paginated: true,
     inputSchema: {
       from: z.number().int().min(0).optional(),
-      startTime: z.string().optional().describe(dateTimeDesc()),
-      endTime: z.string().optional().describe(dateTimeDesc()),
+      startTime: dateTimeString.optional().describe(dateTimeDesc()),
+      endTime: dateTimeString.optional().describe(dateTimeDesc()),
       keyword: z.string().optional(),
       searchType: z.number().int().optional().describe("1=标题搜索 | 2=全文搜索"),
       rankType: z.number().int().optional(),
@@ -146,8 +146,8 @@ const listSpecs: JsonToolSpec[] = [
     paginated: true,
     inputSchema: {
       from: z.number().int().min(0).optional(),
-      startTime: z.string().optional().describe(dateTimeDesc()),
-      endTime: z.string().optional().describe(dateTimeDesc()),
+      startTime: dateTimeString.optional().describe(dateTimeDesc()),
+      endTime: dateTimeString.optional().describe(dateTimeDesc()),
       keyword: z.string().optional(),
       searchType: z.number().int().optional().describe("1=标题搜索 | 2=全文搜索"),
       rankType: z.number().int().optional().describe("1=综合排序 | 2=时间倒序"),
@@ -170,8 +170,8 @@ const listSpecs: JsonToolSpec[] = [
     paginated: true,
     inputSchema: {
       from: z.number().int().min(0).optional(),
-      startTime: z.string().optional().describe(dateTimeDesc()),
-      endTime: z.string().optional().describe(dateTimeDesc()),
+      startTime: dateTimeString.optional().describe(dateTimeDesc()),
+      endTime: dateTimeString.optional().describe(dateTimeDesc()),
       keyword: z.string().optional(),
       searchType: z.number().int().optional().describe("1=标题搜索 | 2=全文搜索"),
       rankType: z.number().int().optional().describe("1=综合排序 | 2=时间倒序"),
@@ -186,8 +186,8 @@ const listSpecs: JsonToolSpec[] = [
     paginated: true,
     inputSchema: {
       from: z.number().int().min(0).optional(),
-      startTime: z.string().optional().describe(dateTimeDesc()),
-      endTime: z.string().optional().describe(dateTimeDesc()),
+      startTime: dateTimeString.optional().describe(dateTimeDesc()),
+      endTime: dateTimeString.optional().describe(dateTimeDesc()),
       keyword: z.string().optional(),
       searchType: z.number().int().optional().describe("1=标题搜索 | 2=全文搜索"),
       rankType: z.number().int().optional().describe("1=综合排序 | 2=时间倒序"),
@@ -202,8 +202,8 @@ const listSpecs: JsonToolSpec[] = [
     paginated: true,
     inputSchema: {
       from: z.number().int().min(0).optional(),
-      startTime: z.string().optional().describe(dateTimeDesc()),
-      endTime: z.string().optional().describe(dateTimeDesc()),
+      startTime: dateTimeString.optional().describe(dateTimeDesc()),
+      endTime: dateTimeString.optional().describe(dateTimeDesc()),
       keyword: z.string().optional(),
       searchType: z.number().int().optional().describe("1=标题搜索 | 2=全文搜索"),
       rankType: z.number().int().optional().describe("1=综合排序 | 2=时间倒序"),
@@ -218,8 +218,8 @@ const listSpecs: JsonToolSpec[] = [
     paginated: true,
     inputSchema: {
       from: z.number().int().min(0).optional(),
-      startTime: z.string().optional().describe(dateTimeDesc()),
-      endTime: z.string().optional().describe(dateTimeDesc()),
+      startTime: dateTimeString.optional().describe(dateTimeDesc()),
+      endTime: dateTimeString.optional().describe(dateTimeDesc()),
       keyword: z.string().optional(),
       rankType: z.number().int().optional().describe("1=综合排序 | 2=时间倒序"),
       regionList: z.array(z.string()).optional().describe("地区 ID，来自 gangtise_constant_list category=regionCategory"),
@@ -237,8 +237,8 @@ const listSpecs: JsonToolSpec[] = [
     paginated: true,
     inputSchema: {
       from: z.number().int().min(0).optional(),
-      startTime: z.string().optional().describe(dateTimeDesc()),
-      endTime: z.string().optional().describe(dateTimeDesc()),
+      startTime: dateTimeString.optional().describe(dateTimeDesc()),
+      endTime: dateTimeString.optional().describe(dateTimeDesc()),
       keyword: z.string().optional(),
       rankType: z.number().int().optional().describe("1=综合排序 | 2=时间倒序"),
       industryList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx，全场景首选）"),
@@ -254,8 +254,8 @@ const listSpecs: JsonToolSpec[] = [
     paginated: true,
     inputSchema: {
       from: z.number().int().min(0).optional(),
-      startTime: z.string().optional().describe(dateTimeDesc()),
-      endTime: z.string().optional().describe(dateTimeDesc()),
+      startTime: dateTimeString.optional().describe(dateTimeDesc()),
+      endTime: dateTimeString.optional().describe(dateTimeDesc()),
       keyword: z.string().optional().describe("需用数据中的具体词（如 泡泡玛特），不要用整句白话"),
       searchType: z.number().int().optional().describe("1=标题搜索（默认）| 2=全文搜索"),
       rankType: z.number().int().optional().describe("1=综合排序（默认）| 2=时间倒序"),
