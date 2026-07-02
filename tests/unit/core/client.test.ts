@@ -249,6 +249,82 @@ describe("GangtiseClient pagination", () => {
   })
 })
 
+describe("GangtiseClient auth replay and freshness", () => {
+  // noRetry blocks transport retries (billed, non-idempotent submits), but an
+  // auth-rejected request never reached the backend handler — after a successful
+  // token refresh it must be replayed once, not surfaced as an auth error.
+  it("replays a noRetry submit once after a successful token refresh", async () => {
+    let submitCalls = 0
+    requestMock.mockImplementation((url: unknown) => {
+      if (String(url).includes("/loginV2")) {
+        return Promise.resolve(rawJsonResponse({ code: "000000", data: { accessToken: "fresh", expiresIn: 7200, time: 1 } }))
+      }
+      submitCalls += 1
+      if (submitCalls === 1) return Promise.resolve(rawJsonResponse({ code: "8000014", msg: "access key error" }))
+      return Promise.resolve(jsonResponse({ dataId: "d9" }))
+    })
+
+    const result = await keyClient().call("ai.earnings-review.get-id", { securityCode: "600519.SH", period: "2025q1" })
+    expect(result).toEqual({ dataId: "d9" })
+    expect(submitCalls).toBe(2)
+  })
+
+  // The MCP server and the gangtise CLI share the token cache file. When the
+  // sibling already refreshed it, logging in again would supersede the sibling's
+  // session server-side — adopt the fresh cached token instead.
+  it("adopts a fresh cached token written by a sibling process instead of logging in again", async () => {
+    let loginCalls = 0
+    const seenAuth: string[] = []
+    requestMock.mockImplementation(async (url: unknown, options?: { headers?: Record<string, string> }) => {
+      if (String(url).includes("/loginV2")) {
+        loginCalls += 1
+        return rawJsonResponse({ code: "000000", data: { accessToken: "fresh", expiresIn: 7200, time: 1 } })
+      }
+      seenAuth.push(options?.headers?.Authorization ?? "")
+      if (seenAuth.length === 1) {
+        // Sibling CLI refreshes the shared cache while this request is in flight.
+        await fs.writeFile(tokenCachePath, JSON.stringify({
+          accessToken: "sibling-fresh", expiresIn: 7200, time: 1,
+          expiresAt: Math.floor(Date.now() / 1000) + 7200,
+        }), "utf8")
+        return rawJsonResponse({ code: "0000001008", msg: "token is invalid" }, 401)
+      }
+      return jsonResponse({ answer: 1 })
+    })
+
+    const client = new GangtiseClient({
+      baseUrl: "https://open.gangtise.com",
+      timeoutMs: 30_000,
+      token: "stale",
+      accessKey: "ak",
+      secretKey: "sk",
+      tokenCachePath,
+      asyncTimeoutMs: 60_000,
+    })
+
+    expect(await client.call("ai.one-pager", { securityCode: "600519.SH" })).toEqual({ answer: 1 })
+    expect(loginCalls).toBe(0)
+    expect(seenAuth).toEqual(["Bearer stale", "Bearer sibling-fresh"])
+  })
+})
+
+describe("GangtiseClient short-page detection", () => {
+  // A first page shorter than the requested page size normally means "no more
+  // data" — but when total says the range has much more, the silent hole must
+  // carry the same loud-partial marker as every other degraded path.
+  it("flags a short first page as partial when total says more data exists", async () => {
+    requestMock.mockResolvedValue(jsonResponse({
+      total: 2000,
+      list: Array.from({ length: 7 }, (_, i) => ({ id: i })),
+    }))
+
+    const result = await tokenClient().call("insight.opinion.list", {}) as Record<string, unknown> & { list: unknown[] }
+    expect(result.list).toHaveLength(7)
+    expect(result._partial).toBe(true)
+    expect(result._partial_reason).toContain("short_page")
+  })
+})
+
 describe("GangtiseClient download content handling", () => {
   // RFC 6266 plain filename= is not percent-encoded; research-report titles with
   // a literal % ("盈利增长50%点评.pdf") used to throw URIError inside

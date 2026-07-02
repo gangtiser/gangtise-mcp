@@ -41,6 +41,65 @@ function parseText(result: unknown): Record<string, unknown> {
   return JSON.parse((result as { content: Array<{ text: string }> }).content[0].text)
 }
 
+describe("gangtise_read_response byte budget & boundaries", () => {
+  // Rows can be tens of KB each (announcement full text): an item-count window
+  // alone can inline megabytes and defeat the 256KB truncation contract.
+  it("caps a list page by byte budget instead of inlining megabytes", async () => {
+    const items = Array.from({ length: 500 }, (_, i) => ({ id: String(i), content: "内容".repeat(400) }))
+    const savedTo = await writeTmpJson({ list: items, total: 500 })
+    const client = await makeConnectedPair()
+
+    const result = await client.callTool({
+      name: "gangtise_read_response",
+      arguments: { saved_to: savedTo, offset: 0, limit: 500 },
+    })
+
+    expect(result.isError).toBeFalsy()
+    const parsed = parseText(result)
+    const returned = parsed._returned as number
+    expect(returned).toBeGreaterThan(0)
+    expect(returned).toBeLessThan(500)
+    expect(parsed.has_more).toBe(true)
+    expect(parsed.next_offset).toBe(returned)
+    expect(Buffer.byteLength(JSON.stringify(parsed.list), "utf8")).toBeLessThanOrEqual(300_000)
+    await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
+  })
+
+  it("does not split a surrogate pair at the text chunk boundary", async () => {
+    // "x"×69999 puts the emoji pair across the 70000-unit chunk boundary.
+    const savedTo = await writeTmpText("x".repeat(69_999) + "😀" + "yy")
+    const client = await makeConnectedPair()
+
+    const result = await client.callTool({
+      name: "gangtise_read_response",
+      arguments: { saved_to: savedTo },
+    })
+
+    const parsed = parseText(result)
+    const chunk = parsed._text as string
+    const lastCode = chunk.charCodeAt(chunk.length - 1)
+    expect(lastCode < 0xd800 || lastCode > 0xdbff).toBe(true)
+    expect(parsed.next_offset).toBe(69_999)
+    await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
+  })
+
+  // A second server instance's 24h startup sweep must not reclaim a spill dir
+  // that a long-lived session is still actively reading.
+  it("refreshes the spill dir mtime on read", async () => {
+    const savedTo = await writeTmpJson({ list: [{ id: 1 }], total: 1 })
+    const dir = path.dirname(savedTo)
+    const old = new Date(Date.now() - 48 * 3600 * 1000)
+    await fs.utimes(dir, old, old)
+    const client = await makeConnectedPair()
+
+    await client.callTool({ name: "gangtise_read_response", arguments: { saved_to: savedTo } })
+
+    const stat = await fs.stat(dir)
+    expect(Date.now() - stat.mtimeMs).toBeLessThan(60_000)
+    await fs.rm(dir, { recursive: true, force: true })
+  })
+})
+
 describe("gangtise_read_response", () => {
   it("reads a slice of a paginated { list, ...rest } payload", async () => {
     const items = Array.from({ length: 500 }, (_, i) => ({ id: String(i), v: i }))

@@ -26,10 +26,10 @@ const dateString = z
   }, "无效日期（不存在的日历日期，请检查月份/日期取值）")
 
 const commonKlineSchema = {
-  security: z.union([z.string(), z.array(z.string())]).optional().describe("证券代码，如 '600519.SH' 或 ['600519.SH','000858.SZ']；传 'all' 拉取全市场"),
+  security: z.union([z.string(), z.array(z.string())]).optional().describe("证券代码，如 '600519.SH' 或 ['600519.SH','000858.SZ']；传 'all' 拉取全市场（须同时提供 startDate 和 endDate——上游对开区间的全市场查询返回空数据或报「行情查询超出限制」）"),
   startDate: dateString.optional().describe(dateDesc()),
   endDate: dateString.optional().describe(dateDesc()),
-  limit: z.number().int().min(1).max(10_000).optional().describe("最大返回行数（默认 6000，最大 10000）"),
+  limit: z.number().int().min(1).max(10_000).optional().describe("单次请求最大返回行数（默认 6000，最大 10000）。上游从查询窗口开头截取——取「最近 N 条」须传日期区间而非只传 limit；全市场分片查询时该值作用于每个分片"),
   field: z.array(z.string()).optional().describe("指定返回字段，如 ['open','close','pctChange']"),
 }
 

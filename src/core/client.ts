@@ -116,7 +116,7 @@ export class GangtiseClient {
    * the caller re-throws the original error. `authState` persists across the
    * withRetry attempts so we only refresh once per logical request.
    */
-  private async refreshAuthIfRecoverable(error: unknown, useAuth: boolean, authState: { retried: boolean }): Promise<void> {
+  private async refreshAuthIfRecoverable(error: unknown, useAuth: boolean, authState: { retried: boolean }, usedAuthorization?: string): Promise<void> {
     if (
       useAuth
       && !authState.retried
@@ -128,12 +128,21 @@ export class GangtiseClient {
     ) {
       authState.retried = true
       this.memoCache = null
-      try {
-        await this.getAuthorizationHeader(true)
-      } catch {
-        // Refresh itself failed (bad keys / network) — surface the ORIGINAL api
-        // error to the caller (which re-throws it), not the secondary refresh error.
-        return
+      // The sibling gangtise CLI shares the token cache file. If it refreshed
+      // while this request was in flight, adopt that token instead of logging in
+      // again — a new login supersedes the sibling's session server-side and
+      // would bounce its requests right back.
+      const fileCache = await readTokenCache(this.config.tokenCachePath)
+      if (isTokenCacheValid(fileCache) && usedAuthorization !== undefined && normalizeToken(fileCache!.accessToken) !== usedAuthorization) {
+        this.memoCache = fileCache
+      } else {
+        try {
+          await this.getAuthorizationHeader(true)
+        } catch {
+          // Refresh itself failed (bad keys / network) — surface the ORIGINAL api
+          // error to the caller (which re-throws it), not the secondary refresh error.
+          return
+        }
       }
       throw markRetryable(new ApiError(error.message, error.code, error.statusCode, error.details))
     }
@@ -200,11 +209,24 @@ export class GangtiseClient {
 
     // Last page reached on first request
     if (firstPage.list.length < firstPageSize) {
-      return {
+      const shortResult: Record<string, unknown> = {
         ...firstPage,
         total,
         list: requestedSize === undefined ? collected : collected.slice(0, requestedSize),
       }
+      // A short page normally means "no more data" — but when total says the
+      // range holds more, the server's effective page size is smaller than the
+      // declared maxPageSize and the hole must carry the loud-partial marker.
+      const returned = (shortResult.list as unknown[]).length
+      const expectable = Math.min(
+        typeof total === "number" ? Math.max(total - startFrom, 0) : returned,
+        requestedSize ?? Number.POSITIVE_INFINITY,
+      )
+      if (returned < expectable) {
+        shortResult._partial = true
+        shortResult._partial_reason = "short_page"
+      }
+      return shortResult
     }
 
     const available = Math.max(total - startFrom, 0)
@@ -286,6 +308,9 @@ export class GangtiseClient {
       partialReasons.push("failed_pages")
       response._failed_pages = failedPages
     }
+    // Pages all succeeded and no cap was hit, yet fewer rows than target arrived
+    // — the server under-filled pages. Same loud-partial contract.
+    if (partialReasons.length === 0 && returnedList.length < target) partialReasons.push("short_page")
     if (partialReasons.length > 0) {
       response._partial = true
       response._partial_reason = partialReasons.join(",")
@@ -312,7 +337,7 @@ export class GangtiseClient {
     const url = new URL(endpoint.path, this.config.baseUrl)
     const authState = { retried: false }
 
-    return withRetry(async () => {
+    const attemptOnce = async (): Promise<T> => {
       const headers: Record<string, string> = {
         'content-type': 'application/json',
       }
@@ -350,17 +375,34 @@ export class GangtiseClient {
       } catch (error) {
         // Run through auth recovery for BOTH 4xx (e.g. 401 token-invalid) and
         // 200-envelope auth errors, so a server-rejected cached token refreshes.
-        await this.refreshAuthIfRecoverable(error, useAuth, authState)
+        await this.refreshAuthIfRecoverable(error, useAuth, authState, headers.Authorization)
         throw error
       }
-    }, {
+    }
+
+    const retryOptions = {
       retries: endpoint.noRetry ? 0 : undefined,
-      onRetry: (attempt, error, delay) => {
+      onRetry: (attempt: number, error: unknown, delay: number) => {
         if (!isVerbose()) return
         const msg = error instanceof Error ? error.message : String(error)
         process.stderr.write(`[gangtise] retry ${attempt} after ${delay.toFixed(0)}ms: ${msg.slice(0, 120)}\n`)
       },
-    })
+    }
+
+    if (!endpoint.noRetry) return withRetry(attemptOnce, retryOptions)
+
+    try {
+      return await withRetry(attemptOnce, retryOptions)
+    } catch (error) {
+      // noRetry only blocks transport-level retries (billed, non-idempotent
+      // submits). An auth-rejected request never reached the backend handler, so
+      // after a successful token refresh (markRetryable) one replay is safe —
+      // authState.retried already guards against a second refresh.
+      if ((error as { __retryable?: boolean }).__retryable === true) {
+        return attemptOnce()
+      }
+      throw error
+    }
   }
 
   async download(endpoint: EndpointDefinition, query: Record<string, string | number>, options?: { streamTo?: string }): Promise<DownloadResponse> {
@@ -410,7 +452,7 @@ export class GangtiseClient {
           }
           data = unwrapEnvelope(parsed as Envelope<unknown>, response.statusCode)
         } catch (error) {
-          await this.refreshAuthIfRecoverable(error, true, authState)
+          await this.refreshAuthIfRecoverable(error, true, authState, authorization)
           throw error
         }
         if (data && typeof data === 'object' && 'url' in (data as Record<string, unknown>) && typeof (data as Record<string, unknown>).url === 'string') {

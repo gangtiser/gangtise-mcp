@@ -154,6 +154,19 @@ describe("buildTextResult", () => {
   })
 })
 
+describe("buildTextResult boundaries", () => {
+  it("does not split a surrogate pair at the text preview boundary", async () => {
+    // Leading "x" shifts every emoji pair to straddle the even 4000-char preview cut.
+    const big = "x" + "😀".repeat(120_000)
+    const content = await buildTextResult(big)
+    const meta = JSON.parse(content[0].text)
+    const preview = meta._preview as string
+    const lastCode = preview.charCodeAt(preview.length - 1)
+    expect(lastCode < 0xd800 || lastCode > 0xdbff).toBe(true)
+    await fs.rm(path.dirname(meta._saved_to as string), { recursive: true, force: true })
+  })
+})
+
 describe("registerDownloadTool", () => {
   function makeDownloadServer(downloadResponse: unknown) {
     const mockClient = {

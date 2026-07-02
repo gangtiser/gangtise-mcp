@@ -88,6 +88,20 @@ describe("callKlineWithSharding", () => {
     expect(seenBodies[0].limit).toBe(10_000)
   })
 
+  // A multi-year range would fire thousands of shard requests and merge more
+  // rows than a single JSON.stringify can hold (V8 string limit) — the whole
+  // batch would succeed and then be thrown away. Fail loudly up front instead.
+  it("rejects an oversized all-market range before firing thousands of shards", async () => {
+    const call = vi.fn().mockResolvedValue({ list: [] })
+
+    await expect(callKlineWithSharding({ call }, "quote.day-kline", {
+      securityList: ["all"],
+      startDate: "2024-01-01",
+      endDate: "2026-06-30",
+    }, { shardDays: 1 })).rejects.toThrow(/区间过大|缩小/)
+    expect(call).not.toHaveBeenCalled()
+  })
+
   it("does not touch single-security queries", async () => {
     const seenBodies: Array<Record<string, unknown>> = []
     const call = vi.fn().mockImplementation(async (_key: string, body: Record<string, unknown>) => {

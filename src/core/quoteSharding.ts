@@ -1,5 +1,5 @@
 import { runWithConcurrency, isVerbose } from "./transport.js"
-import { errorMessage } from "./errors.js"
+import { errorMessage, ValidationError } from "./errors.js"
 
 export interface KlineBody {
   securityList?: string[]
@@ -28,6 +28,11 @@ const ALL_MARKET_LIMIT = 10_000
 /** Shard fan-out concurrency. Shares the GANGTISE_PAGE_CONCURRENCY knob with
  * pagination (see client.ts) so one env var tunes all request fan-out. */
 const SHARD_CONCURRENCY = Number(process.env.GANGTISE_PAGE_CONCURRENCY ?? 5) || 5
+/** Hard cap on shard fan-out. ~180 one-day shards ≈ 6+ months of A-share
+ * full-market rows; beyond that the merged rows approach the V8 string limit in
+ * the JSON sink — every shard would succeed and then stringify would throw,
+ * discarding all of them — and the request count hammers the daily quota. */
+const MAX_SHARDS = 180
 
 function parseDate(value: string): Date | null {
   // Accept yyyy-MM-dd; reject anything else so we can fall back to a single request.
@@ -95,6 +100,9 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   }
 
   const shards = buildShards(start, end, config.shardDays)
+  if (shards.length > MAX_SHARDS) {
+    throw new ValidationError(`全市场查询区间过大（${shards.length} 个分片 > ${MAX_SHARDS}）：合并结果将超出单次响应安全上限，请缩小日期区间分批拉取`)
+  }
   if (isVerbose()) {
     process.stderr.write(`[gangtise] sharding ${endpointKey} into ${shards.length} requests (${config.shardDays} day(s) each)\n`)
   }

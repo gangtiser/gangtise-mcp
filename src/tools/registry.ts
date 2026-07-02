@@ -106,13 +106,24 @@ export async function buildTextResult(text: string): Promise<Array<{ type: "text
   return [{ type: "text" as const, text: JSON.stringify(meta, null, 2) }]
 }
 
+/** Trims a slice end that would land inside a surrogate pair (4-byte chars like
+ * emoji), which would emit an unpaired surrogate — mojibake or a hard parse
+ * error for strict UTF-8 consumers. Shared with the read-back tool. */
+export function alignSliceEnd(text: string, end: number): number {
+  if (end > 0 && end < text.length) {
+    const code = text.charCodeAt(end - 1)
+    if (code >= 0xd800 && code <= 0xdbff) return end - 1
+  }
+  return end
+}
+
 /** Writes oversized text to a temp .md file and returns the truncation-pointer metadata. */
 async function spillTextMeta(text: string): Promise<Record<string, unknown>> {
   const tempDir = await createManagedTempDir()
   const savedPath = path.join(tempDir, "response.md")
   await fs.writeFile(savedPath, text, "utf8")
 
-  const preview = text.slice(0, TEXT_PREVIEW_CHARS)
+  const preview = text.slice(0, alignSliceEnd(text, TEXT_PREVIEW_CHARS))
   return {
     _truncated: true,
     _saved_to: savedPath,
