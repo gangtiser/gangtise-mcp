@@ -28,7 +28,10 @@ export async function readTokenCache(filePath: string): Promise<TokenCache | nul
 }
 
 export async function writeTokenCache(filePath: string, cache: TokenCache): Promise<void> {
-  await fs.mkdir(path.dirname(filePath), { recursive: true })
+  // 0700 to match the 0600 file policy — the default (umask) 755 would let other
+  // local users list the dir and stat the token file's metadata. Applies to
+  // newly created dirs only; an existing dir keeps its mode.
+  await fs.mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 })
   // Write to a fresh 0600 temp file then rename over the target. Writing in place
   // would (a) keep an existing file's lax perms — `mode` only applies on creation —
   // and (b) risk a truncated file on crash. A temp file is 0600 from the first byte

@@ -19,6 +19,19 @@ function cache(expiresAt: number): TokenCache {
 
 const nowSec = () => Math.floor(Date.now() / 1000)
 
+describe("writeTokenCache directory permissions", () => {
+  it("creates the cache directory 0700 (owner-only), matching the 0600 file policy", async () => {
+    const base = await fs.mkdtemp(path.join(os.tmpdir(), "gangtise-auth-test-"))
+    const filePath = path.join(base, "nested", "token.json")
+
+    await writeTokenCache(filePath, cache(nowSec() + 7200))
+
+    const stat = await fs.stat(path.dirname(filePath))
+    expect(stat.mode & 0o777).toBe(0o700)
+    await fs.rm(base, { recursive: true, force: true })
+  })
+})
+
 describe("isTokenCacheValid", () => {
   it("is valid when expiry is beyond the 300s buffer", () => {
     expect(isTokenCacheValid(cache(nowSec() + 600))).toBe(true)

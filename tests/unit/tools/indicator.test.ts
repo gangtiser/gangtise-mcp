@@ -23,6 +23,31 @@ async function connect(client: GangtiseClient) {
   return mcp
 }
 
+// The EDE inner envelope ({ code, status, data }) can carry a failure even when
+// the outer envelope succeeded. Every indicator tool must surface it as isError
+// — regressing to registerJsonTool (or dropping unwrapIndicatorData) would
+// render it as "successful null data" with all tests green.
+describe("indicator inner-envelope failure surfacing", () => {
+  function failingClient() {
+    return {
+      call: vi.fn().mockResolvedValue({ code: "410004", status: false, msg: "指标无权限" }),
+      download: vi.fn(),
+    } as unknown as GangtiseClient
+  }
+
+  it.each([
+    ["gangtise_indicator_search", { keyword: "收盘价" }],
+    ["gangtise_indicator_cross_section", { indicatorCodeList: ["qte_close"], securityCodeList: ["600519.SH"], date: "2026-06-30" }],
+    ["gangtise_indicator_time_series", { indicatorCodeList: ["qte_close"], securityCodeList: ["600519.SH"], startDate: "2026-06-01", endDate: "2026-06-30" }],
+  ] as Array<[string, Record<string, unknown>]>)("%s surfaces the inner error as isError", async (name, args) => {
+    const client = failingClient()
+    const mcp = await connect(client)
+    const result = await mcp.callTool({ name, arguments: args })
+    expect(result.isError).toBe(true)
+    expect(client.call).toHaveBeenCalledTimes(1)
+  })
+})
+
 // Time-series flattening assumes exactly one dimension varies. With both >1 the
 // matrix is ambiguous and flattenTimeSeries silently drops the indicator
 // dimension. Reject the request before it reaches the API.

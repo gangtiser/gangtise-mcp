@@ -8,16 +8,21 @@ import { ApiError } from "./errors.js"
 export function unwrapIndicatorData(raw: unknown): unknown {
   if (raw && typeof raw === "object" && !Array.isArray(raw)) {
     const record = raw as Record<string, unknown>
-    if ("data" in record && ("code" in record || "status" in record)) {
+    if ("code" in record || "status" in record) {
       const code = record.code === undefined ? undefined : String(record.code)
       const ok = record.status === true || code === "000000" || code === "0"
-      if (!ok) {
+      // A failure envelope may omit `data` entirely ({ code, status: false, msg })
+      // — gating on the data key would let a permission/quota error flow through
+      // as "successful" payload. Still require some envelope evidence
+      // (status/msg/data) so a non-envelope object that merely carries a `code`
+      // field can't be misread as a failure.
+      if (!ok && ("status" in record || "msg" in record || "data" in record)) {
         throw new ApiError(
           typeof record.msg === "string" && record.msg ? record.msg : "Indicator API request failed",
           code,
         )
       }
-      return record.data
+      if (ok && "data" in record) return record.data
     }
   }
   return raw

@@ -4,6 +4,18 @@
 
 ## Changelog
 
+### 0.1.36 (2026-07-02)
+- 对抗式审查第三批（工程加固）+ 补测试时发现的真 bug：
+  - **修复 indicator（EDE）内层失败信封漏判**：失败信封不带 `data` 键（`{code,status:false,msg}`）时，`unwrapIndicatorData` 因判定条件要求 `data` 存在而原样放行，三个 indicator 工具把权限/配额错误当"成功数据"返回。现按 `code`/`status` 判定失败（补齐信封证据守卫防误伤）。注：同门 CLI 同款实现有同样问题，待同步
+  - 全市场 K 线分片合并后 `total` 重算为合并行数，不再泄漏第一个分片的 `total`（此前 total=单日行数 + 全量 list，误导完整性判断）
+  - token 缓存目录以 `0700` 创建（对齐文件 0600 策略；此前按 umask 落成 755，同机其他用户可列目录）
+- CI/发布链加固：
+  - `ci.yml` 增加 `permissions: contents: read`（此前默认 token 权限暴露给依赖安装脚本）+ `npm audit --omit=dev` 步骤（CI 走官方 registry，本地 npmmirror 无法 audit）
+  - 两个 workflow 的 `actions/checkout`、`actions/setup-node` pin 到 commit SHA；`npm ci --ignore-scripts`（发布 job 持有 OIDC id-token，不给依赖生命周期脚本执行机会）
+  - 移除 `workflow_dispatch` 触发器——手动触发会跳过 tag↔版本一致性校验、从分支直接发版
+- 测试补盲区（210 个）：token 刷新 single-flight 并发去重、`gangtise_read_response` 拒绝他进程创建的同前缀目录（钉住 0.1.28 的进程隔离语义）、港股 2 天/片分片边界（无重叠无缺日+尾片截断）、indicator 内层失败信封 → `isError`（上述真 bug 即由此测试暴露）
+- README 修正：大响应章节改为真实路径与 `gangtise_read_response` 续读指引（此前写 `/tmp/...` 且教直接读文件，无文件能力的客户端走不通）、字段表补 `_read_with`、前置要求改 Node ≥ 20.18.1（对齐 engines）
+
 ### 0.1.35 (2026-07-02)
 - 对抗式审查第二批修复（防线加固）：
   - `gangtise_read_response`：list 分页新增 256KB 字节预算——单行巨大（公告全文等）时按字节截短本页并给 `next_offset` 指引，不再一次内联数 MB 击穿截断契约
@@ -179,7 +191,7 @@
 
 ## 前置要求
 
-- Node.js ≥ 20
+- Node.js ≥ 20.18.1（undici 7.27+ 的要求，见 `package.json#engines`）
 - Gangtise 开放平台账号（[申请地址](https://open.gangtise.com)），获取 `accessKey` / `secretKey`
 
 ## 快速开始
@@ -326,7 +338,7 @@ Remove-Item -Recurse -Force $env:LOCALAPPDATA\npm-cache\_npx
 
 ## 大响应处理
 
-当单次工具调用返回超过 256 KB 时，完整数据会写入本地临时文件（`/tmp/gangtise-mcp-*/response.json`），MCP 响应改为内联返回前 20 条预览及元数据：
+当单次工具调用返回超过 256 KB 时，完整数据会写入系统临时目录下的 `gangtise-mcp-*` 目录（macOS 实际在 `/var/folders/.../T/` 下；JSON 数据为 `response.json`，文本类为 `response.md`），MCP 响应改为内联返回前 20 条预览及元数据：
 
 | 字段 | 说明 |
 |---|---|
@@ -335,9 +347,10 @@ Remove-Item -Recurse -Force $env:LOCALAPPDATA\npm-cache\_npx
 | `_total_bytes` | 完整响应的 UTF-8 字节数 |
 | `_total_items` | 文件中的总条数 |
 | `_preview_count` | 本次内联返回的条数（最多 20） |
-| `has_more` | 文件中是否有超过预览的条目 |
+| `_read_with` | 续读工具名（固定为 `gangtise_read_response`） |
+| `has_more` | 文件中是否还有未返回的条目 |
 
-AI 可直接读取 `_saved_to` 路径获取完整数据。若单条内容过大导致 20 条预览本身也超过阈值，则只返回元数据，`_preview_count` 为 0。
+续读完整数据请调用 **`gangtise_read_response`** 工具（传 `_saved_to` 路径，按 `offset`/`limit` 分页；单页同样受 256KB 字节预算约束）——不要依赖客户端直接读文件，Claude Desktop 等无文件读取能力的客户端只能走该工具。若单条内容过大导致 20 条预览本身也超过阈值，则只返回元数据，`_preview_count` 为 0（此时 `has_more: true` 表示数据全部在文件中）。
 
 ## 开发
 

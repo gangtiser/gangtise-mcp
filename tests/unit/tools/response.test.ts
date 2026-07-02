@@ -41,6 +41,27 @@ function parseText(result: unknown): Record<string, unknown> {
   return JSON.parse((result as { content: Array<{ text: string }> }).content[0].text)
 }
 
+describe("gangtise_read_response ownership guard", () => {
+  // The 0.1.28 fix replaced prefix matching with a per-process allowlist
+  // (ownedTempDirs). The only case that distinguishes the two is a
+  // gangtise-mcp-* dir created by ANOTHER process — pin it so a "simpler"
+  // prefix check can't silently regress the security property.
+  it("rejects a gangtise-mcp-prefixed temp dir created outside this process", async () => {
+    const foreignDir = await fs.mkdtemp(path.join(os.tmpdir(), "gangtise-mcp-"))
+    const file = path.join(foreignDir, "response.json")
+    await fs.writeFile(file, JSON.stringify({ list: [1] }), "utf8")
+    const client = await makeConnectedPair()
+
+    const result = await client.callTool({
+      name: "gangtise_read_response",
+      arguments: { saved_to: file },
+    })
+
+    expect(result.isError).toBe(true)
+    await fs.rm(foreignDir, { recursive: true, force: true })
+  })
+})
+
 describe("gangtise_read_response byte budget & boundaries", () => {
   // Rows can be tens of KB each (announcement full text): an item-count window
   // alone can inline megabytes and defeat the 256KB truncation contract.

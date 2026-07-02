@@ -88,6 +88,32 @@ describe("callKlineWithSharding", () => {
     expect(seenBodies[0].limit).toBe(10_000)
   })
 
+  // HK kline runs 2-day shards in production but every test used shardDays: 1,
+  // leaving the shard boundary math (no overlap, no gap, truncated tail) and
+  // the merged `total` semantics unpinned.
+  it("builds gap-free 2-day shards with a truncated tail and recomputes total from merged rows", async () => {
+    const seen: Array<[string, string]> = []
+    const call = vi.fn().mockImplementation(async (_key: string, body: Record<string, unknown>) => {
+      seen.push([body.startDate as string, body.endDate as string])
+      return { fieldList: ["tradeDate"], list: [[body.startDate]], total: 1 }
+    })
+
+    const result = await callKlineWithSharding({ call }, "quote.day-kline-hk", {
+      securityList: ["all"],
+      startDate: "2026-04-01",
+      endDate: "2026-04-05",
+    }, { shardDays: 2 }) as Record<string, unknown>
+
+    expect(seen).toEqual([
+      ["2026-04-01", "2026-04-02"],
+      ["2026-04-03", "2026-04-04"],
+      ["2026-04-05", "2026-04-05"],
+    ])
+    expect((result.list as unknown[]).length).toBe(3)
+    // total must describe the merged result, not leak the first shard's count.
+    expect(result.total).toBe(3)
+  })
+
   // A multi-year range would fire thousands of shard requests and merge more
   // rows than a single JSON.stringify can hold (V8 string limit) — the whole
   // batch would succeed and then be thrown away. Fail loudly up front instead.

@@ -140,6 +140,9 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   if (!header) return { list: [] }
   const out: Record<string, unknown> = { ...header, list: merged }
   if (fieldList) out.fieldList = fieldList
+  // The header's `total` describes the first shard only — recompute it for the
+  // merged result so downstream completeness checks aren't misled.
+  if ("total" in out) out.total = merged.length
   // Loud partial: surface which date shards were dropped so the caller never
   // mistakes incomplete market data for a complete result.
   if (failed.length > 0) {

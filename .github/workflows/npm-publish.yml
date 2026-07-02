@@ -1,10 +1,13 @@
 name: Publish npm package
 
+# Tag push only. workflow_dispatch was removed on purpose: a manual dispatch ran
+# from a branch ref, skipping the tag↔version check below and publishing whatever
+# version main happened to hold. Re-running a failed publish = re-run the tag's
+# workflow from the Actions UI.
 on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -16,16 +19,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
 
       - name: Setup Node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
 
       - name: Verify tag matches package.json version
-        if: startsWith(github.ref, 'refs/tags/')
         run: |
           PKG_VERSION="v$(node -p "require('./package.json').version")"
           if [ "$PKG_VERSION" != "$GITHUB_REF_NAME" ]; then
@@ -34,7 +36,9 @@ jobs:
           fi
 
       - name: Install dependencies
-        run: npm ci
+        # This job holds the OIDC id-token — never run dependency lifecycle
+        # scripts with it in scope.
+        run: npm ci --ignore-scripts
 
       - name: Test
         run: npm test

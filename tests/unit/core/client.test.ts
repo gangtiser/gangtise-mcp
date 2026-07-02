@@ -308,6 +308,27 @@ describe("GangtiseClient auth replay and freshness", () => {
   })
 })
 
+describe("GangtiseClient concurrent token refresh", () => {
+  // refreshPromise single-flight is the only barrier against a login storm
+  // (each login supersedes the previous session server-side).
+  it("deduplicates concurrent token refreshes into a single login", async () => {
+    let loginCalls = 0
+    requestMock.mockImplementation((url: unknown) => {
+      if (String(url).includes("/loginV2")) {
+        loginCalls += 1
+        return new Promise((resolve) =>
+          setTimeout(() => resolve(rawJsonResponse({ code: "000000", data: { accessToken: "fresh", expiresIn: 7200, time: 1 } })), 50),
+        )
+      }
+      return Promise.resolve(jsonResponse({ ok: 1 }))
+    })
+
+    const client = keyClient()
+    await Promise.all(Array.from({ length: 5 }, () => client.call("ai.one-pager", { securityCode: "600519.SH" })))
+    expect(loginCalls).toBe(1)
+  })
+})
+
 describe("GangtiseClient short-page detection", () => {
   // A first page shorter than the requested page size normally means "no more
   // data" — but when total says the range has much more, the silent hole must
