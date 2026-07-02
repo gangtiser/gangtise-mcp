@@ -72,6 +72,22 @@ describe("gangtise_day_kline date validation", () => {
     expect(client.call).not.toHaveBeenCalled()
   })
 
+  // security='all' with only one date can't shard, but must still go through
+  // the sharding helper so the 10000-row limit lift applies — otherwise the
+  // raw body is sent and upstream silently truncates at its 6000 default.
+  it("lifts the limit for security='all' when endDate is omitted", async () => {
+    const client = makeMockClient()
+    const mcp = await connect(client)
+    const result = await mcp.callTool({
+      name: "gangtise_day_kline",
+      arguments: { security: "all", startDate: "2026-04-01" },
+    })
+    expect(result.isError).toBeFalsy()
+    expect(client.call).toHaveBeenCalledTimes(1)
+    const body = (client.call as ReturnType<typeof vi.fn>).mock.calls[0][1] as Record<string, unknown>
+    expect(body.limit).toBe(10_000)
+  })
+
   it("accepts a leap-day (2024-02-29) and calls the API", async () => {
     const client = makeMockClient()
     const mcp = await connect(client)

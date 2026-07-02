@@ -91,4 +91,25 @@ describe("gangtise_earnings_review_check", () => {
     expect(result.isError).toBeFalsy()
     expect(text(result)).toContain("终稿")
   })
+
+  // content: "" means the task finished with empty output (the backend does
+  // this — see the empty-content fallback for the sync AI tools). A truthiness
+  // check used to report it as pending forever, making the billed task look
+  // unrecoverable.
+  it("treats empty-string content as done (friendly note), not pending", async () => {
+    const mcp = await connect(makeClient(async () => ({ content: "" })))
+    const result = await mcp.callTool({ name: "gangtise_earnings_review_check", arguments: { dataId: "d1" } })
+    expect(result.isError).toBeFalsy()
+    expect(text(result)).not.toContain("pending")
+    expect(text(result)).toContain("内容为空")
+  })
+})
+
+describe("empty-content completion via submit→poll", () => {
+  it("returns the friendly empty-content note instead of an empty text block", async () => {
+    const mcp = await connect(makeClient(async () => ({ content: "" })))
+    const result = await mcp.callTool({ name: "gangtise_earnings_review", arguments: { ...args, waitSeconds: 5 } })
+    expect(result.isError).toBeFalsy()
+    expect(text(result)).toContain("内容为空")
+  })
 })

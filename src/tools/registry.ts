@@ -82,7 +82,11 @@ export async function buildToolContent(normalized: unknown): Promise<Array<{ typ
   // Guard: if preview itself exceeds the byte cap (e.g. large rows), drop list and return metadata only.
   if (Buffer.byteLength(JSON.stringify(preview, null, 2), "utf8") > INLINE_MAX_BYTES) {
     const { list: _dropped, ...metaOnly } = preview as Record<string, unknown> & { list?: unknown }
-    preview = { ...metaOnly, _preview_count: 0 }
+    // The spill file still holds every item — recompute has_more from the item
+    // count, or the reader sees has_more:false + 0 previews and never follows
+    // up with gangtise_read_response.
+    const totalItems = metaOnly._total_items
+    preview = { ...metaOnly, _preview_count: 0, has_more: typeof totalItems === "number" && totalItems > 0 }
   }
 
   return [{ type: "text" as const, text: JSON.stringify(preview, null, 2) }]

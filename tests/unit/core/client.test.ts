@@ -249,6 +249,55 @@ describe("GangtiseClient pagination", () => {
   })
 })
 
+describe("GangtiseClient download content handling", () => {
+  // RFC 6266 plain filename= is not percent-encoded; research-report titles with
+  // a literal % ("盈利增长50%点评.pdf") used to throw URIError inside
+  // decodeURIComponent and fail the whole download before any byte was saved.
+  it("keeps a literal-% filename instead of failing the download with URIError", async () => {
+    const bytes = new Uint8Array([1, 2, 3])
+    requestMock.mockResolvedValue({
+      statusCode: 200,
+      headers: {
+        "content-type": "application/octet-stream",
+        "content-disposition": 'attachment; filename="盈利增长50%点评.pdf"',
+      },
+      body: {
+        arrayBuffer: vi.fn().mockResolvedValue(bytes.buffer.slice(0)),
+        text: vi.fn(),
+      },
+    })
+
+    const result = await tokenClient().call("insight.research.download", undefined, { reportId: "1" }) as { filename?: string; data?: Uint8Array }
+    expect(result.filename).toBe("盈利增长50%点评.pdf")
+    expect(result.data).toEqual(bytes)
+  })
+
+  // A JSON *file attachment* (content-disposition present) must be returned
+  // verbatim — vault drive files can be arbitrary .json that merely looks like
+  // an API envelope and used to get unwrapped (content rewritten) or, with a
+  // non-success code shape, rejected as an ApiError.
+  it("returns a JSON file attachment verbatim instead of unwrapping it as an envelope", async () => {
+    const fileJson = JSON.stringify({ code: "000000", data: { note: "user file" } })
+    const fileBytes = new TextEncoder().encode(fileJson)
+    requestMock.mockResolvedValue({
+      statusCode: 200,
+      headers: {
+        "content-type": "application/json",
+        "content-disposition": 'attachment; filename="export.json"',
+      },
+      body: {
+        text: vi.fn().mockResolvedValue(fileJson),
+        arrayBuffer: vi.fn().mockResolvedValue(fileBytes.buffer.slice(fileBytes.byteOffset, fileBytes.byteOffset + fileBytes.byteLength)),
+      },
+    })
+
+    const result = await tokenClient().call("insight.research.download", undefined, { reportId: "1" }) as { filename?: string; data?: Uint8Array; text?: string }
+    expect(result.filename).toBe("export.json")
+    expect(result.data).toBeDefined()
+    expect(new TextDecoder().decode(result.data)).toBe(fileJson)
+  })
+})
+
 describe("GangtiseClient noRetry endpoints", () => {
   it("does not retry an async-AI submit endpoint on a 5xx (avoids duplicate jobs)", async () => {
     let calls = 0

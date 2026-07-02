@@ -154,6 +154,7 @@ function makeAsyncToolPair(
 
       try {
         const polled = await pollAsyncContent(client, config.pollEndpoint, dataId, timeoutMs)
+        if (!polled.content.trim()) return textResult("任务已完成，但 AI 内容为空（后端未生成或数据缺失）。")
         return contentResult(await buildTextResult(polled.content))
       } catch (err) {
         if (err instanceof AsyncTimeoutError) {
@@ -181,7 +182,13 @@ function makeAsyncToolPair(
     toolHandler(async ({ dataId }: { dataId: string }) => {
       try {
         const result = await client.call(config.pollEndpoint, { dataId }) as { content?: string }
-        if (result.content) return contentResult(await buildTextResult(result.content))
+        // content: "" is a *finished* task with empty output (matches the poll
+        // loop's `content != null` check) — a truthiness test would report the
+        // billed task as pending forever.
+        if (result.content != null) {
+          if (!result.content.trim()) return textResult("任务已完成，但 AI 内容为空（后端未生成或数据缺失）。")
+          return contentResult(await buildTextResult(result.content))
+        }
         return textResult(JSON.stringify({ status: "pending", dataId }))
       } catch (err) {
         if (err instanceof ApiError && err.code === "410111")

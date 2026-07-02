@@ -383,8 +383,14 @@ export class GangtiseClient {
       })
 
       const contentType = Array.isArray(response.headers['content-type']) ? response.headers['content-type'][0] : response.headers['content-type']
+      const contentDisposition = Array.isArray(response.headers['content-disposition'])
+        ? response.headers['content-disposition'][0]
+        : response.headers['content-disposition']
 
-      if (contentType?.includes('application/json')) {
+      // A JSON body carrying content-disposition is a real file attachment (e.g.
+      // a user-stored .json in the vault drive), not an API envelope — fall
+      // through to the binary path so its bytes are returned untouched.
+      if (contentType?.includes('application/json') && !contentDisposition) {
         const text = await response.body.text()
         logTiming(`GET ${endpoint.path} (json)`, Date.now() - startedAt, `${response.statusCode}, ${text.length}B`)
         let parsed: unknown
@@ -427,11 +433,19 @@ export class GangtiseClient {
         throw new ApiError('Download failed', undefined, response.statusCode, text)
       }
 
-      const contentDisposition = response.headers['content-disposition']
-      const filenameMatch = Array.isArray(contentDisposition)
-        ? contentDisposition[0]?.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i)
-        : contentDisposition?.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i)
-      const filename = filenameMatch ? decodeURIComponent(filenameMatch[1] || filenameMatch[2]) : undefined
+      const filenameMatch = contentDisposition?.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i)
+      // RFC 6266: plain filename= is not percent-encoded — a literal % (common
+      // in report titles like 盈利增长50%点评.pdf) makes decodeURIComponent
+      // throw, which must not fail the download; fall back to the raw name.
+      let filename: string | undefined
+      if (filenameMatch) {
+        const rawName = filenameMatch[1] || filenameMatch[2]
+        try {
+          filename = decodeURIComponent(rawName)
+        } catch {
+          filename = rawName
+        }
+      }
 
       // Stream directly to disk when caller already knows the destination
       if (options?.streamTo) {

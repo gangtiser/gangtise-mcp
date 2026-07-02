@@ -69,6 +69,25 @@ describe("callKlineWithSharding", () => {
     }, { shardDays: 1 })).rejects.toThrow("auth expired")
   })
 
+  // Missing either date used to bypass the limit lift entirely (raw body sent),
+  // so upstream applied its default 6000-row cap and silently truncated a
+  // full-market query with no _partial marker.
+  it("lifts the limit for security='all' even when a date is missing", async () => {
+    const seenBodies: Array<Record<string, unknown>> = []
+    const call = vi.fn().mockImplementation(async (_key: string, body: Record<string, unknown>) => {
+      seenBodies.push(body)
+      return { list: [] }
+    })
+
+    await callKlineWithSharding({ call }, "quote.day-kline", {
+      securityList: ["all"],
+      startDate: "2026-04-01",
+    }, { shardDays: 1 })
+
+    expect(seenBodies).toHaveLength(1)
+    expect(seenBodies[0].limit).toBe(10_000)
+  })
+
   it("does not touch single-security queries", async () => {
     const seenBodies: Array<Record<string, unknown>> = []
     const call = vi.fn().mockImplementation(async (_key: string, body: Record<string, unknown>) => {

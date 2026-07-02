@@ -119,7 +119,10 @@ describe("buildToolContent", () => {
     expect(result._total_items).toBe(20) // items in file, not server total
     expect(result._preview_count).toBe(0) // list dropped because preview itself exceeded cap
     expect(result.list).toBeUndefined()
-    expect(result.has_more).toBe(false)
+    // The file still holds all 20 items — has_more must say so, or the reader
+    // sees `has_more: false` + 0 preview items and never calls
+    // gangtise_read_response, silently discarding the whole payload.
+    expect(result.has_more).toBe(true)
 
     await fs.rm(path.dirname(result._saved_to as string), { recursive: true, force: true })
   })

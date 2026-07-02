@@ -49,7 +49,9 @@ function klineHandler(client: GangtiseClient, endpointKey: string, shardDays: nu
   return toolHandler(async (args: Record<string, unknown>) => {
     const body = buildKlineBody(args)
     const isAllMarket = body.securityList?.[0] === "all"
-    const result = isAllMarket && body.startDate && body.endDate
+    // All-market always goes through the sharding helper: even when a date is
+    // missing (no sharding possible) it must still get the 10K limit lift.
+    const result = isAllMarket
       ? await callKlineWithSharding(client, endpointKey, body, { shardDays })
       : await client.call(endpointKey, body)
     return contentResult(await buildToolContent(normalizeRows(result)))
