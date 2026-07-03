@@ -8,10 +8,12 @@ import { dateDesc, dateString } from "../core/dateContext.js"
 
 const periodEnum = z.array(z.string()).optional().describe("q1=一季报 | interim=中报 | q3=三季报 | annual=年报 | latest=最新")
 const quarterlyPeriodEnum = z.array(z.string()).optional().describe("q1 | q2 | q3 | q4 | latest")
-const hkPeriodEnum = z.array(z.string()).optional().describe("q1 | h1=中报 | q3 | h2=年报 | nsd | annual | latest")
-const usPeriodEnum = z.array(z.string()).optional().describe("q1 | h1=中报 | q3 | nsd | annual=年报 | latest")
+const hkPeriodEnum = z.array(z.string()).optional().describe("q1 | h1=中报 | q3 | h2=下半年报 | nsd=不规则跨度 | annual=年报 | latest")
+const usPeriodEnum = z.array(z.string()).optional().describe("q1 | h1=中报 | q3 | nsd=不规则跨度 | annual=年报 | latest")
 const reportTypeEnum = z.array(z.string()).optional().describe("consolidated=合并 | consolidatedRestated=合并调整 | standalone=母公司 | standaloneRestated=母公司调整")
 const securityCode = z.string().describe("证券代码，如 '600519.SH'")
+const securityCodeHk = z.string().describe("证券代码，如 '00700.HK'（5 位数字前补零）")
+const securityCodeUs = z.string().describe("证券代码，如 'TSLA.O'（.O=NASDAQ / .N=NYSE / .A=AMEX）")
 const dateRange = {
   startDate: dateString.optional().describe(dateDesc()),
   endDate: dateString.optional().describe(dateDesc()),
@@ -133,7 +135,7 @@ const specs: JsonToolSpec[] = [
     endpointKey: "fundamental.income-statement-hk",
     paginated: false,
     inputSchema: {
-      securityCode,
+      securityCode: securityCodeHk,
       ...dateRange,
       fiscalYear,
       period: hkPeriodEnum,
@@ -147,7 +149,7 @@ const specs: JsonToolSpec[] = [
     endpointKey: "fundamental.balance-sheet-hk",
     paginated: false,
     inputSchema: {
-      securityCode,
+      securityCode: securityCodeHk,
       ...dateRange,
       fiscalYear,
       period: hkPeriodEnum,
@@ -161,7 +163,7 @@ const specs: JsonToolSpec[] = [
     endpointKey: "fundamental.cash-flow-hk",
     paginated: false,
     inputSchema: {
-      securityCode,
+      securityCode: securityCodeHk,
       ...dateRange,
       fiscalYear,
       period: hkPeriodEnum,
@@ -175,7 +177,7 @@ const specs: JsonToolSpec[] = [
     endpointKey: "fundamental.income-statement-us",
     paginated: false,
     inputSchema: {
-      securityCode,
+      securityCode: securityCodeUs,
       ...dateRange,
       fiscalYear,
       period: usPeriodEnum,
@@ -189,7 +191,7 @@ const specs: JsonToolSpec[] = [
     endpointKey: "fundamental.balance-sheet-us",
     paginated: false,
     inputSchema: {
-      securityCode,
+      securityCode: securityCodeUs,
       ...dateRange,
       fiscalYear,
       period: usPeriodEnum,
@@ -203,7 +205,7 @@ const specs: JsonToolSpec[] = [
     endpointKey: "fundamental.cash-flow-us",
     paginated: false,
     inputSchema: {
-      securityCode,
+      securityCode: securityCodeUs,
       ...dateRange,
       fiscalYear,
       period: usPeriodEnum,

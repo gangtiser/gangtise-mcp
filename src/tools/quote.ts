@@ -59,7 +59,7 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
   server.registerTool(
     "gangtise_day_kline_hk",
     {
-      description: "查询港股历史日 K 线数据（仅历史；盘中实时请用 gangtise_realtime）。",
+      description: "查询港股历史日 K 线数据（港股代码如 00700.HK，5 位数字前补零；仅历史，盘中实时请用 gangtise_realtime）。security='all' 配合 startDate/endDate 可拉取全市场（自动分片）。",
       inputSchema: commonKlineSchema,
       annotations: { readOnlyHint: true },
     },
@@ -84,7 +84,7 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
   server.registerTool(
     "gangtise_index_day_kline",
     {
-      description: "查询指数日 K 线数据（沪深北指数）。返回字段含指数名称 securityName（如\"上证指数\"）。",
+      description: "查询指数日 K 线数据（沪深北指数，代码如 000001.SH 上证指数、399001.SZ 深成指）。security='all' 配合 startDate/endDate 可拉取全市场（自动分片）。返回字段含指数名称 securityName（如\"上证指数\"）。",
       inputSchema: commonKlineSchema,
       annotations: { readOnlyHint: true },
     },

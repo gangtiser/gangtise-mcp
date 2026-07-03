@@ -46,7 +46,7 @@ const listSpecs: JsonToolSpec[] = [
       keyword: z.string().optional(),
       researchAreaList: z.array(z.string()).optional().describe("研究方向 ID，来自 gangtise_constant_list category=gangtiseIndustry（行业 1008001xx + 方向 122000xxx：宏观/策略/固收/金工/海外/其他）"),
       securityList: z.array(z.string()).optional(),
-      institutionList: z.array(z.string()).optional(),
+      institutionList: z.array(z.string()).optional().describe("机构 ID，来自 gangtise_lookup type=meeting-orgs"),
       categoryList: z.array(z.string()).optional().describe("earningsCall=业绩会 | strategyMeeting=策略会 | fundRoadshow=路演 | shareholdersMeeting=股东大会 | maMeeting=并购 | specialMeeting=专题会 | companyAnalysis=公司分析 | industryAnalysis=行业分析 | other=其他"),
       startTime: dateTimeString.optional().describe(dateTimeDesc()),
       endTime: dateTimeString.optional().describe(dateTimeDesc()),

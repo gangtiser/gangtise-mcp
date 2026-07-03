@@ -14,6 +14,10 @@ const SCHED_LOCATION_DESC = "地点 ID（省级），来自 gangtise_constant_li
 // 上游对未知 category 静默 no-op 返回全量，schema 层是唯一防线，故收紧为 z.enum。
 const RESEARCH_CATEGORY_ENUM = z.enum(["macro", "strategy", "industry", "company", "bond", "quant", "morningNotes", "fund", "forex", "futures", "options", "warrants", "market", "wealthManagement", "other"])
 const RESEARCH_CATEGORY_DESC = "macro=宏观 | strategy=策略 | industry=行业 | company=个股 | bond=债券 | quant=量化 | morningNotes=晨报 | fund=基金 | forex=外汇 | futures=期货 | options=期权 | warrants=权证 | market=市场 | wealthManagement=财富管理 | other=其他"
+// 券商/外资研报与观点共用的评级、评级变动、LLM 标签闭集（源：gangtise CLI insight.md）。
+const RATING_DESC = "buy=买入 | overweight=增持 | neutral=中性 | underweight=减持 | sell=卖出"
+const RATING_CHANGE_DESC = "upgrade=上调 | maintain=维持 | downgrade=下调 | initiate=首次覆盖"
+const LLM_TAG_DESC = "inDepth=深度报告 | earningsReview=业绩点评 | industryStrategy=行业策略"
 
 type ScheduleFields = {
   researchArea?: boolean
@@ -36,7 +40,7 @@ function scheduleInputSchema(fields: ScheduleFields): Record<string, z.ZodTypeAn
     keyword: z.string().optional(),
   }
   if (fields.researchArea) schema.researchAreaList = z.array(z.string()).optional().describe(SCHED_RESEARCH_AREA_DESC)
-  if (fields.institution) schema.institutionList = z.array(z.string()).optional().describe("机构 ID")
+  if (fields.institution) schema.institutionList = z.array(z.string()).optional().describe("机构 ID，来自 gangtise_lookup type=meeting-orgs")
   if (fields.security) schema.securityList = z.array(z.string()).optional()
   if (fields.object) schema.objectList = z.array(z.string()).optional().describe("company=公司 | industry=行业")
   if (fields.category) schema.categoryList = z.array(z.string()).optional().describe(fields.category)
@@ -75,7 +79,7 @@ const listSpecs: JsonToolSpec[] = [
       securityList: z.array(z.string()).optional().describe("证券代码列表，如 ['600519.SH']"),
       brokerList: z.array(z.string()).optional().describe("券商机构 ID，来自 gangtise_lookup type=broker-orgs"),
       industryList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx，全场景首选）"),
-      conceptList: z.array(z.string()).optional().describe("概念 ID 列表"),
+      conceptList: z.array(z.string()).optional().describe("题材/概念 ID，来自 gangtise_concept_search，如 '121000130'（机器人）"),
       llmTagList: z.array(z.string()).optional().describe("strongRcmd=强推 | earningsReview=业绩点评 | topBroker=头部券商 | newFortune=新财富"),
       sourceList: z.array(z.string()).optional().describe("realTime=实时 | openSource=公开"),
     },
@@ -94,7 +98,7 @@ const listSpecs: JsonToolSpec[] = [
       rankType: z.number().int().optional().describe("1=综合排序（默认）| 2=时间倒序"),
       researchAreaList: z.array(z.string()).optional().describe("研究方向 ID，来自 gangtise_constant_list category=gangtiseIndustry（行业 1008001xx + 方向 122000xxx：宏观/策略/固收/金工/海外/其他）"),
       securityList: z.array(z.string()).optional(),
-      institutionList: z.array(z.string()).optional(),
+      institutionList: z.array(z.string()).optional().describe("机构 ID，来自 gangtise_lookup type=meeting-orgs"),
       categoryList: z.array(z.enum(["earningsCall", "strategyMeeting", "fundRoadshow", "shareholdersMeeting", "maMeeting", "specialMeeting", "companyAnalysis", "industryAnalysis", "other"])).optional().describe("earningsCall=业绩会 | strategyMeeting=策略会 | fundRoadshow=基金路演 | shareholdersMeeting=股东大会 | maMeeting=并购会议 | specialMeeting=特别会议 | companyAnalysis=公司分析 | industryAnalysis=行业分析 | other=其他"),
       marketList: z.array(z.string()).optional().describe("aShares=A股 | hkStocks=港股 | usChinaConcept=中概 | usStocks=美股"),
       participantRoleList: z.array(z.string()).optional().describe("management=管理层 | expert=专家"),
@@ -131,7 +135,7 @@ const listSpecs: JsonToolSpec[] = [
       keyword: z.string().optional(),
       searchType: z.number().int().optional().describe("1=标题搜索 | 2=全文搜索"),
       rankType: z.number().int().optional(),
-      brokerList: z.array(z.string()).optional(),
+      brokerList: z.array(z.string()).optional().describe("券商机构 ID，来自 gangtise_lookup type=broker-orgs"),
       securityList: z.array(z.string()).optional(),
       industryList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx，全场景首选）"),
       categoryList: z.array(RESEARCH_CATEGORY_ENUM).optional().describe(RESEARCH_CATEGORY_DESC),
@@ -160,9 +164,9 @@ const listSpecs: JsonToolSpec[] = [
       categoryList: z.array(RESEARCH_CATEGORY_ENUM).optional().describe(RESEARCH_CATEGORY_DESC),
       industryList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx，全场景首选）"),
       brokerList: z.array(z.string()).optional(),
-      llmTagList: z.array(z.string()).optional(),
-      ratingList: z.array(z.string()).optional(),
-      ratingChangeList: z.array(z.string()).optional(),
+      llmTagList: z.array(z.string()).optional().describe(LLM_TAG_DESC),
+      ratingList: z.array(z.string()).optional().describe(RATING_DESC),
+      ratingChangeList: z.array(z.string()).optional().describe(RATING_CHANGE_DESC),
       minReportPages: z.number().int().min(0).optional(),
       maxReportPages: z.number().int().min(0).optional(),
     },
@@ -230,8 +234,8 @@ const listSpecs: JsonToolSpec[] = [
       industryList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx，全场景首选）"),
       securityList: z.array(z.string()).optional(),
       brokerList: z.array(z.string()).optional(),
-      ratingList: z.array(z.string()).optional(),
-      ratingChangeList: z.array(z.string()).optional(),
+      ratingList: z.array(z.string()).optional().describe(RATING_DESC),
+      ratingChangeList: z.array(z.string()).optional().describe(RATING_CHANGE_DESC),
     },
   },
   {
@@ -247,8 +251,8 @@ const listSpecs: JsonToolSpec[] = [
       rankType: z.number().int().optional().describe("1=综合排序 | 2=时间倒序"),
       industryList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx，全场景首选）"),
       securityList: z.array(z.string()).optional(),
-      ratingList: z.array(z.string()).optional(),
-      ratingChangeList: z.array(z.string()).optional(),
+      ratingList: z.array(z.string()).optional().describe(RATING_DESC),
+      ratingChangeList: z.array(z.string()).optional().describe(RATING_CHANGE_DESC),
     },
   },
   {

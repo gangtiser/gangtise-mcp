@@ -393,6 +393,25 @@ describe("GangtiseClient download content handling", () => {
     expect(result.data).toBeDefined()
     expect(new TextDecoder().decode(result.data)).toBe(fileJson)
   })
+
+  // A non-JSON download failure (e.g. 404 reportId, 403 permission) used to throw
+  // a bare "Download failed" with the status/body only in unread ApiError fields;
+  // the message must now carry the HTTP status + a body preview so the model can
+  // tell "wrong id" from "no permission".
+  it("surfaces the HTTP status and body preview when a download fails", async () => {
+    requestMock.mockResolvedValue({
+      statusCode: 404,
+      headers: { "content-type": "text/plain" },
+      body: {
+        text: vi.fn().mockResolvedValue("Report 999 not found"),
+        arrayBuffer: vi.fn(),
+      },
+    })
+
+    await expect(
+      tokenClient().call("insight.research.download", undefined, { reportId: "999" }),
+    ).rejects.toThrow(/Download failed \(HTTP 404\): Report 999 not found/)
+  })
 })
 
 describe("GangtiseClient noRetry endpoints", () => {

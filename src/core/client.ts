@@ -440,7 +440,7 @@ export class GangtiseClient {
           parsed = JSON.parse(text)
         } catch {
           if (response.statusCode >= 400) {
-            throw new ApiError('Download failed', undefined, response.statusCode, text)
+            throw new ApiError(`Download failed (HTTP ${response.statusCode}): ${text.trim().slice(0, 200)}`, undefined, response.statusCode, text)
           }
           return { text, contentType }
         }
@@ -465,14 +465,14 @@ export class GangtiseClient {
         const text = await response.body.text()
         logTiming(`GET ${endpoint.path} (text)`, Date.now() - startedAt, `${response.statusCode}, ${text.length}B`)
         if (response.statusCode >= 400) {
-          throw new ApiError('Download failed', undefined, response.statusCode, text)
+          throw new ApiError(`Download failed (HTTP ${response.statusCode}): ${text.trim().slice(0, 200)}`, undefined, response.statusCode, text)
         }
         return { text, contentType }
       }
 
       if (response.statusCode >= 400) {
         const text = await response.body.text()
-        throw new ApiError('Download failed', undefined, response.statusCode, text)
+        throw new ApiError(`Download failed (HTTP ${response.statusCode}): ${text.trim().slice(0, 200)}`, undefined, response.statusCode, text)
       }
 
       const filenameMatch = contentDisposition?.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i)

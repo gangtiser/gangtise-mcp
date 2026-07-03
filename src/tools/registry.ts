@@ -195,8 +195,9 @@ export function registerJsonTool(server: McpServer, client: GangtiseClient, spec
   const schema: ZodShape = spec.paginated
     ? {
         ...spec.inputSchema,
-        size: z.number().int().min(1).optional().describe("Max rows (default 20 for paginated endpoints)"),
-        fetchAll: z.boolean().optional().describe("Fetch all pages; may be slow for large datasets"),
+        from: z.number().int().min(0).optional().describe("起始行偏移（0-based，非页码），配合 size 翻页，默认 0"),
+        size: z.number().int().min(1).optional().describe("返回总行数上限（跨页合并计数，默认 20）；fetchAll=true 时被忽略"),
+        fetchAll: z.boolean().optional().describe("true 时忽略 size 拉取全部数据，大数据集可能较慢"),
       }
     : spec.inputSchema
 
