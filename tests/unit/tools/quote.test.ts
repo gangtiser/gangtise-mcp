@@ -169,3 +169,19 @@ describe("gangtise_day_kline market-mismatch precheck", () => {
     expect(idx.isError).toBeFalsy()
   })
 })
+
+// The K-line/realtime param is fieldList (aligned with the fundamental tools and
+// the upstream body key). It used to be `field`, so a caller passing `fieldList`
+// (the natural habit) had it silently dropped by zod strip → unfiltered data.
+describe("gangtise_day_kline fieldList param", () => {
+  it("forwards fieldList to the API body", async () => {
+    const client = makeMockClient()
+    const mcp = await connect(client)
+    await mcp.callTool({
+      name: "gangtise_day_kline",
+      arguments: { security: "600519.SH", startDate: "2026-04-01", endDate: "2026-04-30", fieldList: ["open", "close"] },
+    })
+    const body = (client.call as ReturnType<typeof vi.fn>).mock.calls[0][1] as Record<string, unknown>
+    expect(body.fieldList).toEqual(["open", "close"])
+  })
+})
