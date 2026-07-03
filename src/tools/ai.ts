@@ -29,7 +29,7 @@ const jsonSpecs: JsonToolSpec[] = [
   },
   {
     name: "gangtise_knowledge_batch",
-    description: "在 Gangtise 知识库（研报、纪要、观点、公告等）中进行语义搜索，单次最多支持 5 个查询词。",
+    description: "在 Gangtise 知识库（研报、纪要、观点、公告等）中进行语义搜索，单次最多支持 5 个查询词。适合开放式语义检索；按券商/评级/公告分类/时间范围等结构化条件精确筛选时，改用对应列表工具（gangtise_research_list / gangtise_summary_list / gangtise_opinion_list / gangtise_announcement_list 等）。",
     endpointKey: "ai.knowledge-batch",
     paginated: false,
     inputSchema: {

@@ -125,7 +125,7 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
         startTime: dateTimeString.optional().describe(dateTimeDesc()),
         endTime: dateTimeString.optional().describe(dateTimeDesc()),
         limit: z.number().int().min(1).max(10_000).optional().describe("最大返回行数（默认 5000，最大 10000）"),
-        fieldList: z.array(z.string()).optional(),
+        fieldList: commonKlineSchema.fieldList,
       },
       annotations: { readOnlyHint: true },
     },

@@ -92,8 +92,8 @@ export function registerReferenceTools(server: McpServer, client: GangtiseClient
       description: "按关键词搜索证券，支持股票名称、代码（如 600519）、拼音或英文名。返回匹配证券及其 GTS 代码。",
       inputSchema: {
         keyword: z.string().trim().min(1, "搜索词不能为空").describe("搜索词：股票名称、代码（如 600519）、拼音或英文名"),
-        category: z.array(z.string()).optional().describe("按类别筛选，如 ['stock', 'dr', 'index', 'fund']（dr=存托凭证）"),
-        top: z.number().int().min(1).optional().describe("最大返回条数"),
+        category: z.array(z.enum(["stock", "dr", "index", "fund"])).optional().describe("按类别筛选：stock=股票 | dr=存托凭证 | index=指数 | fund=基金（不传查所有）"),
+        top: z.number().int().min(1).max(10).optional().describe("最大返回条数（默认 10，上限 10）"),
       },
       annotations: { readOnlyHint: true },
     },

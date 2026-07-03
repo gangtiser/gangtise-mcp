@@ -134,7 +134,7 @@ const listSpecs: JsonToolSpec[] = [
       endTime: dateTimeString.optional().describe(dateTimeDesc()),
       keyword: z.string().optional(),
       searchType: z.number().int().optional().describe("1=标题搜索 | 2=全文搜索"),
-      rankType: z.number().int().optional(),
+      rankType: z.number().int().optional().describe("1=综合排序（默认）| 2=时间倒序"),
       brokerList: z.array(z.string()).optional().describe("券商机构 ID，来自 gangtise_lookup type=broker-orgs"),
       securityList: z.array(z.string()).optional(),
       industryList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx，全场景首选）"),

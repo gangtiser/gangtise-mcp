@@ -41,7 +41,7 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
     "gangtise_indicator_search",
     {
       description:
-        "按名称搜索证券级数据指标（EDE），返回 indicatorCode 及可传参数 parameterList（含 required 必填标记与枚举）。取数前必先用本工具拿 code，不要猜编码。",
+        "按名称搜索证券级数据指标（EDE），返回 indicatorCode 及可传参数 parameterList（含 required 必填标记与枚举）。取数前必先用本工具拿 code，不要猜编码。宏观/行业数据（产量、价格、PMI 等）请改用 gangtise_edb_search。",
       inputSchema: {
         keyword: z
           .string()
