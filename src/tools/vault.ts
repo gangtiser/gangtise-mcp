@@ -93,7 +93,7 @@ const downloadSpecs: DownloadToolSpec[] = [
     endpointKey: "vault.record.download",
     inputSchema: {
       recordId: z.string().describe("录音 ID，来自 gangtise_record_list"),
-      contentType: z.string().describe("original=原始音频 | asr=语音转文字 | summary=AI摘要（必填）"),
+      contentType: z.enum(["original", "asr", "summary"]).describe("original=原始音频 | asr=语音转文字 | summary=AI摘要（必填）"),
     },
   },
   {
@@ -102,7 +102,7 @@ const downloadSpecs: DownloadToolSpec[] = [
     endpointKey: "vault.my-conference.download",
     inputSchema: {
       conferenceId: z.string().describe("会议 ID，来自 gangtise_my_conference_list"),
-      contentType: z.string().describe("asr=语音转文字 | summary=AI摘要（必填，不支持原始音频）"),
+      contentType: z.enum(["asr", "summary"]).describe("asr=语音转文字 | summary=AI摘要（必填，不支持原始音频）"),
     },
   },
 ]

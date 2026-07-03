@@ -6,11 +6,11 @@ import { toolHandler, contentResult } from "./helpers.js"
 import { normalizeRows } from "../core/normalize.js"
 import { dateDesc, dateString } from "../core/dateContext.js"
 
-const periodEnum = z.array(z.string()).optional().describe("q1=一季报 | interim=中报 | q3=三季报 | annual=年报 | latest=最新")
-const quarterlyPeriodEnum = z.array(z.string()).optional().describe("q1 | q2 | q3 | q4 | latest")
-const hkPeriodEnum = z.array(z.string()).optional().describe("q1 | h1=中报 | q3 | h2=下半年报 | nsd=不规则跨度 | annual=年报 | latest")
-const usPeriodEnum = z.array(z.string()).optional().describe("q1 | h1=中报 | q3 | nsd=不规则跨度 | annual=年报 | latest")
-const reportTypeEnum = z.array(z.string()).optional().describe("consolidated=合并 | consolidatedRestated=合并调整 | standalone=母公司 | standaloneRestated=母公司调整")
+const periodEnum = z.array(z.enum(["q1", "interim", "q3", "annual", "latest"])).optional().describe("q1=一季报 | interim=中报 | q3=三季报 | annual=年报 | latest=最新")
+const quarterlyPeriodEnum = z.array(z.enum(["q1", "q2", "q3", "q4", "latest"])).optional().describe("q1 | q2 | q3 | q4 | latest")
+const hkPeriodEnum = z.array(z.enum(["q1", "h1", "q3", "h2", "nsd", "annual", "latest"])).optional().describe("q1 | h1=中报 | q3 | h2=下半年报 | nsd=不规则跨度 | annual=年报 | latest")
+const usPeriodEnum = z.array(z.enum(["q1", "h1", "q3", "nsd", "annual", "latest"])).optional().describe("q1 | h1=中报 | q3 | nsd=不规则跨度 | annual=年报 | latest")
+const reportTypeEnum = z.array(z.enum(["consolidated", "consolidatedRestated", "standalone", "standaloneRestated"])).optional().describe("consolidated=合并 | consolidatedRestated=合并调整 | standalone=母公司 | standaloneRestated=母公司调整")
 const securityCode = z.string().describe("证券代码，如 '600519.SH'")
 const securityCodeHk = z.string().describe("证券代码，如 '00700.HK'（5 位数字前补零）")
 const securityCodeUs = z.string().describe("证券代码，如 'TSLA.O'（.O=NASDAQ / .N=NYSE / .A=AMEX）")
@@ -99,9 +99,9 @@ const specs: JsonToolSpec[] = [
     paginated: false,
     inputSchema: {
       securityCode,
-      breakdown: z.string().describe("product=产品 | industry=行业 | region=地区（必填）"),
+      breakdown: z.enum(["product", "industry", "region"]).describe("product=产品 | industry=行业 | region=地区（必填）"),
       ...dateRange,
-      periodList: z.array(z.string()).optional().describe("interim=中报 | annual=年报"),
+      periodList: z.array(z.enum(["interim", "annual"])).optional().describe("interim=中报 | annual=年报"),
       fieldList,
     },
   },
@@ -112,7 +112,7 @@ const specs: JsonToolSpec[] = [
     paginated: false,
     inputSchema: {
       securityCode,
-      holderType: z.string().describe("top10=前十大股东 | top10Float=前十大流通股东（必填）"),
+      holderType: z.enum(["top10", "top10Float"]).describe("top10=前十大股东 | top10Float=前十大流通股东（必填）"),
       ...dateRange,
       fiscalYear,
       period: periodEnum,
@@ -226,7 +226,7 @@ export function registerFundamentalTools(server: McpServer, client: GangtiseClie
       description: "查询估值指标及历史分位数，支持 PE、PB、PEG、PS、PCF、EM。",
       inputSchema: {
         securityCode,
-        indicator: z.string().describe("peTtm | pbMrq | peg | psTtm | pcfTtm | em（必填）"),
+        indicator: z.enum(["peTtm", "pbMrq", "peg", "psTtm", "pcfTtm", "em"]).describe("peTtm | pbMrq | peg | psTtm | pcfTtm | em（必填）"),
         ...dateRange,
         limit: z.number().int().optional().describe("最大返回行数（默认 2000）"),
         skipNull: z.boolean().optional().describe("过滤掉 value 或 percentileRank 为空的行（客户端后处理）"),

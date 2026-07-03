@@ -17,10 +17,10 @@ const securityCodeList = z
   .min(1, "securityCodeList 至少 1 个")
   .describe("证券代码列表（至少 1 个），如 ['600519.SH']")
 const currency = z
-  .string()
+  .enum(["DFT", "CNY", "HKD", "USD", "EUR", "GBP", "JPY", "TWD", "MOP", "AUD"])
   .optional()
   .describe("货币：DFT=默认 | CNY | HKD | USD | EUR | GBP | JPY | TWD | MOP | AUD")
-const scale = z.string().optional().describe("数量级：0=个（默认）| 3=千 | 4=万 | 6=百万 | 8=亿 | 9=十亿")
+const scale = z.enum(["0", "3", "4", "6", "8", "9"]).optional().describe("数量级：0=个（默认）| 3=千 | 4=万 | 6=百万 | 8=亿 | 9=十亿")
 const indicatorParamList = z
   .array(
     z.object({
@@ -89,7 +89,7 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
         securityCodeList,
         startDate: dateString.describe(dateDesc() + "（必填）"),
         endDate: dateString.describe(dateDesc() + "（必填）"),
-        calendarType: z.string().optional().describe("日历类型：ND=自然日 | TD=交易日（默认）| WD=工作日"),
+        calendarType: z.enum(["ND", "TD", "WD"]).optional().describe("日历类型：ND=自然日 | TD=交易日（默认）| WD=工作日"),
         currency,
         scale,
         indicatorParamList,

@@ -50,7 +50,7 @@ const jsonSpecs: JsonToolSpec[] = [
       from: z.number().int().min(0).optional(),
       startTime: dateTimeString.describe(dateTimeDesc() + "（必填）"),
       endTime: dateTimeString.describe(dateTimeDesc() + "（必填）"),
-      queryMode: z.string().describe("bySecurity=按个股 | byIndustry=按行业（必填）"),
+      queryMode: z.enum(["bySecurity", "byIndustry"]).describe("bySecurity=按个股 | byIndustry=按行业（必填）"),
       gtsCodeList: z.array(z.string()).optional().describe("个股代码（如 600519.SH）或申万行业代码（如 821035.SWI）列表。全量 31 个行业代码用 gangtise_sector_constituents sectorId=2000000014；单个行业可用 gangtise_securities_search（如 keyword=申万银行 category=['index']）"),
       source: z.array(z.string()).optional().describe("researchReport=研报 | conference=会议 | announcement=公告 | view=观点"),
     },
@@ -77,7 +77,7 @@ const jsonSpecs: JsonToolSpec[] = [
     inputSchema: {
       securityCode: z.string().describe("证券代码，如 '600519.SH'"),
       reportDate: quarterEndDate("06-30", "12-31").describe("xxxx-06-30（中报）或 xxxx-12-31（年报）"),
-      discussionDimension: z.string().describe("businessOperation=经营情况 | financialPerformance=财务表现 | developmentAndRisk=发展与风险 | all=全部维度（必填）"),
+      discussionDimension: z.enum(["businessOperation", "financialPerformance", "developmentAndRisk", "all"]).describe("businessOperation=经营情况 | financialPerformance=财务表现 | developmentAndRisk=发展与风险 | all=全部维度（必填）"),
     },
   },
   {
@@ -88,7 +88,7 @@ const jsonSpecs: JsonToolSpec[] = [
     inputSchema: {
       securityCode: z.string().describe("证券代码，如 '600519.SH'"),
       reportDate: quarterEndDate("03-31", "06-30", "09-30", "12-31").describe("xxxx-03-31 | xxxx-06-30 | xxxx-09-30 | xxxx-12-31"),
-      discussionDimension: z.string().describe("businessOperation=经营情况 | financialPerformance=财务表现 | developmentAndRisk=发展与风险（必填）"),
+      discussionDimension: z.enum(["businessOperation", "financialPerformance", "developmentAndRisk"]).describe("businessOperation=经营情况 | financialPerformance=财务表现 | developmentAndRisk=发展与风险（必填）"),
     },
   },
 ]
@@ -215,7 +215,7 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
       inputSchema: {
         themeId: z.string().describe("主题 ID，来自 gangtise_concept_search（必填）"),
         date: dateString.describe("YYYY-MM-DD，仅支持最近 30 天（必填）"),
-        type: z.union([z.string(), z.array(z.string())]).optional().describe("morning=早报 | night=晚报；可传单个值或数组"),
+        type: z.union([z.enum(["morning", "night"]), z.array(z.enum(["morning", "night"]))]).optional().describe("morning=早报 | night=晚报；可传单个值或数组"),
       },
       annotations: { readOnlyHint: true },
     },
