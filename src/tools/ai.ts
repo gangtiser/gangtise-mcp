@@ -135,7 +135,7 @@ function makeAsyncToolPair(
   server.registerTool(
     config.name,
     {
-      description: config.description,
+      description: config.description + `任务计费且不可重复提交：超时/失败后用返回的 dataId 调 ${config.checkName} 续查，切勿重新提交。`,
       inputSchema: {
         ...config.inputSchema,
         waitSeconds: z.number().int().min(0).max(180).optional().describe("最长等待秒数（默认 55，最大 180）；超时返回 dataId，用对应 *_check 工具续查"),
@@ -175,7 +175,7 @@ function makeAsyncToolPair(
   server.registerTool(
     config.checkName,
     {
-      description: config.checkDescription,
+      description: config.checkDescription + `dataId 来自 ${config.name} 的超时/错误响应；pending 表示仍在生成，间隔 1-3 分钟再查。`,
       inputSchema: { dataId: z.string() },
       annotations: { readOnlyHint: true },
     },
@@ -192,7 +192,7 @@ function makeAsyncToolPair(
         return textResult(JSON.stringify({ status: "pending", dataId }))
       } catch (err) {
         if (err instanceof ApiError && err.code === "410111")
-          return { content: [{ type: "text" as const, text: JSON.stringify({ status: "failed", dataId }) }], isError: true }
+          return { ...textResult(JSON.stringify({ status: "failed", dataId, error: errorMessage(err) })), isError: true }
         if (err instanceof ApiError && err.code === "410110")
           return textResult(JSON.stringify({ status: "pending", dataId }))
         throw err

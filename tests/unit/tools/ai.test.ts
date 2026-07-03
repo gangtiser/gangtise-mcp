@@ -82,7 +82,8 @@ describe("gangtise_earnings_review_check", () => {
     const mcp = await connect(makeClient(async () => { throw new ApiError("failed", "410111") }))
     const result = await mcp.callTool({ name: "gangtise_earnings_review_check", arguments: { dataId: "d1" } })
     expect(result.isError).toBe(true)
-    expect(parse(result)).toMatchObject({ status: "failed", dataId: "d1" })
+    // The failure reason must survive (code + hint), so the model can decide whether to re-submit.
+    expect(parse(result)).toMatchObject({ status: "failed", dataId: "d1", error: expect.stringContaining("410111") })
   })
 
   it("returns the content once ready", async () => {
