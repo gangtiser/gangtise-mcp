@@ -232,7 +232,7 @@ export function registerFundamentalTools(server: McpServer, client: GangtiseClie
         skipNull: z.boolean().optional().describe("过滤掉 value 或 percentileRank 为空的行（客户端后处理）"),
         fieldList,
       },
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: false },
     },
     toolHandler(async (args: Record<string, unknown>) => {
       const { skipNull, ...body } = args

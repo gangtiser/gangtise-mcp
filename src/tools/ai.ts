@@ -143,7 +143,7 @@ function makeAsyncToolPair(
       // NOT read-only: submitting creates a billed, non-idempotent task (the submit
       // endpoint carries noRetry). Leave the hint false so agentic clients confirm
       // before auto-invoking. The _check poll tool below stays read-only.
-      annotations: { readOnlyHint: false },
+      annotations: { readOnlyHint: false, openWorldHint: false },
     },
     toolHandler(async (args: Record<string, unknown>) => {
       const { waitSeconds, ...submitArgs } = args
@@ -177,7 +177,7 @@ function makeAsyncToolPair(
     {
       description: config.checkDescription + `dataId 来自 ${config.name} 的超时/错误响应；pending 表示仍在生成，间隔 1-3 分钟再查。`,
       inputSchema: { dataId: z.string() },
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: false },
     },
     toolHandler(async ({ dataId }: { dataId: string }) => {
       try {
@@ -217,7 +217,7 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
         date: dateString.describe("YYYY-MM-DD，仅支持最近 30 天（必填）"),
         type: z.union([z.enum(["morning", "night"]), z.array(z.enum(["morning", "night"]))]).optional().describe("morning=早报 | night=晚报；可传单个值或数组"),
       },
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: false },
     },
     toolHandler(async (args: Record<string, unknown>) => {
       const { date, type, ...rest } = args as { date: string; type?: string | string[]; [k: string]: unknown }
@@ -247,7 +247,7 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
     {
       description: "生成指定证券的 AI 一页纸投资摘要，返回 Markdown 内容。",
       inputSchema: { securityCode: z.string().describe("A 股或港股证券代码") },
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async (args) => makeAiContentHandler(client, "ai.one-pager")(args as Record<string, unknown>),
   )
@@ -257,7 +257,7 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
     {
       description: "生成指定证券的 AI 投资逻辑梳理报告，返回 Markdown 内容。",
       inputSchema: { securityCode: z.string().describe("A 股或港股证券代码") },
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async (args) => makeAiContentHandler(client, "ai.investment-logic")(args as Record<string, unknown>),
   )
@@ -267,7 +267,7 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
     {
       description: "生成指定证券的 AI 同业竞争格局对比报告，返回 Markdown 内容。",
       inputSchema: { securityCode: z.string().describe("A 股或港股证券代码") },
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async (args) => makeAiContentHandler(client, "ai.peer-comparison")(args as Record<string, unknown>),
   )
@@ -277,7 +277,7 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
     {
       description: "获取指定证券的 AI 生成公司研究提纲，返回 Markdown 内容。",
       inputSchema: { securityCode: z.string().describe("仅支持 A 股证券代码") },
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async (args) => makeAiContentHandler(client, "ai.research-outline")(args as Record<string, unknown>),
   )

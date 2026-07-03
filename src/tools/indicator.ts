@@ -50,7 +50,7 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
           .describe("搜索词，如 '收盘价' '成交量' '营业收入'（用具体指标名，非整句白话）"),
         limit: z.number().int().min(1).max(100).optional().describe("最大返回条数（默认 50，上限 100）"),
       },
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: false },
     },
     toolHandler(async (args: Record<string, unknown>) => {
       const raw = await client.call("indicator.search", args)
@@ -71,7 +71,7 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
         scale,
         indicatorParamList,
       },
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: false },
     },
     toolHandler(async (args: Record<string, unknown>) => {
       const raw = await client.call("indicator.cross-section", args)
@@ -94,7 +94,7 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
         scale,
         indicatorParamList,
       },
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: false },
     },
     toolHandler(async (args: Record<string, unknown>) => {
       // Time-series flattens along exactly one varying dimension. With both >1

@@ -62,7 +62,7 @@ export function registerResponseTools(server: McpServer, _client: GangtiseClient
           .optional()
           .describe(`本次返回的条目数，默认 ${DEFAULT_LIMIT}，最大 ${MAX_LIMIT}`),
       },
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async ({ saved_to, offset = 0, limit = DEFAULT_LIMIT }) => {
       try {

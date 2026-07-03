@@ -104,6 +104,9 @@ describe("MCP server integration", () => {
     // so they must NOT be read-only — clients shouldn't auto-invoke them unconfirmed.
     // Their _check polling tools stay read-only.
     expect(nonReadOnly).toEqual(["gangtise_earnings_review", "gangtise_viewpoint_debate"])
+    // Every tool hits a single closed-domain API (or local data), never the open
+    // world — so all declare openWorldHint: false.
+    expect(tools.every(t => t.annotations?.openWorldHint === false)).toBe(true)
   })
 
   it("declares date guidance once in server instructions, not per-tool descriptions", async () => {

@@ -20,7 +20,7 @@ export function registerLookupTools(server: McpServer, _client: GangtiseClient):
           "broker-orgs=券商机构 | meeting-orgs=会议机构",
         ),
       },
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: false },
     },
     toolHandler(async ({ type }: { type: string }) => {
       return contentResult(await buildToolContent(await getLookupData(type as LookupKey)))

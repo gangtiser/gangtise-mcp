@@ -124,7 +124,7 @@ export function registerVaultTools(server: McpServer, client: GangtiseClient): v
         size: z.number().int().min(1).optional().describe("最大返回条数；省略则自动翻页拉取全部群（接口无 total，按页上限 50 串行翻页）"),
         roomName: z.array(z.string()).optional().describe("按群名称筛选；多个会以逗号拼接发送"),
       },
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: false },
     },
     toolHandler(async (args: Record<string, unknown>) => {
       const { roomName, size: requestedSize, from } = args as { roomName?: string[]; size?: number; from?: number }
@@ -200,7 +200,7 @@ export function registerVaultTools(server: McpServer, client: GangtiseClient): v
         // "all pools" default — reject it locally so the model omits the param.
         poolIdList: z.array(z.string()).min(1, "poolIdList 不能为空数组——查询所有池请省略该参数").optional().describe("池 ID 列表，来自 gangtise_stock_pool_list；不传默认 ['all'] 即所有池"),
       },
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: false },
     },
     toolHandler(async (args: Record<string, unknown>) => {
       const { poolIdList = ["all"] } = args as { poolIdList?: string[] }

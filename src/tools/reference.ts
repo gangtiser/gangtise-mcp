@@ -95,7 +95,7 @@ export function registerReferenceTools(server: McpServer, client: GangtiseClient
         category: z.array(z.enum(["stock", "dr", "index", "fund"])).optional().describe("按类别筛选：stock=股票 | dr=存托凭证 | index=指数 | fund=基金（不传查所有）"),
         top: z.number().int().min(1).max(10).optional().describe("最大返回条数（默认 10，上限 10）"),
       },
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: false },
     },
     toolHandler(async (args: Record<string, unknown>) => {
       const result = await client.call("reference.securities-search", args)

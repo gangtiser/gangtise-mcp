@@ -76,7 +76,7 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
     {
       description: "查询 A 股历史日 K 线数据（沪深北市场，仅历史；盘中实时请用 gangtise_realtime）。security='all' 配合 startDate/endDate 可拉取全市场行情（自动分片）。",
       inputSchema: commonKlineSchema,
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async (args) => klineHandler(client, "quote.day-kline", 1, "cn")(args as Record<string, unknown>),
   )
@@ -86,7 +86,7 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
     {
       description: "查询港股历史日 K 线数据（港股代码如 00700.HK，5 位数字前补零；仅历史，盘中实时请用 gangtise_realtime）。security='all' 配合 startDate/endDate 可拉取全市场（自动分片）。",
       inputSchema: commonKlineSchema,
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async (args) => klineHandler(client, "quote.day-kline-hk", 2, "hk")(args as Record<string, unknown>),
   )
@@ -96,7 +96,7 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
     {
       description: "查询美股历史日 K 线数据（NYSE/NASDAQ/AMEX，代码格式如 AAPL.O/.N/.A；仅历史，盘中实时请用 gangtise_realtime）。security='all' 配合 startDate/endDate 可拉取全市场（自动按 1 天/片分片）。",
       inputSchema: commonKlineSchema,
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async (args) => {
       // Backend workaround: day-kline-us 不传 fieldList 时后端默认字段集中有坏字段，
@@ -111,7 +111,7 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
     {
       description: "查询指数日 K 线数据（沪深北指数，代码如 000001.SH 上证指数、399001.SZ 深成指）。security='all' 配合 startDate/endDate 可拉取全市场（自动分片）。返回字段含指数名称 securityName（如\"上证指数\"）。",
       inputSchema: commonKlineSchema,
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async (args) => klineHandler(client, "quote.index-day-kline", 30)(args as Record<string, unknown>),
   )
@@ -127,7 +127,7 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
         limit: z.number().int().min(1).max(10_000).optional().describe("最大返回行数（默认 5000，最大 10000）"),
         fieldList: commonKlineSchema.fieldList,
       },
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: false },
     },
     toolHandler(async ({ security, startTime, endTime, limit, fieldList }: Record<string, unknown>) => {
       const body: Record<string, unknown> = { securityCode: security }
@@ -148,7 +148,7 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
         security: z.union([z.string(), z.array(z.string())]).optional().describe("证券代码或全市场关键字：单/多只代码（'600519.SH' / ['600519.SH','00700.HK','AAPL.O']），或市场关键字 'aShares' / 'hkStocks' / 'usStocks' 拉取全市场。"),
         fieldList: z.array(z.string()).optional().describe("【默认不传 = 返回全量字段，最稳】仅当用户明确要精简、或查全市场（aShares/hkStocks/usStocks）想省 token 时才传。一旦传入必须显式包含识别字段 securityCode/tradeDate/tradeTime（exchange 可省略），否则多只查询无法对齐行与代码。示例：['securityCode','tradeDate','tradeTime','latestPrice','pctChange','volume']"),
       },
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: false },
     },
     toolHandler(async ({ security, fieldList }: Record<string, unknown>) => {
       const body: Record<string, unknown> = {}
