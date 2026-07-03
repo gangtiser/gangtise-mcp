@@ -2,8 +2,8 @@ import { describe, it, expect } from "vitest"
 import { ApiError, errorMessage } from "../../../src/core/errors.js"
 
 describe("errorMessage", () => {
-  it("returns the bare message when the API code has no hint", () => {
-    expect(errorMessage(new ApiError("boom", "000000"))).toBe("boom")
+  it("appends the error code when the API code has no hint", () => {
+    expect(errorMessage(new ApiError("boom", "424242"))).toBe("boom（错误码 424242）")
   })
 
   it("appends a routing hint for the generic 410001 parameter error", () => {

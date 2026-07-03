@@ -31,7 +31,8 @@ export function createGangtiseMcpServer(
     {
       instructions:
         `${dateContextInstruction()}日期参数格式 YYYY-MM-DD，时间参数格式 YYYY-MM-DD HH:mm:ss。` +
-        `工具响应包含 _truncated: true 时，用 gangtise_read_response 按 _saved_to 路径分页读取完整数据。`,
+        `工具响应包含 _truncated: true 时，用 gangtise_read_response 按 _saved_to 路径分页读取完整数据。` +
+        `证券代码须带市场后缀：.SH/.SZ/.BJ=A股、.HK=港股、.O/.N/.A=美股（NASDAQ/NYSE/AMEX），按后缀选择对应市场的工具变体（_hk/_us）；只知公司名称/拼音时先用 gangtise_securities_search 解析代码。`,
     },
   )
   const asyncTimeoutMs = options.asyncTimeoutMs ?? DEFAULT_ASYNC_TIMEOUT_MS

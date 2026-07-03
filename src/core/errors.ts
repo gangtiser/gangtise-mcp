@@ -20,6 +20,7 @@ const ERROR_HINTS: Record<string, string> = {
   "999999": "Gangtise 系统错误，请稍后重试。",
   "999997": "当前账号未开通该接口权限。",
   "999995": "当前账号积分不足。",
+  "999994": "当前账号权限/配额受限（官方未文档化，实测见于 vault 接口）。",
   "900002": "请求缺少 uid。",
   "900001": "请求参数为空或缺少必填项。",
   "8000014": "GANGTISE_ACCESS_KEY 错误。",
@@ -53,7 +54,8 @@ export class ApiError extends CliError {
 
 export function errorMessage(err: unknown): string {
   if (err instanceof ApiError) {
-    return err.hint ? `${err.message} — ${err.hint}` : err.message
+    const base = err.code ? `${err.message}（错误码 ${err.code}）` : err.message
+    return err.hint ? `${base} — ${err.hint}` : base
   }
   if (err instanceof Error) return err.message
   return String(err)

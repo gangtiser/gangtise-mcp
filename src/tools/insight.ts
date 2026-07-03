@@ -10,6 +10,10 @@ import { dateTimeDesc, dateTimeString } from "../core/dateContext.js"
 // declares its real fields. CLI v0.17.0 made the same change in source.
 const SCHED_RESEARCH_AREA_DESC = "研究方向 ID，来自 gangtise_constant_list category=gangtiseIndustry（行业 1008001xx + 方向 122000xxx：宏观/策略/固收/金工/海外/其他）"
 const SCHED_LOCATION_DESC = "地点 ID（省级），来自 gangtise_constant_list category=domesticCity"
+// 券商研报 / 外资研报共用同一 category 闭集（源：gangtise CLI insight.md）。
+// 上游对未知 category 静默 no-op 返回全量，schema 层是唯一防线，故收紧为 z.enum。
+const RESEARCH_CATEGORY_ENUM = z.enum(["macro", "strategy", "industry", "company", "bond", "quant", "morningNotes", "fund", "forex", "futures", "options", "warrants", "market", "wealthManagement", "other"])
+const RESEARCH_CATEGORY_DESC = "macro=宏观 | strategy=策略 | industry=行业 | company=个股 | bond=债券 | quant=量化 | morningNotes=晨报 | fund=基金 | forex=外汇 | futures=期货 | options=期权 | warrants=权证 | market=市场 | wealthManagement=财富管理 | other=其他"
 
 type ScheduleFields = {
   researchArea?: boolean
@@ -44,10 +48,10 @@ function scheduleInputSchema(fields: ScheduleFields): Record<string, z.ZodTypeAn
   return schema
 }
 
-function scheduleSpec(name: string, label: string, endpointKey: string, fields: ScheduleFields): JsonToolSpec {
+function scheduleSpec(name: string, label: string, endpointKey: string, fields: ScheduleFields, extra = ""): JsonToolSpec {
   return {
     name,
-    description: `查询${label}日程列表。`,
+    description: `查询${label}活动日程安排（时间、主办机构、地点等，不含会议内容正文）。${extra}`,
     endpointKey,
     paginated: true,
     inputSchema: scheduleInputSchema(fields),
@@ -91,7 +95,7 @@ const listSpecs: JsonToolSpec[] = [
       researchAreaList: z.array(z.string()).optional().describe("研究方向 ID，来自 gangtise_constant_list category=gangtiseIndustry（行业 1008001xx + 方向 122000xxx：宏观/策略/固收/金工/海外/其他）"),
       securityList: z.array(z.string()).optional(),
       institutionList: z.array(z.string()).optional(),
-      categoryList: z.array(z.string()).optional().describe("earningsCall=业绩会 | strategyMeeting=策略会 | fundRoadshow=路演 | expertInterview=专家访谈 | fieldResearch=调研 | industryConference=行业会议 等"),
+      categoryList: z.array(z.enum(["earningsCall", "strategyMeeting", "fundRoadshow", "shareholdersMeeting", "maMeeting", "specialMeeting", "companyAnalysis", "industryAnalysis", "other"])).optional().describe("earningsCall=业绩会 | strategyMeeting=策略会 | fundRoadshow=基金路演 | shareholdersMeeting=股东大会 | maMeeting=并购会议 | specialMeeting=特别会议 | companyAnalysis=公司分析 | industryAnalysis=行业分析 | other=其他"),
       marketList: z.array(z.string()).optional().describe("aShares=A股 | hkStocks=港股 | usChinaConcept=中概 | usStocks=美股"),
       participantRoleList: z.array(z.string()).optional().describe("management=管理层 | expert=专家"),
       sourceList: z.array(z.number().int()).optional().describe("1=实时 | 2=公开"),
@@ -102,19 +106,19 @@ const listSpecs: JsonToolSpec[] = [
     category: "路演类型：earningsCall=业绩会 | strategyMeeting=策略会 | companyAnalysis=公司分析 | industryAnalysis=行业分析 | fundRoadshow=基金路演",
     market: "市场：aShares=A股 | hkStocks=港股 | usChinaConcept=中概 | usStocks=美股",
     participantRole: true, brokerType: true, permission: true,
-  }),
+  }, "要路演的会后纪要内容用 gangtise_summary_list categoryList=['fundRoadshow']。"),
   scheduleSpec("gangtise_site_visit_list", "调研", "insight.site-visit.list", {
     researchArea: true, institution: true, security: true, location: true, object: true,
     category: "调研形式：single=单场 | series=系列",
     market: "市场：aShares=A股 | hkStocks=港股 | usChinaConcept=中概（调研无美股）",
     permission: true,
-  }),
+  }, "要调研的会后纪要内容用 gangtise_summary_list（按 keyword/机构 检索；其 categoryList 无独立调研类别）。"),
   scheduleSpec("gangtise_strategy_list", "策略会", "insight.strategy.list", {
     institution: true, location: true,
-  }),
+  }, "要策略会的会后纪要内容用 gangtise_summary_list categoryList=['strategyMeeting']。"),
   scheduleSpec("gangtise_forum_list", "论坛", "insight.forum.list", {
     researchArea: true, location: true,
-  }),
+  }, "指线下行业论坛/峰会活动，非网络论坛帖子。"),
   {
     name: "gangtise_research_list",
     description: "查询券商研报列表，支持按证券、券商、行业、类别、评级、时间范围筛选。",
@@ -130,7 +134,7 @@ const listSpecs: JsonToolSpec[] = [
       brokerList: z.array(z.string()).optional(),
       securityList: z.array(z.string()).optional(),
       industryList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx，全场景首选）"),
-      categoryList: z.array(z.string()).optional().describe("macro=宏观 | strategy=策略 | industry=行业 | company=个股 | bond=债券 | fund=基金 | quantitative=量化 等"),
+      categoryList: z.array(RESEARCH_CATEGORY_ENUM).optional().describe(RESEARCH_CATEGORY_DESC),
       llmTagList: z.array(z.string()).optional().describe("inDepth=深度报告 | earningsReview=业绩点评 | industryStrategy=行业策略"),
       ratingList: z.array(z.string()).optional().describe("buy=买入 | overweight=增持 | neutral=中性 | underweight=减持 | sell=卖出"),
       ratingChangeList: z.array(z.string()).optional().describe("upgrade=上调 | maintain=维持 | downgrade=下调 | initiate=首次覆盖"),
@@ -153,7 +157,7 @@ const listSpecs: JsonToolSpec[] = [
       rankType: z.number().int().optional().describe("1=综合排序 | 2=时间倒序"),
       securityList: z.array(z.string()).optional(),
       regionList: z.array(z.string()).optional().describe("地区 ID，来自 gangtise_constant_list category=regionCategory"),
-      categoryList: z.array(z.string()).optional(),
+      categoryList: z.array(RESEARCH_CATEGORY_ENUM).optional().describe(RESEARCH_CATEGORY_DESC),
       industryList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx，全场景首选）"),
       brokerList: z.array(z.string()).optional(),
       llmTagList: z.array(z.string()).optional(),

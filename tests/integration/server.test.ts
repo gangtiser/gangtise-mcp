@@ -258,6 +258,38 @@ describe("MCP server integration", () => {
     expect(keys).not.toContain("announcementTypeList")
   })
 
+  it("categoryList enums are locked to the API-verified sets and reject unknown values before the client", async () => {
+    const { tools } = await mcpClient.listTools()
+    const catEnum = (name: string): string[] | undefined => {
+      const t = tools.find(x => x.name === name)
+      const props = (t?.inputSchema as { properties?: Record<string, { items?: { enum?: string[] } }> })?.properties
+      return props?.categoryList?.items?.enum
+    }
+
+    // Empirically verified against the live API + CLI insight.md — lock so a later
+    // describe-text edit can't silently drop/rename a value (the old bogus
+    // expertInterview / quantitative are exactly how this drifted before).
+    expect(catEnum("gangtise_summary_list")).toEqual([
+      "earningsCall", "strategyMeeting", "fundRoadshow", "shareholdersMeeting",
+      "maMeeting", "specialMeeting", "companyAnalysis", "industryAnalysis", "other",
+    ])
+    const researchSet = [
+      "macro", "strategy", "industry", "company", "bond", "quant", "morningNotes",
+      "fund", "forex", "futures", "options", "warrants", "market", "wealthManagement", "other",
+    ]
+    expect(catEnum("gangtise_research_list")).toEqual(researchSet)
+    expect(catEnum("gangtise_foreign_report_list")).toEqual(researchSet)
+
+    // An unknown category must be rejected at the MCP schema boundary and never
+    // forwarded upstream (where it silently no-ops and returns the full table).
+    const res = await mcpClient.callTool({
+      name: "gangtise_summary_list",
+      arguments: { categoryList: ["expertInterview"] },
+    })
+    expect(res.isError).toBeTruthy()
+    expect(mockClient.call).not.toHaveBeenCalled()
+  })
+
   it("gangtise_official_account_list forwards documented filters with default size", async () => {
     await mcpClient.callTool({
       name: "gangtise_official_account_list",
