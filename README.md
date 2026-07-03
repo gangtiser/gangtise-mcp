@@ -4,6 +4,15 @@
 
 ## Changelog
 
+### 0.1.38 (2026-07-03)
+- 对抗式审查（6 维度并行 + 逐条对抗核实）后的工具描述 / schema 收紧：
+  - **枚举收紧防静默 no-op**：`gangtise_summary_list` 会议纪要类别修正为实测有效的 9 值集（删无效的 `expertInterview`/`fieldResearch`/`industryConference`——上游对未知值静默忽略过滤、返回全量 17 万条）；`gangtise_research_list` / `gangtise_foreign_report_list` 修正 `quantitative`→`quant` 并补齐 15 值集；连同 fundamental / ai / vault / indicator 共 18 组闭集参数（报告期、报表类型、拆分、股东类型、估值指标、查询模式、管理层讨论维度、内容类型、币种、量纲、日历类型等）从宽松 `string` 收紧为 `z.enum`——非法值在 MCP schema 层即拒绝，不再打到上游得静默 no-op 或不透明错误（取值全部对 CLI 文档闭集核实）
+  - **错误可诊断**：未知上游错误码始终带出「（错误码 X）」，补 `999994`（vault 权限/配额）、`0000001008`（令牌失效/被顶号）提示；下载失败带 HTTP 状态码 + 响应体片段（区分 404 失效 ID / 403 权限）
+  - **选对工具/参数**：server instructions 补证券代码后缀约定（`.SH/.SZ/.BJ`=A股 / `.HK`=港股 / `.O/.N/.A`=美股）与「只知名称先 `gangtise_securities_search`」；4 个日程工具与会议纪要工具双向消歧；补港/美股 `securityCode` 格式示例、港股/指数 K 线 `'all'` 全市场能力、`period` 标注修正（`h2`=下半年报，原误标年报）、`conceptList`/`institutionList`/`brokerList` ID 来源、外资研报评级枚举、`hot_topic` 布尔参数、分页 `from`/`size`/`fetchAll` 说明
+  - **空结果 / 续读**：空列表结果附 `_hint` 区分「真无数据」与「参数不匹配」（漏交易所后缀等）；截断预览补 `next_offset` 对齐 `gangtise_read_response` 续读契约，不再重复拉取预览项
+  - `gangtise_earnings_review` 的 `period` 加正则校验（计费且不可重试的提交，防畸形格式白扣一次费）
+- 测试 227 → 234
+
 ### 0.1.37 (2026-07-02)
 - Schema 全面收紧（原审查搁置项 X5）：畸形日期/时间在本地 schema 层快速失败，不再透传给上游被静默改写（JS Date 会把 2026-02-30 滚成 2026-03-02）或返回不透明错误
   - `dateString`（YYYY-MM-DD + 日历 round-trip 校验，原 quote.ts 私有实现）与新增 `dateTimeString`（YYYY-MM-DD HH:mm:ss，时分秒范围 + 日历校验）、`quarterEndDate`（季末报告期）提取至 `dateContext.ts` 统一导出
@@ -43,21 +52,6 @@
   - 大响应：预览超限降级为 metadata-only 时 `has_more` 按 `_total_items` 重算，不再误报 `false` 误导调用方跳过整份落盘数据
   - 全市场 K 线：缺任一日期时同样注入 10000 行上限（对齐 CLI 行为；实测上游当前对开区间全市场返回空数据或「行情查询超出限制」，此为防御性对齐，防上游语义变化后出现 6000 行静默截断）
 - 测试 189 → 195
-
-### 0.1.33 (2026-06-29)
-- 数据可靠性硬化（来自多轮审计）：
-  - 分页：后续页失败返回已取页 + `_partial` / `_failed_pages`，不再整批作废（对齐分片的 loud-partial 契约）
-  - 异步 AI：轮询中途失败（超时 / 410111 / 其他）保留 `dataId`，已扣费任务可经 `*_check` 找回
-  - 全市场日 K 线：schema 拒绝畸形或不存在的日历日期（`2026-4-1` / `2026-13-45` / `2026-02-30`），避免 `security:'all'` 静默降级为单次截断或日期被改写
-  - 指标时序：拒绝「多指标 × 多证券」歧义矩阵（此前静默丢一个维度）
-- 同步 CLI v0.21.0：
-  - `gangtise_wechat_chatroom_list` 省略 `size` 改为自动翻页拉取全部群（接口无 `total`，按页上限 50 串行翻页；传 `size` 为跨页总量上限），不再静默只返 20 条；后续页失败 fail-soft
-  - token 缓存改为临时文件 + 原子 `rename` 写入（0600 从第一字节），消除旧文件宽松权限残留与崩溃截断
-- 审计跟进修复：
-  - `gangtise_read_response` 大对象按字节预算分片，不再整坨内联回上下文（续读不再绕过 256KB 截断）
-  - `gangtise_earnings_review` / `gangtise_viewpoint_debate` 提交工具去除 `readOnlyHint`（计费、不可重试，客户端不应免确认自动调用）；对应 `_check` 仍只读
-  - `engines.node` 提升至 `>=20.18.1`（匹配 undici 7.27.2）
-- 测试扩展：新增日期校验、指标互斥守卫、chatroom 翻页 / fail-soft、token 原子写、异步 submit→poll 对、大响应字节分片等单测（共 189）
 
 ## 功能覆盖
 
