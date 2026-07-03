@@ -7,6 +7,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { registerJsonTool, registerDownloadTool, sanitizeArgs, buildToolContent, buildTextResult } from "../../../src/tools/registry.js"
+import { INLINE_MAX_BYTES } from "../../../src/core/config.js"
 import type { GangtiseClient } from "../../../src/core/client.js"
 
 function makeMockClient(responseData: unknown = { list: [{ id: "1" }], total: 1 }) {
@@ -107,8 +108,9 @@ describe("buildToolContent", () => {
     await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
   })
 
-  it("list.length === PREVIEW_ITEMS but large Chinese content: preview itself exceeds cap, falls back to metadata-only", async () => {
-    // 20 items × ~15KB Chinese text = ~300KB > 256KB threshold for both full and preview
+  it("large-row preview exceeds cap: shrinks the sample to fit instead of emptying it", async () => {
+    // 20 items × ~15KB Chinese text ≈ 300KB — the full 20-row preview blows the
+    // inline budget, so the guard halves the sample until it fits.
     const items = Array.from({ length: 20 }, (_, i) => ({ id: String(i), content: "中".repeat(5_000) }))
     const data = { list: items, total: 500 }
     const content = await buildToolContent(data)
@@ -117,12 +119,30 @@ describe("buildToolContent", () => {
     expect(result._truncated).toBe(true)
     expect(result.total).toBe(500)       // server-side total preserved via ...rest
     expect(result._total_items).toBe(20) // items in file, not server total
-    expect(result._preview_count).toBe(0) // list dropped because preview itself exceeded cap
-    expect(result.list).toBeUndefined()
-    // The file still holds all 20 items — has_more must say so, or the reader
-    // sees `has_more: false` + 0 preview items and never calls
-    // gangtise_read_response, silently discarding the whole payload.
+    // A nonempty sample survives (not the old all-or-nothing 0), and it fits the budget.
+    expect(result._preview_count).toBeGreaterThan(0)
+    expect(result._preview_count).toBeLessThan(20)
+    expect((result.list as unknown[]).length).toBe(result._preview_count)
+    expect(Buffer.byteLength(content[0].text, "utf8")).toBeLessThanOrEqual(INLINE_MAX_BYTES)
+    // File still holds all 20 — has_more/next_offset must point past the sample.
     expect(result.has_more).toBe(true)
+    expect(result.next_offset).toBe(result._preview_count)
+
+    await fs.rm(path.dirname(result._saved_to as string), { recursive: true, force: true })
+  })
+
+  it("a single row larger than the cap falls back to metadata-only with _first_item_keys", async () => {
+    // One row that alone blows the budget can't be sampled — but the model still
+    // needs the field names, so surface the first row's keys.
+    const items = [{ id: "0", name: "巨行", content: "中".repeat(30_000) }] // ~90KB single row
+    const content = await buildToolContent({ list: items, total: 1 })
+    const result = JSON.parse(content[0].text)
+
+    expect(result._truncated).toBe(true)
+    expect(result._preview_count).toBe(0)
+    expect(result.list).toBeUndefined()
+    expect(result._first_item_keys).toEqual(["id", "name", "content"])
+    expect(result.has_more).toBe(true) // the file still holds the row; page it via read_response
 
     await fs.rm(path.dirname(result._saved_to as string), { recursive: true, force: true })
   })

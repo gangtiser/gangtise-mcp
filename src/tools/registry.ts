@@ -105,14 +105,33 @@ export async function buildToolContent(normalized: unknown): Promise<Array<{ typ
     }
   }
 
-  // Guard: if preview itself exceeds the byte cap (e.g. large rows), drop list and return metadata only.
-  if (Buffer.byteLength(JSON.stringify(preview), "utf8") > INLINE_MAX_BYTES) {
-    const { list: _dropped, ...metaOnly } = preview as Record<string, unknown> & { list?: unknown }
-    // The spill file still holds every item — recompute has_more from the item
-    // count, or the reader sees has_more:false + 0 previews and never follows
-    // up with gangtise_read_response.
-    const totalItems = metaOnly._total_items
-    preview = { ...metaOnly, _preview_count: 0, has_more: typeof totalItems === "number" && totalItems > 0, next_offset: typeof totalItems === "number" && totalItems > 0 ? 0 : null }
+  // Guard: if the preview itself exceeds the byte cap (large rows), shrink the
+  // sample by halving until it fits, so the model still gets a few example rows to
+  // learn field names and plan paging — instead of an all-or-nothing empty list.
+  // The spill file still holds every item; has_more/next_offset point past the
+  // sample so the reader continues via gangtise_read_response.
+  if (Array.isArray(preview.list) && Buffer.byteLength(JSON.stringify(preview), "utf8") > INLINE_MAX_BYTES) {
+    const fullPreviewList = preview.list as unknown[]
+    let sample = fullPreviewList
+    while (
+      sample.length > 0 &&
+      Buffer.byteLength(JSON.stringify({ ...preview, list: sample, _preview_count: sample.length }), "utf8") > INLINE_MAX_BYTES
+    ) {
+      sample = sample.slice(0, Math.floor(sample.length / 2))
+    }
+    const totalItems = preview._total_items
+    if (sample.length > 0) {
+      const more = typeof totalItems === "number" && totalItems > sample.length
+      preview = { ...preview, list: sample, _preview_count: sample.length, has_more: more, next_offset: more ? sample.length : null }
+    } else {
+      // Even one row exceeds the budget — fall back to metadata-only, but surface
+      // the first row's keys so the model still learns the field names.
+      const { list: _dropped, ...metaOnly } = preview as Record<string, unknown> & { list?: unknown }
+      const first = fullPreviewList[0]
+      const firstItemKeys = first && typeof first === "object" && !Array.isArray(first) ? Object.keys(first as object) : undefined
+      const anyLeft = typeof totalItems === "number" && totalItems > 0
+      preview = { ...metaOnly, _preview_count: 0, ...(firstItemKeys ? { _first_item_keys: firstItemKeys } : {}), has_more: anyLeft, next_offset: anyLeft ? 0 : null }
+    }
   }
 
   return [{ type: "text" as const, text: JSON.stringify(preview) }]
