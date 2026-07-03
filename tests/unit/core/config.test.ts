@@ -2,9 +2,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import {
   loadConfig,
+  resolveInlineMaxBytes,
   DEFAULT_BASE_URL,
   DEFAULT_TIMEOUT_MS,
   DEFAULT_ASYNC_TIMEOUT_MS,
+  DEFAULT_INLINE_MAX_BYTES,
   DEFAULT_TOKEN_CACHE_PATH,
 } from "../../../src/core/config.js"
 
@@ -70,6 +72,15 @@ describe("loadConfig", () => {
     expect(c.secretKey).toBe("sk")
     expect(c.token).toBe("tok")
     expect(c.tokenCachePath).toBe("/tmp/custom-token.json")
+  })
+
+  it("resolves the inline byte budget: default, valid override, 8KB floor, bad input", () => {
+    expect(resolveInlineMaxBytes(undefined)).toBe(DEFAULT_INLINE_MAX_BYTES)
+    expect(resolveInlineMaxBytes("131072")).toBe(131_072)
+    expect(resolveInlineMaxBytes("65536.9")).toBe(65_536) // floored to int
+    expect(resolveInlineMaxBytes("bad")).toBe(DEFAULT_INLINE_MAX_BYTES)
+    expect(resolveInlineMaxBytes("")).toBe(DEFAULT_INLINE_MAX_BYTES)
+    expect(resolveInlineMaxBytes("1024")).toBe(DEFAULT_INLINE_MAX_BYTES) // below the 8KB floor
   })
 
   it("ignores empty, non-numeric, zero, and negative timeouts", () => {

@@ -6,9 +6,10 @@ import { describe, it, expect } from "vitest"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
-import { registerResponseTools } from "../../../src/tools/response.js"
+import { registerResponseTools, TEXT_CHUNK_CHARS } from "../../../src/tools/response.js"
 import { buildToolContent } from "../../../src/tools/registry.js"
 import { createManagedTempDir } from "../../../src/core/tempCleanup.js"
+import { INLINE_MAX_BYTES } from "../../../src/core/config.js"
 import type { GangtiseClient } from "../../../src/core/client.js"
 
 const mockClient = { call: async () => ({}), download: async () => ({}) } as unknown as GangtiseClient
@@ -82,13 +83,15 @@ describe("gangtise_read_response byte budget & boundaries", () => {
     expect(returned).toBeLessThan(500)
     expect(parsed.has_more).toBe(true)
     expect(parsed.next_offset).toBe(returned)
-    expect(Buffer.byteLength(JSON.stringify(parsed.list), "utf8")).toBeLessThanOrEqual(300_000)
+    expect(Buffer.byteLength(JSON.stringify(parsed.list), "utf8")).toBeLessThanOrEqual(INLINE_MAX_BYTES + 10_000)
     await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
   })
 
   it("does not split a surrogate pair at the text chunk boundary", async () => {
-    // "x"×69999 puts the emoji pair across the 70000-unit chunk boundary.
-    const savedTo = await writeTmpText("x".repeat(69_999) + "😀" + "yy")
+    // Emoji straddles the chunk boundary: its high surrogate sits at
+    // TEXT_CHUNK_CHARS-1, so the slice must trim to TEXT_CHUNK_CHARS-1 rather
+    // than emit a lone surrogate.
+    const savedTo = await writeTmpText("x".repeat(TEXT_CHUNK_CHARS - 1) + "😀" + "yy")
     const client = await makeConnectedPair()
 
     const result = await client.callTool({
@@ -100,7 +103,7 @@ describe("gangtise_read_response byte budget & boundaries", () => {
     const chunk = parsed._text as string
     const lastCode = chunk.charCodeAt(chunk.length - 1)
     expect(lastCode < 0xd800 || lastCode > 0xdbff).toBe(true)
-    expect(parsed.next_offset).toBe(69_999)
+    expect(parsed.next_offset).toBe(TEXT_CHUNK_CHARS - 1)
     await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
   })
 
@@ -198,9 +201,10 @@ describe("gangtise_read_response", () => {
   })
 
   it("returns a mid-size non-list object whole (over the char window, under the byte budget)", async () => {
-    // ~80KB of ASCII: more chars than the per-chunk window but well under 256KB, so the
-    // byte-based decision returns it whole rather than needlessly char-slicing it.
-    const savedTo = await writeTmpJson({ blob: "a".repeat(80_000) })
+    // More chars than the per-chunk window but under the byte budget, so the byte-based
+    // decision returns it whole rather than needlessly char-slicing it.
+    const blobLen = Math.floor((TEXT_CHUNK_CHARS + INLINE_MAX_BYTES) / 2)
+    const savedTo = await writeTmpJson({ blob: "a".repeat(blobLen) })
     const client = await makeConnectedPair()
     const result = await client.callTool({
       name: "gangtise_read_response",
@@ -208,7 +212,7 @@ describe("gangtise_read_response", () => {
     })
     expect(result.isError).toBeFalsy()
     const parsed = parseText(result)
-    expect((parsed.data as Record<string, unknown>).blob).toBe("a".repeat(80_000))
+    expect((parsed.data as Record<string, unknown>).blob).toBe("a".repeat(blobLen))
     expect(parsed._json_chunk).toBeUndefined()
 
     await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
@@ -229,7 +233,7 @@ describe("gangtise_read_response", () => {
     const rawText = (result.content as Array<{ text: string }>)[0].text
     // The point of chunking: the read-back response must stay within the inline byte
     // budget. 100K Chinese chars would serialize to ~300KB and blow it.
-    expect(Buffer.byteLength(rawText, "utf8")).toBeLessThanOrEqual(256_000)
+    expect(Buffer.byteLength(rawText, "utf8")).toBeLessThanOrEqual(INLINE_MAX_BYTES)
     const parsed = JSON.parse(rawText)
     expect(typeof parsed._json_chunk).toBe("string")
     expect(parsed.has_more).toBe(true)
@@ -257,7 +261,7 @@ describe("gangtise_read_response", () => {
     })
 
     expect(result.isError).toBeFalsy()
-    expect(Buffer.byteLength((result.content as Array<{ text: string }>)[0].text, "utf8")).toBeLessThanOrEqual(256_000)
+    expect(Buffer.byteLength((result.content as Array<{ text: string }>)[0].text, "utf8")).toBeLessThanOrEqual(INLINE_MAX_BYTES)
     const parsed = parseText(result)
     expect(parsed._total_chars).toBe(250_000)
     expect(parsed._offset).toBe(0)

@@ -9,8 +9,8 @@ import { normalizeRows } from "../core/normalize.js"
 import { downloadToResult, type DownloadResult } from "../core/download.js"
 import { errorMessage } from "../core/errors.js"
 import { createManagedTempDir } from "../core/tempCleanup.js"
+import { INLINE_MAX_BYTES } from "../core/config.js"
 
-const INLINE_MAX_BYTES = 256_000
 const PREVIEW_ITEMS = 20
 const TEXT_PREVIEW_CHARS = 4_000
 

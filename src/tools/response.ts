@@ -6,20 +6,19 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { GangtiseClient } from "../core/client.js"
 import { errorMessage } from "../core/errors.js"
 import { isOwnedTempPath } from "../core/tempCleanup.js"
+import { INLINE_MAX_BYTES } from "../core/config.js"
 import { alignSliceEnd } from "./registry.js"
 
 const DEFAULT_LIMIT = 50
 const MAX_LIMIT = 500
-/** Per-call character window for raw text / large-object chunk payloads. Sized so
- * the worst case (all 3-byte UTF-8 chars, e.g. Chinese — the max per UTF-16 unit)
- * stays under the 256KB inline byte budget: 70_000 × 3 ≈ 210KB, leaving headroom
- * for the JSON envelope. JSON.stringify never escapes multibyte chars, so non-ASCII
- * is the byte-worst case here. */
-const TEXT_CHUNK_CHARS = 70_000
-/** Inline byte budget — mirrors registry.ts's spill threshold. A read-back object
- * larger than this is char-sliced into chunks; one at or under it is returned whole.
- * Byte-based (not char-based) so it stays consistent with how the payload was spilled. */
-const INLINE_MAX_BYTES = 256_000
+/** Per-call character window for raw text / large-object chunk payloads. Derived
+ * from INLINE_MAX_BYTES so a chunk of worst-case 3-byte UTF-8 chars (e.g. Chinese —
+ * the max per UTF-16 unit) still fits the inline budget: 0.27 × budget × 3 ≈ 0.81 ×
+ * budget, leaving headroom for the JSON envelope. JSON.stringify never escapes
+ * multibyte chars, so non-ASCII is the byte-worst case here. Exported for tests that
+ * construct fixtures on the chunk boundary. INLINE_MAX_BYTES is the byte-based spill
+ * threshold, shared with registry.ts via config.js. */
+export const TEXT_CHUNK_CHARS = Math.floor(INLINE_MAX_BYTES * 0.27)
 
 async function readSavedFile(savedTo: string): Promise<string> {
   let real: string
