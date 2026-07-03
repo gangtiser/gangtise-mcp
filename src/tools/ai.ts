@@ -138,7 +138,7 @@ function makeAsyncToolPair(
       description: config.description,
       inputSchema: {
         ...config.inputSchema,
-        waitSeconds: z.number().int().min(0).max(180).optional().describe("最长等待秒数（默认 180，最大 180）"),
+        waitSeconds: z.number().int().min(0).max(180).optional().describe("最长等待秒数（默认 55，最大 180）；超时返回 dataId，用对应 *_check 工具续查"),
       },
       // NOT read-only: submitting creates a billed, non-idempotent task (the submit
       // endpoint carries noRetry). Leave the hint false so agentic clients confirm
@@ -285,7 +285,7 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
   // Async tools: earnings-review
   makeAsyncToolPair(server, client, opts, {
     name: "gangtise_earnings_review",
-    description: "生成 AI 业绩点评报告。提交任务后等待最多 waitSeconds 秒（默认 180s），超时返回 dataId。",
+    description: "生成 AI 业绩点评报告。提交任务后等待最多 waitSeconds 秒（默认 55s），超时返回 dataId 供 gangtise_earnings_review_check 续查。",
     inputSchema: {
       securityCode: z.string().describe("仅支持 A 股证券代码"),
       period: z.string().regex(/^\d{4}(q1|interim|q3|annual)$/, "格式：<年份>q1|interim|q3|annual（小写），如 2025q3").describe("报告期，格式 <年份>q1 | <年份>interim | <年份>q3 | <年份>annual，如 2025q3；仅覆盖最近 6 期"),
@@ -300,7 +300,7 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
   // Async tools: viewpoint-debate
   makeAsyncToolPair(server, client, opts, {
     name: "gangtise_viewpoint_debate",
-    description: "对给定投资观点生成 AI 多空辩论报告。提交任务后等待最多 waitSeconds 秒（默认 180s），超时返回 dataId。",
+    description: "对给定投资观点生成 AI 多空辩论报告。提交任务后等待最多 waitSeconds 秒（默认 55s），超时返回 dataId 供对应 *_check 工具续查。",
     inputSchema: {
       viewpoint: z.string().max(1000).describe("投资观点文本（最多 1000 字）"),
     },

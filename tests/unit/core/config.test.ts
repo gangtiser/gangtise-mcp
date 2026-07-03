@@ -45,6 +45,14 @@ describe("loadConfig", () => {
     expect(c.token).toBeUndefined()
   })
 
+  it("keeps the async wait default under the MCP client's ~60s request timeout", () => {
+    // The default wait must return {dataId, status:"timeout"} before the client
+    // (DEFAULT_REQUEST_TIMEOUT_MSEC = 60s) cuts the connection, or the billed task's
+    // dataId is lost and *_check can't recover it. Don't raise past ~59s without a
+    // per-call waitSeconds or progress-notification timeout resets.
+    expect(DEFAULT_ASYNC_TIMEOUT_MS).toBeLessThan(60_000)
+  })
+
   it("reads overrides from env", () => {
     process.env.GANGTISE_BASE_URL = "https://example.test"
     process.env.GANGTISE_TIMEOUT_MS = "5000"
