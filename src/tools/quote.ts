@@ -2,6 +2,7 @@ import { z } from "zod"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { GangtiseClient } from "../core/client.js"
 import { normalizeRows } from "../core/normalize.js"
+import { ValidationError } from "../core/errors.js"
 import { callKlineWithSharding, type KlineBody } from "../core/quoteSharding.js"
 import { dateDesc, dateString, dateTimeDesc, dateTimeString } from "../core/dateContext.js"
 import { buildToolContent } from "./registry.js"
@@ -32,9 +33,33 @@ function buildKlineBody(args: Record<string, unknown>): KlineBody {
   return body
 }
 
-function klineHandler(client: GangtiseClient, endpointKey: string, shardDays: number) {
+const SUFFIX_MARKET: Record<string, "cn" | "hk" | "us"> = {
+  SH: "cn", SZ: "cn", BJ: "cn", HK: "hk", O: "us", N: "us", A: "us",
+}
+const MARKET_LABEL: Record<"cn" | "hk" | "us", string> = { cn: "A股", hk: "港股", us: "美股" }
+const MARKET_TOOL: Record<"cn" | "hk" | "us", string> = {
+  cn: "gangtise_day_kline", hk: "gangtise_day_kline_hk", us: "gangtise_day_kline_us",
+}
+
+/** Reject an obvious market/tool mismatch (e.g. an .HK code sent to the A-share
+ * tool) before it hits upstream and returns a silent empty list that reads as
+ * "no data" — the costliest silent error here. Skips 'all' and unknown suffixes
+ * so only a clear cross-market mismatch throws. */
+function assertMarketMatch(securityList: readonly unknown[] | undefined, market: "cn" | "hk" | "us"): void {
+  if (!securityList) return
+  for (const code of securityList) {
+    if (typeof code !== "string" || code === "all") continue
+    const codeMarket = SUFFIX_MARKET[code.split(".").pop()?.toUpperCase() ?? ""]
+    if (codeMarket && codeMarket !== market) {
+      throw new ValidationError(`'${code}' 是${MARKET_LABEL[codeMarket]}代码，请改用 ${MARKET_TOOL[codeMarket]}。`)
+    }
+  }
+}
+
+function klineHandler(client: GangtiseClient, endpointKey: string, shardDays: number, market?: "cn" | "hk" | "us") {
   return toolHandler(async (args: Record<string, unknown>) => {
     const body = buildKlineBody(args)
+    if (market) assertMarketMatch(body.securityList, market)
     const isAllMarket = body.securityList?.[0] === "all"
     // All-market always goes through the sharding helper: even when a date is
     // missing (no sharding possible) it must still get the 10K limit lift.
@@ -53,7 +78,7 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
       inputSchema: commonKlineSchema,
       annotations: { readOnlyHint: true },
     },
-    async (args) => klineHandler(client, "quote.day-kline", 1)(args as Record<string, unknown>),
+    async (args) => klineHandler(client, "quote.day-kline", 1, "cn")(args as Record<string, unknown>),
   )
 
   server.registerTool(
@@ -63,7 +88,7 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
       inputSchema: commonKlineSchema,
       annotations: { readOnlyHint: true },
     },
-    async (args) => klineHandler(client, "quote.day-kline-hk", 2)(args as Record<string, unknown>),
+    async (args) => klineHandler(client, "quote.day-kline-hk", 2, "hk")(args as Record<string, unknown>),
   )
 
   server.registerTool(
@@ -77,7 +102,7 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
       // Backend workaround: day-kline-us 不传 field 时后端默认字段集中有坏字段，
       // 返回 999999 系统错误。显式指定字段可绕开。等后端修复后可移除此 fallback。
       const patched = args.field ? args : { ...args, field: US_KLINE_DEFAULT_FIELDS }
-      return klineHandler(client, "quote.day-kline-us", 1)(patched as Record<string, unknown>)
+      return klineHandler(client, "quote.day-kline-us", 1, "us")(patched as Record<string, unknown>)
     },
   )
 

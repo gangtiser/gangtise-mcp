@@ -110,3 +110,62 @@ describe("gangtise_day_kline date validation", () => {
     expect(client.call).toHaveBeenCalledTimes(1)
   })
 })
+
+// An .HK code sent to the A-share tool used to reach upstream and return a silent
+// empty list — indistinguishable from "no data". The precheck rejects the clear
+// mismatch and names the right tool, without spending an API call.
+describe("gangtise_day_kline market-mismatch precheck", () => {
+  it("rejects an HK code on the A-share tool, points at the right tool, no API call", async () => {
+    const client = makeMockClient()
+    const mcp = await connect(client)
+    const result = await mcp.callTool({
+      name: "gangtise_day_kline",
+      arguments: { security: "00700.HK", startDate: "2026-04-01", endDate: "2026-04-30" },
+    })
+    expect(result.isError).toBe(true)
+    expect((result.content as Array<{ text: string }>)[0].text).toContain("gangtise_day_kline_hk")
+    expect(client.call).not.toHaveBeenCalled()
+  })
+
+  it("rejects an A-share code on the US tool, no API call", async () => {
+    const client = makeMockClient()
+    const mcp = await connect(client)
+    const result = await mcp.callTool({
+      name: "gangtise_day_kline_us",
+      arguments: { security: "600519.SH", startDate: "2026-04-01", endDate: "2026-04-30" },
+    })
+    expect(result.isError).toBe(true)
+    expect(client.call).not.toHaveBeenCalled()
+  })
+
+  it("passes a matching code and an unknown suffix through to the API", async () => {
+    const client = makeMockClient()
+    const mcp = await connect(client)
+    const ok = await mcp.callTool({
+      name: "gangtise_day_kline_hk",
+      arguments: { security: "00700.HK", startDate: "2026-04-01", endDate: "2026-04-30" },
+    })
+    const unknown = await mcp.callTool({
+      name: "gangtise_day_kline",
+      arguments: { security: "600519.XYZ", startDate: "2026-04-01", endDate: "2026-04-30" },
+    })
+    expect(ok.isError).toBeFalsy()
+    expect(unknown.isError).toBeFalsy()
+    expect(client.call).toHaveBeenCalledTimes(2)
+  })
+
+  it("skips the check for security='all' and for the index tool", async () => {
+    const client = makeMockClient()
+    const mcp = await connect(client)
+    const all = await mcp.callTool({
+      name: "gangtise_day_kline",
+      arguments: { security: "all", startDate: "2026-04-01" },
+    })
+    const idx = await mcp.callTool({
+      name: "gangtise_index_day_kline",
+      arguments: { security: "000001.SH", startDate: "2026-04-01", endDate: "2026-04-30" },
+    })
+    expect(all.isError).toBeFalsy()
+    expect(idx.isError).toBeFalsy()
+  })
+})
