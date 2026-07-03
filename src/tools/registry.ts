@@ -28,7 +28,31 @@ function isPaginatedShape(value: unknown): value is PaginatedShape {
   )
 }
 
+const EMPTY_RESULT_HINT =
+  "0 行结果：可能该条件下确无数据；也可能是参数不匹配——证券代码需含交易所后缀（600519.SH / 00700.HK / AAPL.O），可用 gangtise_securities_search 核实，并检查日期区间与市场是否匹配。"
+
+/** Empty results are the costliest silent error in research: the model can't tell
+ * "genuinely no data" from a param mismatch (missing code suffix / wrong market).
+ * Returns a hinted payload when the result is empty, else undefined. Empty payloads
+ * are tiny, so this always inlines and never spills. */
+function emptyResultHint(normalized: unknown): Record<string, unknown> | undefined {
+  if (Array.isArray(normalized)) {
+    return normalized.length === 0 ? { list: [], _hint: EMPTY_RESULT_HINT } : undefined
+  }
+  if (normalized !== null && typeof normalized === "object") {
+    const list = (normalized as Record<string, unknown>).list
+    if (list === null || (Array.isArray(list) && list.length === 0)) {
+      return { ...(normalized as Record<string, unknown>), list: Array.isArray(list) ? list : [], _hint: EMPTY_RESULT_HINT }
+    }
+  }
+  return undefined
+}
+
 export async function buildToolContent(normalized: unknown): Promise<Array<{ type: "text"; text: string }>> {
+  const empty = emptyResultHint(normalized)
+  if (empty !== undefined) {
+    return [{ type: "text" as const, text: JSON.stringify(empty, null, 2) }]
+  }
   const json = JSON.stringify(normalized, null, 2)
   const byteLength = Buffer.byteLength(json, "utf8")
 
@@ -55,6 +79,7 @@ export async function buildToolContent(normalized: unknown): Promise<Array<{ typ
       _total_items: list.length,
       _preview_count: previewList.length,
       has_more: list.length > PREVIEW_ITEMS,
+      next_offset: list.length > PREVIEW_ITEMS ? previewList.length : null,
     }
   } else if (Array.isArray(normalized)) {
     const previewList = normalized.slice(0, PREVIEW_ITEMS)
@@ -67,6 +92,7 @@ export async function buildToolContent(normalized: unknown): Promise<Array<{ typ
       _total_items: normalized.length,
       _preview_count: previewList.length,
       has_more: normalized.length > PREVIEW_ITEMS,
+      next_offset: normalized.length > PREVIEW_ITEMS ? previewList.length : null,
     }
   } else {
     preview = {
@@ -86,7 +112,7 @@ export async function buildToolContent(normalized: unknown): Promise<Array<{ typ
     // count, or the reader sees has_more:false + 0 previews and never follows
     // up with gangtise_read_response.
     const totalItems = metaOnly._total_items
-    preview = { ...metaOnly, _preview_count: 0, has_more: typeof totalItems === "number" && totalItems > 0 }
+    preview = { ...metaOnly, _preview_count: 0, has_more: typeof totalItems === "number" && totalItems > 0, next_offset: typeof totalItems === "number" && totalItems > 0 ? 0 : null }
   }
 
   return [{ type: "text" as const, text: JSON.stringify(preview, null, 2) }]
@@ -132,6 +158,7 @@ async function spillTextMeta(text: string): Promise<Record<string, unknown>> {
     _total_chars: text.length,
     _preview_chars: preview.length,
     has_more: text.length > preview.length,
+    next_offset: text.length > preview.length ? preview.length : null,
     _preview: preview,
   }
 }

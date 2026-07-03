@@ -126,6 +126,41 @@ describe("buildToolContent", () => {
 
     await fs.rm(path.dirname(result._saved_to as string), { recursive: true, force: true })
   })
+
+  it("empty array result gets a disambiguating _hint instead of a bare []", async () => {
+    const content = await buildToolContent([])
+    const result = JSON.parse(content[0].text)
+    expect(result.list).toEqual([])
+    expect(result._hint).toContain("参数不匹配")
+  })
+
+  it("empty { list, total } result keeps meta and gets a _hint", async () => {
+    const content = await buildToolContent({ list: [], total: 0 })
+    const result = JSON.parse(content[0].text)
+    expect(result.list).toEqual([])
+    expect(result.total).toBe(0)
+    expect(result._hint).toContain("gangtise_securities_search")
+  })
+
+  it("list: null is coerced to [] and gets a _hint", async () => {
+    const content = await buildToolContent({ list: null })
+    const result = JSON.parse(content[0].text)
+    expect(result.list).toEqual([])
+    expect(result._hint).toBeDefined()
+  })
+
+  it("non-empty result carries no _hint", async () => {
+    const content = await buildToolContent({ list: [{ id: "1" }], total: 1 })
+    const result = JSON.parse(content[0].text)
+    expect(result).not.toHaveProperty("_hint")
+  })
+
+  it("truncated preview exposes next_offset so read-back skips the previewed items", async () => {
+    const content = await buildToolContent({ list: makeLargeItems(500), total: 500 })
+    const result = JSON.parse(content[0].text)
+    expect(result.next_offset).toBe(20) // == PREVIEW_ITEMS; read_response(offset: 20) continues past the preview
+    await fs.rm(path.dirname(result._saved_to as string), { recursive: true, force: true })
+  })
 })
 
 describe("buildTextResult", () => {
