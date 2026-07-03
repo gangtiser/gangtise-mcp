@@ -104,7 +104,16 @@ export class GangtiseClient {
 
     const cache: TokenCache = { ...envelope, accessToken, expiresAt }
     this.memoCache = cache
-    await writeTokenCache(this.config.tokenCachePath, cache)
+    // Persisting to disk is a cross-process cache optimization — this token is
+    // already valid in memoCache. A write failure (read-only home, ENOSPC) must
+    // not fail the in-flight request that triggered the refresh, nor its
+    // concurrent waiters on refreshPromise; the next process just re-logs in.
+    await writeTokenCache(this.config.tokenCachePath, cache).catch((err) => {
+      if (isVerbose()) {
+        const msg = err instanceof Error ? err.message : String(err)
+        process.stderr.write(`[gangtise] token cache write failed (token still valid in memory): ${msg}\n`)
+      }
+    })
 
     return accessToken
   }

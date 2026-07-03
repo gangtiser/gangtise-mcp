@@ -90,6 +90,21 @@ describe("GangtiseClient.requestJson", () => {
     await expect(client.call("ai.earnings-review.get-id", { securityCode: "600519.SH" }))
       .rejects.toMatchObject({ statusCode: 429, retryAfterMs: 10_000 })
   })
+
+  it("succeeds even when the token cache write fails (token stays valid in memory)", async () => {
+    requestMock
+      .mockResolvedValueOnce(jsonResponse({ accessToken: "Bearer live-token", expiresIn: 3600, time: 0 })) // login
+      .mockResolvedValueOnce(jsonResponse({ answer: 7 })) // the actual request
+    const client = new GangtiseClient({
+      baseUrl: "https://open.gangtise.com",
+      timeoutMs: 30_000,
+      accessKey: "ak",
+      secretKey: "sk",
+      tokenCachePath: "/dev/null/nope/token.json", // mkdir under a file → ENOTDIR, so the cache write throws
+      asyncTimeoutMs: 60_000,
+    })
+    expect(await client.call("ai.one-pager", { securityCode: "600519.SH" })).toEqual({ answer: 7 })
+  })
 })
 
 describe("GangtiseClient auth recovery", () => {
