@@ -51,9 +51,9 @@ function emptyResultHint(normalized: unknown): Record<string, unknown> | undefin
 export async function buildToolContent(normalized: unknown): Promise<Array<{ type: "text"; text: string }>> {
   const empty = emptyResultHint(normalized)
   if (empty !== undefined) {
-    return [{ type: "text" as const, text: JSON.stringify(empty, null, 2) }]
+    return [{ type: "text" as const, text: JSON.stringify(empty) }]
   }
-  const json = JSON.stringify(normalized, null, 2)
+  const json = JSON.stringify(normalized)
   const byteLength = Buffer.byteLength(json, "utf8")
 
   if (byteLength <= INLINE_MAX_BYTES) {
@@ -106,7 +106,7 @@ export async function buildToolContent(normalized: unknown): Promise<Array<{ typ
   }
 
   // Guard: if preview itself exceeds the byte cap (e.g. large rows), drop list and return metadata only.
-  if (Buffer.byteLength(JSON.stringify(preview, null, 2), "utf8") > INLINE_MAX_BYTES) {
+  if (Buffer.byteLength(JSON.stringify(preview), "utf8") > INLINE_MAX_BYTES) {
     const { list: _dropped, ...metaOnly } = preview as Record<string, unknown> & { list?: unknown }
     // The spill file still holds every item — recompute has_more from the item
     // count, or the reader sees has_more:false + 0 previews and never follows
@@ -115,7 +115,7 @@ export async function buildToolContent(normalized: unknown): Promise<Array<{ typ
     preview = { ...metaOnly, _preview_count: 0, has_more: typeof totalItems === "number" && totalItems > 0, next_offset: typeof totalItems === "number" && totalItems > 0 ? 0 : null }
   }
 
-  return [{ type: "text" as const, text: JSON.stringify(preview, null, 2) }]
+  return [{ type: "text" as const, text: JSON.stringify(preview) }]
 }
 
 /**
@@ -129,7 +129,7 @@ export async function buildTextResult(text: string): Promise<Array<{ type: "text
     return [{ type: "text" as const, text }]
   }
   const meta = await spillTextMeta(text)
-  return [{ type: "text" as const, text: JSON.stringify(meta, null, 2) }]
+  return [{ type: "text" as const, text: JSON.stringify(meta) }]
 }
 
 /** Trims a slice end that would land inside a surrogate pair (4-byte chars like
@@ -170,13 +170,13 @@ async function spillTextMeta(text: string): Promise<Record<string, unknown>> {
  * url/savedPath metadata stays inline untouched.
  */
 export async function buildDownloadContent(result: DownloadResult): Promise<Array<{ type: "text"; text: string }>> {
-  const json = JSON.stringify(result, null, 2)
+  const json = JSON.stringify(result)
   if (result.text === undefined || Buffer.byteLength(json, "utf8") <= INLINE_MAX_BYTES) {
     return [{ type: "text" as const, text: json }]
   }
   const { text, ...rest } = result
   const meta = await spillTextMeta(text)
-  return [{ type: "text" as const, text: JSON.stringify({ ...rest, ...meta }, null, 2) }]
+  return [{ type: "text" as const, text: JSON.stringify({ ...rest, ...meta }) }]
 }
 
 // Zod raw shape type (compatible with registerTool inputSchema)

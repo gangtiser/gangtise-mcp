@@ -458,7 +458,7 @@ export class GangtiseClient {
         if (data && typeof data === 'object' && 'url' in (data as Record<string, unknown>) && typeof (data as Record<string, unknown>).url === 'string') {
           return { url: String((data as Record<string, unknown>).url), contentType }
         }
-        return { text: JSON.stringify(data, null, 2), contentType }
+        return { text: JSON.stringify(data), contentType }
       }
 
       if (contentType?.includes('text/plain') || contentType?.includes('text/html')) {

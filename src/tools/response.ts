@@ -88,7 +88,7 @@ export function registerResponseTools(server: McpServer, _client: GangtiseClient
             next_offset: end < total ? end : null,
             _note: `纯文本分片：按字符 offset 读取，每次返回最多 ${TEXT_CHUNK_CHARS} 字符（limit 对文本无效）`,
           }
-          return { content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }] }
+          return { content: [{ type: "text" as const, text: JSON.stringify(payload) }] }
         }
 
         let list: unknown[]
@@ -107,7 +107,7 @@ export function registerResponseTools(server: McpServer, _client: GangtiseClient
           // Non-list object. A small one is returned whole; a large one (e.g. a
           // >256KB object that was spilled with a metadata-only preview) is char-sliced
           // so read-back can't re-inline the whole blob and defeat the truncation.
-          const objText = JSON.stringify(data, null, 2)
+          const objText = JSON.stringify(data)
           if (Buffer.byteLength(objText, "utf8") > INLINE_MAX_BYTES) {
             const total = objText.length
             const start = Math.min(offset, total)
@@ -123,7 +123,7 @@ export function registerResponseTools(server: McpServer, _client: GangtiseClient
               next_offset: end < total ? end : null,
               _note: `大对象按字符 offset 分片：每次最多 ${TEXT_CHUNK_CHARS} 字符，拼接各片得到完整 JSON（limit 对此形状无效）`,
             }
-            return { content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }] }
+            return { content: [{ type: "text" as const, text: JSON.stringify(payload) }] }
           }
           const payload = {
             data,
@@ -134,7 +134,7 @@ export function registerResponseTools(server: McpServer, _client: GangtiseClient
             has_more: false,
             next_offset: null,
           }
-          return { content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }] }
+          return { content: [{ type: "text" as const, text: JSON.stringify(payload) }] }
         }
 
         const total = list.length
@@ -147,7 +147,7 @@ export function registerResponseTools(server: McpServer, _client: GangtiseClient
         let end = start
         let sliceBytes = 0
         while (end < hardEnd) {
-          sliceBytes += Buffer.byteLength(JSON.stringify(list[end], null, 2), "utf8")
+          sliceBytes += Buffer.byteLength(JSON.stringify(list[end]), "utf8")
           if (end > start && sliceBytes > INLINE_MAX_BYTES) break
           end += 1
         }
@@ -167,7 +167,7 @@ export function registerResponseTools(server: McpServer, _client: GangtiseClient
             : {}),
         }
 
-        return { content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }] }
+        return { content: [{ type: "text" as const, text: JSON.stringify(payload) }] }
       } catch (err) {
         return { content: [{ type: "text" as const, text: errorMessage(err) }], isError: true }
       }

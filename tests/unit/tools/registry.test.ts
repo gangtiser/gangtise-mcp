@@ -78,7 +78,7 @@ describe("buildToolContent", () => {
     expect(result.extra).toBe("meta")
     expect(result.has_more).toBe(true)
     expect(result).not.toHaveProperty("next_from")
-    expect(result._total_bytes).toBe(Buffer.byteLength(JSON.stringify(data, null, 2), "utf8"))
+    expect(result._total_bytes).toBe(Buffer.byteLength(JSON.stringify(data), "utf8"))
     expect(typeof result._saved_to).toBe("string")
 
     const savedTo = result._saved_to as string
@@ -98,7 +98,7 @@ describe("buildToolContent", () => {
     expect(result.list).toHaveLength(20)
     expect(result.has_more).toBe(true)
     expect(result).not.toHaveProperty("next_from")
-    expect(result._total_bytes).toBe(Buffer.byteLength(JSON.stringify(items, null, 2), "utf8"))
+    expect(result._total_bytes).toBe(Buffer.byteLength(JSON.stringify(items), "utf8"))
     expect(typeof result._saved_to).toBe("string")
 
     const savedTo = result._saved_to as string
