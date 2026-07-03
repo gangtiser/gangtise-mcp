@@ -4,6 +4,14 @@
 
 ## Changelog
 
+### 0.1.39 (2026-07-03)
+- 对抗式审查后续（性能 / 健壮性 / 可用性，逐条单独核实实现）：
+  - **响应 JSON 改紧凑序列化**：去掉模型可见输出与落盘文件的 2 空格缩进——实测日 K 载荷 -38% 字节（59KB→36.8KB），纯 token 节省；256KB 内联阈值 / 落盘 / `gangtise_read_response` 分页字节预算全部按紧凑字节统一度量，更多数据得以内联、减少续读往返（`context.ts` 小日期载荷与 `auth.ts` 令牌缓存保留原格式）
+  - **异步 AI 默认等待 180s→55s**：原 180s 超过 MCP 客户端约 60s 请求超时，客户端在服务端返回 `{dataId, status:"timeout"}` 前即断开，计费任务的 dataId 丢失、无从 `*_check` 续查；55s 让超时响应及时返回。`GANGTISE_MCP_ASYNC_TIMEOUT_MS` 语义不变（可调高，或按调用传 `waitSeconds` 最大 180）
+  - **K 线市场/工具错配预校验**：`.HK`/`.O` 代码传给 A 股 `gangtise_day_kline`（或 A 股代码传 `_hk`/`_us`）此前打到上游返回静默空列表、与「区间无数据」难辨；现在明显跨市场错配在请求前抛错并点名正确工具、不花 API（跳过 `security:'all'` 与未知后缀防误伤；指数 / 分钟 / 实时接口不校验）
+  - **429 限流退避尊重 Retry-After**：429 此前与 5xx 共用 400ms/4s 退避且丢弃 `Retry-After` 头（狂敲已限流的接口）；现 429 走更狠的 2s 基 / 15s 顶退避，服务端 `Retry-After`（429 或 503）更长时采纳并封顶 15s（防超大/恶意值卡死），JSON 与下载两条请求路径均覆盖；5xx / 网络退避逐字节不变，重试次数仍为 2
+- 测试 234 → 246
+
 ### 0.1.38 (2026-07-03)
 - 对抗式审查（6 维度并行 + 逐条对抗核实）后的工具描述 / schema 收紧：
   - **枚举收紧防静默 no-op**：`gangtise_summary_list` 会议纪要类别修正为实测有效的 9 值集（删无效的 `expertInterview`/`fieldResearch`/`industryConference`——上游对未知值静默忽略过滤、返回全量 17 万条）；`gangtise_research_list` / `gangtise_foreign_report_list` 修正 `quantitative`→`quant` 并补齐 15 值集；连同 fundamental / ai / vault / indicator 共 18 组闭集参数（报告期、报表类型、拆分、股东类型、估值指标、查询模式、管理层讨论维度、内容类型、币种、量纲、日历类型等）从宽松 `string` 收紧为 `z.enum`——非法值在 MCP schema 层即拒绝，不再打到上游得静默 no-op 或不透明错误（取值全部对 CLI 文档闭集核实）
@@ -43,15 +51,6 @@
   - 分页：首页短返回/中间页欠填但 `total` 表明还有数据时，标记 `_partial` + `short_page`（对齐 loud-partial 契约，此前是无标记的静默数据空洞）
   - K 线 `limit`/`security` 参数描述补关键语义：上游从窗口开头截取（取「最近 N 条」须传日期区间）；`security:'all'` 须同时传两个日期
 - 测试 195 → 203
-
-### 0.1.34 (2026-07-02)
-- 对抗式审查（7 路并行审查 + 反驳式验证）第一批修复：
-  - 下载：文件名含字面 `%`（如「盈利增长50%点评.pdf」，研报标题常见）不再抛 `URIError` 令整个下载失败；decode 失败回退原始文件名
-  - 下载：带 `content-disposition` 的 JSON 文件附件按原始字节返回，不再被误当 API 信封剥壳（内容改写）或误判为 API 错误（云盘自存 `.json` 场景）
-  - 异步 AI：`*_check` 对「已完成但内容为空」的任务不再永远返回 pending（truthiness 判断改 `!= null`）；submit→poll 路径空内容同样返回「内容为空」提示而非空白文本块
-  - 大响应：预览超限降级为 metadata-only 时 `has_more` 按 `_total_items` 重算，不再误报 `false` 误导调用方跳过整份落盘数据
-  - 全市场 K 线：缺任一日期时同样注入 10000 行上限（对齐 CLI 行为；实测上游当前对开区间全市场返回空数据或「行情查询超出限制」，此为防御性对齐，防上游语义变化后出现 6000 行静默截断）
-- 测试 189 → 195
 
 ## 功能覆盖
 
