@@ -65,8 +65,8 @@ const jsonSpecs: JsonToolSpec[] = [
       startDate: dateString.optional().describe(dateDesc()),
       endDate: dateString.optional().describe(dateDesc()),
       categoryList: z.array(z.string()).optional().describe("morningBriefing=早报 | noonBriefing=午报 | afternoonFlash=午后快讯 | eveningBriefing=晚报"),
-      withRelatedSecurities: z.boolean().optional(),
-      withCloseReading: z.boolean().optional(),
+      withRelatedSecurities: z.boolean().optional().describe("是否返回话题关联证券（默认 true；只需话题清单时传 false 精简响应）"),
+      withCloseReading: z.boolean().optional().describe("是否返回话题精读长文（默认 true；传 false 可大幅减小响应体积）"),
     },
   },
   {
@@ -288,7 +288,7 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
     description: "生成 AI 业绩点评报告。提交任务后等待最多 waitSeconds 秒（默认 180s），超时返回 dataId。",
     inputSchema: {
       securityCode: z.string().describe("仅支持 A 股证券代码"),
-      period: z.string().describe("格式：2025q1 | 2025q3 | 2025interim | 2025annual"),
+      period: z.string().regex(/^\d{4}(q1|interim|q3|annual)$/, "格式：<年份>q1|interim|q3|annual（小写），如 2025q3").describe("报告期，格式 <年份>q1 | <年份>interim | <年份>q3 | <年份>annual，如 2025q3；仅覆盖最近 6 期"),
     },
     submitEndpoint: "ai.earnings-review.get-id",
     pollEndpoint: "ai.earnings-review.get-content",
