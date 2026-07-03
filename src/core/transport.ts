@@ -83,6 +83,25 @@ export interface RetryOptions {
   onRetry?: (attempt: number, error: unknown, delayMs: number) => void
 }
 
+/** Rate limits (HTTP 429) and any response carrying a Retry-After header get a
+ * patient, capped backoff — hammering a throttled API only extends the throttle.
+ * 5xx and network errors keep the fast generic backoff unchanged. */
+const RATE_LIMIT_BASE_DELAY = 2_000
+const RATE_LIMIT_MAX_DELAY = 15_000
+
+export function computeRetryDelay(error: unknown, attempt: number, baseDelay: number, maxDelay: number): number {
+  const retryAfterMs = error instanceof ApiError ? error.retryAfterMs : undefined
+  const isRateLimit = error instanceof ApiError && error.statusCode === 429
+  const base = isRateLimit ? RATE_LIMIT_BASE_DELAY : baseDelay
+  const ceil = isRateLimit || retryAfterMs !== undefined ? RATE_LIMIT_MAX_DELAY : maxDelay
+  const jitter = Math.random() * base
+  let delay = Math.min(ceil, base * 2 ** attempt + jitter)
+  // Honor Retry-After when the server asks for longer, capped so a huge or
+  // hostile value can't stall the request past the ceiling.
+  if (retryAfterMs !== undefined) delay = Math.min(ceil, Math.max(delay, retryAfterMs))
+  return delay
+}
+
 export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions = {}): Promise<T> {
   const retries = options.retries ?? 2
   const baseDelay = options.baseDelayMs ?? 400
@@ -94,8 +113,7 @@ export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions =
       return await fn()
     } catch (error) {
       if (attempt >= retries || !isRetryableError(error)) throw error
-      const jitter = Math.random() * baseDelay
-      const delay = Math.min(maxDelay, baseDelay * 2 ** attempt + jitter)
+      const delay = computeRetryDelay(error, attempt, baseDelay, maxDelay)
       options.onRetry?.(attempt + 1, error, delay)
       await new Promise(resolve => setTimeout(resolve, delay))
       attempt++

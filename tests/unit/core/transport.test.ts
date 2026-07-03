@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { runWithConcurrency, withRetry, markRetryable } from "../../../src/core/transport.js"
+import { runWithConcurrency, withRetry, markRetryable, computeRetryDelay } from "../../../src/core/transport.js"
 import { ApiError } from "../../../src/core/errors.js"
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -103,5 +103,41 @@ describe("withRetry", () => {
       return "ok"
     }, { ...fast, onRetry })
     expect(onRetry).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe("computeRetryDelay", () => {
+  // 5th ApiError arg is retryAfterMs (parsed from the Retry-After header).
+  const rateLimited = (ms: number) => new ApiError("rate limited", undefined, 429, undefined, ms)
+
+  it("backs off harder for HTTP 429 than a generic 5xx at the same attempt", () => {
+    const rate = computeRetryDelay(new ApiError("x", undefined, 429), 0, 400, 4_000)
+    const generic = computeRetryDelay(new ApiError("x", undefined, 500), 0, 400, 4_000)
+    expect(rate).toBeGreaterThanOrEqual(2_000)
+    expect(rate).toBeLessThan(4_000)
+    expect(rate).toBeGreaterThan(generic)
+  })
+
+  it("leaves the 5xx / network backoff unchanged (400ms base, 4s ceil)", () => {
+    const low = computeRetryDelay(new ApiError("x", undefined, 503), 0, 400, 4_000)
+    expect(low).toBeGreaterThanOrEqual(400)
+    expect(low).toBeLessThan(800)
+    // caps at maxDelay on a high attempt
+    expect(computeRetryDelay(new ApiError("x", undefined, 500), 6, 400, 4_000)).toBe(4_000)
+    // a non-ApiError (network) error also takes the generic path
+    expect(computeRetryDelay(new Error("reset"), 0, 400, 4_000)).toBeLessThan(800)
+  })
+
+  it("honors Retry-After when the server asks for longer than the computed backoff", () => {
+    expect(computeRetryDelay(rateLimited(10_000), 0, 400, 4_000)).toBe(10_000)
+  })
+
+  it("caps a huge or hostile Retry-After at the 15s ceiling", () => {
+    expect(computeRetryDelay(rateLimited(600_000), 0, 400, 4_000)).toBe(15_000)
+  })
+
+  it("honors Retry-After on a non-429 status too (e.g. 503)", () => {
+    const e = new ApiError("unavailable", undefined, 503, undefined, 5_000)
+    expect(computeRetryDelay(e, 0, 400, 4_000)).toBe(5_000)
   })
 })

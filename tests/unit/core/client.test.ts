@@ -77,6 +77,19 @@ describe("GangtiseClient.requestJson", () => {
     })
     expect(await client.call("ai.one-pager", { securityCode: "600519.SH" })).toEqual({ answer: 42 })
   })
+
+  it("surfaces the Retry-After header on a rate-limited (429) ApiError", async () => {
+    requestMock.mockResolvedValue({
+      statusCode: 429,
+      headers: { "content-type": "application/json", "retry-after": "10" },
+      body: { text: vi.fn().mockResolvedValue(JSON.stringify({ code: "429", msg: "rate limited" })) },
+    })
+    const client = tokenClient()
+    // ai.earnings-review.get-id is noRetry, so the 429 throws immediately without
+    // triggering the multi-second rate-limit backoff — keeps this test fast.
+    await expect(client.call("ai.earnings-review.get-id", { securityCode: "600519.SH" }))
+      .rejects.toMatchObject({ statusCode: 429, retryAfterMs: 10_000 })
+  })
 })
 
 describe("GangtiseClient auth recovery", () => {
@@ -411,6 +424,26 @@ describe("GangtiseClient download content handling", () => {
     await expect(
       tokenClient().call("insight.research.download", undefined, { reportId: "999" }),
     ).rejects.toThrow(/Download failed \(HTTP 404\): Report 999 not found/)
+  })
+
+  it("surfaces the Retry-After header on a rate-limited (429) download", async () => {
+    // 429 is retryable, so a persistent one runs the full 2-retry backoff — fake
+    // timers fast-forward the (8s each) rate-limit waits so the test stays instant.
+    vi.useFakeTimers()
+    try {
+      requestMock.mockResolvedValue({
+        statusCode: 429,
+        headers: { "content-type": "text/plain", "retry-after": "8" },
+        body: { text: vi.fn().mockResolvedValue("rate limited"), arrayBuffer: vi.fn() },
+      })
+      const settled = tokenClient()
+        .call("insight.research.download", undefined, { reportId: "1" })
+        .then(() => null, (e) => e as { statusCode?: number; retryAfterMs?: number })
+      await vi.runAllTimersAsync()
+      expect(await settled).toMatchObject({ statusCode: 429, retryAfterMs: 8_000 })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

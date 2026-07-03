@@ -148,13 +148,23 @@ export class GangtiseClient {
     }
   }
 
-  private throwHttpError(parsed: unknown, statusCode: number): never {
+  /** Parse a Retry-After header (delta-seconds or HTTP-date) into ms, or undefined. */
+  private parseRetryAfterMs(raw: string | string[] | undefined): number | undefined {
+    const value = Array.isArray(raw) ? raw[0] : raw
+    if (!value) return undefined
+    const seconds = Number(value)
+    if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000)
+    const date = Date.parse(value)
+    return Number.isFinite(date) ? Math.max(0, date - Date.now()) : undefined
+  }
+
+  private throwHttpError(parsed: unknown, statusCode: number, retryAfterMs?: number): never {
     if (isEnvelope(parsed)) {
       const code = parsed.code === undefined ? undefined : String(parsed.code)
-      throw new ApiError(parsed.msg || `API request failed (HTTP ${statusCode})`, code, statusCode, parsed)
+      throw new ApiError(parsed.msg || `API request failed (HTTP ${statusCode})`, code, statusCode, parsed, retryAfterMs)
     }
 
-    throw new ApiError(`API request failed (HTTP ${statusCode})`, undefined, statusCode, parsed)
+    throw new ApiError(`API request failed (HTTP ${statusCode})`, undefined, statusCode, parsed, retryAfterMs)
   }
 
   private async readLocalLookup(endpoint: EndpointDefinition) {
@@ -356,6 +366,7 @@ export class GangtiseClient {
       })
       const text = await response.body.text()
       logTiming(`${endpoint.method} ${endpoint.path}`, Date.now() - startedAt, `${response.statusCode}, ${text.length}B`)
+      const retryAfterMs = response.statusCode >= 400 ? this.parseRetryAfterMs(response.headers['retry-after']) : undefined
 
       let parsed: Envelope<T>
       try {
@@ -364,12 +375,12 @@ export class GangtiseClient {
         const message = response.statusCode >= 400
           ? `API request failed (HTTP ${response.statusCode})`
           : 'Failed to parse API response'
-        throw new ApiError(message, undefined, response.statusCode, text.slice(0, 500))
+        throw new ApiError(message, undefined, response.statusCode, text.slice(0, 500), retryAfterMs)
       }
 
       try {
         if (response.statusCode >= 400) {
-          this.throwHttpError(parsed, response.statusCode)
+          this.throwHttpError(parsed, response.statusCode, retryAfterMs)
         }
         return unwrapEnvelope(parsed, response.statusCode)
       } catch (error) {
@@ -428,6 +439,7 @@ export class GangtiseClient {
       const contentDisposition = Array.isArray(response.headers['content-disposition'])
         ? response.headers['content-disposition'][0]
         : response.headers['content-disposition']
+      const retryAfterMs = response.statusCode >= 400 ? this.parseRetryAfterMs(response.headers['retry-after']) : undefined
 
       // A JSON body carrying content-disposition is a real file attachment (e.g.
       // a user-stored .json in the vault drive), not an API envelope — fall
@@ -440,7 +452,7 @@ export class GangtiseClient {
           parsed = JSON.parse(text)
         } catch {
           if (response.statusCode >= 400) {
-            throw new ApiError(`Download failed (HTTP ${response.statusCode}): ${text.trim().slice(0, 200)}`, undefined, response.statusCode, text)
+            throw new ApiError(`Download failed (HTTP ${response.statusCode}): ${text.trim().slice(0, 200)}`, undefined, response.statusCode, text, retryAfterMs)
           }
           return { text, contentType }
         }
@@ -448,7 +460,7 @@ export class GangtiseClient {
         let data: unknown
         try {
           if (response.statusCode >= 400) {
-            this.throwHttpError(parsed, response.statusCode)
+            this.throwHttpError(parsed, response.statusCode, retryAfterMs)
           }
           data = unwrapEnvelope(parsed as Envelope<unknown>, response.statusCode)
         } catch (error) {
@@ -465,14 +477,14 @@ export class GangtiseClient {
         const text = await response.body.text()
         logTiming(`GET ${endpoint.path} (text)`, Date.now() - startedAt, `${response.statusCode}, ${text.length}B`)
         if (response.statusCode >= 400) {
-          throw new ApiError(`Download failed (HTTP ${response.statusCode}): ${text.trim().slice(0, 200)}`, undefined, response.statusCode, text)
+          throw new ApiError(`Download failed (HTTP ${response.statusCode}): ${text.trim().slice(0, 200)}`, undefined, response.statusCode, text, retryAfterMs)
         }
         return { text, contentType }
       }
 
       if (response.statusCode >= 400) {
         const text = await response.body.text()
-        throw new ApiError(`Download failed (HTTP ${response.statusCode}): ${text.trim().slice(0, 200)}`, undefined, response.statusCode, text)
+        throw new ApiError(`Download failed (HTTP ${response.statusCode}): ${text.trim().slice(0, 200)}`, undefined, response.statusCode, text, retryAfterMs)
       }
 
       const filenameMatch = contentDisposition?.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i)

@@ -47,6 +47,8 @@ export class ApiError extends CliError {
     readonly code?: string,
     readonly statusCode?: number,
     readonly details?: unknown,
+    /** Parsed from a Retry-After response header (ms), when the server sent one. */
+    readonly retryAfterMs?: number,
   ) {
     super(message)
     this.hint = code ? ERROR_HINTS[code] : undefined
