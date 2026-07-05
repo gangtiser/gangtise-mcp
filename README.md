@@ -1,8 +1,23 @@
 # gangtise-mcp
 
-基于 [Gangtise OpenAPI](https://open.gangtise.com) 的 MCP（Model Context Protocol）服务，让 Claude 等 AI 助手直接访问 Gangtise 投研平台数据。
+基于 [Gangtise OpenAPI](https://open.gangtise.com) 的 MCP（Model Context Protocol）服务，让 Workbuddy, OpenClaw, Hermes, Cherry Studio, Cursor, Claude, Codex 等 AI 助手直接访问 Gangtise 投研平台数据。
 
 ## Changelog
+
+### 0.1.40 (2026-07-05)
+- 对抗式审查 batch 3 收尾（健壮性 / 参数一致性 / 描述路由 / 工具注解，逐条单独核实）：
+  - **健壮性修复（3 个真行为 bug）**：
+    - token 缓存写失败不再连累当前请求（#35）——token 已在内存中有效、落盘仅是跨进程缓存优化；此前只读 home / ENOSPC 写盘抛错会让触发刷新的在途请求（及并发等待者）一起失败，现在吞掉写错误（`verbose` 记日志）、请求照常返回数据
+    - 超大截断预览收缩为样本而非清空（#33）——20 行预览本身超内联预算时（大行如公告全文），此前整份 list 被丢、模型拿到零示例行无从得知字段；现在样本逐级减半（20→10→5→2→1）直到装下、保留几行真数据，单行都装不下才退回 metadata-only 并以 `_first_item_keys` 暴露首行字段名（落盘文件不变，`has_more`/`next_offset` 指向样本之后供续读）
+    - async `_check` 终态失败带出原因（#36）——`410111`（失败）分支此前只返回 `{status,dataId}` 丢了 reason，模型无从判断为何失败或是否该重提；现补 `error`（错误码 + 可操作提示），与 submit 路径一致
+  - **K 线/实时字段参数统一为 `fieldList`（#32）**：quote 工具原用 `field`，而 13 个基本面工具及上游 body key 都用 `fieldList`；zod v3 strip 静默丢弃未知 key，习惯性给 K 线/实时工具传 `fieldList` 会被无声丢弃、拿回未过滤全字段数据。跨 `commonKlineSchema` / 分钟线 / 实时 / `buildKlineBody` / 美股默认字段回退统一改名，不设别名（两个同义词只会误导模型）
+  - **内联阈值可配置，默认 256KB → 64KB（#16）**：`INLINE_MAX_BYTES` 原在 `registry.ts` + `response.ts` 硬编码两处，统一到 `config.ts` 单一来源、env 可覆盖 `GANGTISE_INLINE_MAX_BYTES`（下限 8KB）。降到 64KB（约 15-20K token）——单个结果落入客户端典型显示预算内，且落盘结果总留可分页预览指针，64-256KB 响应从「整块 dump 无分页退路」变为可经 `gangtise_read_response` 续读（批量导出会话可调高）
+  - **工具描述 / 路由指引**：
+    - 重叠工具补「何时用我 vs 另一个」路由指引（#28）——`gangtise_knowledge_batch` / `gangtise_edb_search` / `gangtise_indicator_search`（语义搜索 vs 结构化 `*_list`；EDB 宏观/行业 vs EDE 证券级）
+    - async submit describe 警告任务计费且非幂等（用返回的 `dataId` 配 `*_check`、勿重提），`_check` describe 说明 `dataId` 来源及 pending=继续轮询（#29）
+    - `gangtise_securities_search` category `z.string()`→`z.enum`（stock/dr/index/fund）非法值边界拒绝、不再静默 no-op；补 `research_list` rankType（1=综合默认 | 2=时间倒序）、top gains `.max(10)` 等 X5 schema 收紧漏网 describe（#30/#31）
+  - **全工具声明 `openWorldHint: false`（#37）**：每个工具只触达单一封闭域 API（Gangtise）或纯本地数据、从不触达开放世界，MCP 把缺失的 `openWorldHint` 当 true，故 26 个工具注解全部显式置 false（async submit 保持 `readOnlyHint:false`，其余 `readOnlyHint:true`），集成测试钉住该不变式
+- 测试 246 → 250
 
 ### 0.1.39 (2026-07-03)
 - 对抗式审查后续（性能 / 健壮性 / 可用性，逐条单独核实实现）：
@@ -39,18 +54,6 @@
   - 移除 `workflow_dispatch` 触发器——手动触发会跳过 tag↔版本一致性校验、从分支直接发版
 - 测试补盲区（210 个）：token 刷新 single-flight 并发去重、`gangtise_read_response` 拒绝他进程创建的同前缀目录（钉住 0.1.28 的进程隔离语义）、港股 2 天/片分片边界（无重叠无缺日+尾片截断）、indicator 内层失败信封 → `isError`（上述真 bug 即由此测试暴露）
 - README 修正：大响应章节改为真实路径与 `gangtise_read_response` 续读指引（此前写 `/tmp/...` 且教直接读文件，无文件能力的客户端走不通）、字段表补 `_read_with`、前置要求改 Node ≥ 20.18.1（对齐 engines）
-
-### 0.1.35 (2026-07-02)
-- 对抗式审查第二批修复（防线加固）：
-  - `gangtise_read_response`：list 分页新增 256KB 字节预算——单行巨大（公告全文等）时按字节截短本页并给 `next_offset` 指引，不再一次内联数 MB 击穿截断契约
-  - 全市场 K 线：分片数护栏（>180 片直接拒绝并提示缩小区间）——此前多年区间会先成功拉完全部分片、再在合并序列化时撞 V8 字符串上限（RangeError），数分钟抓取全部作废
-  - 文本切片（read_response 文本/大对象分片、大文本预览）不再切开 surrogate pair——70K 字符边界落在 emoji 等 4 字节字符中间时产生孤立代理项，严格 UTF-8 消费端会拒收
-  - `gangtise_read_response` 读取时刷新落盘目录 mtime——防第二个实例的 24h 启动清扫误删仍在使用的长会话（Claude Desktop 常驻场景）落盘文件
-  - auth 自愈：`noRetry` 端点（计费 submit）刷新 token 成功后现在会重放一次请求（auth 被拒的请求未到达后端处理器，重放不会重复扣费；此前刷新成功但直接把 auth 错误抛给用户）
-  - auth 自愈：强制刷新前先重读共享 token 缓存文件——若同机 gangtise CLI 已刷新，直接采纳其 token，不再重复登录互相顶号
-  - 分页：首页短返回/中间页欠填但 `total` 表明还有数据时，标记 `_partial` + `short_page`（对齐 loud-partial 契约，此前是无标记的静默数据空洞）
-  - K 线 `limit`/`security` 参数描述补关键语义：上游从窗口开头截取（取「最近 N 条」须传日期区间）；`security:'all'` 须同时传两个日期
-- 测试 195 → 203
 
 ## 功能覆盖
 
