@@ -4,6 +4,17 @@
 
 ## Changelog
 
+### 0.1.41 (2026-07-06)
+- 同步 gangtise-openapi-cli v0.23：
+  - **默认 API 域名迁移** `open.gangtise.com` → `openapi.gangtise.com`（新旧域名多接口实测等价、旧域名仍可用；固定旧域名设 `GANGTISE_BASE_URL=https://open.gangtise.com`）
+  - **新增 `gangtise_fund_flow`**（A 股个股日资金流向，沪深北）——含小/中/大/特大单流入流出金额及占比、主力净流入等字段；免费。`security` 传单/多只代码（仅 A 股沪深北，传港/美股代码本地即报错，不静默返空），或 `'aShares'` 配合 `startDate`/`endDate` 拉全市场（自动按 1 天/片分片合并，缺日期本地报错）
+  - **新增 `gangtise_institution_search`**（机构 ID 搜索）——按机构名/简称返回 `institutionId` 及 `usageScopes`（标明用于哪个接口的哪个参数），覆盖内资券商/外资/牵头/观点/外资观点机构，供各 list 工具 `institutionList`/`brokerList` 等参数使用；免费
+  - **`gangtise_my_conference_list` 新增 `sourceList`**——按录制来源筛选（1=企微会议助理 | 2=会议服务微信群，可多选）
+  - **`gangtise_wechat_chatroom_list` 适配服务端改版**——上游改返 `{total, list}`（原 `chatRoomList` 且无 total），改为标准分页端点按 `total` 并发翻页（旧的 `chatRoomList` 串行翻页对新结构会漏读）；省略 `size` 拉全部群、传 `size` 取前 N 条，`roomName` 多值仍以逗号拼接为标量下发
+  - **行情截断防静默**——无翻页行情端点（`gangtise_fund_flow` / `gangtise_minute_kline` / 显式多标的日 K〔A/港/美〕/ 指数日 K）单次请求返回行数达到 `limit`（默认 6000 / 上限 10000）时标 `_partial`（`limit_truncated`）；默认 `limit=6000` 现显式写入请求体，令截断判定不受服务端默认值漂移影响（分钟 K `limit` 描述笔误 5000→6000 一并修正）。`security='all'` 全市场分片路径同样在分片失败或单片撞行数上限时标 `_partial`（`failed_shards` / `limit_truncated`），不再只标失败。混用 `'all'`/`'aShares'` 与具体代码本地即报错（避免落到无 limit 注入/不标截断的裸请求）
+- 对齐 CLI v0.23 源码：清理 `normalize.ts` 已失效的 `chatRoomList` 分支（服务端改返 `list`）；各 list 工具的 broker/institution ID 参数描述改为优先引导 `gangtise_institution_search`，并按接口标注对应机构分类（内资研报=`domesticBroker` / 外资研报=`foreignInstitution` / 内资观点=`opinionInstitution` / 外资观点=`foreignOpinionInstitution` / 纪要·路演·调研·策略=`leadInstitution`），模型可直接带 `categoryList` 精确搜；本地静态表仅作全量枚举兜底
+- 测试 250 → 265
+
 ### 0.1.40 (2026-07-05)
 - 对抗式审查 batch 3 收尾（健壮性 / 参数一致性 / 描述路由 / 工具注解，逐条单独核实）：
   - **健壮性修复（3 个真行为 bug）**：
@@ -61,11 +72,11 @@
 <thead><tr><th width="100">类别</th><th>工具</th></tr></thead>
 <tbody>
 <tr><td>上下文</td><td><code>gangtise_current_date</code> — 查询运行时当前日期、年份、时间和时区</td></tr>
-<tr><td>参考数据</td><td><code>gangtise_constant_category</code> / <code>gangtise_constant_list</code> — 行业、城市、公告分类、区域等常量；<code>gangtise_concept_search</code> — 题材 ID 搜索；<code>gangtise_sector_search</code> / <code>gangtise_sector_constituents</code> — 板块及成分股（含申万行业代码 <code>821xxx.SWI</code>）；<code>gangtise_chiefs_search</code> — 首席分析师 ID 搜索；<code>gangtise_lookup</code> — 券商机构、会议机构（本地表）</td></tr>
+<tr><td>参考数据</td><td><code>gangtise_constant_category</code> / <code>gangtise_constant_list</code> — 行业、城市、公告分类、区域等常量；<code>gangtise_concept_search</code> — 题材 ID 搜索；<code>gangtise_sector_search</code> / <code>gangtise_sector_constituents</code> — 板块及成分股（含申万行业代码 <code>821xxx.SWI</code>）；<code>gangtise_chiefs_search</code> — 首席分析师 ID 搜索；<code>gangtise_institution_search</code> — 机构 ID 搜索（内资券商/外资/牵头/观点机构）；<code>gangtise_lookup</code> — 券商机构、会议机构（本地表）</td></tr>
 <tr><td>证券检索</td><td><code>gangtise_securities_search</code></td></tr>
 <tr><td>观点/研报</td><td>国内首席观点、纪要、券商研报、外资研报、外资独立观点、公告（A股/港股/美股）</td></tr>
 <tr><td>路演/调研</td><td>路演、调研、策略会、论坛</td></tr>
-<tr><td>行情</td><td>A 股/港股/美股日 K（仅历史）、A 股分钟 K、指数日 K、实时行情快照（A/港/美）</td></tr>
+<tr><td>行情</td><td>A 股/港股/美股日 K（仅历史）、A 股分钟 K、指数日 K、实时行情快照（A/港/美）、A 股个股资金流向（日频）</td></tr>
 <tr><td>基本面</td><td>A股/港股/美股利润表、资产负债表、现金流量表（累计/单季）、主营业务、估值、股东、盈利预测</td></tr>
 <tr><td>AI 能力</td><td>知识库检索、个股看点、一页通、投资逻辑、同业对比、线索、主题跟踪、业绩点评、观点辩证、管理层讨论</td></tr>
 <tr><td>云盘/语音</td><td>网盘文件、录音转写、我的会议、群消息、自选股池</td></tr>
@@ -212,7 +223,7 @@ Remove-Item -Recurse -Force $env:LOCALAPPDATA\npm-cache\_npx
 | `GANGTISE_ACCESS_KEY` | — | 开放平台 Access Key（与 SECRET_KEY 配对使用） |
 | `GANGTISE_SECRET_KEY` | — | 开放平台 Secret Key |
 | `GANGTISE_TOKEN` | — | 直接传 Bearer Token（优先于 Key/Secret，适合临时使用） |
-| `GANGTISE_BASE_URL` | `https://open.gangtise.com` | API 基础地址 |
+| `GANGTISE_BASE_URL` | `https://openapi.gangtise.com` | API 基础地址（旧域名 `https://open.gangtise.com` 仍可用） |
 | `GANGTISE_TIMEOUT_MS` | `30000` | 单次请求超时（毫秒） |
 | `GANGTISE_MCP_ASYNC_TIMEOUT_MS` | `55000` | 异步 AI 任务默认等待超时（毫秒）；保持在 MCP 客户端请求超时（约 60s）以下，超时返回 dataId 供 `*_check` 续查。需更长等待可调高本值或按调用传 `waitSeconds`（最大 180） |
 | `GANGTISE_TOKEN_CACHE_PATH` | `~/.config/gangtise/token.json` | Token 缓存文件路径 |

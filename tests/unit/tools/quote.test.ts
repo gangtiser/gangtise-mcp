@@ -154,6 +154,18 @@ describe("gangtise_day_kline market-mismatch precheck", () => {
     expect(client.call).toHaveBeenCalledTimes(2)
   })
 
+  it("rejects mixing 'all' with a specific code before calling the API", async () => {
+    const client = makeMockClient()
+    const mcp = await connect(client)
+    const result = await mcp.callTool({
+      name: "gangtise_day_kline",
+      arguments: { security: ["all", "600519.SH"], startDate: "2026-04-01", endDate: "2026-04-30" },
+    })
+    expect(result.isError).toBe(true)
+    expect((result.content as Array<{ text: string }>)[0].text).toContain("不能混用")
+    expect(client.call).not.toHaveBeenCalled()
+  })
+
   it("skips the check for security='all' and for the index tool", async () => {
     const client = makeMockClient()
     const mcp = await connect(client)
@@ -183,5 +195,149 @@ describe("gangtise_day_kline fieldList param", () => {
     })
     const body = (client.call as ReturnType<typeof vi.fn>).mock.calls[0][1] as Record<string, unknown>
     expect(body.fieldList).toEqual(["open", "close"])
+  })
+})
+
+// fund-flow (v0.23): A-share daily fund flow. Single/explicit securities are a
+// plain request; the 'aShares' full-market sentinel day-shards like security='all'
+// but requires an explicit date range (upstream errors rather than truncating).
+describe("gangtise_fund_flow", () => {
+  it("forwards a single security to quote.fund-flow without sharding", async () => {
+    const client = makeMockClient()
+    const mcp = await connect(client)
+    await mcp.callTool({
+      name: "gangtise_fund_flow",
+      arguments: { security: "600519.SH", startDate: "2026-04-01", endDate: "2026-04-30", fieldList: ["mainNetInflow"] },
+    })
+    expect(client.call).toHaveBeenCalledTimes(1)
+    const [key, body] = (client.call as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(key).toBe("quote.fund-flow")
+    expect(body).toMatchObject({ securityList: ["600519.SH"], startDate: "2026-04-01", endDate: "2026-04-30", fieldList: ["mainNetInflow"] })
+  })
+
+  it("rejects aShares full-market without both dates, no API call", async () => {
+    const client = makeMockClient()
+    const mcp = await connect(client)
+    const result = await mcp.callTool({
+      name: "gangtise_fund_flow",
+      arguments: { security: "aShares", startDate: "2026-04-01" },
+    })
+    expect(result.isError).toBe(true)
+    expect(client.call).not.toHaveBeenCalled()
+  })
+
+  it("rejects a non-A-share code (fund flow is 沪深北 only), no API call", async () => {
+    const client = makeMockClient()
+    const mcp = await connect(client)
+    const result = await mcp.callTool({
+      name: "gangtise_fund_flow",
+      arguments: { security: "00700.HK", startDate: "2026-04-01", endDate: "2026-04-30" },
+    })
+    expect(result.isError).toBe(true)
+    expect((result.content as Array<{ text: string }>)[0].text).toContain("A 股")
+    expect(client.call).not.toHaveBeenCalled()
+  })
+
+  it("pins the default 6000 limit in the request body (exact truncation detection)", async () => {
+    const client = makeMockClient()
+    const mcp = await connect(client)
+    await mcp.callTool({ name: "gangtise_fund_flow", arguments: { security: "600519.SH" } })
+    const body = (client.call as ReturnType<typeof vi.fn>).mock.calls[0][1] as Record<string, unknown>
+    expect(body.limit).toBe(6000)
+  })
+
+  it("rejects mixing 'aShares' with a specific code before calling the API", async () => {
+    const client = makeMockClient()
+    const mcp = await connect(client)
+    const result = await mcp.callTool({
+      name: "gangtise_fund_flow",
+      arguments: { security: ["aShares", "600519.SH"], startDate: "2026-04-01", endDate: "2026-04-30" },
+    })
+    expect(result.isError).toBe(true)
+    expect(client.call).not.toHaveBeenCalled()
+  })
+
+  it("day-shards a multi-day aShares full-market range", async () => {
+    const client = {
+      call: vi.fn().mockResolvedValue({ list: [{ x: 1 }], total: 1 }),
+      download: vi.fn(),
+    } as unknown as GangtiseClient
+    const mcp = await connect(client)
+    const result = await mcp.callTool({
+      name: "gangtise_fund_flow",
+      arguments: { security: "aShares", startDate: "2026-04-01", endDate: "2026-04-03" },
+    })
+    expect(result.isError).toBeFalsy()
+    expect(client.call).toHaveBeenCalledTimes(3) // 3 one-day shards
+    const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text)
+    expect((parsed.list as unknown[]).length).toBe(3)
+  })
+
+  it("flags _partial when a single request returns rows up to the limit", async () => {
+    const rows = Array.from({ length: 10 }, (_, i) => ({ i }))
+    const client = { call: vi.fn().mockResolvedValue({ list: rows }), download: vi.fn() } as unknown as GangtiseClient
+    const mcp = await connect(client)
+    const result = await mcp.callTool({
+      name: "gangtise_fund_flow",
+      arguments: { security: "600519.SH", limit: 10 },
+    })
+    const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text)
+    expect(parsed._partial).toBe(true)
+    expect(parsed._partial_reason).toBe("limit_truncated")
+  })
+})
+
+// v0.23: single-request (non-sharded) quote endpoints flag _partial when the row
+// count reaches the per-request limit, so a silent head-of-window truncation
+// (default cap 6000) can't read as a complete result. The security='all' sharded
+// path carries its own per-shard markers and is unaffected.
+describe("gangtise quote limit-truncation marker", () => {
+  it("flags _partial when day-kline returns rows up to the explicit limit", async () => {
+    const rows = Array.from({ length: 3 }, (_, i) => ({ i }))
+    const client = { call: vi.fn().mockResolvedValue({ list: rows }), download: vi.fn() } as unknown as GangtiseClient
+    const mcp = await connect(client)
+    const result = await mcp.callTool({
+      name: "gangtise_day_kline",
+      arguments: { security: "600519.SH", startDate: "2026-04-01", endDate: "2026-04-30", limit: 3 },
+    })
+    const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text)
+    expect(parsed._partial).toBe(true)
+    expect(parsed._partial_reason).toBe("limit_truncated")
+  })
+
+  it("does not flag when day-kline returns fewer rows than the default 6000 cap", async () => {
+    const rows = Array.from({ length: 5 }, (_, i) => ({ i }))
+    const client = { call: vi.fn().mockResolvedValue({ list: rows }), download: vi.fn() } as unknown as GangtiseClient
+    const mcp = await connect(client)
+    const result = await mcp.callTool({
+      name: "gangtise_day_kline",
+      arguments: { security: "600519.SH", startDate: "2026-04-01", endDate: "2026-04-30" },
+    })
+    const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text)
+    expect(parsed._partial).toBeUndefined()
+  })
+
+  it("pins the default 6000 limit in the explicit-security day-kline body", async () => {
+    const client = { call: vi.fn().mockResolvedValue({ list: [] }), download: vi.fn() } as unknown as GangtiseClient
+    const mcp = await connect(client)
+    await mcp.callTool({
+      name: "gangtise_day_kline",
+      arguments: { security: "600519.SH", startDate: "2026-04-01", endDate: "2026-04-30" },
+    })
+    const body = (client.call as ReturnType<typeof vi.fn>).mock.calls[0][1] as Record<string, unknown>
+    expect(body.limit).toBe(6000)
+  })
+
+  it("flags _partial when minute-kline returns rows up to the explicit limit", async () => {
+    const rows = Array.from({ length: 2 }, (_, i) => ({ i }))
+    const client = { call: vi.fn().mockResolvedValue({ list: rows }), download: vi.fn() } as unknown as GangtiseClient
+    const mcp = await connect(client)
+    const result = await mcp.callTool({
+      name: "gangtise_minute_kline",
+      arguments: { security: "600519.SH", limit: 2 },
+    })
+    const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text)
+    expect(parsed._partial).toBe(true)
+    expect(parsed._partial_reason).toBe("limit_truncated")
   })
 })

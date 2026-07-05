@@ -128,6 +128,42 @@ describe("callKlineWithSharding", () => {
     expect(call).not.toHaveBeenCalled()
   })
 
+  // v0.23: a shard whose row count reaches the per-request limit was itself capped,
+  // so its slice of that day's market is incomplete — the merged result must be flagged.
+  it("flags _partial limit_truncated when a shard's rows reach the per-shard limit", async () => {
+    const call = vi.fn().mockImplementation(async (_key: string, body: Record<string, unknown>) => {
+      // Each shard returns exactly `limit` (2) rows → a truncated slice.
+      return { fieldList: ["tradeDate"], list: [{ tradeDate: body.startDate }, { tradeDate: body.startDate }], total: 2 }
+    })
+
+    const result = await callKlineWithSharding({ call }, "quote.day-kline", {
+      securityList: ["all"],
+      startDate: "2026-04-01",
+      endDate: "2026-04-03",
+      limit: 2,
+    }, { shardDays: 1 }) as Record<string, unknown>
+
+    expect(result._partial).toBe(true)
+    expect(result._partial_reason).toBe("limit_truncated")
+    expect((result.list as unknown[]).length).toBe(6) // 3 shards × 2 rows
+  })
+
+  // The single-request full-market path (missing/short range) skips the merge loop,
+  // so it needs the same inline truncation check — e.g. index 'all' over one 30-day window.
+  it("flags _partial limit_truncated on a single full-market request that hits the limit", async () => {
+    const call = vi.fn().mockResolvedValue({ list: [{ a: 1 }, { a: 2 }], total: 2 })
+
+    const result = await callKlineWithSharding({ call }, "quote.index-day-kline", {
+      securityList: ["all"],
+      startDate: "2026-04-01", // endDate omitted → single request, no sharding
+      limit: 2,
+    }, { shardDays: 30 }) as Record<string, unknown>
+
+    expect(call).toHaveBeenCalledTimes(1)
+    expect(result._partial).toBe(true)
+    expect(result._partial_reason).toBe("limit_truncated")
+  })
+
   it("does not touch single-security queries", async () => {
     const seenBodies: Array<Record<string, unknown>> = []
     const call = vi.fn().mockImplementation(async (_key: string, body: Record<string, unknown>) => {

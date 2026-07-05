@@ -5,16 +5,13 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { registerVaultTools } from "../../../src/tools/vault.js"
 import type { GangtiseClient } from "../../../src/core/client.js"
 
-// Emulates the chatroom endpoint: slices a fixed dataset by from/size and caps
-// each page at 50 like the server (so >50 rows require serial paging). The
-// endpoint returns no `total`.
+// v0.23: the chatroom endpoint now returns `{ total, list }` and is a standard
+// paginated endpoint — the tool delegates to client.call, which (in production)
+// fans out pages via requestPaginated. The mock stands in for that already-merged
+// result, so the tool issues a single call.
 function makeChatroomClient(total: number) {
-  const dataset = Array.from({ length: total }, (_, i) => ({ chatRoomId: String(i), roomName: `room${i}` }))
-  const call = vi.fn(async (_key: string, body: Record<string, unknown>) => {
-    const from = typeof body.from === "number" ? body.from : 0
-    const size = Math.min(typeof body.size === "number" ? body.size : 50, 50)
-    return { chatRoomList: dataset.slice(from, from + size) }
-  })
+  const list = Array.from({ length: total }, (_, i) => ({ chatRoomId: String(i), roomName: `room${i}` }))
+  const call = vi.fn(async () => ({ total, list }))
   const client = { call, download: vi.fn() } as unknown as GangtiseClient
   return { client, call }
 }
@@ -31,7 +28,7 @@ async function connect(client: GangtiseClient) {
 
 function rooms(result: { content: unknown }): unknown[] {
   const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text)
-  return Array.isArray(parsed) ? parsed : ((parsed.list as unknown[]) ?? (parsed.chatRoomList as unknown[]) ?? [])
+  return Array.isArray(parsed) ? parsed : ((parsed.list as unknown[]) ?? [])
 }
 
 describe("schema validation (X5 tightening)", () => {
@@ -59,49 +56,32 @@ describe("schema validation (X5 tightening)", () => {
 })
 
 describe("gangtise_wechat_chatroom_list", () => {
-  it("serial-paginates past the 50-row server cap when size is omitted", async () => {
+  it("omits size so client.call fetches all groups, returning the merged list", async () => {
     const { client, call } = makeChatroomClient(80)
     const mcp = await connect(client)
     const result = await mcp.callTool({ name: "gangtise_wechat_chatroom_list", arguments: {} })
-    expect(rooms(result)).toHaveLength(80)
-    expect(call).toHaveBeenCalledTimes(2) // 50 + 30
-  })
-
-  it("caps at a requested size that spans more than one page", async () => {
-    const { client, call } = makeChatroomClient(80)
-    const mcp = await connect(client)
-    const result = await mcp.callTool({ name: "gangtise_wechat_chatroom_list", arguments: { size: 70 } })
-    expect(rooms(result)).toHaveLength(70)
-    expect(call).toHaveBeenCalledTimes(2) // 50 + 20
-  })
-
-  it("fetches a single page for a size under the cap", async () => {
-    const { client, call } = makeChatroomClient(80)
-    const mcp = await connect(client)
-    const result = await mcp.callTool({ name: "gangtise_wechat_chatroom_list", arguments: { size: 20 } })
-    expect(rooms(result)).toHaveLength(20)
     expect(call).toHaveBeenCalledTimes(1)
+    expect(call.mock.calls[0][0]).toBe("vault.wechat-chatroom.list")
+    // No size in the body → requestPaginated fetches every group.
+    expect(call.mock.calls[0][1]).not.toHaveProperty("size")
+    expect(rooms(result)).toHaveLength(80)
   })
 
-  it("fail-softs on a later-page failure, keeping the rows already fetched", async () => {
-    const dataset = Array.from({ length: 80 }, (_, i) => ({ chatRoomId: String(i) }))
-    const call = vi.fn(async (_key: string, body: Record<string, unknown>) => {
-      const from = typeof body.from === "number" ? body.from : 0
-      if (from > 0) throw new Error("903301 rate limited")
-      return { chatRoomList: dataset.slice(0, 50) }
-    })
-    const client = { call, download: vi.fn() } as unknown as GangtiseClient
+  it("passes an explicit size through to the paginated call", async () => {
+    const { client, call } = makeChatroomClient(3)
     const mcp = await connect(client)
-    const result = await mcp.callTool({ name: "gangtise_wechat_chatroom_list", arguments: {} })
-    expect(result.isError).toBeFalsy()
-    const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text)
-    expect(parsed.list).toHaveLength(50)
-    expect(parsed._partial).toBe(true)
-    expect(parsed._partial_reason).toContain("failed_pages")
-    expect(parsed._failed_pages[0]).toMatchObject({ from: 50 })
+    await mcp.callTool({ name: "gangtise_wechat_chatroom_list", arguments: { from: 5, size: 2 } })
+    expect(call.mock.calls[0][1]).toMatchObject({ from: 5, size: 2 })
   })
 
-  it("fails fast when the first page errors (nothing fetched yet)", async () => {
+  it("joins roomName filters into the comma-separated scalar the server expects", async () => {
+    const { client, call } = makeChatroomClient(0)
+    const mcp = await connect(client)
+    await mcp.callTool({ name: "gangtise_wechat_chatroom_list", arguments: { roomName: ["群A", "群B"] } })
+    expect(call.mock.calls[0][1]).toMatchObject({ roomName: "群A,群B" })
+  })
+
+  it("surfaces isError when the API call fails", async () => {
     const call = vi.fn(async () => {
       throw new Error("auth expired")
     })
@@ -109,5 +89,18 @@ describe("gangtise_wechat_chatroom_list", () => {
     const mcp = await connect(client)
     const result = await mcp.callTool({ name: "gangtise_wechat_chatroom_list", arguments: {} })
     expect(result.isError).toBe(true)
+  })
+})
+
+describe("gangtise_my_conference_list", () => {
+  it("forwards the v0.23 sourceList filter to the my-conference endpoint", async () => {
+    const call = vi.fn(async () => ({ total: 0, list: [] }))
+    const client = { call, download: vi.fn() } as unknown as GangtiseClient
+    const mcp = await connect(client)
+    await mcp.callTool({ name: "gangtise_my_conference_list", arguments: { sourceList: [1, 2] } })
+    expect(call).toHaveBeenCalledWith(
+      "vault.my-conference.list",
+      expect.objectContaining({ sourceList: [1, 2], size: 20 }),
+    )
   })
 })

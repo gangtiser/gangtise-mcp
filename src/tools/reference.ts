@@ -17,6 +17,30 @@ const referenceSpecs: JsonToolSpec[] = [
     },
   },
   {
+    name: "gangtise_institution_search",
+    description:
+      "按机构名称 / 简称搜索机构 ID，返回 institutionId 及 usageScopes（标明该 ID 用于哪个接口的哪个参数）。覆盖内资券商 / 外资 / 牵头 / 观点机构，供各 list 工具的 institutionList / brokerList 等参数使用。免费。提示：内资券商（domesticBroker）与外资机构（foreignInstitution）类需用较完整的机构名（如「华泰证券」「Goldman」「Morgan」），简称可能搜不到；牵头 / 观点类（leadInstitution / opinionInstitution / foreignOpinionInstitution）可用简称（如「中金」「高盛」）。",
+    endpointKey: "reference.institution-search",
+    inputSchema: {
+      keyword: z.string().trim().min(1, "搜索词不能为空").describe("搜索词：机构名称或简称"),
+      categoryList: z
+        .array(
+          z.enum([
+            "domesticBroker",
+            "foreignInstitution",
+            "leadInstitution",
+            "opinionInstitution",
+            "foreignOpinionInstitution",
+          ]),
+        )
+        .optional()
+        .describe(
+          "机构类别筛选（可多选，不传查全部）：domesticBroker=内资券商 | foreignInstitution=外资机构 | leadInstitution=牵头机构 | opinionInstitution=观点机构 | foreignOpinionInstitution=外资观点机构",
+        ),
+      top: z.number().int().min(1).max(10).optional().describe("最大返回条数（默认 10，上限 10）"),
+    },
+  },
+  {
     name: "gangtise_constant_category",
     description:
       "查询常量分类列表：返回所有常量分类及每个分类适用于哪些接口的哪些参数（usageScopes）。当前分类：citicIndustry=中信一级行业 | swIndustry=申万一级行业 | gangtiseIndustry=Gangtise行业 | domesticCity=国内城市 | aShareAnnouncementCategory=A股公告分类 | hkShareAnnouncementCategory=港股公告分类 | usShareAnnouncementCategory=美股公告分类 | regionCategory=区域分类。",

@@ -40,7 +40,7 @@ function scheduleInputSchema(fields: ScheduleFields): Record<string, z.ZodTypeAn
     keyword: z.string().optional(),
   }
   if (fields.researchArea) schema.researchAreaList = z.array(z.string()).optional().describe(SCHED_RESEARCH_AREA_DESC)
-  if (fields.institution) schema.institutionList = z.array(z.string()).optional().describe("机构 ID，来自 gangtise_lookup type=meeting-orgs")
+  if (fields.institution) schema.institutionList = z.array(z.string()).optional().describe("机构 ID（牵头机构）：用 gangtise_institution_search categoryList=['leadInstitution'] 按名称搜；需全量枚举用 gangtise_lookup type=meeting-orgs")
   if (fields.security) schema.securityList = z.array(z.string()).optional()
   if (fields.object) schema.objectList = z.array(z.string()).optional().describe("company=公司 | industry=行业")
   if (fields.category) schema.categoryList = z.array(z.string()).optional().describe(fields.category)
@@ -77,7 +77,7 @@ const listSpecs: JsonToolSpec[] = [
       researchAreaList: z.array(z.string()).optional().describe("研究方向 ID，来自 gangtise_constant_list category=gangtiseIndustry（行业 1008001xx + 方向 122000xxx：宏观/策略/固收/金工/海外/其他）"),
       chiefList: z.array(z.string()).optional().describe("首席分析师 ID 列表"),
       securityList: z.array(z.string()).optional().describe("证券代码列表，如 ['600519.SH']"),
-      brokerList: z.array(z.string()).optional().describe("券商机构 ID，来自 gangtise_lookup type=broker-orgs"),
+      brokerList: z.array(z.string()).optional().describe("机构 ID（内资观点机构）：用 gangtise_institution_search categoryList=['opinionInstitution'] 按名称搜；需全量枚举用 gangtise_lookup type=broker-orgs"),
       industryList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx，全场景首选）"),
       conceptList: z.array(z.string()).optional().describe("题材/概念 ID，来自 gangtise_concept_search，如 '121000130'（机器人）"),
       llmTagList: z.array(z.string()).optional().describe("strongRcmd=强推 | earningsReview=业绩点评 | topBroker=头部券商 | newFortune=新财富"),
@@ -98,7 +98,7 @@ const listSpecs: JsonToolSpec[] = [
       rankType: z.number().int().optional().describe("1=综合排序（默认）| 2=时间倒序"),
       researchAreaList: z.array(z.string()).optional().describe("研究方向 ID，来自 gangtise_constant_list category=gangtiseIndustry（行业 1008001xx + 方向 122000xxx：宏观/策略/固收/金工/海外/其他）"),
       securityList: z.array(z.string()).optional(),
-      institutionList: z.array(z.string()).optional().describe("机构 ID，来自 gangtise_lookup type=meeting-orgs"),
+      institutionList: z.array(z.string()).optional().describe("机构 ID（牵头机构）：用 gangtise_institution_search categoryList=['leadInstitution'] 按名称搜；需全量枚举用 gangtise_lookup type=meeting-orgs"),
       categoryList: z.array(z.enum(["earningsCall", "strategyMeeting", "fundRoadshow", "shareholdersMeeting", "maMeeting", "specialMeeting", "companyAnalysis", "industryAnalysis", "other"])).optional().describe("earningsCall=业绩会 | strategyMeeting=策略会 | fundRoadshow=基金路演 | shareholdersMeeting=股东大会 | maMeeting=并购会议 | specialMeeting=特别会议 | companyAnalysis=公司分析 | industryAnalysis=行业分析 | other=其他"),
       marketList: z.array(z.string()).optional().describe("aShares=A股 | hkStocks=港股 | usChinaConcept=中概 | usStocks=美股"),
       participantRoleList: z.array(z.string()).optional().describe("management=管理层 | expert=专家"),
@@ -135,7 +135,7 @@ const listSpecs: JsonToolSpec[] = [
       keyword: z.string().optional(),
       searchType: z.number().int().optional().describe("1=标题搜索 | 2=全文搜索"),
       rankType: z.number().int().optional().describe("1=综合排序（默认）| 2=时间倒序"),
-      brokerList: z.array(z.string()).optional().describe("券商机构 ID，来自 gangtise_lookup type=broker-orgs"),
+      brokerList: z.array(z.string()).optional().describe("券商机构 ID（内资券商）：用 gangtise_institution_search categoryList=['domesticBroker'] 按名称搜；需全量枚举用 gangtise_lookup type=broker-orgs"),
       securityList: z.array(z.string()).optional(),
       industryList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx，全场景首选）"),
       categoryList: z.array(RESEARCH_CATEGORY_ENUM).optional().describe(RESEARCH_CATEGORY_DESC),
@@ -163,7 +163,7 @@ const listSpecs: JsonToolSpec[] = [
       regionList: z.array(z.string()).optional().describe("地区 ID，来自 gangtise_constant_list category=regionCategory"),
       categoryList: z.array(RESEARCH_CATEGORY_ENUM).optional().describe(RESEARCH_CATEGORY_DESC),
       industryList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx，全场景首选）"),
-      brokerList: z.array(z.string()).optional(),
+      brokerList: z.array(z.string()).optional().describe("外资机构 ID：用 gangtise_institution_search categoryList=['foreignInstitution'] 按名称搜"),
       llmTagList: z.array(z.string()).optional().describe(LLM_TAG_DESC),
       ratingList: z.array(z.string()).optional().describe(RATING_DESC),
       ratingChangeList: z.array(z.string()).optional().describe(RATING_CHANGE_DESC),
@@ -233,7 +233,7 @@ const listSpecs: JsonToolSpec[] = [
       regionList: z.array(z.string()).optional().describe("地区 ID，来自 gangtise_constant_list category=regionCategory"),
       industryList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx，全场景首选）"),
       securityList: z.array(z.string()).optional(),
-      brokerList: z.array(z.string()).optional(),
+      brokerList: z.array(z.string()).optional().describe("外资观点机构 ID：用 gangtise_institution_search categoryList=['foreignOpinionInstitution'] 按名称搜"),
       ratingList: z.array(z.string()).optional().describe(RATING_DESC),
       ratingChangeList: z.array(z.string()).optional().describe(RATING_CHANGE_DESC),
     },

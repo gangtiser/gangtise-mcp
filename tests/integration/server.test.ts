@@ -74,6 +74,8 @@ describe("MCP server integration", () => {
     expect(names).toContain("gangtise_sector_search")
     expect(names).toContain("gangtise_sector_constituents")
     expect(names).toContain("gangtise_chiefs_search")
+    expect(names).toContain("gangtise_institution_search")
+    expect(names).toContain("gangtise_fund_flow")
     expect(names).toContain("gangtise_stock_summary")
     expect(names).toContain("gangtise_income_statement_us")
     expect(names).toContain("gangtise_balance_sheet_us")
@@ -452,6 +454,26 @@ describe("MCP server integration", () => {
       "reference.chiefs-search",
       expect.objectContaining({ keyword: "张三", top: 5 }),
     )
+  })
+
+  it("gangtise_institution_search forwards keyword and categoryList to the institutions endpoint", async () => {
+    await mcpClient.callTool({
+      name: "gangtise_institution_search",
+      arguments: { keyword: "中金", categoryList: ["domesticBroker"], top: 5 },
+    })
+    expect(mockClient.call).toHaveBeenCalledWith(
+      "reference.institution-search",
+      expect.objectContaining({ keyword: "中金", categoryList: ["domesticBroker"], top: 5 }),
+    )
+  })
+
+  it("gangtise_institution_search rejects an unknown category before calling the API", async () => {
+    const result = await mcpClient.callTool({
+      name: "gangtise_institution_search",
+      arguments: { keyword: "中金", categoryList: ["bogusCategory"] },
+    })
+    expect(result.isError).toBe(true)
+    expect(mockClient.call).not.toHaveBeenCalled()
   })
 
   it("gangtise_announcement_us_list forwards filters with default size: 20", async () => {

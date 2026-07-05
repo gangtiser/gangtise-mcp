@@ -38,11 +38,6 @@ describe("normalizeRows", () => {
     expect(normalizeRows({ list: [1, 2] })).toEqual([1, 2])
   })
 
-  it("renames chatRoomList to list", () => {
-    expect(normalizeRows({ chatRoomList: [{ id: "g1" }], total: 1 }))
-      .toEqual({ total: 1, list: [{ id: "g1" }] })
-  })
-
   it("renames constants to list, preserving category metadata", () => {
     const raw = {
       category: "citicIndustry",

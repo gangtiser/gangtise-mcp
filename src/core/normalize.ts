@@ -30,11 +30,6 @@ export function normalizeRows(value: unknown): unknown {
     return wrapList(meta, list)
   }
 
-  if (Array.isArray(record.chatRoomList)) {
-    const { chatRoomList, ...meta } = record
-    return wrapList(meta, chatRoomList)
-  }
-
   if ("constants" in record) {
     const { constants, ...meta } = record
     return wrapList(meta, Array.isArray(constants) ? constants : [])

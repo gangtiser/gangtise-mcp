@@ -223,6 +223,13 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     kind: "json",
     description: "Search chief analyst IDs by name / institution / team",
   },
+  "reference.institution-search": {
+    key: "reference.institution-search",
+    method: "POST",
+    path: "/application/open-reference/institutions/search",
+    kind: "json",
+    description: "Search institution IDs by keyword (domestic broker / foreign / lead / opinion institution)",
+  },
   "reference.constant-category": {
     key: "reference.constant-category",
     method: "GET",
@@ -301,6 +308,13 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-quote/quote/realtime",
     kind: "json",
     description: "Query realtime quote snapshot (A-share / HK / US)",
+  },
+  "quote.fund-flow": {
+    key: "quote.fund-flow",
+    method: "POST",
+    path: "/application/open-quote/fund-flow/daily",
+    kind: "json",
+    description: "Query A-share daily fund flow (SH/SZ/BJ; small/medium/large/xlarge orders + main net inflow)",
   },
 
   // ─── fundamental ───
