@@ -48,15 +48,24 @@ const MARKET_TOOL: Record<"cn" | "hk" | "us", string> = {
 
 /** Reject an obvious market/tool mismatch (e.g. an .HK code sent to the A-share
  * tool) before it hits upstream and returns a silent empty list that reads as
- * "no data" — the costliest silent error here. Skips 'all' and unknown suffixes
- * so only a clear cross-market mismatch throws. */
-function assertMarketMatch(securityList: readonly unknown[] | undefined, market: "cn" | "hk" | "us"): void {
+ * "no data" — the costliest silent error here. Skips the whole-market sentinel
+ * ('all' by default) and unknown suffixes so only a clear cross-market mismatch
+ * throws. Pass opts.message for a tool-specific hint — fund-flow has no HK/US
+ * variant to redirect to, so it overrides the default "请改用 …" message. */
+function assertMarketMatch(
+  securityList: readonly unknown[] | undefined,
+  market: "cn" | "hk" | "us",
+  opts: { sentinel?: string; message?: (code: string, codeMarket: "cn" | "hk" | "us") => string } = {},
+): void {
   if (!securityList) return
+  const sentinel = opts.sentinel ?? "all"
   for (const code of securityList) {
-    if (typeof code !== "string" || code === "all") continue
+    if (typeof code !== "string" || code === sentinel) continue
     const codeMarket = SUFFIX_MARKET[code.split(".").pop()?.toUpperCase() ?? ""]
     if (codeMarket && codeMarket !== market) {
-      throw new ValidationError(`'${code}' 是${MARKET_LABEL[codeMarket]}代码，请改用 ${MARKET_TOOL[codeMarket]}。`)
+      throw new ValidationError(
+        opts.message?.(code, codeMarket) ?? `'${code}' 是${MARKET_LABEL[codeMarket]}代码，请改用 ${MARKET_TOOL[codeMarket]}。`,
+      )
     }
   }
 }
@@ -203,14 +212,12 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
       const isFullMarket = body.securityList?.length === 1 && body.securityList[0] === "aShares"
       // fund-flow is A-share only (沪深北). Reject an obvious HK/US code before it
       // reaches the A-share endpoint and returns a silent empty list that reads as
-      // "no data" — the costliest silent error here (skips the 'aShares' sentinel).
-      for (const code of body.securityList ?? []) {
-        if (typeof code !== "string" || code === "aShares") continue
-        const codeMarket = SUFFIX_MARKET[code.split(".").pop()?.toUpperCase() ?? ""]
-        if (codeMarket && codeMarket !== "cn") {
-          throw new ValidationError(`资金流向仅支持 A 股（沪深北）代码，'${code}' 是${MARKET_LABEL[codeMarket]}代码。`)
-        }
-      }
+      // "no data" — the costliest silent error here. Distinct hint (no HK/US fund-flow
+      // tool to redirect to), sentinel 'aShares' instead of 'all'.
+      assertMarketMatch(body.securityList, "cn", {
+        sentinel: "aShares",
+        message: (code, codeMarket) => `资金流向仅支持 A 股（沪深北）代码，'${code}' 是${MARKET_LABEL[codeMarket]}代码。`,
+      })
       if (isFullMarket) {
         // Full-market fund-flow: upstream errors instead of truncating when a
         // single request exceeds the row cap, so it must day-shard — which needs

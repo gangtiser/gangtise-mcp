@@ -1,5 +1,6 @@
 import { runWithConcurrency, isVerbose } from "./transport.js"
 import { errorMessage, ValidationError } from "./errors.js"
+import { PAGE_CONCURRENCY } from "./config.js"
 
 export interface KlineBody {
   securityList?: string[]
@@ -28,9 +29,6 @@ const DAY_MS = 86_400_000
  * `--security all` queries so a single shard (~5-6K rows/day per market)
  * isn't silently truncated. Single-security queries are untouched. */
 const ALL_MARKET_LIMIT = 10_000
-/** Shard fan-out concurrency. Shares the GANGTISE_PAGE_CONCURRENCY knob with
- * pagination (see client.ts) so one env var tunes all request fan-out. */
-const SHARD_CONCURRENCY = Number(process.env.GANGTISE_PAGE_CONCURRENCY ?? 5) || 5
 /** Hard cap on shard fan-out. ~180 one-day shards ≈ 6+ months of A-share
  * full-market rows; beyond that the merged rows approach the V8 string limit in
  * the JSON sink — every shard would succeed and then stringify would throw,
@@ -137,7 +135,7 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
     | { ok: true; value: unknown }
     | { ok: false; startDate: string; endDate: string; error: string; cause: unknown }
 
-  const results = await runWithConcurrency(shards, config.concurrency ?? SHARD_CONCURRENCY, async (shard): Promise<ShardOutcome> => {
+  const results = await runWithConcurrency(shards, config.concurrency ?? PAGE_CONCURRENCY, async (shard): Promise<ShardOutcome> => {
     try {
       const value = await client.call(endpointKey, { ...allMarketBody, startDate: shard.startDate, endDate: shard.endDate })
       return { ok: true, value }

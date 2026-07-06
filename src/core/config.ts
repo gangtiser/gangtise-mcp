@@ -28,6 +28,20 @@ export function resolveInlineMaxBytes(raw: string | undefined): number {
 // registry.ts / response.ts that this replaces).
 export const INLINE_MAX_BYTES = resolveInlineMaxBytes(process.env.GANGTISE_INLINE_MAX_BYTES)
 
+// Request fan-out concurrency: how many paginated page requests (client.ts) or
+// full-market day shards (quoteSharding.ts) run at once. One knob tunes all fan-out.
+export const DEFAULT_PAGE_CONCURRENCY = 5
+
+export function resolvePageConcurrency(raw: string | undefined): number {
+  const n = raw ? Number(raw) : DEFAULT_PAGE_CONCURRENCY
+  // Floor fractional values to an int; fall back to the default on NaN or n < 1 so a
+  // typo can't stall fan-out (0 / negative) or starve the pool.
+  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : DEFAULT_PAGE_CONCURRENCY
+}
+
+// Read once at load, same static-const pattern as INLINE_MAX_BYTES above.
+export const PAGE_CONCURRENCY = resolvePageConcurrency(process.env.GANGTISE_PAGE_CONCURRENCY)
+
 export interface CliConfig {
   baseUrl: string
   timeoutMs: number

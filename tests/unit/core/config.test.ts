@@ -3,10 +3,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import {
   loadConfig,
   resolveInlineMaxBytes,
+  resolvePageConcurrency,
   DEFAULT_BASE_URL,
   DEFAULT_TIMEOUT_MS,
   DEFAULT_ASYNC_TIMEOUT_MS,
   DEFAULT_INLINE_MAX_BYTES,
+  DEFAULT_PAGE_CONCURRENCY,
   DEFAULT_TOKEN_CACHE_PATH,
 } from "../../../src/core/config.js"
 
@@ -81,6 +83,16 @@ describe("loadConfig", () => {
     expect(resolveInlineMaxBytes("bad")).toBe(DEFAULT_INLINE_MAX_BYTES)
     expect(resolveInlineMaxBytes("")).toBe(DEFAULT_INLINE_MAX_BYTES)
     expect(resolveInlineMaxBytes("1024")).toBe(DEFAULT_INLINE_MAX_BYTES) // below the 8KB floor
+  })
+
+  it("resolves page concurrency: default, valid override, int floor, rejects zero/negative/bad", () => {
+    expect(resolvePageConcurrency(undefined)).toBe(DEFAULT_PAGE_CONCURRENCY)
+    expect(resolvePageConcurrency("10")).toBe(10)
+    expect(resolvePageConcurrency("3.9")).toBe(3) // floored to int
+    expect(resolvePageConcurrency("0")).toBe(DEFAULT_PAGE_CONCURRENCY) // 0 would stall all fan-out
+    expect(resolvePageConcurrency("-2")).toBe(DEFAULT_PAGE_CONCURRENCY)
+    expect(resolvePageConcurrency("bad")).toBe(DEFAULT_PAGE_CONCURRENCY)
+    expect(resolvePageConcurrency("")).toBe(DEFAULT_PAGE_CONCURRENCY)
   })
 
   it("ignores empty, non-numeric, zero, and negative timeouts", () => {

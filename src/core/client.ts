@@ -5,7 +5,7 @@ import { pipeline } from "node:stream/promises"
 
 import { request } from "undici"
 
-import type { CliConfig } from "./config.js"
+import { PAGE_CONCURRENCY, type CliConfig } from "./config.js"
 import { isTokenCacheValid, normalizeToken, readTokenCache, requireAccessCredentials, writeTokenCache, type TokenCache } from "./auth.js"
 import { ApiError, ValidationError, errorMessage } from "./errors.js"
 import { ENDPOINTS, type EndpointDefinition } from "./endpoints.js"
@@ -13,7 +13,6 @@ import { Envelope, isEnvelope, unwrapEnvelope } from "./envelope.js"
 import { getLookupData } from "./lookupData/index.js"
 import { getDispatcher, isVerbose, logTiming, markRetryable, runWithConcurrency, withRetry } from "./transport.js"
 
-const PAGINATION_CONCURRENCY = Number(process.env.GANGTISE_PAGE_CONCURRENCY ?? 5) || 5
 // Error codes that warrant one forced token refresh + retry:
 //   8000014 / 8000015 — access/secret key errors (arrive as HTTP 200 envelopes)
 //   0000001008 — "token is invalid" (HTTP 401): a cached token rejected
@@ -271,7 +270,7 @@ export class GangtiseClient {
     let unexpectedShape = false
     let totalDrift = false
     const failedPages: Array<{ from: number; size: number; error: string }> = []
-    const pages = await runWithConcurrency(pageRequests, PAGINATION_CONCURRENCY, async (req) => {
+    const pages = await runWithConcurrency(pageRequests, PAGE_CONCURRENCY, async (req) => {
       try {
         const page = await this.requestJson<Record<string, unknown>>(endpoint, {
           ...initialBody,
