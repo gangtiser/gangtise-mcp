@@ -4,6 +4,15 @@
 
 ## Changelog
 
+### 0.1.42 (2026-07-06)
+- 质量护栏与内部重构（无对外行为变化，除并发负值修正）：
+  - **新增 spec↔ENDPOINTS 交叉校验测试**——遍历所有 spec 驱动工具，钉住每个 `endpointKey` 存在于 `ENDPOINTS`、json/download 种类匹配、`paginated` 与端点 `pagination.enabled` 双向一致、工具名唯一且 `gangtise_` 前缀；另一条 spec-liveness 测试启动整个 server 断言每个 spec 都真实注册（自适应，取代集成测试里需手工维护的工具名单）。挡住跟 gangtise-openapi-cli 同步时易引入的 endpoint/参数错配类 bug
+  - **`GANGTISE_PAGE_CONCURRENCY` 收口到 `config.ts`**——原先 `client.ts`（分页扇出）与 `quoteSharding.ts`（分片扇出）各自在模块加载期读一次 env，现统一为 `config.ts` 的 `PAGE_CONCURRENCY`（经可测的 `resolvePageConcurrency`，与 `INLINE_MAX_BYTES` 同款）；顺带修掉旧 `Number(x)||5` 放行负数并发的潜在 bug（0/负/NaN 回退默认、小数向下取整）
+  - **`gangtise_fund_flow` 市场校验复用 `assertMarketMatch`**——去掉内联重复的后缀→市场检查（`assertMarketMatch` 加可选 `sentinel`/`message`），保留其「资金流向仅支持 A 股」专属提示与 `aShares` 哨兵
+  - **`gangtise_read_response` 分页提示文案修正**——`_note` 里过期的「256KB」改为动态引用实际 `INLINE_MAX_BYTES`（0.1.40 起默认 64KB、可 env 覆盖）
+  - 删除 `gangtise_security_clue_list` / `gangtise_hot_topic` spec 里冗余的 `from` 字段（分页工具的 `from`/`size`/`fetchAll` 由注册器统一注入）
+- 测试 265 → 272
+
 ### 0.1.41 (2026-07-06)
 - 同步 gangtise-openapi-cli v0.23：
   - **默认 API 域名迁移** `open.gangtise.com` → `openapi.gangtise.com`（新旧域名多接口实测等价、旧域名仍可用；固定旧域名设 `GANGTISE_BASE_URL=https://open.gangtise.com`）
