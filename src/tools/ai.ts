@@ -12,7 +12,7 @@ export interface AiToolOptions {
   asyncTimeoutMs: number
 }
 
-const jsonSpecs: JsonToolSpec[] = [
+export const jsonSpecs: JsonToolSpec[] = [
   {
     name: "gangtise_stock_summary",
     description: "查询个股看点（精炼投研总结），按证券返回；无看点的证券不返回、不扣分。",
@@ -47,7 +47,6 @@ const jsonSpecs: JsonToolSpec[] = [
     endpointKey: "ai.security-clue.list",
     paginated: true,
     inputSchema: {
-      from: z.number().int().min(0).optional(),
       startTime: dateTimeString.describe(dateTimeDesc() + "（必填）"),
       endTime: dateTimeString.describe(dateTimeDesc() + "（必填）"),
       queryMode: z.enum(["bySecurity", "byIndustry"]).describe("bySecurity=按个股 | byIndustry=按行业（必填）"),
@@ -61,7 +60,6 @@ const jsonSpecs: JsonToolSpec[] = [
     endpointKey: "ai.hot-topic",
     paginated: true,
     inputSchema: {
-      from: z.number().int().min(0).optional(),
       startDate: dateString.optional().describe(dateDesc()),
       endDate: dateString.optional().describe(dateDesc()),
       categoryList: z.array(z.string()).optional().describe("morningBriefing=早报 | noonBriefing=午报 | afternoonFlash=午后快讯 | eveningBriefing=晚报"),
@@ -93,7 +91,7 @@ const jsonSpecs: JsonToolSpec[] = [
   },
 ]
 
-const downloadSpecs: DownloadToolSpec[] = [
+export const downloadSpecs: DownloadToolSpec[] = [
   {
     name: "gangtise_knowledge_resource_download",
     description: "按资源类型和 sourceId 下载知识库资源文件。sourceId 来自 gangtise_knowledge_batch 返回结果。",

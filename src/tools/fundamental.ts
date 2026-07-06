@@ -21,7 +21,7 @@ const dateRange = {
 const fiscalYear = z.array(z.number().int()).optional().describe("财年列表，如 [2023, 2024]")
 const fieldList = z.array(z.string()).optional().describe("指定返回字段")
 
-const specs: JsonToolSpec[] = [
+export const specs: JsonToolSpec[] = [
   {
     name: "gangtise_income_statement",
     description: "查询A股利润表（累计口径），支持期间、财年、报告类型筛选。",

@@ -6,7 +6,7 @@ import { toolHandler, contentResult } from "./helpers.js"
 import { normalizeRows } from "../core/normalize.js"
 import { dateDesc, dateString } from "../core/dateContext.js"
 
-const specs: JsonToolSpec[] = [
+export const specs: JsonToolSpec[] = [
   {
     name: "gangtise_edb_search",
     description: "按关键词搜索行业经济数据库（EDB）指标列表，返回指标 ID 和名称，用于后续查询时序数据。覆盖宏观/行业量价数据（产量、价格、PMI 等）；个股财务/行情/估值等证券级指标用 gangtise_indicator_search。",

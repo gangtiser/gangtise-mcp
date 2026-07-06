@@ -5,7 +5,7 @@ import { normalizeRows } from "../core/normalize.js"
 import { buildToolContent, registerJsonTool, type JsonToolSpec } from "./registry.js"
 import { toolHandler, contentResult } from "./helpers.js"
 
-const referenceSpecs: JsonToolSpec[] = [
+export const referenceSpecs: JsonToolSpec[] = [
   {
     name: "gangtise_chiefs_search",
     description:

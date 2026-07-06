@@ -104,7 +104,7 @@ export function registerResponseTools(server: McpServer, _client: GangtiseClient
           rest = Object.fromEntries(Object.entries(obj).filter(([k]) => k !== "list"))
         } else {
           // Non-list object. A small one is returned whole; a large one (e.g. a
-          // >256KB object that was spilled with a metadata-only preview) is char-sliced
+          // object over INLINE_MAX_BYTES that was spilled with a metadata-only preview) is char-sliced
           // so read-back can't re-inline the whole blob and defeat the truncation.
           const objText = JSON.stringify(data)
           if (Buffer.byteLength(objText, "utf8") > INLINE_MAX_BYTES) {
@@ -162,7 +162,7 @@ export function registerResponseTools(server: McpServer, _client: GangtiseClient
           has_more: end < total,
           next_offset: end < total ? end : null,
           ...(end < hardEnd
-            ? { _note: `本页按 256KB 字节预算返回 ${slice.length} 条（少于请求的 limit），用 next_offset 继续翻页` }
+            ? { _note: `本页按 ${Math.round(INLINE_MAX_BYTES / 1024)}KB 字节预算返回 ${slice.length} 条（少于请求的 limit），用 next_offset 继续翻页` }
             : {}),
         }
 

@@ -6,7 +6,7 @@ import { toolHandler, contentResult } from "./helpers.js"
 import { normalizeRows } from "../core/normalize.js"
 import { dateTimeDesc, dateTimeString } from "../core/dateContext.js"
 
-const listSpecs: JsonToolSpec[] = [
+export const listSpecs: JsonToolSpec[] = [
   {
     name: "gangtise_drive_list",
     description: "查询 Gangtise 云盘文件列表，支持按关键词、文件类型、空间类型、时间范围筛选。",
@@ -78,7 +78,7 @@ const listSpecs: JsonToolSpec[] = [
   },
 ]
 
-const downloadSpecs: DownloadToolSpec[] = [
+export const downloadSpecs: DownloadToolSpec[] = [
   {
     name: "gangtise_drive_download",
     description: "按 fileId 从 Gangtise 云盘下载文件。",

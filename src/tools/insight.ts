@@ -62,7 +62,7 @@ function scheduleSpec(name: string, label: string, endpointKey: string, fields: 
   }
 }
 
-const listSpecs: JsonToolSpec[] = [
+export const listSpecs: JsonToolSpec[] = [
   {
     name: "gangtise_opinion_list",
     description: "查询国内机构首席观点列表，支持按证券、券商、研究方向、行业、时间范围、语义标签等筛选。",
@@ -275,7 +275,7 @@ const listSpecs: JsonToolSpec[] = [
   },
 ]
 
-const downloadSpecs: DownloadToolSpec[] = [
+export const downloadSpecs: DownloadToolSpec[] = [
   {
     name: "gangtise_summary_download",
     description: "按 summaryId 下载会议纪要文件，返回文本内容或文件路径。",
