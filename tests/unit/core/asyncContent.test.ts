@@ -55,4 +55,24 @@ describe("pollAsyncContent", () => {
     await assertion
     await expect(result).rejects.toMatchObject({ dataId: "d-timeout" })
   })
+
+  it("times out at the deadline even when a single poll call stalls past it", async () => {
+    vi.useFakeTimers()
+    // Models a poll whose HTTP request stalls near the request timeout: it only
+    // settles at 30s, but the wait budget is 5s. The loop bounds its *sleep* by
+    // the deadline; it must also bound the *call*, or a poll fired with a sliver
+    // of budget left blocks until the stalled call returns — overshooting the
+    // deadline (and the client's ~60s cutoff) and losing the billed dataId.
+    const client = {
+      call: vi.fn(
+        () => new Promise<{ content: string }>(resolve => setTimeout(() => resolve({ content: "too late" }), 30_000)),
+      ),
+    }
+    const result = pollAsyncContent(client, "ep", "d-stall", 5_000)
+    const assertion = expect(result).rejects.toBeInstanceOf(AsyncTimeoutError)
+    await vi.advanceTimersByTimeAsync(5_001)
+    await assertion
+    await expect(result).rejects.toMatchObject({ dataId: "d-stall" })
+    expect(client.call).toHaveBeenCalledTimes(1)
+  }, 1_500)
 })

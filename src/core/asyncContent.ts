@@ -18,6 +18,24 @@ function isAsyncPending(error: unknown): boolean {
   return error instanceof ApiError && error.code === "410110"
 }
 
+/** Rejects with AsyncTimeoutError if `promise` hasn't settled within `budgetMs`.
+ * The poll loop bounds its sleep by the deadline, but a single client.call() can
+ * itself stall up to the request timeout (~30s). Without this, a poll fired with
+ * a sliver of budget left blocks until that call returns — overshooting the
+ * deadline and the client's ~60s cutoff, losing the billed dataId the deadline
+ * exists to protect. The stalled call is abandoned (its .catch swallows a late
+ * rejection); the caller still gets the dataId back to recover via *_check. */
+function withPollDeadline<T>(promise: Promise<T>, budgetMs: number, dataId: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new AsyncTimeoutError(dataId)), budgetMs)
+  })
+  return Promise.race([promise, deadline]).finally(() => {
+    clearTimeout(timer)
+    promise.catch(() => {})
+  })
+}
+
 export async function pollAsyncContent(
   client: AsyncContentClient,
   getContentEndpoint: string,
@@ -29,8 +47,10 @@ export async function pollAsyncContent(
 
   while (true) {
     attempt++
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) throw new AsyncTimeoutError(dataId)
     try {
-      const result = await client.call(getContentEndpoint, { dataId }) as { content?: string }
+      const result = await withPollDeadline(client.call(getContentEndpoint, { dataId }), remaining, dataId) as { content?: string }
       if (result?.content != null) {
         return { content: result.content }
       }
