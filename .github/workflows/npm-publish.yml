@@ -9,17 +9,24 @@ on:
     tags:
       - "v*"
 
+# Default (job-level) token is read-only. Only the publish job below is granted
+# id-token: write, and it runs NO dependency code — so a poisoned dev/transitive
+# dependency can never execute while the OIDC token that can mint an npm publish
+# credential is in scope.
 permissions:
   contents: read
-  id-token: write
 
 jobs:
-  publish:
+  # Build + test + pack with NO OIDC token in scope. Everything that runs
+  # dependency code (npm ci, npm test, tsc) happens here, then the exact verified
+  # tarball is handed to the publish job as an artifact.
+  verify:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          fetch-depth: 0 # need history to prove the tagged commit is on main
 
       - name: Setup Node
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
@@ -35,9 +42,19 @@ jobs:
             exit 1
           fi
 
+      - name: Verify tagged commit is on main
+        # A tag on an unmerged branch must never publish. Fetch main explicitly and
+        # require the tagged commit to be an ancestor of it.
+        run: |
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
+            echo "::error::Tagged commit $GITHUB_SHA is not on origin/main; refusing to publish"
+            exit 1
+          fi
+
       - name: Install dependencies
-        # This job holds the OIDC id-token — never run dependency lifecycle
-        # scripts with it in scope.
+        # --ignore-scripts: no dependency here needs install-time lifecycle scripts,
+        # and skipping them keeps a poisoned transitive dep from executing.
         run: npm ci --ignore-scripts
 
       - name: Test
@@ -46,5 +63,39 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Pack the exact tarball to be published
+        # Build already produced dist/; --ignore-scripts skips prepublishOnly's
+        # rebuild so the artifact is packed from the tree we just tested.
+        run: npm pack --ignore-scripts
+
+      - name: Upload tarball artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: npm-tarball
+          path: "*.tgz"
+          if-no-files-found: error
+          retention-days: 1
+
+  # Minimal-privilege publish: holds the OIDC token but only downloads the
+  # verified tarball and runs `npm publish`. No checkout, no npm install, no
+  # build, no test — nothing that executes package code.
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC → npm Trusted Publisher; provenance attestation
+    steps:
+      - name: Setup Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Download verified tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: npm-tarball
+
       - name: Publish
-        run: npm publish --registry https://registry.npmjs.org/ --ignore-scripts --provenance
+        run: npm publish *.tgz --registry https://registry.npmjs.org/ --ignore-scripts --provenance
