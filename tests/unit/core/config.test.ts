@@ -4,6 +4,7 @@ import {
   loadConfig,
   resolveInlineMaxBytes,
   resolvePageConcurrency,
+  MAX_PAGE_CONCURRENCY,
   DEFAULT_BASE_URL,
   DEFAULT_TIMEOUT_MS,
   DEFAULT_ASYNC_TIMEOUT_MS,
@@ -93,6 +94,13 @@ describe("loadConfig", () => {
     expect(resolvePageConcurrency("-2")).toBe(DEFAULT_PAGE_CONCURRENCY)
     expect(resolvePageConcurrency("bad")).toBe(DEFAULT_PAGE_CONCURRENCY)
     expect(resolvePageConcurrency("")).toBe(DEFAULT_PAGE_CONCURRENCY)
+  })
+
+  it("clamps page concurrency to the ceiling so a huge value can't exhaust sockets / hammer the API", () => {
+    expect(resolvePageConcurrency("32")).toBe(32) // ceiling accepted as-is
+    expect(resolvePageConcurrency("33")).toBe(MAX_PAGE_CONCURRENCY) // just over → clamped
+    expect(resolvePageConcurrency("100000")).toBe(MAX_PAGE_CONCURRENCY)
+    expect(MAX_PAGE_CONCURRENCY).toBe(32)
   })
 
   it("ignores empty, non-numeric, zero, and negative timeouts", () => {

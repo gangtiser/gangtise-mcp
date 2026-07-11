@@ -31,12 +31,18 @@ export const INLINE_MAX_BYTES = resolveInlineMaxBytes(process.env.GANGTISE_INLIN
 // Request fan-out concurrency: how many paginated page requests (client.ts) or
 // full-market day shards (quoteSharding.ts) run at once. One knob tunes all fan-out.
 export const DEFAULT_PAGE_CONCURRENCY = 5
+// Hard ceiling: a huge override (typo or misguided "go faster") would open that
+// many sockets per origin and hammer the upstream API — well past any real
+// throughput gain. 32 is far above the default yet stays polite.
+export const MAX_PAGE_CONCURRENCY = 32
 
 export function resolvePageConcurrency(raw: string | undefined): number {
   const n = raw ? Number(raw) : DEFAULT_PAGE_CONCURRENCY
   // Floor fractional values to an int; fall back to the default on NaN or n < 1 so a
-  // typo can't stall fan-out (0 / negative) or starve the pool.
-  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : DEFAULT_PAGE_CONCURRENCY
+  // typo can't stall fan-out (0 / negative) or starve the pool. Clamp the top end so
+  // an oversized value can't exhaust sockets / overrun the API.
+  if (!Number.isFinite(n) || n < 1) return DEFAULT_PAGE_CONCURRENCY
+  return Math.min(Math.floor(n), MAX_PAGE_CONCURRENCY)
 }
 
 // Read once at load, same static-const pattern as INLINE_MAX_BYTES above.
