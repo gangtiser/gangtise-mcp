@@ -313,7 +313,7 @@ export const listSpecs: JsonToolSpec[] = [
     inputSchema: {
       keyword: nonEmptyString.describe("搜索关键词（必填），如 'AI' '新能源汽车'"),
       top: z.number().int().min(1).max(20).optional().describe("最大返回条数（默认 10，上限 20）"),
-      sourceId: z.string().optional().describe("研报 ID，限定到某篇研报（来自研报列表或知识库结果）"),
+      sourceId: nonEmptyString.optional().describe("研报 ID，限定到某篇研报（来自研报列表或知识库结果）"),
       startTime: dateTimeString.optional().describe(dateTimeDesc()),
       endTime: dateTimeString.optional().describe(dateTimeDesc()),
     },

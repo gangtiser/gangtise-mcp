@@ -126,3 +126,13 @@ describe("gangtise_report_image_download", () => {
     expect(client.download).toHaveBeenCalledTimes(1)
   })
 })
+
+describe("gangtise_report_image_list sourceId", () => {
+  it("rejects a blank sourceId without calling the API", async () => {
+    const client = makeClient()
+    const mcp = await connect(client)
+    const result = await mcp.callTool({ name: "gangtise_report_image_list", arguments: { keyword: "AI", sourceId: " " } })
+    expect(result.isError).toBe(true)
+    expect(client.call).not.toHaveBeenCalled()
+  })
+})

@@ -130,6 +130,11 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
 
   const totalDays = Math.floor((end.getTime() - start.getTime()) / DAY_MS) + 1
   if (totalDays <= config.shardDays) {
+    // Same weekend rule as the sharded path below: with 1-day shards the window
+    // is exactly one day here, and a Sat/Sun day is a guaranteed-empty request.
+    if (config.shardDays === 1 && isWeekend(start.getTime())) {
+      return { list: [] }
+    }
     return callSingle()
   }
 

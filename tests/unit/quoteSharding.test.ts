@@ -257,3 +257,40 @@ describe("truncated shard reporting", () => {
     expect(result._truncated_shards).toEqual([{ startDate: "2026-07-07", endDate: "2026-07-07" }])
   })
 })
+
+// The single-request fast path (totalDays <= shardDays) must apply the same
+// weekend rule as the sharded path — a one-day Sat/Sun window on a 1-day-shard
+// endpoint is a guaranteed-empty request.
+describe("weekend skip on the single-request fast path", () => {
+  it("returns empty without an API call for a single Saturday", async () => {
+    const call = vi.fn()
+    const result = await callKlineWithSharding({ call }, "quote.day-kline", {
+      securityList: ["all"],
+      startDate: "2026-07-11",
+      endDate: "2026-07-11",
+    }, { shardDays: 1 })
+    expect(call).not.toHaveBeenCalled()
+    expect(result).toEqual({ list: [] })
+  })
+
+  it("returns empty without an API call for a single Sunday", async () => {
+    const call = vi.fn()
+    const result = await callKlineWithSharding({ call }, "quote.day-kline", {
+      securityList: ["all"],
+      startDate: "2026-07-12",
+      endDate: "2026-07-12",
+    }, { shardDays: 1 })
+    expect(call).not.toHaveBeenCalled()
+    expect(result).toEqual({ list: [] })
+  })
+
+  it("still fires the single request for a one-day weekday window", async () => {
+    const call = vi.fn().mockResolvedValue({ list: [] })
+    await callKlineWithSharding({ call }, "quote.day-kline", {
+      securityList: ["all"],
+      startDate: "2026-07-10", // Friday
+      endDate: "2026-07-10",
+    }, { shardDays: 1 })
+    expect(call).toHaveBeenCalledTimes(1)
+  })
+})
