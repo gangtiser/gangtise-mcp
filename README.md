@@ -244,7 +244,7 @@ Remove-Item -Recurse -Force $env:LOCALAPPDATA\npm-cache\_npx
 
 ## 大响应处理
 
-当单次工具调用返回超过 256 KB 时，完整数据会写入系统临时目录下的 `gangtise-mcp-*` 目录（macOS 实际在 `/var/folders/.../T/` 下；JSON 数据为 `response.json`，文本类为 `response.md`），MCP 响应改为内联返回前 20 条预览及元数据：
+当单次工具调用返回超过内联阈值（`GANGTISE_INLINE_MAX_BYTES`，默认 64 KB）时，完整数据会写入系统临时目录下的 `gangtise-mcp-*` 目录（macOS 实际在 `/var/folders/.../T/` 下；JSON 数据为 `response.json`，文本类为 `response.md`），MCP 响应改为内联返回前 20 条预览及元数据：
 
 | 字段 | 说明 |
 |---|---|
@@ -256,7 +256,7 @@ Remove-Item -Recurse -Force $env:LOCALAPPDATA\npm-cache\_npx
 | `_read_with` | 续读工具名（固定为 `gangtise_read_response`） |
 | `has_more` | 文件中是否还有未返回的条目 |
 
-续读完整数据请调用 **`gangtise_read_response`** 工具（传 `_saved_to` 路径，按 `offset`/`limit` 分页；单页同样受 256KB 字节预算约束）——不要依赖客户端直接读文件，Claude Desktop 等无文件读取能力的客户端只能走该工具。若单条内容过大导致 20 条预览本身也超过阈值，则只返回元数据，`_preview_count` 为 0（此时 `has_more: true` 表示数据全部在文件中）。
+续读完整数据请调用 **`gangtise_read_response`** 工具（传 `_saved_to` 路径，按 `offset`/`limit` 分页；单页同样受 `GANGTISE_INLINE_MAX_BYTES`（默认 64KB）字节预算约束）——不要依赖客户端直接读文件，Claude Desktop 等无文件读取能力的客户端只能走该工具。若单条内容过大导致 20 条预览本身也超过阈值，则只返回元数据，`_preview_count` 为 0（此时 `has_more: true` 表示数据全部在文件中）。
 
 ## 开发
 
