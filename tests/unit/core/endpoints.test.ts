@@ -5,6 +5,15 @@ import { ENDPOINTS } from "../../../src/core/endpoints.js"
 // probed 2026-07-11): these endpoints bill per call with no cache-hit exemption,
 // so a transport-level replay re-bills. The exact-set assertions make adding or
 // removing an annotation a deliberate, reviewed act — not silent drift.
+//
+// Deliberately ABSENT despite being billed (reviewed 2026-07-11, keep CLI parity):
+// - insight.qa.list (0.1/row): per-ROW billed — a failed response has no rows and
+//   is not billed (upstream probe), and it's paginated, so no-replay would turn
+//   self-healing transient page failures into _partial results for zero benefit.
+// - insight.report-image.download (0.1/image): accepted residual risk, NOT proof
+//   that a replay can't double-bill — upstream drew the no-replay line at the
+//   50-credit download tier (10-30-credit downloads keep default retry), and at
+//   0.1/image the worst-case double-bill is negligible next to retry reliability.
 const NO_REPLAY_KEYS = [
   "ai.knowledge-batch",
   "ai.one-pager",
