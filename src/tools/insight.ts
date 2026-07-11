@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { GangtiseClient } from "../core/client.js"
 import { registerJsonTool, registerDownloadTool, type JsonToolSpec, type DownloadToolSpec } from "./registry.js"
 import { dateTimeDesc, dateTimeString } from "../core/dateContext.js"
+import { nonEmptyString, intLiteralEnum } from "./schemas.js"
 
 // Each schedule endpoint accepts a different subset of filters (per API spec).
 // Previously all four shared one big schema, so unsupported filters (e.g.
@@ -281,8 +282,8 @@ export const downloadSpecs: DownloadToolSpec[] = [
     description: "按 summaryId 下载会议纪要文件，返回文本内容或文件路径。",
     endpointKey: "insight.summary.download",
     inputSchema: {
-      summaryId: z.string().describe("纪要 ID，来自 gangtise_summary_list"),
-      fileType: z.number().int().optional().describe("1=原始文件（默认）| 2=HTML（仅限会议平台纪要）"),
+      summaryId: nonEmptyString.describe("纪要 ID，来自 gangtise_summary_list"),
+      fileType: intLiteralEnum([1, 2]).optional().describe("1=原始文件（默认）| 2=HTML（仅限会议平台纪要）"),
     },
   },
   {
@@ -290,8 +291,8 @@ export const downloadSpecs: DownloadToolSpec[] = [
     description: "按 reportId 下载券商研报，返回 Markdown 文本或 PDF 文件路径。",
     endpointKey: "insight.research.download",
     inputSchema: {
-      reportId: z.string().describe("研报 ID，来自 gangtise_research_list"),
-      fileType: z.number().int().optional().describe("1=PDF（默认）| 2=Markdown"),
+      reportId: nonEmptyString.describe("研报 ID，来自 gangtise_research_list"),
+      fileType: intLiteralEnum([1, 2]).optional().describe("1=PDF（默认）| 2=Markdown"),
     },
   },
   {
@@ -299,8 +300,8 @@ export const downloadSpecs: DownloadToolSpec[] = [
     description: "下载外资研报，支持原文 PDF、Markdown、中文 PDF 和中文 Markdown 格式。",
     endpointKey: "insight.foreign-report.download",
     inputSchema: {
-      reportId: z.string().describe("研报 ID，来自 gangtise_foreign_report_list"),
-      fileType: z.number().int().optional().describe("1=PDF | 2=Markdown | 3=中文PDF | 4=中文Markdown"),
+      reportId: nonEmptyString.describe("研报 ID，来自 gangtise_foreign_report_list"),
+      fileType: intLiteralEnum([1, 2, 3, 4]).optional().describe("1=PDF | 2=Markdown | 3=中文PDF | 4=中文Markdown"),
     },
   },
   {
@@ -308,8 +309,8 @@ export const downloadSpecs: DownloadToolSpec[] = [
     description: "按 announcementId 下载 A 股公告文件。",
     endpointKey: "insight.announcement.download",
     inputSchema: {
-      announcementId: z.string().describe("公告 ID，来自 gangtise_announcement_list"),
-      fileType: z.number().int().optional().describe("1=PDF（默认）| 2=Markdown"),
+      announcementId: nonEmptyString.describe("公告 ID，来自 gangtise_announcement_list"),
+      fileType: intLiteralEnum([1, 2]).optional().describe("1=PDF（默认）| 2=Markdown"),
     },
   },
   {
@@ -317,8 +318,8 @@ export const downloadSpecs: DownloadToolSpec[] = [
     description: "下载港股公告文件。",
     endpointKey: "insight.announcement-hk.download",
     inputSchema: {
-      announcementId: z.string().describe("公告 ID，来自 gangtise_announcement_hk_list"),
-      fileType: z.number().int().optional().describe("1=原始（默认）| 2=Markdown"),
+      announcementId: nonEmptyString.describe("公告 ID，来自 gangtise_announcement_hk_list"),
+      fileType: intLiteralEnum([1, 2]).optional().describe("1=原始（默认）| 2=Markdown"),
     },
   },
   {
@@ -326,8 +327,8 @@ export const downloadSpecs: DownloadToolSpec[] = [
     description: "下载美股公告文件。",
     endpointKey: "insight.announcement-us.download",
     inputSchema: {
-      announcementId: z.string().describe("公告 ID，来自 gangtise_announcement_us_list"),
-      fileType: z.number().int().optional().describe("1=原始 PDF（默认）| 2=Markdown"),
+      announcementId: nonEmptyString.describe("公告 ID，来自 gangtise_announcement_us_list"),
+      fileType: intLiteralEnum([1, 2]).optional().describe("1=原始 PDF（默认）| 2=Markdown"),
     },
   },
   {
@@ -335,8 +336,8 @@ export const downloadSpecs: DownloadToolSpec[] = [
     description: "下载境外独立研究员观点文件，返回 HTML 内容（原文或中文翻译）。",
     endpointKey: "insight.independent-opinion.download",
     inputSchema: {
-      independentOpinionId: z.string().describe("观点 ID，来自 gangtise_independent_opinion_list 的 independentOpinionId 字段"),
-      fileType: z.number().int().describe("1=原文 HTML | 2=中文翻译 HTML（必填）"),
+      independentOpinionId: nonEmptyString.describe("观点 ID，来自 gangtise_independent_opinion_list 的 independentOpinionId 字段"),
+      fileType: intLiteralEnum([1, 2]).describe("1=原文 HTML | 2=中文翻译 HTML（必填）"),
     },
   },
   {
@@ -344,8 +345,8 @@ export const downloadSpecs: DownloadToolSpec[] = [
     description: "按 articleId 下载产业公众号文章，返回 txt 文本或 HTML。",
     endpointKey: "insight.official-account.download",
     inputSchema: {
-      articleId: z.string().describe("文章 ID，来自 gangtise_official_account_list"),
-      fileType: z.number().int().optional().describe("1=txt（默认）| 2=HTML"),
+      articleId: nonEmptyString.describe("文章 ID，来自 gangtise_official_account_list"),
+      fileType: intLiteralEnum([1, 2]).optional().describe("1=txt（默认）| 2=HTML"),
     },
   },
 ]

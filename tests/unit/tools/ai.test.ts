@@ -68,6 +68,19 @@ describe("gangtise_earnings_review (async submit→poll)", () => {
     expect(result.isError).toBeFalsy()
     expect(parse(result)).toMatchObject({ dataId: "d1", status: "timeout" })
   })
+
+  it("waitSeconds=0 returns the dataId without spending a (billed) poll round-trip", async () => {
+    // Absolute deadline from tool-call start: a zero wait budget must hand back
+    // the dataId immediately — submit runs, the content endpoint never does.
+    const client = makeClient(async () => ({})) // content endpoint must never be reached
+    const mcp = await connect(client)
+    const result = await mcp.callTool({ name: "gangtise_earnings_review", arguments: { ...args, waitSeconds: 0 } })
+    expect(result.isError).toBeFalsy()
+    expect(parse(result)).toMatchObject({ dataId: "d1", status: "timeout" })
+    expect(client.call).toHaveBeenCalledTimes(1)
+    expect(client.call).toHaveBeenCalledWith(SUBMIT, expect.anything())
+    expect(client.call).not.toHaveBeenCalledWith(POLL, expect.anything())
+  })
 })
 
 describe("gangtise_earnings_review_check", () => {
@@ -147,5 +160,48 @@ describe("empty-content completion via submit→poll", () => {
     const result = await mcp.callTool({ name: "gangtise_earnings_review", arguments: { ...args, waitSeconds: 5 } })
     expect(result.isError).toBeFalsy()
     expect(text(result)).toContain("内容为空")
+  })
+})
+
+describe("schema tightening (billing + ID guards)", () => {
+  it("rejects a blank viewpoint before submitting the billed debate task", async () => {
+    const client = makeClient(async () => ({}))
+    const mcp = await connect(client)
+    const result = await mcp.callTool({ name: "gangtise_viewpoint_debate", arguments: { viewpoint: "   " } })
+    expect(result.isError).toBe(true)
+    expect(client.call).not.toHaveBeenCalled()
+  })
+
+  it("rejects a securityList over the 6000 cap without calling the API", async () => {
+    const client = makeClient(async () => ({}))
+    const mcp = await connect(client)
+    const big = Array.from({ length: 6001 }, (_, i) => `x${i}`)
+    const result = await mcp.callTool({ name: "gangtise_stock_summary", arguments: { securityList: big } })
+    expect(result.isError).toBe(true)
+    expect(client.call).not.toHaveBeenCalled()
+  })
+
+  it("rejects a blank securityCode on a content-generating tool", async () => {
+    const client = makeClient(async () => ({}))
+    const mcp = await connect(client)
+    const result = await mcp.callTool({ name: "gangtise_one_pager", arguments: { securityCode: "  " } })
+    expect(result.isError).toBe(true)
+    expect(client.call).not.toHaveBeenCalled()
+  })
+
+  it("rejects a blank sourceId on the knowledge resource download", async () => {
+    const client = makeClient(async () => ({}))
+    const mcp = await connect(client)
+    const result = await mcp.callTool({ name: "gangtise_knowledge_resource_download", arguments: { resourceType: 10, sourceId: "" } })
+    expect(result.isError).toBe(true)
+    expect(client.download).not.toHaveBeenCalled()
+  })
+
+  it("rejects an out-of-set resourceType on the knowledge resource download", async () => {
+    const client = makeClient(async () => ({}))
+    const mcp = await connect(client)
+    const result = await mcp.callTool({ name: "gangtise_knowledge_resource_download", arguments: { resourceType: 999, sourceId: "abc" } })
+    expect(result.isError).toBe(true)
+    expect(client.download).not.toHaveBeenCalled()
   })
 })

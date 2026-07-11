@@ -228,7 +228,7 @@ export function registerFundamentalTools(server: McpServer, client: GangtiseClie
         securityCode,
         indicator: z.enum(["peTtm", "pbMrq", "peg", "psTtm", "pcfTtm", "em"]).describe("peTtm | pbMrq | peg | psTtm | pcfTtm | em（必填）"),
         ...dateRange,
-        limit: z.number().int().optional().describe("最大返回行数（默认 2000）"),
+        limit: z.number().int().min(1).optional().describe("最大返回行数（默认 2000）"),
         skipNull: z.boolean().optional().describe("过滤掉 value 或 percentileRank 为空的行（客户端后处理）"),
         fieldList,
       },

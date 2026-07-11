@@ -7,6 +7,7 @@ import { pollAsyncContent } from "../core/asyncContent.js"
 import { normalizeRows } from "../core/normalize.js"
 import { ApiError, AsyncTimeoutError, ValidationError, errorMessage } from "../core/errors.js"
 import { dateDesc, dateString, dateTimeDesc, dateTimeString, quarterEndDate, today, todayDate } from "../core/dateContext.js"
+import { nonEmptyString, intLiteralEnum } from "./schemas.js"
 
 export interface AiToolOptions {
   asyncTimeoutMs: number
@@ -22,6 +23,7 @@ export const jsonSpecs: JsonToolSpec[] = [
       securityList: z
         .array(z.string().trim().min(1))
         .min(1, "securityList 不能为空")
+        .max(6000, "securityList 单次最多 6000 个")
         .describe(
           "证券代码列表（A股/港股，如 ['600519.SH','00700.HK']，单次最多 6000），或市场关键词 aShares=A股全市场 | hkStocks=港股全市场。必填，避免误触发全市场扣费",
         ),
@@ -73,7 +75,7 @@ export const jsonSpecs: JsonToolSpec[] = [
     endpointKey: "ai.management-discuss-announcement",
     paginated: false,
     inputSchema: {
-      securityCode: z.string().describe("证券代码，如 '600519.SH'"),
+      securityCode: nonEmptyString.describe("证券代码，如 '600519.SH'"),
       reportDate: quarterEndDate("06-30", "12-31").describe("xxxx-06-30（中报）或 xxxx-12-31（年报）"),
       discussionDimension: z.enum(["businessOperation", "financialPerformance", "developmentAndRisk", "all"]).describe("businessOperation=经营情况 | financialPerformance=财务表现 | developmentAndRisk=发展与风险 | all=全部维度（必填）"),
     },
@@ -84,7 +86,7 @@ export const jsonSpecs: JsonToolSpec[] = [
     endpointKey: "ai.management-discuss-earnings-call",
     paginated: false,
     inputSchema: {
-      securityCode: z.string().describe("证券代码，如 '600519.SH'"),
+      securityCode: nonEmptyString.describe("证券代码，如 '600519.SH'"),
       reportDate: quarterEndDate("03-31", "06-30", "09-30", "12-31").describe("xxxx-03-31 | xxxx-06-30 | xxxx-09-30 | xxxx-12-31"),
       discussionDimension: z.enum(["businessOperation", "financialPerformance", "developmentAndRisk"]).describe("businessOperation=经营情况 | financialPerformance=财务表现 | developmentAndRisk=发展与风险（必填）"),
     },
@@ -97,8 +99,8 @@ export const downloadSpecs: DownloadToolSpec[] = [
     description: "按资源类型和 sourceId 下载知识库资源文件。sourceId 来自 gangtise_knowledge_batch 返回结果。",
     endpointKey: "ai.knowledge-resource.download",
     inputSchema: {
-      resourceType: z.number().int().describe("资源类型（必填）：10=研报 | 11=外资研报 | 20=内部 | 40=观点 | 50=公告 | 51=港股公告 | 60=纪要 | 70=调研 | 80=网络纪要 | 90=公众号"),
-      sourceId: z.string().describe("资源 ID，来自 gangtise_knowledge_batch 返回结果（必填）"),
+      resourceType: intLiteralEnum([10, 11, 20, 40, 50, 51, 60, 70, 80, 90]).describe("资源类型（必填）：10=研报 | 11=外资研报 | 20=内部 | 40=观点 | 50=公告 | 51=港股公告 | 60=纪要 | 70=调研 | 80=网络纪要 | 90=公众号"),
+      sourceId: nonEmptyString.describe("资源 ID，来自 gangtise_knowledge_batch 返回结果（必填）"),
     },
   },
 ]
@@ -144,14 +146,26 @@ function makeAsyncToolPair(
       annotations: { readOnlyHint: false, openWorldHint: false },
     },
     toolHandler(async (args: Record<string, unknown>) => {
+      // Absolute deadline from the tool call's start: submit itself can take up
+      // to the request timeout (~30s), and that time must count against the wait
+      // budget — otherwise submit + poll can jointly exceed the client's ~60s
+      // cutoff and the billed task's dataId is lost before it reaches the model.
+      const startedAt = Date.now()
       const { waitSeconds, ...submitArgs } = args
       const timeoutMs = typeof waitSeconds === "number" ? waitSeconds * 1000 : opts.asyncTimeoutMs
       const submitResult = await client.call(config.submitEndpoint, submitArgs) as Record<string, string>
       const dataId = submitResult[config.submitIdField]
       if (!dataId) throw new Error(`No ${config.submitIdField} in response`)
 
+      // waitSeconds=0 (or a submit that already ate the whole budget) hands back
+      // the dataId immediately — no wasted, billed poll round-trip.
+      const remainingMs = timeoutMs - (Date.now() - startedAt)
+      if (remainingMs <= 0) {
+        return textResult(JSON.stringify({ dataId, status: "timeout", hint: `Call ${config.checkName} with this dataId in ~3 minutes` }))
+      }
+
       try {
-        const polled = await pollAsyncContent(client, config.pollEndpoint, dataId, timeoutMs)
+        const polled = await pollAsyncContent(client, config.pollEndpoint, dataId, remainingMs)
         if (!polled.content.trim()) return textResult("任务已完成，但 AI 内容为空（后端未生成或数据缺失）。")
         return contentResult(await buildTextResult(polled.content))
       } catch (err) {
@@ -244,7 +258,7 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
     "gangtise_one_pager",
     {
       description: "生成指定证券的 AI 一页纸投资摘要，返回 Markdown 内容。",
-      inputSchema: { securityCode: z.string().describe("A 股或港股证券代码") },
+      inputSchema: { securityCode: nonEmptyString.describe("A 股或港股证券代码") },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async (args) => makeAiContentHandler(client, "ai.one-pager")(args as Record<string, unknown>),
@@ -254,7 +268,7 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
     "gangtise_investment_logic",
     {
       description: "生成指定证券的 AI 投资逻辑梳理报告，返回 Markdown 内容。",
-      inputSchema: { securityCode: z.string().describe("A 股或港股证券代码") },
+      inputSchema: { securityCode: nonEmptyString.describe("A 股或港股证券代码") },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async (args) => makeAiContentHandler(client, "ai.investment-logic")(args as Record<string, unknown>),
@@ -264,7 +278,7 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
     "gangtise_peer_comparison",
     {
       description: "生成指定证券的 AI 同业竞争格局对比报告，返回 Markdown 内容。",
-      inputSchema: { securityCode: z.string().describe("A 股或港股证券代码") },
+      inputSchema: { securityCode: nonEmptyString.describe("A 股或港股证券代码") },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async (args) => makeAiContentHandler(client, "ai.peer-comparison")(args as Record<string, unknown>),
@@ -274,7 +288,7 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
     "gangtise_research_outline",
     {
       description: "获取指定证券的 AI 生成公司研究提纲，返回 Markdown 内容。",
-      inputSchema: { securityCode: z.string().describe("仅支持 A 股证券代码") },
+      inputSchema: { securityCode: nonEmptyString.describe("仅支持 A 股证券代码") },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async (args) => makeAiContentHandler(client, "ai.research-outline")(args as Record<string, unknown>),
@@ -285,7 +299,7 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
     name: "gangtise_earnings_review",
     description: "生成 AI 业绩点评报告。提交任务后等待最多 waitSeconds 秒（默认 55s），超时返回 dataId 供 gangtise_earnings_review_check 续查。",
     inputSchema: {
-      securityCode: z.string().describe("仅支持 A 股证券代码"),
+      securityCode: nonEmptyString.describe("仅支持 A 股证券代码"),
       period: z.string().regex(/^\d{4}(q1|interim|q3|annual)$/, "格式：<年份>q1|interim|q3|annual（小写），如 2025q3").describe("报告期，格式 <年份>q1 | <年份>interim | <年份>q3 | <年份>annual，如 2025q3；仅覆盖最近 6 期"),
     },
     submitEndpoint: "ai.earnings-review.get-id",
@@ -300,7 +314,7 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
     name: "gangtise_viewpoint_debate",
     description: "对给定投资观点生成 AI 多空辩论报告。提交任务后等待最多 waitSeconds 秒（默认 55s），超时返回 dataId 供对应 *_check 工具续查。",
     inputSchema: {
-      viewpoint: z.string().max(1000).describe("投资观点文本（最多 1000 字）"),
+      viewpoint: nonEmptyString.max(1000).describe("投资观点文本（最多 1000 字）"),
     },
     submitEndpoint: "ai.viewpoint-debate.get-id",
     pollEndpoint: "ai.viewpoint-debate.get-content",
