@@ -48,13 +48,13 @@ describe("callKlineWithSharding", () => {
 
     const result = await callKlineWithSharding({ call }, "quote.day-kline", {
       securityList: ["all"],
-      startDate: "2026-04-01",
-      endDate: "2026-04-05",
+      startDate: "2026-03-30", // Monday — a weekday-only window (weekends are skipped)
+      endDate: "2026-04-03", // Friday
     }, { shardDays: 1 }) as Record<string, unknown>
 
     expect(result._partial).toBe(true)
     expect(Array.isArray(result.list)).toBe(true)
-    expect((result.list as unknown[]).length).toBe(4) // 5 shards, 1 failed
+    expect((result.list as unknown[]).length).toBe(4) // 5 weekday shards, 1 failed
     expect(Array.isArray(result._failed_shards)).toBe(true)
     expect((result._failed_shards as Array<{ startDate: string }>).some((s) => s.startDate === "2026-04-03")).toBe(true)
   })
@@ -179,5 +179,81 @@ describe("callKlineWithSharding", () => {
 
     expect(seenBodies).toHaveLength(1)
     expect(seenBodies[0].limit).toBeUndefined()
+  })
+})
+
+// Weekend skip (synced from CLI v0.24): A/HK/US markets are closed Sat/Sun, so
+// 1-day full-market shards on those dates are guaranteed-empty requests — skip
+// them to save quota. Multi-day shards are unaffected.
+describe("weekend skip for 1-day shards", () => {
+  it("skips Saturday and Sunday shards in a Mon–Sun range", async () => {
+    const seenDates: string[] = []
+    const call = vi.fn().mockImplementation(async (_key: string, body: Record<string, unknown>) => {
+      seenDates.push(String(body.startDate))
+      return { list: [] }
+    })
+
+    await callKlineWithSharding({ call }, "quote.day-kline", {
+      securityList: ["all"],
+      startDate: "2026-07-06", // Monday
+      endDate: "2026-07-12", // Sunday
+    }, { shardDays: 1 })
+
+    expect(seenDates).toEqual(["2026-07-06", "2026-07-07", "2026-07-08", "2026-07-09", "2026-07-10"])
+  })
+
+  it("returns empty without any API call for a weekend-only range", async () => {
+    const call = vi.fn()
+    const result = await callKlineWithSharding({ call }, "quote.day-kline", {
+      securityList: ["all"],
+      startDate: "2026-07-11", // Saturday
+      endDate: "2026-07-12", // Sunday
+    }, { shardDays: 1 })
+    expect(call).not.toHaveBeenCalled()
+    expect(result).toEqual({ list: [] })
+  })
+
+  it("keeps weekend days inside multi-day shards", async () => {
+    const seen: Array<{ start: string; end: string }> = []
+    const call = vi.fn().mockImplementation(async (_key: string, body: Record<string, unknown>) => {
+      seen.push({ start: String(body.startDate), end: String(body.endDate) })
+      return { list: [] }
+    })
+
+    await callKlineWithSharding({ call }, "quote.day-kline-hk", {
+      securityList: ["all"],
+      startDate: "2026-07-10", // Friday
+      endDate: "2026-07-13", // Monday
+    }, { shardDays: 2 })
+
+    expect(seen).toEqual([
+      { start: "2026-07-10", end: "2026-07-11" },
+      { start: "2026-07-12", end: "2026-07-13" },
+    ])
+  })
+})
+
+// Symmetric with _failed_shards (synced from CLI v0.27): name the exact date
+// windows that hit the per-shard cap so a consumer can re-pull just those days
+// with a narrower window instead of guessing.
+describe("truncated shard reporting", () => {
+  it("lists the date ranges of limit-capped shards in _truncated_shards", async () => {
+    const call = vi.fn().mockImplementation(async (_key: string, body: Record<string, unknown>) => {
+      if (body.startDate === "2026-07-07") {
+        return { list: [{ d: 1 }, { d: 2 }] } // reaches the limit of 2
+      }
+      return { list: [{ d: 1 }] }
+    })
+
+    const result = await callKlineWithSharding({ call }, "quote.day-kline", {
+      securityList: ["all"],
+      startDate: "2026-07-06",
+      endDate: "2026-07-08",
+      limit: 2,
+    }, { shardDays: 1 }) as Record<string, unknown>
+
+    expect(result._partial).toBe(true)
+    expect(String(result._partial_reason)).toContain("limit_truncated")
+    expect(result._truncated_shards).toEqual([{ startDate: "2026-07-07", endDate: "2026-07-07" }])
   })
 })

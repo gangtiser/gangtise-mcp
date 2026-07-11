@@ -69,16 +69,26 @@ export function flagLimitTruncated(result: unknown, effectiveLimit: number): unk
   return result
 }
 
+function isWeekend(epochMs: number): boolean {
+  const day = new Date(epochMs).getUTCDay()
+  return day === 0 || day === 6
+}
+
 function buildShards(start: Date, end: Date, shardDays: number): Array<{ startDate: string; endDate: string }> {
   const shards: Array<{ startDate: string; endDate: string }> = []
   let cursor = start.getTime()
   const endTime = end.getTime()
   while (cursor <= endTime) {
     const shardEnd = Math.min(cursor + (shardDays - 1) * DAY_MS, endTime)
-    shards.push({
-      startDate: formatDate(new Date(cursor)),
-      endDate: formatDate(new Date(shardEnd)),
-    })
+    // A/HK/US markets close Sat/Sun, so a 1-day weekend shard is a
+    // guaranteed-empty request — skip it (~28% of a long range, and daily
+    // quota). Multi-day shards may straddle a weekend and are kept whole.
+    if (!(shardDays === 1 && isWeekend(cursor))) {
+      shards.push({
+        startDate: formatDate(new Date(cursor)),
+        endDate: formatDate(new Date(shardEnd)),
+      })
+    }
     cursor = shardEnd + DAY_MS
   }
   return shards
@@ -124,6 +134,10 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   }
 
   const shards = buildShards(start, end, config.shardDays)
+  // Every day in the range was a skipped weekend: markets closed, nothing to fetch.
+  if (shards.length === 0) {
+    return { list: [] }
+  }
   if (shards.length > MAX_SHARDS) {
     throw new ValidationError(`全市场查询区间过大（${shards.length} 个分片 > ${MAX_SHARDS}）：合并结果将超出单次响应安全上限，请缩小日期区间分批拉取`)
   }
@@ -153,15 +167,19 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   let fieldList: unknown[] | undefined
   let header: Record<string, unknown> | null = null
   const merged: unknown[] = []
-  let truncatedShards = 0
-  for (const r of results) {
+  const truncatedShards: Array<{ startDate: string; endDate: string }> = []
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i]
     if (!r.ok || !(r.value && typeof r.value === "object")) continue
     const rec = r.value as Record<string, unknown>
     if (!header) header = rec
     if (!fieldList && Array.isArray(rec.fieldList)) fieldList = rec.fieldList
     // A shard whose row count reaches the per-request limit was itself capped, so
-    // its slice of that day's market is incomplete — flag the merged result partial.
-    if (Array.isArray(rec.list) && (rec.list as unknown[]).length >= perShardLimit) truncatedShards++
+    // its slice of that day's market is incomplete — record its date window so a
+    // consumer can re-pull exactly those days with a narrower range.
+    if (Array.isArray(rec.list) && (rec.list as unknown[]).length >= perShardLimit) {
+      truncatedShards.push({ startDate: shards[i].startDate, endDate: shards[i].endDate })
+    }
     if (Array.isArray(rec.list)) merged.push(...(rec.list as unknown[]))
   }
 
@@ -178,7 +196,10 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
     reasons.push("failed_shards")
     out._failed_shards = failed.map((f) => ({ startDate: f.startDate, endDate: f.endDate, error: f.error }))
   }
-  if (truncatedShards > 0) reasons.push("limit_truncated")
+  if (truncatedShards.length > 0) {
+    reasons.push("limit_truncated")
+    out._truncated_shards = truncatedShards
+  }
   if (reasons.length > 0) {
     out._partial = true
     out._partial_reason = reasons.join(",")

@@ -2,6 +2,7 @@ import { createWriteStream } from "node:fs"
 import fs from "node:fs/promises"
 import path from "node:path"
 import { pipeline } from "node:stream/promises"
+import { gunzipSync } from "node:zlib"
 
 import { request } from "undici"
 
@@ -362,6 +363,9 @@ export class GangtiseClient {
     const attemptOnce = async (): Promise<T> => {
       const headers: Record<string, string> = {
         'content-type': 'application/json',
+        // undici does not auto-decompress; the gunzip below handles it. Server-side
+        // gzip cuts JSON payloads ~3-10x (CLI measured 3.6x on constant-list).
+        'accept-encoding': 'gzip',
       }
       if (useAuth) {
         headers.Authorization = await this.getAuthorizationHeader()
@@ -376,7 +380,24 @@ export class GangtiseClient {
         bodyTimeout: timeoutMs,
         dispatcher,
       })
-      const text = await response.body.text()
+      // Only buffer + gunzip when the server actually compressed; an unencoded
+      // response reads as text directly.
+      const encodingHeader = response.headers['content-encoding']
+      const gzipped = (Array.isArray(encodingHeader) ? encodingHeader[0] : encodingHeader)?.toLowerCase().trim() === 'gzip'
+      let text: string
+      if (gzipped) {
+        const bytes = Buffer.from(await response.body.arrayBuffer())
+        try {
+          text = gunzipSync(bytes).toString('utf8')
+        } catch (error) {
+          // A proxy/middlebox can declare gzip and deliver garbage — surface it
+          // with request context instead of a bare zlib Z_DATA_ERROR.
+          const detail = error instanceof Error ? error.message : String(error)
+          throw new ApiError(`Failed to decode gzip response for ${endpoint.method} ${endpoint.path}: ${detail}`, undefined, response.statusCode)
+        }
+      } else {
+        text = await response.body.text()
+      }
       logTiming(`${endpoint.method} ${endpoint.path}`, Date.now() - startedAt, `${response.statusCode}, ${text.length}B`)
       const retryAfterMs = response.statusCode >= 400 ? this.parseRetryAfterMs(response.headers['retry-after']) : undefined
 

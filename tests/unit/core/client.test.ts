@@ -1,4 +1,5 @@
 import fs from "node:fs/promises"
+import { gzipSync } from "node:zlib"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -513,6 +514,47 @@ describe("GangtiseClient no-replay endpoints", () => {
     })
     await expect(tokenClient().call("indicator.search", { indicatorName: "PE" })).rejects.toBeTruthy()
     expect(calls).toBe(1)
+  })
+})
+
+describe("GangtiseClient gzip", () => {
+  function gzipJsonResponse(payload: unknown) {
+    const gz = gzipSync(Buffer.from(JSON.stringify({ code: "000000", msg: "ok", data: payload })))
+    return {
+      statusCode: 200,
+      headers: { "content-type": "application/json", "content-encoding": "gzip" },
+      body: {
+        arrayBuffer: vi.fn().mockResolvedValue(gz.buffer.slice(gz.byteOffset, gz.byteOffset + gz.byteLength)),
+        text: vi.fn(),
+      },
+    }
+  }
+
+  it("requests gzip and decompresses a gzip-encoded JSON response", async () => {
+    requestMock.mockResolvedValue(gzipJsonResponse({ answer: 42 }))
+    const result = await tokenClient().call("ai.one-pager", { securityCode: "600519.SH" })
+    expect(result).toEqual({ answer: 42 })
+    const options = requestMock.mock.calls[0][1] as { headers: Record<string, string> }
+    expect(options.headers["accept-encoding"]).toBe("gzip")
+  })
+
+  it("wraps a corrupt gzip body as an ApiError with request context (no bare zlib error)", async () => {
+    requestMock.mockResolvedValue({
+      statusCode: 200,
+      headers: { "content-type": "application/json", "content-encoding": "gzip" },
+      body: {
+        arrayBuffer: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3, 4]).buffer),
+        text: vi.fn(),
+      },
+    })
+    await expect(tokenClient().call("ai.one-pager", { securityCode: "600519.SH" }))
+      .rejects.toMatchObject({ name: "ApiError", message: expect.stringContaining("gzip") })
+    expect(requestMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("still reads an unencoded response as plain text", async () => {
+    requestMock.mockResolvedValue(jsonResponse({ plain: true }))
+    expect(await tokenClient().call("ai.one-pager", { securityCode: "600519.SH" })).toEqual({ plain: true })
   })
 })
 
