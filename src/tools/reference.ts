@@ -41,6 +41,20 @@ export const referenceSpecs: JsonToolSpec[] = [
     },
   },
   {
+    name: "gangtise_official_account_search",
+    description:
+      "搜索公众号 ID：输入公众号名称/所属机构/关键字，返回 accountId（供 gangtise_official_account_list 的 accountIdList 使用）及 matchScore。免费。注意：部分公众号不属任何分类（category 为 null），传 category 过滤会漏掉这些账号，要全量就不传 category。",
+    endpointKey: "reference.official-account-search",
+    inputSchema: {
+      keyword: z.string().trim().min(1, "搜索词不能为空").describe("公众号名称/所属机构/关键字，如 '中信证券' '人民日报'"),
+      category: z
+        .array(z.enum(["listedCompany", "broker", "government", "media"]))
+        .optional()
+        .describe("分类过滤（可多选）：listedCompany=上市公司 | broker=券商团队 | government=政府官方 | media=媒体；不传=全部（含未分类）"),
+      top: z.number().int().min(1).max(10).optional().describe("最大返回条数（默认 10，上限 10），按 matchScore 降序"),
+    },
+  },
+  {
     name: "gangtise_constant_category",
     description:
       "查询常量分类列表：返回所有常量分类及每个分类适用于哪些接口的哪些参数（usageScopes）。当前分类：citicIndustry=中信一级行业 | swIndustry=申万一级行业 | gangtiseIndustry=Gangtise行业 | domesticCity=国内城市 | aShareAnnouncementCategory=A股公告分类 | hkShareAnnouncementCategory=港股公告分类 | usShareAnnouncementCategory=美股公告分类 | regionCategory=区域分类。",

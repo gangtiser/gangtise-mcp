@@ -2,8 +2,12 @@ import { z } from "zod"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { GangtiseClient } from "../core/client.js"
 import { registerJsonTool, registerDownloadTool, type JsonToolSpec, type DownloadToolSpec } from "./registry.js"
-import { dateTimeDesc, dateTimeString } from "../core/dateContext.js"
+import { dateString, dateTimeDesc, dateTimeString } from "../core/dateContext.js"
 import { nonEmptyString, intLiteralEnum } from "./schemas.js"
+
+// insight.qa.list accepts either a plain date or a full datetime; the string is
+// passed through to the API as-is (no timestamp conversion).
+const qaTimeString = z.union([dateString, dateTimeString])
 
 // Each schedule endpoint accepts a different subset of filters (per API spec).
 // Previously all four shared one big schema, so unsupported filters (e.g.
@@ -268,10 +272,50 @@ export const listSpecs: JsonToolSpec[] = [
       keyword: z.string().optional().describe("需用数据中的具体词（如 泡泡玛特），不要用整句白话"),
       searchType: z.number().int().optional().describe("1=标题搜索（默认）| 2=全文搜索"),
       rankType: z.number().int().optional().describe("1=综合排序（默认）| 2=时间倒序"),
-      accountIdList: z.array(z.string()).optional().describe("公众号 ID，来自本工具返回的 accountId"),
+      accountIdList: z.array(z.string()).optional().describe("公众号 ID，来自 gangtise_official_account_search（或本工具此前返回的 accountId）"),
       securityList: z.array(z.string()).optional().describe("证券代码列表，如 ['000001.SZ']"),
       categoryList: z.array(z.string()).optional().describe("文章类型：news=新闻资讯 | law=法律法规 | report=报告类 | view=个人观点 | data=产业数据 | event=日程活动 | meeting=会议纪要 | notice=通知 | recruit=招聘 | investEdu=投资科普 | brand=品牌宣传 | notes=个人随笔 | other=其他"),
       industryList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx，全场景首选）"),
+    },
+  },
+  {
+    name: "gangtise_qa_list",
+    description:
+      "按证券提取投资者问答 QA（互动平台/电话会议/调研纪要中的提问与回答，含回答方身份 member 与问题分类）。0.1 积分/条。",
+    endpointKey: "insight.qa.list",
+    paginated: true,
+    inputSchema: {
+      securityCode: nonEmptyString.describe("证券代码（必填），如 '601012.SH'，按单只证券提取"),
+      startTime: qaTimeString.optional().describe("YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss"),
+      endTime: qaTimeString.optional().describe("YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss"),
+      source: z
+        .array(z.string())
+        .optional()
+        .describe("问题来源（可多选）：conference=电话会议 | interactive=互动平台 | survey=调研纪要；不传查全部（拼写错误服务端报 100003，不做本地白名单）"),
+      questionCategory: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "问题分类（可多选）：productAndBusiness=产品技术与业务布局 | capacityAndProjects=产能与项目进展 | ordersAndCustomers=订单与客户 | financialData=财务与经营数据 | materialEvents=重大事项 | capitalOperations=资本运作 | shareholdersAndDividends=股东户数与常规分红 | corporateGovernance=治理与管理 | marketAndValuation=市场与估值 | macroAndIndustry=宏观与行业看法 | risksAndOthers=风险质疑其他（拼写错误服务端报 100003，不做本地白名单）",
+        ),
+      answerImportant: z
+        .array(intLiteralEnum([0, 1]))
+        .optional()
+        .describe("答案是否涉及重要信息：[1]=只取重要 | [0]=只取不重要；省略或 [0,1]=不按此维度筛选"),
+    },
+  },
+  {
+    name: "gangtise_report_image_list",
+    description:
+      "按关键词搜索研报图表，返回 chunkId 及元数据（标题/券商/页码/图注/该页 OCR 文本），免费；原图用 gangtise_report_image_download 按 chunkId 下载。",
+    endpointKey: "insight.report-image.list",
+    paginated: false,
+    inputSchema: {
+      keyword: nonEmptyString.describe("搜索关键词（必填），如 'AI' '新能源汽车'"),
+      top: z.number().int().min(1).max(20).optional().describe("最大返回条数（默认 10，上限 20）"),
+      sourceId: z.string().optional().describe("研报 ID，限定到某篇研报（来自研报列表或知识库结果）"),
+      startTime: dateTimeString.optional().describe(dateTimeDesc()),
+      endTime: dateTimeString.optional().describe(dateTimeDesc()),
     },
   },
 ]
@@ -347,6 +391,14 @@ export const downloadSpecs: DownloadToolSpec[] = [
     inputSchema: {
       articleId: nonEmptyString.describe("文章 ID，来自 gangtise_official_account_list"),
       fileType: intLiteralEnum([1, 2]).optional().describe("1=txt（默认）| 2=HTML"),
+    },
+  },
+  {
+    name: "gangtise_report_image_download",
+    description: "按 chunkId 下载研报图表原图（JPEG 二进制，0.1 积分/张）。chunkId 来自 gangtise_report_image_list。",
+    endpointKey: "insight.report-image.download",
+    inputSchema: {
+      chunkId: nonEmptyString.describe("图片唯一标识，来自 gangtise_report_image_list 的 chunkId"),
     },
   },
 ]

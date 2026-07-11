@@ -35,7 +35,7 @@ const indicatorCodeList = z
 const securityCodeList = z
   .array(z.string())
   .min(1, "securityCodeList 至少 1 个")
-  .describe("证券代码列表（至少 1 个），如 ['600519.SH']")
+  .describe("证券代码列表（至少 1 个），支持 A 股/港股/美股，如 ['600519.SH','00700.HK','AAPL.O']；美股用交易所后缀 .O(NASDAQ) / .N(NYSE)，不是 .US（.US 查不到数据）")
 const currency = z
   .enum(["DFT", "CNY", "HKD", "USD", "EUR", "GBP", "JPY", "TWD", "MOP", "AUD"])
   .optional()
@@ -61,7 +61,7 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
     "gangtise_indicator_search",
     {
       description:
-        "按名称搜索证券级数据指标（EDE），返回 indicatorCode 及可传参数 parameterList（含 required 必填标记与枚举）。取数前必先用本工具拿 code，不要猜编码。宏观/行业数据（产量、价格、PMI 等）请改用 gangtise_edb_search。",
+        "按名称搜索证券级数据指标（EDE），返回 indicatorCode 及可传参数 parameterList（含 required 必填标记与枚举）。覆盖 A 股/港股/美股。取数前必先用本工具拿 code，不要猜编码。宏观/行业数据（产量、价格、PMI 等）请改用 gangtise_edb_search。",
       inputSchema: {
         keyword: z
           .string()
