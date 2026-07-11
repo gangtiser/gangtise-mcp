@@ -141,8 +141,8 @@ function makeAsyncToolPair(
         waitSeconds: z.number().int().min(0).max(180).optional().describe("最长等待秒数（默认 55，最大 180）；超时返回 dataId，用对应 *_check 工具续查"),
       },
       // NOT read-only: submitting creates a billed, non-idempotent task (the submit
-      // endpoint carries noRetry). Leave the hint false so agentic clients confirm
-      // before auto-invoking. The _check poll tool below stays read-only.
+      // endpoint carries retry: "no-replay"). Leave the hint false so agentic clients
+      // confirm before auto-invoking. The _check poll tool below stays read-only.
       annotations: { readOnlyHint: false, openWorldHint: false },
     },
     toolHandler(async (args: Record<string, unknown>) => {

@@ -50,22 +50,37 @@ export async function runWithConcurrency<T, R>(
 }
 
 const RETRYABLE_HTTP_STATUS = new Set([429, 500, 502, 503, 504])
-const RETRYABLE_NETWORK_CODES = new Set(["ECONNRESET", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN", "UND_ERR_SOCKET", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT"])
+const RETRYABLE_NETWORK_CODES = new Set(["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_SOCKET", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT"])
 const RETRYABLE_API_CODES = new Set(["999999"])
+// Connect-phase / DNS failures: the request provably never reached the server, so a
+// replay cannot double-execute (or double-bill) anything even under "no-replay".
+const NO_REPLAY_NETWORK_CODES = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "UND_ERR_CONNECT_TIMEOUT"])
 
-function isRetryableError(error: unknown): boolean {
+/** "no-replay" (per-call billed endpoints — billing probed non-idempotent, no
+ * cache-hit exemption): never resend a request the server may have executed.
+ * Only connect-phase errors, 429 (rejected before processing) and the explicit
+ * token-self-heal mark retry; 5xx / response timeouts / 999999 fail fast.
+ * "no-999999" (EDE indicator endpoints): the server answers a no-data query with
+ * HTTP 500 + 999999 (probed 2026-07-11) — retrying that is pure waste; everything
+ * else follows the default policy. */
+export type RetryPolicy = "default" | "no-replay" | "no-999999"
+
+export function isRetryableError(error: unknown, policy: RetryPolicy = "default"): boolean {
   if (error && typeof error === "object" && (error as { __retryable?: boolean }).__retryable === true) {
     return true
   }
   if (error instanceof ApiError) {
+    if (error.statusCode === 429) return true
+    if (policy === "no-replay") return false
+    if (error.code && RETRYABLE_API_CODES.has(error.code)) return policy !== "no-999999"
     if (error.statusCode != null && RETRYABLE_HTTP_STATUS.has(error.statusCode)) return true
-    if (error.code && RETRYABLE_API_CODES.has(error.code)) return true
     return false
   }
   if (error && typeof error === "object" && "code" in error) {
     const code = String((error as { code: unknown }).code)
-    if (RETRYABLE_NETWORK_CODES.has(code)) return true
+    if ((policy === "no-replay" ? NO_REPLAY_NETWORK_CODES : RETRYABLE_NETWORK_CODES).has(code)) return true
   }
+  if (policy === "no-replay") return false
   if (error instanceof Error && /timeout|ETIMEDOUT|ECONNRESET|socket hang up/i.test(error.message)) {
     return true
   }
@@ -80,6 +95,7 @@ export interface RetryOptions {
   retries?: number
   baseDelayMs?: number
   maxDelayMs?: number
+  policy?: RetryPolicy
   onRetry?: (attempt: number, error: unknown, delayMs: number) => void
 }
 
@@ -106,13 +122,14 @@ export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions =
   const retries = options.retries ?? 2
   const baseDelay = options.baseDelayMs ?? 400
   const maxDelay = options.maxDelayMs ?? 4_000
+  const policy = options.policy ?? "default"
   let attempt = 0
 
   while (true) {
     try {
       return await fn()
     } catch (error) {
-      if (attempt >= retries || !isRetryableError(error)) throw error
+      if (attempt >= retries || !isRetryableError(error, policy)) throw error
       const delay = computeRetryDelay(error, attempt, baseDelay, maxDelay)
       options.onRetry?.(attempt + 1, error, delay)
       await new Promise(resolve => setTimeout(resolve, delay))

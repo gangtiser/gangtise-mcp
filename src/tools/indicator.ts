@@ -6,7 +6,27 @@ import { toolHandler, contentResult } from "./helpers.js"
 import { normalizeRows } from "../core/normalize.js"
 import { unwrapIndicatorData, flattenCrossSection, flattenTimeSeries } from "../core/indicatorMatrix.js"
 import { dateDesc, dateString } from "../core/dateContext.js"
-import { ValidationError } from "../core/errors.js"
+import { ApiError, ValidationError } from "../core/errors.js"
+
+// The EDE endpoints answer a no-data query (holiday / future date / uncovered
+// security) with HTTP 500 + code 999999 — the generic "系统错误，请稍后重试"
+// hint would send the caller into a retry loop that can never succeed. Reword
+// to point at the query conditions; code left unset so the generic hint isn't
+// re-attached.
+async function callIndicator(client: GangtiseClient, endpointKey: string, args: Record<string, unknown>): Promise<unknown> {
+  try {
+    return await client.call(endpointKey, args)
+  } catch (error) {
+    if (error instanceof ApiError && error.code === "999999") {
+      throw new ApiError(
+        "指标查询无数据（错误码 999999）：请检查查询条件——日期是否为交易日（节假日/未来日期无数据）、证券与指标是否在覆盖范围内、参数取值是否有效。",
+        undefined,
+        error.statusCode,
+      )
+    }
+    throw error
+  }
+}
 
 const indicatorCodeList = z
   .array(z.string())
@@ -53,7 +73,7 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     toolHandler(async (args: Record<string, unknown>) => {
-      const raw = await client.call("indicator.search", args)
+      const raw = await callIndicator(client, "indicator.search", args)
       return contentResult(await buildToolContent(normalizeRows(unwrapIndicatorData(raw))))
     }),
   )
@@ -74,7 +94,7 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     toolHandler(async (args: Record<string, unknown>) => {
-      const raw = await client.call("indicator.cross-section", args)
+      const raw = await callIndicator(client, "indicator.cross-section", args)
       return contentResult(await buildToolContent(flattenCrossSection(unwrapIndicatorData(raw))))
     }),
   )
@@ -107,7 +127,7 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
           "时间序列仅支持「多指标 × 单证券」或「单指标 × 多证券」，indicatorCodeList 与 securityCodeList 不能同时多于 1 个；请拆分为多次查询，或改用 gangtise_indicator_cross_section（单日多指标 × 多证券）。",
         )
       }
-      const raw = await client.call("indicator.time-series", args)
+      const raw = await callIndicator(client, "indicator.time-series", args)
       return contentResult(await buildToolContent(flattenTimeSeries(unwrapIndicatorData(raw))))
     }),
   )

@@ -102,8 +102,9 @@ describe("MCP server integration", () => {
   it("marks tools read-only except the billed async submit tools", async () => {
     const { tools } = await mcpClient.listTools()
     const nonReadOnly = tools.filter(t => t.annotations?.readOnlyHint !== true).map(t => t.name).sort()
-    // Async submit tools create a billed, non-idempotent task (endpoints carry noRetry),
-    // so they must NOT be read-only — clients shouldn't auto-invoke them unconfirmed.
+    // Async submit tools create a billed, non-idempotent task (endpoints carry
+    // retry: "no-replay"), so they must NOT be read-only — clients shouldn't
+    // auto-invoke them unconfirmed.
     // Their _check polling tools stay read-only.
     expect(nonReadOnly).toEqual(["gangtise_earnings_review", "gangtise_viewpoint_debate"])
     // Every tool hits a single closed-domain API (or local data), never the open

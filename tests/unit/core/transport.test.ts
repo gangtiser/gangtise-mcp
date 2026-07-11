@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { runWithConcurrency, withRetry, markRetryable, computeRetryDelay } from "../../../src/core/transport.js"
+import { runWithConcurrency, withRetry, markRetryable, computeRetryDelay, isRetryableError } from "../../../src/core/transport.js"
 import { ApiError } from "../../../src/core/errors.js"
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -103,6 +103,67 @@ describe("withRetry", () => {
       return "ok"
     }, { ...fast, onRetry })
     expect(onRetry).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe("isRetryableError policies", () => {
+  const netErr = (code: string) => Object.assign(new Error(code), { code })
+
+  describe("default policy", () => {
+    it("retries connect-phase errors (request never sent)", () => {
+      expect(isRetryableError(netErr("ECONNREFUSED"), "default")).toBe(true)
+      expect(isRetryableError(netErr("UND_ERR_CONNECT_TIMEOUT"), "default")).toBe(true)
+    })
+
+    it("keeps 5xx / 999999 / response-phase errors retryable", () => {
+      expect(isRetryableError(new ApiError("s", undefined, 502), "default")).toBe(true)
+      expect(isRetryableError(new ApiError("sys", "999999", 500), "default")).toBe(true)
+      expect(isRetryableError(netErr("UND_ERR_HEADERS_TIMEOUT"), "default")).toBe(true)
+    })
+
+    it("still refuses non-transient errors", () => {
+      expect(isRetryableError(new ApiError("bad", undefined, 400), "default")).toBe(false)
+    })
+  })
+
+  describe("no-replay policy (per-call billed endpoints)", () => {
+    it("never replays a request the server may have executed", () => {
+      expect(isRetryableError(new ApiError("s", undefined, 502), "no-replay")).toBe(false)
+      expect(isRetryableError(new ApiError("sys", "999999", 500), "no-replay")).toBe(false)
+      expect(isRetryableError(netErr("UND_ERR_HEADERS_TIMEOUT"), "no-replay")).toBe(false)
+      expect(isRetryableError(netErr("ECONNRESET"), "no-replay")).toBe(false)
+      expect(isRetryableError(new Error("Headers Timeout Error"), "no-replay")).toBe(false)
+    })
+
+    it("retries connect-phase errors — the request provably never reached the server", () => {
+      for (const code of ["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "UND_ERR_CONNECT_TIMEOUT"]) {
+        expect(isRetryableError(netErr(code), "no-replay")).toBe(true)
+      }
+    })
+
+    it("retries 429 (rejected before processing) and explicit token-self-heal marks", () => {
+      expect(isRetryableError(new ApiError("rate", undefined, 429), "no-replay")).toBe(true)
+      expect(isRetryableError(markRetryable(new Error("auth refreshed")), "no-replay")).toBe(true)
+    })
+  })
+
+  describe("no-999999 policy (EDE no-data sentinel)", () => {
+    it("does not retry 999999 even with a retryable HTTP status", () => {
+      expect(isRetryableError(new ApiError("no data", "999999", 500), "no-999999")).toBe(false)
+    })
+
+    it("keeps everything else on the default policy", () => {
+      expect(isRetryableError(new ApiError("s", undefined, 503), "no-999999")).toBe(true)
+      expect(isRetryableError(netErr("ECONNRESET"), "no-999999")).toBe(true)
+    })
+  })
+})
+
+describe("withRetry policy plumbing", () => {
+  it("fails fast on a 5xx under no-replay", async () => {
+    const fn = vi.fn().mockRejectedValue(new ApiError("server", undefined, 500))
+    await expect(withRetry(fn, { ...fast, policy: "no-replay" })).rejects.toThrow("server")
+    expect(fn).toHaveBeenCalledTimes(1)
   })
 })
 

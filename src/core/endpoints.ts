@@ -8,8 +8,16 @@ export interface EndpointDefinition {
     enabled: true
     maxPageSize: number
   }
-  /** Disable transport-level retries. Set for non-idempotent mutations (async-AI submit) where a retried 5xx could create a duplicate job / double-charge credits. */
-  noRetry?: boolean
+  /** "no-replay": never resend a request the server may have executed — set on
+   * per-call billed endpoints (billing probed non-idempotent, cache hits still
+   * charge), where a transport-level replay re-bills or duplicates a job.
+   * "no-999999": EDE indicator endpoints answer a no-data query with HTTP 500 +
+   * code 999999 — retrying that is pure waste. See transport.ts RetryPolicy. */
+  retry?: "no-replay" | "no-999999"
+  /** Floor for the HTTP timeout (ms): effective timeout is max(config.timeoutMs,
+   * timeoutMs). Set on synchronous AI generation that outlives the 30s default —
+   * aborting bills the orphaned generation anyway. */
+  timeoutMs?: number
 }
 
 export const ENDPOINTS: Record<string, EndpointDefinition> = {
@@ -61,6 +69,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-insight/summary/v2/download/file",
     kind: "download",
     description: "Download summary file",
+    retry: "no-replay",
   },
   "insight.roadshow.list": {
     key: "insight.roadshow.list",
@@ -123,6 +132,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-insight/foreign-report/download/file",
     kind: "download",
     description: "Download foreign report",
+    retry: "no-replay",
   },
   "insight.announcement.list": {
     key: "insight.announcement.list",
@@ -438,6 +448,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-data/ai/search/knowledge/batch",
     kind: "json",
     description: "Batch knowledge search",
+    retry: "no-replay",
   },
   "ai.knowledge-resource.download": {
     key: "ai.knowledge-resource.download",
@@ -460,6 +471,8 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-ai/agent/one-pager",
     kind: "json",
     description: "Generate one pager",
+    retry: "no-replay",
+    timeoutMs: 120_000,
   },
   "ai.investment-logic": {
     key: "ai.investment-logic",
@@ -467,6 +480,8 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-ai/agent/investment-logic",
     kind: "json",
     description: "Generate investment logic",
+    retry: "no-replay",
+    timeoutMs: 120_000,
   },
   "ai.peer-comparison": {
     key: "ai.peer-comparison",
@@ -474,6 +489,8 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-ai/agent/peer-comparison",
     kind: "json",
     description: "Generate peer comparison",
+    retry: "no-replay",
+    timeoutMs: 120_000,
   },
   "ai.earnings-review.get-id": {
     key: "ai.earnings-review.get-id",
@@ -481,7 +498,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-ai/agent/earnings-review-getid",
     kind: "json",
     description: "Get earnings review ID",
-    noRetry: true,
+    retry: "no-replay",
   },
   "ai.earnings-review.get-content": {
     key: "ai.earnings-review.get-content",
@@ -496,6 +513,8 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-ai/agent/theme-tracking",
     kind: "json",
     description: "Get theme tracking daily report",
+    retry: "no-replay",
+    timeoutMs: 120_000,
   },
   "ai.research-outline": {
     key: "ai.research-outline",
@@ -503,6 +522,8 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-ai/agent/research-outline",
     kind: "json",
     description: "Get company research outline",
+    retry: "no-replay",
+    timeoutMs: 120_000,
   },
   "ai.hot-topic": {
     key: "ai.hot-topic",
@@ -511,6 +532,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     kind: "json",
     description: "List hot topic reports",
     pagination: { enabled: true, maxPageSize: 20 },
+    retry: "no-replay",
   },
   "ai.management-discuss-announcement": {
     key: "ai.management-discuss-announcement",
@@ -518,6 +540,8 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-ai/management-discuss/from-announcement",
     kind: "json",
     description: "Management discussion from financial reports (half-year/annual)",
+    retry: "no-replay",
+    timeoutMs: 120_000,
   },
   "ai.management-discuss-earnings-call": {
     key: "ai.management-discuss-earnings-call",
@@ -525,6 +549,8 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-ai/management-discuss/from-earningsCall",
     kind: "json",
     description: "Management discussion from earnings calls",
+    retry: "no-replay",
+    timeoutMs: 120_000,
   },
   "ai.viewpoint-debate.get-id": {
     key: "ai.viewpoint-debate.get-id",
@@ -532,7 +558,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-ai/agent/viewpoint-debate-getid",
     kind: "json",
     description: "Get viewpoint debate ID",
-    noRetry: true,
+    retry: "no-replay",
   },
   "ai.viewpoint-debate.get-content": {
     key: "ai.viewpoint-debate.get-content",
@@ -587,6 +613,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-vault/my-conference/download/file",
     kind: "download",
     description: "Download my conference resource",
+    retry: "no-replay",
   },
   "vault.wechat-message.list": {
     key: "vault.wechat-message.list",
@@ -640,6 +667,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-alternative/concept/info",
     kind: "json",
     description: "Query latest concept (theme index) profile by conceptId",
+    retry: "no-replay",
   },
   "alternative.concept-securities": {
     key: "alternative.concept-securities",
@@ -647,6 +675,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-alternative/concept/securities",
     kind: "json",
     description: "Query concept (theme index) constituent securities, grouped",
+    retry: "no-replay",
   },
 
   // ─── indicator (EDE: security-level data indicators) ───
@@ -656,6 +685,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-indicator/EDE/search",
     kind: "json",
     description: "Search data indicators by keyword (returns indicatorCode + params)",
+    retry: "no-999999",
   },
   "indicator.cross-section": {
     key: "indicator.cross-section",
@@ -663,6 +693,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-indicator/EDE/cross-section",
     kind: "json",
     description: "Get cross-section data (multi-indicator x multi-security, single date)",
+    retry: "no-999999",
   },
   "indicator.time-series": {
     key: "indicator.time-series",
@@ -670,5 +701,6 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-indicator/EDE/time-series",
     kind: "json",
     description: "Get time-series data (multi-indicator x single-security OR single-indicator x multi-security)",
+    retry: "no-999999",
   },
 }

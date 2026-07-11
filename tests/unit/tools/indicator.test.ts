@@ -4,6 +4,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { registerIndicatorTools } from "../../../src/tools/indicator.js"
 import type { GangtiseClient } from "../../../src/core/client.js"
+import { ApiError } from "../../../src/core/errors.js"
 
 function makeMockClient() {
   return {
@@ -98,5 +99,27 @@ describe("gangtise_indicator_time_series dimension guard", () => {
     })
     expect(result.isError).toBeFalsy()
     expect(client.call).toHaveBeenCalledTimes(1)
+  })
+})
+
+// 999999 on the EDE endpoints is the server's "no data" answer (holiday /
+// future date / uncovered security, probed 2026-07-11), not a transient fault —
+// the tool must steer the caller to the query conditions, not "retry later".
+describe("indicator 999999 no-data hint", () => {
+  it.each([
+    ["gangtise_indicator_search", { keyword: "收盘价" }],
+    ["gangtise_indicator_cross_section", { indicatorCodeList: ["qte_close"], securityCodeList: ["600519.SH"], date: "2026-07-04" }],
+    ["gangtise_indicator_time_series", { indicatorCodeList: ["qte_close"], securityCodeList: ["600519.SH"], startDate: "2026-06-01", endDate: "2026-06-30" }],
+  ] as Array<[string, Record<string, unknown>]>)("%s rewords 999999 as check-your-query instead of retry-later", async (name, args) => {
+    const client = {
+      call: vi.fn().mockRejectedValue(new ApiError("system error", "999999", 500)),
+      download: vi.fn(),
+    } as unknown as GangtiseClient
+    const mcp = await connect(client)
+    const result = await mcp.callTool({ name, arguments: args })
+    expect(result.isError).toBe(true)
+    const text = (result.content as Array<{ text: string }>)[0].text
+    expect(text).toContain("检查查询条件")
+    expect(text).not.toContain("稍后重试")
   })
 })

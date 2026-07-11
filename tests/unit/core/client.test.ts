@@ -3,6 +3,7 @@ import fs from "node:fs/promises"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { GangtiseClient } from "../../../src/core/client.js"
+import { ENDPOINTS } from "../../../src/core/endpoints.js"
 
 const { requestMock } = vi.hoisted(() => ({ requestMock: vi.fn() }))
 
@@ -79,16 +80,22 @@ describe("GangtiseClient.requestJson", () => {
   })
 
   it("surfaces the Retry-After header on a rate-limited (429) ApiError", async () => {
-    requestMock.mockResolvedValue({
-      statusCode: 429,
-      headers: { "content-type": "application/json", "retry-after": "10" },
-      body: { text: vi.fn().mockResolvedValue(JSON.stringify({ code: "429", msg: "rate limited" })) },
-    })
-    const client = tokenClient()
-    // ai.earnings-review.get-id is noRetry, so the 429 throws immediately without
-    // triggering the multi-second rate-limit backoff — keeps this test fast.
-    await expect(client.call("ai.earnings-review.get-id", { securityCode: "600519.SH" }))
-      .rejects.toMatchObject({ statusCode: 429, retryAfterMs: 10_000 })
+    // 429 is retried under every policy (the server rejected the request before
+    // processing it), so drive the Retry-After backoff sleeps with fake timers.
+    vi.useFakeTimers()
+    try {
+      requestMock.mockResolvedValue({
+        statusCode: 429,
+        headers: { "content-type": "application/json", "retry-after": "10" },
+        body: { text: vi.fn().mockResolvedValue(JSON.stringify({ code: "429", msg: "rate limited" })) },
+      })
+      const promise = tokenClient().call("ai.earnings-review.get-id", { securityCode: "600519.SH" })
+      const expectation = expect(promise).rejects.toMatchObject({ statusCode: 429, retryAfterMs: 10_000 })
+      await vi.advanceTimersByTimeAsync(50_000) // 2 retries × ≤15s capped Retry-After backoff
+      await expectation
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("succeeds even when the token cache write fails (token stays valid in memory)", async () => {
@@ -278,10 +285,10 @@ describe("GangtiseClient pagination", () => {
 })
 
 describe("GangtiseClient auth replay and freshness", () => {
-  // noRetry blocks transport retries (billed, non-idempotent submits), but an
+  // "no-replay" blocks transport retries (billed, non-idempotent submits), but an
   // auth-rejected request never reached the backend handler — after a successful
   // token refresh it must be replayed once, not surfaced as an auth error.
-  it("replays a noRetry submit once after a successful token refresh", async () => {
+  it("replays a no-replay submit once after a successful token refresh", async () => {
     let submitCalls = 0
     requestMock.mockImplementation((url: unknown) => {
       if (String(url).includes("/loginV2")) {
@@ -462,17 +469,73 @@ describe("GangtiseClient download content handling", () => {
   })
 })
 
-describe("GangtiseClient noRetry endpoints", () => {
-  it("does not retry an async-AI submit endpoint on a 5xx (avoids duplicate jobs)", async () => {
+describe("GangtiseClient no-replay endpoints", () => {
+  it("does not retry an async-AI submit endpoint on a 5xx (avoids duplicate billed jobs)", async () => {
     let calls = 0
     requestMock.mockImplementation(() => {
       calls += 1
       return Promise.resolve(rawJsonResponse({ code: "500", msg: "server error" }, 500))
     })
-    // 500 is otherwise retryable (see transport.test.ts); submit endpoints opt out via noRetry.
+    // 500 is otherwise retryable (see transport.test.ts); billed endpoints opt out via retry: "no-replay".
     await expect(
       tokenClient().call("ai.earnings-review.get-id", { securityCode: "600519.SH", period: "2025q1" }),
     ).rejects.toBeTruthy()
     expect(calls).toBe(1)
+  })
+
+  it("retries a no-replay submit on a connect-phase failure (request never sent)", async () => {
+    let calls = 0
+    requestMock.mockImplementation(() => {
+      calls += 1
+      if (calls === 1) return Promise.reject(Object.assign(new Error("connect refused"), { code: "ECONNREFUSED" }))
+      return Promise.resolve(jsonResponse({ dataId: "d1" }))
+    })
+    const result = await tokenClient().call("ai.earnings-review.get-id", { securityCode: "600519.SH", period: "2025q1" })
+    expect(result).toEqual({ dataId: "d1" })
+    expect(calls).toBe(2)
+  })
+
+  it("does not retry a no-replay download on a 5xx (billed per download)", async () => {
+    let calls = 0
+    requestMock.mockImplementation(() => {
+      calls += 1
+      return Promise.resolve(rawJsonResponse({ code: "500", msg: "server error" }, 500))
+    })
+    await expect(tokenClient().download(ENDPOINTS["insight.summary.download"], { summaryId: "s1" })).rejects.toBeTruthy()
+    expect(calls).toBe(1)
+  })
+
+  it("does not retry an indicator endpoint on 999999 (no-data sentinel, not transient)", async () => {
+    let calls = 0
+    requestMock.mockImplementation(() => {
+      calls += 1
+      return Promise.resolve(rawJsonResponse({ code: "999999", msg: "system error" }, 500))
+    })
+    await expect(tokenClient().call("indicator.search", { indicatorName: "PE" })).rejects.toBeTruthy()
+    expect(calls).toBe(1)
+  })
+})
+
+describe("GangtiseClient per-endpoint timeout floor", () => {
+  it("passes the 120s endpoint floor to slow synchronous AI generation requests", async () => {
+    requestMock.mockResolvedValue(jsonResponse({ content: "ok" }))
+    await tokenClient().call("ai.one-pager", { securityCode: "600519.SH" })
+    const options = requestMock.mock.calls[0][1] as { headersTimeout: number; bodyTimeout: number }
+    expect(options.headersTimeout).toBe(120_000)
+    expect(options.bodyTimeout).toBe(120_000)
+  })
+
+  it("keeps a larger configured timeout when it exceeds the endpoint floor", async () => {
+    requestMock.mockResolvedValue(jsonResponse({ content: "ok" }))
+    const client = new GangtiseClient({
+      baseUrl: "https://open.gangtise.com",
+      timeoutMs: 300_000,
+      token: "test-token",
+      tokenCachePath,
+      asyncTimeoutMs: 60_000,
+    })
+    await client.call("ai.one-pager", { securityCode: "600519.SH" })
+    const options = requestMock.mock.calls[0][1] as { headersTimeout: number }
+    expect(options.headersTimeout).toBe(300_000)
   })
 })

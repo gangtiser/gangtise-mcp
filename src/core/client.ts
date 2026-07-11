@@ -354,6 +354,10 @@ export class GangtiseClient {
     const dispatcher = getDispatcher()
     const url = new URL(endpoint.path, this.config.baseUrl)
     const authState = { retried: false }
+    // Endpoint floor wins over the configured default, but an explicitly larger
+    // GANGTISE_TIMEOUT_MS still applies (slow synchronous AI generation would
+    // otherwise abort at 30s — billed, with the result thrown away).
+    const timeoutMs = Math.max(this.config.timeoutMs, endpoint.timeoutMs ?? 0)
 
     const attemptOnce = async (): Promise<T> => {
       const headers: Record<string, string> = {
@@ -368,8 +372,8 @@ export class GangtiseClient {
         method: endpoint.method,
         headers,
         body: endpoint.method === 'GET' ? undefined : JSON.stringify(body ?? {}),
-        headersTimeout: this.config.timeoutMs,
-        bodyTimeout: this.config.timeoutMs,
+        headersTimeout: timeoutMs,
+        bodyTimeout: timeoutMs,
         dispatcher,
       })
       const text = await response.body.text()
@@ -399,29 +403,18 @@ export class GangtiseClient {
       }
     }
 
-    const retryOptions = {
-      retries: endpoint.noRetry ? 0 : undefined,
+    // The policy decides per error what is safe to resend: under "no-replay"
+    // only connect-phase failures, 429 and the token-self-heal mark retry — an
+    // auth-rejected request never reached the backend handler, so no separate
+    // replay path is needed.
+    return withRetry(attemptOnce, {
+      policy: endpoint.retry,
       onRetry: (attempt: number, error: unknown, delay: number) => {
         if (!isVerbose()) return
         const msg = error instanceof Error ? error.message : String(error)
         process.stderr.write(`[gangtise] retry ${attempt} after ${delay.toFixed(0)}ms: ${msg.slice(0, 120)}\n`)
       },
-    }
-
-    if (!endpoint.noRetry) return withRetry(attemptOnce, retryOptions)
-
-    try {
-      return await withRetry(attemptOnce, retryOptions)
-    } catch (error) {
-      // noRetry only blocks transport-level retries (billed, non-idempotent
-      // submits). An auth-rejected request never reached the backend handler, so
-      // after a successful token refresh (markRetryable) one replay is safe —
-      // authState.retried already guards against a second refresh.
-      if ((error as { __retryable?: boolean }).__retryable === true) {
-        return attemptOnce()
-      }
-      throw error
-    }
+    })
   }
 
   async download(endpoint: EndpointDefinition, query: Record<string, string | number>, options?: { streamTo?: string }): Promise<DownloadResponse> {
@@ -431,6 +424,7 @@ export class GangtiseClient {
       url.searchParams.set(key, String(value))
     })
     const authState = { retried: false }
+    const timeoutMs = Math.max(this.config.timeoutMs, endpoint.timeoutMs ?? 0)
 
     return withRetry(async () => {
       const authorization = await this.getAuthorizationHeader()
@@ -438,8 +432,8 @@ export class GangtiseClient {
       const response = await request(url, {
         method: endpoint.method,
         headers: { Authorization: authorization },
-        headersTimeout: this.config.timeoutMs,
-        bodyTimeout: this.config.timeoutMs,
+        headersTimeout: timeoutMs,
+        bodyTimeout: timeoutMs,
         dispatcher,
       })
 
@@ -525,6 +519,7 @@ export class GangtiseClient {
         filename,
       }
     }, {
+      policy: endpoint.retry,
       onRetry: (attempt, error, delay) => {
         if (!isVerbose()) return
         const msg = error instanceof Error ? error.message : String(error)
