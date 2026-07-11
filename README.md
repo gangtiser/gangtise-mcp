@@ -4,6 +4,23 @@
 
 ## Changelog
 
+### 0.1.43 (2026-07-11)
+- 同步 gangtise-openapi-cli v0.24–v0.27：
+  - **资金安全：16 个按次计费端点改 no-replay 重试策略**（一页通/投资逻辑/同业对比/研究提纲/主题跟踪/管理层讨论×2/热点话题/知识库批量/业绩点评提交/观点辩证提交/题材信息/题材成分股 + 纪要/外资研报/我的会议三个下载）——上游实测（2026-07-11）按次计费且缓存命中不豁免，5xx/响应超时/999999 不再自动重放（此前一次超时最多三连扣）；仅连接期错误（ECONNREFUSED/DNS 类，请求未发出）、429 与 token 自愈仍重试，连接期错误同时纳入默认重试范围；精确集合守卫测试钉住注解清单（`gangtise_qa_list`/`gangtise_report_image_download` 经复核维持默认重试：按条计费失败响应不扣费 / 0.1 积分档风险接受，依据见 `tests/unit/core/endpoints.test.ts` 注释）
+  - **7 个同步 AI 生成端点 120s 超时下限**（生效值 = max(`GANGTISE_TIMEOUT_MS`, 120s)）——生成慢不再撞 30s 默认超时→重试→重复计费
+  - **EDE 指标 999999 不再重试**——实测 999999 + HTTP 500 = 查询无数据（节假日/未来日期/未覆盖标的），此前每次空查询白烧 3 个请求 ~4 秒；错误提示改为指向检查查询条件而非「稍后重试」
+  - **新增 4 个工具**：`gangtise_qa_list` 投资者问答（互动平台/电话会议/调研纪要的提问与回答，0.1 积分/条，自动翻页）；`gangtise_report_image_list`（免费）+ `gangtise_report_image_download`（0.1 积分/张，JPEG）研报图表按关键词搜索与下载；`gangtise_official_account_search` 公众号 ID 搜索（免费，结果喂 `gangtise_official_account_list`；注意未分类公众号 category 为 null，传 category 过滤会漏掉）
+  - **indicator 三工具覆盖扩展至 A/港/美股**（服务端变更）——描述补美股交易所后缀 `.O`(NASDAQ)/`.N`(NYSE) 说明（官方示例的 `.US` 查不到数据）
+  - **正确性**：EDE 矩阵中与 `date`/`security`/`name` 同名的指标列自动加代码后缀，不再覆盖元数据列；错误码 `100003`（参数值非法）补中文提示（服务端不指明参数，提示对照枚举拼写）；异步轮询容忍瞬态 5xx/网络错误——只消耗一次尝试继续等待，不再作废整段计费等待（410111 终态仍立即失败）
+  - **性能**：JSON 请求启用 gzip（上游实测 3.6x，K 线类更高；损坏 gzip 包装为带请求上下文的 ApiError）；全市场 1 天/片分片跳过周六日（闭市必空，省 ~28% 请求与每日配额；含单日快速路径，纯周末区间零请求直接返空）；撞行数上限的分片以 `_truncated_shards` 输出具体日期区间（与 `_failed_shards` 对称，可定向缩窗补拉）
+- GPT-5.6 review 批次（0.1.42 后未发版部分）：
+  - **异步等待预算从工具调用起点计时**——submit 耗时计入 `waitSeconds`，预算耗尽即刻返回 dataId 不再多打一次计费轮询；单次轮询调用同样受剩余预算约束（防止卡到 MCP 客户端 ~60s 截止丢失已计费 dataId）
+  - **入参校验收紧**——新增共享 `nonEmptyString` / `intLiteralEnum`（`schemas.ts`）：AI/insight/fundamental 的 ID/代码类必填参数拒绝空白，8 个下载工具 `fileType` 改字面量枚举，知识库 `securityList` 上限 6000 等
+  - **`GANGTISE_PAGE_CONCURRENCY` 上限钳制 32**——超大值不再打爆 socket/触发限流；非法值仍回退默认 5
+  - **CI 发布加固**——npm-publish workflow 拆分 verify（运行依赖代码、无 OIDC token）与 publish（仅持 token 发布已验证 tarball，不运行任何包代码）两个 job；tag 必须在 origin/main 上才允许发布
+- undici 版本下限 `^7.16.0` → `^7.28.0`（GHSA-35p6-xmwp-9g52 keep-alive 队列污染；lockfile 早已解析到 7.28.0）
+- 测试 272 → 332
+
 ### 0.1.42 (2026-07-06)
 - 质量护栏与内部重构（无对外行为变化，除并发负值修正）：
   - **新增 spec↔ENDPOINTS 交叉校验测试**——遍历所有 spec 驱动工具，钉住每个 `endpointKey` 存在于 `ENDPOINTS`、json/download 种类匹配、`paginated` 与端点 `pagination.enabled` 双向一致、工具名唯一且 `gangtise_` 前缀；另一条 spec-liveness 测试启动整个 server 断言每个 spec 都真实注册（自适应，取代集成测试里需手工维护的工具名单）。挡住跟 gangtise-openapi-cli 同步时易引入的 endpoint/参数错配类 bug
@@ -81,16 +98,16 @@
 <thead><tr><th width="100">类别</th><th>工具</th></tr></thead>
 <tbody>
 <tr><td>上下文</td><td><code>gangtise_current_date</code> — 查询运行时当前日期、年份、时间和时区</td></tr>
-<tr><td>参考数据</td><td><code>gangtise_constant_category</code> / <code>gangtise_constant_list</code> — 行业、城市、公告分类、区域等常量；<code>gangtise_concept_search</code> — 题材 ID 搜索；<code>gangtise_sector_search</code> / <code>gangtise_sector_constituents</code> — 板块及成分股（含申万行业代码 <code>821xxx.SWI</code>）；<code>gangtise_chiefs_search</code> — 首席分析师 ID 搜索；<code>gangtise_institution_search</code> — 机构 ID 搜索（内资券商/外资/牵头/观点机构）；<code>gangtise_lookup</code> — 券商机构、会议机构（本地表）</td></tr>
+<tr><td>参考数据</td><td><code>gangtise_constant_category</code> / <code>gangtise_constant_list</code> — 行业、城市、公告分类、区域等常量；<code>gangtise_concept_search</code> — 题材 ID 搜索；<code>gangtise_sector_search</code> / <code>gangtise_sector_constituents</code> — 板块及成分股（含申万行业代码 <code>821xxx.SWI</code>）；<code>gangtise_chiefs_search</code> — 首席分析师 ID 搜索；<code>gangtise_institution_search</code> — 机构 ID 搜索（内资券商/外资/牵头/观点机构）；<code>gangtise_official_account_search</code> — 公众号 ID 搜索；<code>gangtise_lookup</code> — 券商机构、会议机构（本地表）</td></tr>
 <tr><td>证券检索</td><td><code>gangtise_securities_search</code></td></tr>
-<tr><td>观点/研报</td><td>国内首席观点、纪要、券商研报、外资研报、外资独立观点、公告（A股/港股/美股）</td></tr>
+<tr><td>观点/研报</td><td>国内首席观点、纪要、券商研报、外资研报、外资独立观点、公告（A股/港股/美股）、产业公众号资讯、投资者问答 QA、研报图表搜索与下载</td></tr>
 <tr><td>路演/调研</td><td>路演、调研、策略会、论坛</td></tr>
 <tr><td>行情</td><td>A 股/港股/美股日 K（仅历史）、A 股分钟 K、指数日 K、实时行情快照（A/港/美）、A 股个股资金流向（日频）</td></tr>
 <tr><td>基本面</td><td>A股/港股/美股利润表、资产负债表、现金流量表（累计/单季）、主营业务、估值、股东、盈利预测</td></tr>
 <tr><td>AI 能力</td><td>知识库检索、个股看点、一页通、投资逻辑、同业对比、线索、主题跟踪、业绩点评、观点辩证、管理层讨论</td></tr>
 <tr><td>云盘/语音</td><td>网盘文件、录音转写、我的会议、群消息、自选股池</td></tr>
 <tr><td>另类数据</td><td>EDB 行业经济指标搜索与时序数据查询、题材指数基本信息与成分股</td></tr>
-<tr><td>数据指标</td><td><code>gangtise_indicator_search</code> — 证券级数据指标（EDE）搜索；<code>gangtise_indicator_cross_section</code> / <code>gangtise_indicator_time_series</code> — 指标截面/时序（支持复权等分指标参数，二维矩阵展平为宽表）</td></tr>
+<tr><td>数据指标</td><td><code>gangtise_indicator_search</code> — 证券级数据指标（EDE）搜索；<code>gangtise_indicator_cross_section</code> / <code>gangtise_indicator_time_series</code> — 指标截面/时序（A/港/美股；支持复权等分指标参数，二维矩阵展平为宽表；美股代码用 <code>.O</code>/<code>.N</code> 后缀）</td></tr>
 </tbody>
 </table>
 
