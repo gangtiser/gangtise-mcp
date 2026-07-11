@@ -1,5 +1,6 @@
 import { ApiError } from "./errors.js"
 import { AsyncTimeoutError } from "./errors.js"
+import { isTransientError } from "./transport.js"
 
 export const POLL_INITIAL_DELAY_MS = 5_000
 export const POLL_MAX_DELAY_MS = 30_000
@@ -55,10 +56,17 @@ export async function pollAsyncContent(
         return { content: result.content }
       }
     } catch (error) {
+      // A deadline abort is never "transient" — its message contains "timeout",
+      // which the transient classifier would otherwise match.
+      if (error instanceof AsyncTimeoutError) throw error
       if (error instanceof ApiError && error.code === "410111") {
         throw error
       }
-      if (!isAsyncPending(error)) throw error
+      // A transient blip (5xx / network reset / timeout) after the transport's
+      // own retries are exhausted consumes this attempt but keeps the wait
+      // alive — the billed generation is still running server-side. Anything
+      // neither pending nor transient is a real failure.
+      if (!isAsyncPending(error) && !isTransientError(error)) throw error
     }
 
     const now = Date.now()

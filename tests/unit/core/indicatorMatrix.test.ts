@@ -77,3 +77,50 @@ describe("flattenTimeSeries", () => {
     expect(result.list[0]).toEqual({ date: "2026-06-26", 贵州茅台: 1800, 平安银行: 11 })
   })
 })
+
+// An indicator whose display name collides with a metadata column (date /
+// security / name) must be suffixed, not silently overwrite the metadata.
+describe("reserved metadata column collision", () => {
+  it("suffixes an indicator named 'date' in cross-section rows", () => {
+    const data = {
+      date: "2026-07-10",
+      securityCodeList: ["600519.SH"],
+      securityNameList: ["贵州茅台"],
+      indicatorCodeList: ["ind_a"],
+      indicatorNameList: ["date"],
+      values: [[1800]],
+    }
+    const result = flattenCrossSection(data) as { list: Array<Record<string, unknown>> }
+    expect(result.list[0].date).toBe("2026-07-10")
+    expect(result.list[0]["date (ind_a)"]).toBe(1800)
+  })
+
+  it("suffixes indicators named 'security' / 'name' in cross-section rows", () => {
+    const data = {
+      date: "2026-07-10",
+      securityCodeList: ["600519.SH"],
+      securityNameList: ["贵州茅台"],
+      indicatorCodeList: ["ind_a", "ind_b"],
+      indicatorNameList: ["security", "name"],
+      values: [[1], [2]],
+    }
+    const result = flattenCrossSection(data) as { list: Array<Record<string, unknown>> }
+    expect(result.list[0].security).toBe("600519.SH")
+    expect(result.list[0].name).toBe("贵州茅台")
+    expect(result.list[0]["security (ind_a)"]).toBe(1)
+    expect(result.list[0]["name (ind_b)"]).toBe(2)
+  })
+
+  it("suffixes a series named 'date' in time-series rows", () => {
+    const data = {
+      dates: ["2026-07-09"],
+      securityCodeList: ["600519.SH"],
+      indicatorCodeList: ["ind_a"],
+      indicatorNameList: ["date"],
+      values: [[42]],
+    }
+    const result = flattenTimeSeries(data) as { list: Array<Record<string, unknown>> }
+    expect(result.list[0].date).toBe("2026-07-09")
+    expect(result.list[0]["date (ind_a)"]).toBe(42)
+  })
+})

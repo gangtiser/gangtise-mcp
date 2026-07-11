@@ -75,4 +75,26 @@ describe("pollAsyncContent", () => {
     await expect(result).rejects.toMatchObject({ dataId: "d-stall" })
     expect(client.call).toHaveBeenCalledTimes(1)
   }, 1_500)
+
+  // A transient blip (5xx / network reset) after the transport's own retries are
+  // exhausted must not abandon a multi-minute wait — the poll consumes one
+  // attempt and keeps waiting. Terminal and non-transient errors still abort.
+  it("keeps waiting through a transient 5xx and returns the late content", async () => {
+    vi.useFakeTimers()
+    const client = {
+      call: vi.fn()
+        .mockRejectedValueOnce(new ApiError("bad gateway", undefined, 502))
+        .mockResolvedValueOnce({ content: "ready" }),
+    }
+    const result = pollAsyncContent(client, "ep", "d1", 60_000)
+    await vi.advanceTimersByTimeAsync(5_000) // backoff after the tolerated blip
+    await expect(result).resolves.toEqual({ content: "ready" })
+    expect(client.call).toHaveBeenCalledTimes(2)
+  })
+
+  it("rethrows a non-transient ApiError (400) immediately", async () => {
+    const client = { call: vi.fn().mockRejectedValue(new ApiError("bad request", undefined, 400)) }
+    await expect(pollAsyncContent(client, "ep", "d1", 60_000)).rejects.toThrow("bad request")
+    expect(client.call).toHaveBeenCalledTimes(1)
+  })
 })

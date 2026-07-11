@@ -17,3 +17,12 @@ describe("errorMessage", () => {
     expect(errorMessage("raw")).toBe("raw")
   })
 })
+
+describe("error hints", () => {
+  it("guides 100003 (invalid param value) to check enum spellings — the server does not name the parameter", () => {
+    // Server message is English/neutral; the Chinese guidance must come from the hint.
+    const message = errorMessage(new ApiError("param invalid", "100003"))
+    expect(message).toContain("枚举")
+    expect(message).toContain("拼写")
+  })
+})

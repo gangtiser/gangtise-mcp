@@ -39,8 +39,10 @@ function rowOf(values: unknown[], index: number): unknown[] | undefined {
 
 // Build one column header per series. Prefer the human-readable name; on a
 // duplicate name append the code so a column is never silently overwritten.
-function buildHeaders(names: string[] | undefined, codes: string[] | undefined, count: number): string[] {
-  const used = new Set<string>()
+// `reserved` pre-claims the row's metadata keys (date / security / name) — an
+// indicator named like one of them must be suffixed, not clobber the metadata.
+function buildHeaders(names: string[] | undefined, codes: string[] | undefined, count: number, reserved: readonly string[]): string[] {
+  const used = new Set<string>(reserved)
   const headers: string[] = []
   for (let i = 0; i < count; i++) {
     const base = String(names?.[i] ?? codes?.[i] ?? `col${i}`)
@@ -67,7 +69,7 @@ export function flattenCrossSection(data: unknown): unknown {
   const indicators = asStringArray(d.indicatorCodeList)
   if (!Array.isArray(d.values) || !securityCode || !indicators) return data
   const securityName = asStringArray(d.securityNameList)
-  const headers = buildHeaders(asStringArray(d.indicatorNameList), indicators, indicators.length)
+  const headers = buildHeaders(asStringArray(d.indicatorNameList), indicators, indicators.length, ["date", "security", "name"])
   const list = securityCode.map((code, j) => {
     const row: Record<string, unknown> = { date: d.date, security: code, name: securityName?.[j] }
     for (let i = 0; i < indicators.length; i++) {
@@ -90,8 +92,8 @@ export function flattenTimeSeries(data: unknown): unknown {
   if (!Array.isArray(d.values) || !dates || !securityCode || !indicators) return data
   const seriesAreIndicators = securityCode.length <= 1
   const headers = seriesAreIndicators
-    ? buildHeaders(asStringArray(d.indicatorNameList), indicators, indicators.length)
-    : buildHeaders(asStringArray(d.securityNameList), securityCode, securityCode.length)
+    ? buildHeaders(asStringArray(d.indicatorNameList), indicators, indicators.length, ["date"])
+    : buildHeaders(asStringArray(d.securityNameList), securityCode, securityCode.length, ["date"])
   const list = dates.map((date, k) => {
     const row: Record<string, unknown> = { date }
     for (let i = 0; i < headers.length; i++) {

@@ -91,6 +91,13 @@ export function markRetryable<E extends object>(error: E): E {
   return Object.assign(error, { __retryable: true })
 }
 
+/** Errors worth waiting out (anything the default policy would retry): transient
+ * 5xx / network / timeout / 429 / 999999. Used by async polling to survive a
+ * blip without abandoning a multi-minute wait. */
+export function isTransientError(error: unknown): boolean {
+  return isRetryableError(error, "default")
+}
+
 export interface RetryOptions {
   retries?: number
   baseDelayMs?: number
