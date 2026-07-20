@@ -343,3 +343,37 @@ describe("registerJsonTool", () => {
     expect((result.content as Array<{ text: string }>)[0].text).toContain("API down")
   })
 })
+
+describe("paginated param text", () => {
+  async function paginatedProps(name: string, endpointKey: string) {
+    const server = new McpServer({ name: "test", version: "0.0.0" })
+    registerJsonTool(server, makeMockClient(), { name, description: "x", endpointKey, paginated: true, inputSchema: {} })
+    const mcpClient = await makeConnectedPair(server)
+    const { tools } = await mcpClient.listTools()
+    return {
+      props: (tools[0].inputSchema as { properties: Record<string, { description?: string }> }).properties,
+      description: tools[0].description ?? "",
+    }
+  }
+
+  it("keeps the three pagination param descriptions within 120 bytes per tool", async () => {
+    const { props } = await paginatedProps("gangtise_drive_list", "vault.drive.list")
+    const bytes = ["from", "size", "fetchAll"].reduce((a, k) => a + Buffer.byteLength(props[k].description ?? "", "utf8"), 0)
+    expect(bytes).toBeLessThanOrEqual(120)
+    // 缩短但不能丢语义：0-based、默认 20、fetchAll 覆盖 size
+    expect(props.from.description).toContain("0-based")
+    expect(props.size.description).toContain("20")
+    expect(props.fetchAll.description).toContain("size")
+  })
+
+  it("still puts the fetchAll billing warning on paid paginated tools, label last", async () => {
+    const { description } = await paginatedProps("gangtise_opinion_list", "insight.opinion.list")
+    expect(description).toContain("fetchAll=true 按全部实际返回条目计费")
+    expect(description.endsWith("【积分：30/条】")).toBe(true)
+  })
+
+  it("leaves free paginated tools with a bare description", async () => {
+    const { description } = await paginatedProps("gangtise_drive_list", "vault.drive.list")
+    expect(description).toBe("x")
+  })
+})
