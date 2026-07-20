@@ -328,3 +328,79 @@ describe("gangtise_read_response", () => {
     await fs.rm(path.dirname(truncated._saved_to as string), { recursive: true, force: true })
   })
 })
+
+describe("gangtise_read_response byte contracts", () => {
+  // 造一行恰好 targetBytes 的 ASCII 行
+  function rowOfBytes(id: string, targetBytes: number) {
+    const overhead = Buffer.byteLength(JSON.stringify({ id, c: "" }), "utf8")
+    return { id, c: "a".repeat(targetBytes - overhead) }
+  }
+
+  // (a) 完整 payload（含信封）必须 ≤ 预算，不只是行字节 ≤ 预算
+  it("(a) keeps the whole serialized payload within the budget, envelope included", async () => {
+    const items = Array.from({ length: 40 }, (_, i) => rowOfBytes(String(i), 4_000))
+    const savedTo = await writeTmpJson({ list: items, total: 40, extra: "x".repeat(2_000) })
+    const client = await makeConnectedPair()
+    const result = await client.callTool({ name: "gangtise_read_response", arguments: { saved_to: savedTo, limit: 500 } })
+
+    const raw = (result.content as Array<{ text: string }>)[0].text
+    expect(Buffer.byteLength(raw, "utf8")).toBeLessThanOrEqual(INLINE_MAX_BYTES)
+    expect(JSON.parse(raw)._oversized).toBeUndefined()
+    await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
+  })
+
+  // (b)① 只有这一行 —— 行本身就远超预算
+  it("(b) returns exactly one row and ends paging when the sole row overflows", async () => {
+    const savedTo = await writeTmpJson({ list: [rowOfBytes("0", INLINE_MAX_BYTES + 5_000)], total: 1 })
+    const client = await makeConnectedPair()
+    const parsed = parseText(await client.callTool({ name: "gangtise_read_response", arguments: { saved_to: savedTo } }))
+
+    expect(parsed._returned).toBe(1)
+    expect(parsed.has_more).toBe(false)
+    expect(parsed.next_offset).toBeNull()
+    expect(parsed._oversized).toBe(true)
+    await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
+  })
+
+  // (b)② 后面还有行 —— next_offset 必须前进，翻页不能卡死
+  it("(b) still advances next_offset when an oversized row is not the last one", async () => {
+    const savedTo = await writeTmpJson({ list: [rowOfBytes("0", INLINE_MAX_BYTES + 5_000), { id: "1" }], total: 2 })
+    const client = await makeConnectedPair()
+    const parsed = parseText(await client.callTool({ name: "gangtise_read_response", arguments: { saved_to: savedTo } }))
+
+    expect(parsed._returned).toBe(1)
+    expect(parsed.has_more).toBe(true)
+    expect(parsed.next_offset).toBe(1)
+    expect(parsed._oversized).toBe(true)
+    await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
+  })
+
+  // (b)③ 关键一态：行本身**不超限**，是信封把它推过线。
+  // 按「单行超限」判据写的实现会整个漏掉这一态 —— 实测 65,509B 行 → 65,779B payload。
+  it("(b) catches the row-fits-but-envelope-overflows state", async () => {
+    const row = rowOfBytes("0", 65_509)
+    expect(Buffer.byteLength(JSON.stringify(row), "utf8")).toBeLessThanOrEqual(INLINE_MAX_BYTES) // 行没超
+    const savedTo = await writeTmpJson({ list: [row], total: 1 })
+    const client = await makeConnectedPair()
+    const result = await client.callTool({ name: "gangtise_read_response", arguments: { saved_to: savedTo } })
+    const parsed = parseText(result)
+
+    // 但拼上信封的完整 payload 超了 —— 必须被标出来
+    expect(Buffer.byteLength((result.content as Array<{ text: string }>)[0].text, "utf8")).toBeGreaterThan(INLINE_MAX_BYTES)
+    expect(parsed._returned).toBe(1)
+    expect(parsed._oversized).toBe(true)
+    await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
+  })
+
+  // (c) 零行、rest 自己超限 —— 原样返回，绝不截断 rest
+  it("(c) returns an oversized non-list sibling whole rather than silently truncating it", async () => {
+    const savedTo = await writeTmpJson({ list: [], total: 0, summary: "数".repeat(23_000) })
+    const client = await makeConnectedPair()
+    const parsed = parseText(await client.callTool({ name: "gangtise_read_response", arguments: { saved_to: savedTo } }))
+
+    expect(parsed._returned).toBe(0)
+    expect((parsed.summary as string).length).toBe(23_000)
+    expect(parsed._oversized).toBe(true)
+    await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
+  })
+})

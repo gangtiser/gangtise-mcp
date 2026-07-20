@@ -21,6 +21,11 @@ const MAX_LIMIT = 500
  * threshold, shared with registry.ts via config.js. */
 export const TEXT_CHUNK_CHARS = Math.floor(INLINE_MAX_BYTES * 0.27)
 
+/** 本页少于请求 limit 时附在 payload 上的说明。信封预估也要带上它。 */
+function pageNote(returned: number): string {
+  return `本页按 ${Math.round(INLINE_MAX_BYTES / 1024)}KB 字节预算返回 ${returned} 条（少于请求的 limit），用 next_offset 继续翻页`
+}
+
 async function readSavedFile(savedTo: string): Promise<string> {
   let real: string
   try {
@@ -142,20 +147,39 @@ export function registerResponseTools(server: McpServer, _client: GangtiseClient
         const total = list.length
         const start = Math.min(offset, total)
         const hardEnd = Math.min(start + limit, total)
-        // Byte-budget the page too: rows can be tens of KB each (announcement
-        // full text), so an item-count window alone could inline megabytes —
-        // the very thing the spill mechanism exists to prevent. Always advances
-        // by at least one item so paging can't stall on an oversized row.
+
+        // 字节预算必须算上信封（...rest + _saved_to/_total_items/_note 等），
+        // 不能只算行字节：实测单行 65,509B 未超限，拼上信封后 payload 65,779B 已超限 ——
+        // 只算行的旧写法会让这类载荷整个溜过检查。信封按最宽情形估（含 _note、
+        // 数字取最大位宽），估多不估少，保证最终 payload 一定 ≤ 预算。
+        const envelopeBytes = Buffer.byteLength(
+          JSON.stringify({
+            ...rest,
+            list: [],
+            _saved_to: saved_to,
+            _total_items: total,
+            _offset: start,
+            _returned: hardEnd - start,
+            has_more: true,
+            next_offset: total,
+            _note: pageNote(hardEnd - start),
+          }),
+          "utf8",
+        )
+        const rowBudget = INLINE_MAX_BYTES - envelopeBytes
+
+        // 至少推进一条，翻页不会卡死。JSON 数组的分隔逗号也占字节，一并计入。
         let end = start
         let sliceBytes = 0
         while (end < hardEnd) {
-          sliceBytes += Buffer.byteLength(JSON.stringify(list[end]), "utf8")
-          if (end > start && sliceBytes > INLINE_MAX_BYTES) break
+          const rowBytes = Buffer.byteLength(JSON.stringify(list[end]), "utf8") + (end > start ? 1 : 0)
+          if (end > start && sliceBytes + rowBytes > rowBudget) break
+          sliceBytes += rowBytes
           end += 1
         }
         const slice = list.slice(start, end)
 
-        const payload = {
+        const payload: Record<string, unknown> = {
           ...rest,
           list: slice,
           _saved_to: saved_to,
@@ -164,9 +188,14 @@ export function registerResponseTools(server: McpServer, _client: GangtiseClient
           _returned: slice.length,
           has_more: end < total,
           next_offset: end < total ? end : null,
-          ...(end < hardEnd
-            ? { _note: `本页按 ${Math.round(INLINE_MAX_BYTES / 1024)}KB 字节预算返回 ${slice.length} 条（少于请求的 limit），用 next_offset 继续翻页` }
-            : {}),
+          ...(end < hardEnd ? { _note: pageNote(slice.length) } : {}),
+        }
+
+        // (b) 信封 + 最小一行仍超预算，或 (c) 零行但 rest 自己就超预算：
+        // 原样返回并显式标记。不截断 rest（非列表、无分页语义，截了会静默丢数据），
+        // 也不退化成 metadata-only（现状就是「返回一行」，改掉属破坏性变更）。
+        if (Buffer.byteLength(JSON.stringify(payload), "utf8") > INLINE_MAX_BYTES) {
+          payload._oversized = true
         }
 
         return { content: [{ type: "text" as const, text: JSON.stringify(payload) }] }
