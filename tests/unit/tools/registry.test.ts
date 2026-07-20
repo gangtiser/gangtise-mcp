@@ -191,7 +191,7 @@ describe("buildTextResult", () => {
   })
 
   it("writes oversized text to a temp .md file and returns a preview pointer", async () => {
-    const big = "# 报告\n\n" + "段落内容。".repeat(60_000) // well over 256KB
+    const big = "# 报告\n\n" + "段落内容。".repeat(60_000) // well over 64KB
     const content = await buildTextResult(big)
     const meta = JSON.parse(content[0].text)
 
@@ -249,7 +249,7 @@ describe("registerDownloadTool", () => {
   })
 
   it("spills oversized text results to a temp file instead of inlining them", async () => {
-    const big = "研报内容。".repeat(60_000) // ~900KB, well over the 256KB inline cap
+    const big = "研报内容。".repeat(60_000) // ~900KB, well over the 64KB inline cap
     const server = makeDownloadServer({ text: big, contentType: "text/markdown" })
     const mcpClient = await makeConnectedPair(server)
     const result = await mcpClient.callTool({ name: "gangtise_research_download", arguments: { reportId: "r1" } })

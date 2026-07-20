@@ -65,7 +65,7 @@ describe("gangtise_read_response ownership guard", () => {
 
 describe("gangtise_read_response byte budget & boundaries", () => {
   // Rows can be tens of KB each (announcement full text): an item-count window
-  // alone can inline megabytes and defeat the 256KB truncation contract.
+  // alone can inline megabytes and defeat the 64KB truncation contract.
   it("caps a list page by byte budget instead of inlining megabytes", async () => {
     const items = Array.from({ length: 500 }, (_, i) => ({ id: String(i), content: "内容".repeat(400) }))
     const savedTo = await writeTmpJson({ list: items, total: 500 })
@@ -219,7 +219,7 @@ describe("gangtise_read_response", () => {
   })
 
   it("chunks a large non-list object instead of inlining the whole blob", async () => {
-    // A >256KB object that normalizeRows didn't shape into { list } gets spilled with
+    // A >64KB object that normalizeRows didn't shape into { list } gets spilled with
     // a metadata-only preview; read-back must not dump the whole thing back into context.
     const savedTo = await writeTmpJson({ report: "数".repeat(200_000), meta: { ok: true } })
     const client = await makeConnectedPair()

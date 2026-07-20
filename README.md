@@ -4,6 +4,20 @@
 
 ## Changelog
 
+### 0.1.44 (2026-07-20)
+- **工具发现 / 计费透明 / 大响应消费**（向后兼容，工具数仍 92）：
+  - **`server.instructions` 重写为路由层**（429B → 1,583B 静态，含日期前缀合计 1,751B，门禁 ≤1,800B）：修掉旧文案里 `vault_*` / `reference_*` 这类**并不存在的工具前缀**（那是 src 文件名，模型照此检索必扑空），补齐四大族（行情财务 / 内容 / AI / 私域参考）的路由与市场变体规则
+  - **新增积分目录 `src/tools/billing.ts`**：92 个工具全部归档（free 34 / fixed 43 / downstream 1 / variable 2 / unconfirmed 9 / local 3），由注册器自动把 `【积分：50/次】` 这类紧凑标签追加到描述尾，并清掉 7 处与计分表不符或会与标签叠字的手写计费文案。免费档不打标签（instructions 末行已声明「未标注即免费」，省 714B）。**积分与 retry 策略、MCP annotations 三者独立建模，互不推导**；目录键集合 == 注册工具名集合有测试钉住防漂移
+  - **分页参数文案单点缩短** 223B → 120B/工具（×21 = −2,163B）；18 个付费分页工具补 `fetchAll` 计费警示（不改默认 size、不自动开 fetchAll）
+  - **`gangtise_theme_tracking` 取消本地 30 天窗口拦截**：取数窗口随账号权限变化（实测标称 `-1Y` 的端点可取 3 年前数据），超范围交由上游报错；错误码 `110003` 补中文提示。**未来日期的本地拒绝保留** —— 没有账号能拿到明天的早报，50 积分/次不值得赌
+  - **`gangtise_knowledge_batch` 时间参数收字符串**：`startTime`/`endTime` 接受 `YYYY-MM-DD HH:mm:ss`（按固定 +08:00 转毫秒，不依赖机器时区）或原有 epoch 毫秒；不收纯日期（`endTime` 会被当 00:00 静默丢当天数据）
+  - **`gangtise_read_response` 新增 `fields` 顶层投影**：宽表按需取列，投影先于字节预算计算，故每页装更多行。部分字段拼错会以 `_unknown_fields` 回显而非静默丢弃，全部拼错则报错并回列可用字段；未知字段判定扫全部行（只出现在第 21 行的稀疏字段不会被误杀）
+  - **分页字节预算修正**：原先只累加行字节、未计入 `_saved_to`/`_total_items`/`_note` 等信封字段，导致「行贴边不超限、拼上信封就超限」的载荷溜过检查（实测单行 65,509B → 完整 payload 65,779B）。现按行+信封计；信封与最小一行仍超预算时返回该行并标 `_oversized: true`，翻页不卡死
+  - **溢出指针增 `_local_hint` 与 `_available_fields`**：同机可读文件的客户端可在本地投影/过滤后只取所需结果；`_available_fields` 采样前 20 行并附 `_available_fields_sampled`（实际扫描行数，可与 `_total_items` 比对判断清单是否完整）。**远程 MCP / 容器隔离 / 无文件权限的客户端必须继续用 `gangtise_read_response`**
+  - 4 个 AI 工具描述「生成」改「获取」与 instructions ③「均取预生成内容」对齐；`indicator_search`/`opinion_list`/`foreign_opinion_list`/`stock_summary` 补路由边界句
+  - `tools/list` 实测 107,201B → 108,691B（+1,490B，+1.39%）
+- 测试 332 → 396
+
 ### 0.1.43 (2026-07-11)
 - 同步 gangtise-openapi-cli v0.24–v0.27：
   - **资金安全：16 个按次计费端点改 no-replay 重试策略**（一页通/投资逻辑/同业对比/研究提纲/主题跟踪/管理层讨论×2/热点话题/知识库批量/业绩点评提交/观点辩证提交/题材信息/题材成分股 + 纪要/外资研报/我的会议三个下载）——上游实测（2026-07-11）按次计费且缓存命中不豁免，5xx/响应超时/999999 不再自动重放（此前一次超时最多三连扣）；仅连接期错误（ECONNREFUSED/DNS 类，请求未发出）、429 与 token 自愈仍重试，连接期错误同时纳入默认重试范围；精确集合守卫测试钉住注解清单（`gangtise_qa_list`/`gangtise_report_image_download` 经复核维持默认重试：按条计费失败响应不扣费 / 0.1 积分档风险接受，依据见 `tests/unit/core/endpoints.test.ts` 注释）
@@ -272,8 +286,14 @@ Remove-Item -Recurse -Force $env:LOCALAPPDATA\npm-cache\_npx
 | `_preview_count` | 本次内联返回的条数（最多 20） |
 | `_read_with` | 续读工具名（固定为 `gangtise_read_response`） |
 | `has_more` | 文件中是否还有未返回的条目 |
+| `_local_hint` | 本地处理建议（server 与客户端共享文件系统时适用） |
+| `_available_fields` / `_available_fields_sampled` | 采样前 20 行得到的顶层字段名，及实际扫描行数；供 `gangtise_read_response` 的 `fields` 参考 |
 
 续读完整数据请调用 **`gangtise_read_response`** 工具（传 `_saved_to` 路径，按 `offset`/`limit` 分页；单页同样受 `GANGTISE_INLINE_MAX_BYTES`（默认 64KB）字节预算约束）——不要依赖客户端直接读文件，Claude Desktop 等无文件读取能力的客户端只能走该工具。若单条内容过大导致 20 条预览本身也超过阈值，则只返回元数据，`_preview_count` 为 0（此时 `has_more: true` 表示数据全部在文件中）。
+
+宽表可用 `fields` 只取所需列（如 `fields: ["tradeDate","close"]`）——投影在字节预算之前完成，因此每页能装下更多行。部分字段名拼错会以 `_unknown_fields` 回显并照常返回其余字段，全部拼错才报错并回列可用字段。
+
+`_local_hint` 仅在 **server 与客户端共享文件系统、且客户端获准访问该路径**时可用：此时可在本地直接投影/过滤/聚合该文件，只把结果读进上下文。**远程 MCP、容器隔离、以及无文件读取能力的客户端（如 Claude Desktop）必须继续走 `gangtise_read_response`。** 注意本地直读不受 MCP 侧 owned-temp-path 校验保护，其安全性取决于客户端自身的文件权限。
 
 ## 开发
 
