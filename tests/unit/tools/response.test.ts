@@ -589,11 +589,20 @@ describe("gangtise_read_response fields projection", () => {
   })
 
   it("never lets a __proto__ key leak through the projection", async () => {
-    // 经 JSON.parse 构造，才是真的 own property "__proto__"
+    // 经 JSON.parse 构造，才是真的 own property "__proto__"（对象字面量会改写原型，测不出问题）
     const savedTo = await writeTmpJson(JSON.parse('[{"__proto__":{"polluted":true},"a":1}]'))
-    const parsed = parseText(await call({ saved_to: savedTo, fields: ["a"] }))
-    expect((parsed.list as Array<Record<string, unknown>>)[0]).toEqual({ a: 1 })
+    // __proto__ 必须真的出现在 fields 里 —— 否则 projectRow 里那条被保护的赋值行永远不会执行，
+    // 测不出 Object.create(null) 和 {} 的区别（此前的版本只传了 fields:["a"]，是个假阳性）
+    const parsed = parseText(await call({ saved_to: savedTo, fields: ["__proto__", "a"] }))
+    const row0 = (parsed.list as Array<Record<string, unknown>>)[0]
+
+    // 没有污染全局原型
     expect(({} as Record<string, unknown>).polluted).toBeUndefined()
+    // __proto__ 作为普通数据字段完整地经 JSON 往返存活下来，而不是被内置 setter 吞成原型槽
+    expect(Object.keys(row0).sort()).toEqual(["__proto__", "a"])
+    expect(row0["__proto__"]).toEqual({ polluted: true })
+    expect(row0.a).toBe(1)
+
     await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
   })
 
