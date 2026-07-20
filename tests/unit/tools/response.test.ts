@@ -403,4 +403,60 @@ describe("gangtise_read_response byte contracts", () => {
     expect(parsed._oversized).toBe(true)
     await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
   })
+
+  // (d) 信封估算的 has_more/next_offset 必须按「真实两态（末页 vs 非末页）中更宽的
+  // 一种」估，不能用 has_more:true(4B) + next_offset:total 顶替 —— 否则末页时预算
+  // 多算 5-digitWidth(total) 字节，多放一行进页面。用未修复前的公式反推出「恰好卡
+  // 在旧预算边界」的第二行：total=2（位宽 1，差值拉满 4B），旧预算下两行都收（判定
+  // 为末页），新预算比旧预算少 4B，必须把第二行推到下一页。
+  it("(d) reserves the wider has_more/next_offset form so the last page can't admit an extra row", async () => {
+    const dir = await createManagedTempDir()
+    const file = path.join(dir, "response.json")
+
+    // 逐字复刻源码 pageNote 的文案 —— 它的字节数直接决定本用例的边界
+    function pageNoteLocal(returned: number): string {
+      return `本页按 ${Math.round(INLINE_MAX_BYTES / 1024)}KB 字节预算返回 ${returned} 条（少于请求的 limit），用 next_offset 继续翻页`
+    }
+    // 复刻修复前的信封估算（has_more:true + next_offset:total），反推出「旧代码
+    // 恰好还能塞下第二行」的字节边界
+    function oldEnvelopeBytes(total: number): number {
+      return Buffer.byteLength(
+        JSON.stringify({
+          list: [],
+          _saved_to: file,
+          _total_items: total,
+          _offset: 0,
+          _returned: total,
+          has_more: true,
+          next_offset: total,
+          _note: pageNoteLocal(total),
+        }),
+        "utf8",
+      )
+    }
+
+    const total = 2
+    const rowBudgetOld = INLINE_MAX_BYTES - oldEnvelopeBytes(total)
+
+    const row0 = { id: "0" }
+    const row0Bytes = Buffer.byteLength(JSON.stringify(row0), "utf8")
+    // 两行拼起来恰好等于旧预算上限（+1 是 row1 前面的数组分隔逗号）
+    const row1 = rowOfBytes("1", rowBudgetOld - row0Bytes - 1)
+
+    await fs.writeFile(file, JSON.stringify([row0, row1]), "utf8")
+    const client = await makeConnectedPair()
+    const result = await client.callTool({
+      name: "gangtise_read_response",
+      arguments: { saved_to: file, offset: 0 },
+    })
+    const parsed = parseText(result)
+
+    // 修复后的预算比旧预算少 4B：第二行必须被拒收，推到下一页
+    expect(parsed._returned).toBe(1)
+    expect(parsed.has_more).toBe(true)
+    expect(parsed.next_offset).toBe(1)
+    expect(parsed._oversized).toBeUndefined()
+
+    await fs.rm(dir, { recursive: true, force: true })
+  })
 })

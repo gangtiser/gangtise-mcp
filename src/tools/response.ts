@@ -150,8 +150,9 @@ export function registerResponseTools(server: McpServer, _client: GangtiseClient
 
         // 字节预算必须算上信封（...rest + _saved_to/_total_items/_note 等），
         // 不能只算行字节：实测单行 65,509B 未超限，拼上信封后 payload 65,779B 已超限 ——
-        // 只算行的旧写法会让这类载荷整个溜过检查。信封按最宽情形估（含 _note、
-        // 数字取最大位宽），估多不估少，保证最终 payload 一定 ≤ 预算。
+        // 只算行的旧写法会让这类载荷整个溜过检查。信封按最宽情形估：_note 常驻、
+        // 数字取最大位宽、has_more/next_offset 取真实两态（末页 vs 非末页）中更宽的
+        // 一种，估多不估少，保证最终 payload 一定 ≤ 预算。
         const envelopeBytes = Buffer.byteLength(
           JSON.stringify({
             ...rest,
@@ -160,8 +161,9 @@ export function registerResponseTools(server: McpServer, _client: GangtiseClient
             _total_items: total,
             _offset: start,
             _returned: hardEnd - start,
-            has_more: true,
-            next_offset: total,
+            // 估多不估少：has_more 取 'false'(5B)、next_offset 取 'null'(4B) 与 total 位宽的较大者
+            has_more: false,                                        // 5B > 'true' 的 4B
+            next_offset: String(total).length >= 4 ? total : null,  // 取更宽的那个
             _note: pageNote(hardEnd - start),
           }),
           "utf8",
