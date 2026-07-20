@@ -14,6 +14,7 @@ import { withBilling } from "./billing.js"
 
 const PREVIEW_ITEMS = 20
 const TEXT_PREVIEW_CHARS = 4_000
+const AVAILABLE_FIELDS_MAX = 50
 
 /** 溢出文件的本地处理提示。仅在「server 与客户端共享文件系统 且 客户端获准访问该路径」
  *  时适用；不直接给 shell 命令。远程 MCP / 容器隔离 / 无文件权限的客户端继续走
@@ -58,6 +59,36 @@ function emptyResultHint(normalized: unknown): Record<string, unknown> | undefin
   return undefined
 }
 
+/** 采样前 PREVIEW_ITEMS 行汇总顶层字段名，供调用方决定 read_response 的 fields 投影。
+ *  这是**提示**，不是正确性判定：采样窗口外的稀疏字段可能漏列，代价只是提示不全。
+ *  read_response 的未知字段判定另扫全量 —— 两者刻意解耦，不要合并。
+ *
+ *  `_available_fields` 与 `_available_fields_sampled` **必须成对出现、缺一不可**：
+ *  读者靠 `_available_fields_sampled < _total_items` 判断字段清单可能不全。
+ *  一行字段都没采到时也返回 `[]` + 实际扫描行数（而不是两个都省略）——
+ *  「采了 20 行、确实没有字段」和「压根没采」对读者是完全不同的信息。 */
+function availableFieldsMeta(list: unknown[]): Record<string, unknown> {
+  const sampled = Math.min(PREVIEW_ITEMS, list.length)
+  const names: string[] = []
+  const seen = new Set<string>()
+  for (let i = 0; i < sampled; i += 1) {
+    const row = list[i]
+    if (!row || typeof row !== "object" || Array.isArray(row)) continue
+    for (const key of Object.keys(row as object)) {
+      if (!seen.has(key)) {
+        seen.add(key)
+        names.push(key)
+      }
+    }
+  }
+  const truncated = names.length > AVAILABLE_FIELDS_MAX
+  return {
+    _available_fields: truncated ? names.slice(0, AVAILABLE_FIELDS_MAX) : names,
+    _available_fields_sampled: sampled,
+    ...(truncated ? { _available_fields_truncated: true } : {}),
+  }
+}
+
 export async function buildToolContent(normalized: unknown): Promise<Array<{ type: "text"; text: string }>> {
   const empty = emptyResultHint(normalized)
   if (empty !== undefined) {
@@ -85,6 +116,7 @@ export async function buildToolContent(normalized: unknown): Promise<Array<{ typ
       _truncated: true,
       _saved_to: savedPath,
       _local_hint: LOCAL_HINT_JSON,
+      ...availableFieldsMeta(list),
       _read_with: "gangtise_read_response",
       _total_bytes: byteLength,
       _total_items: list.length,
@@ -99,6 +131,7 @@ export async function buildToolContent(normalized: unknown): Promise<Array<{ typ
       _truncated: true,
       _saved_to: savedPath,
       _local_hint: LOCAL_HINT_JSON,
+      ...availableFieldsMeta(normalized),
       _read_with: "gangtise_read_response",
       _total_bytes: byteLength,
       _total_items: normalized.length,

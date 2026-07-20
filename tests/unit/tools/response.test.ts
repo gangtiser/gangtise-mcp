@@ -460,3 +460,151 @@ describe("gangtise_read_response byte contracts", () => {
     await fs.rm(dir, { recursive: true, force: true })
   })
 })
+
+describe("gangtise_read_response fields projection", () => {
+  const rows = (n: number) => Array.from({ length: n }, (_, i) => ({ securityCode: `${i}.SH`, close: i, volume: i * 10, extra: "x".repeat(200) }))
+
+  async function call(args: Record<string, unknown>) {
+    const client = await makeConnectedPair()
+    return client.callTool({ name: "gangtise_read_response", arguments: args })
+  }
+
+  it("projects the requested top-level fields and echoes _fields", async () => {
+    const savedTo = await writeTmpJson({ list: rows(10), total: 10 })
+    const parsed = parseText(await call({ saved_to: savedTo, fields: ["securityCode", "close"] }))
+    expect(parsed._fields).toEqual(["securityCode", "close"])
+    expect((parsed.list as Array<Record<string, unknown>>)[0]).toEqual({ securityCode: "0.SH", close: 0 })
+    await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
+  })
+
+  it("works on a bare top-level array too", async () => {
+    const savedTo = await writeTmpJson(rows(10))
+    const parsed = parseText(await call({ saved_to: savedTo, fields: ["close"] }))
+    expect((parsed.list as Array<Record<string, unknown>>)[0]).toEqual({ close: 0 })
+    await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
+  })
+
+  it("fits more rows per page because projection precedes the byte budget", async () => {
+    const savedTo = await writeTmpJson({ list: rows(2_000), total: 2_000 })
+    const wide = parseText(await call({ saved_to: savedTo, limit: 500 }))
+    const narrow = parseText(await call({ saved_to: savedTo, limit: 500, fields: ["close"] }))
+    expect(narrow._returned as number).toBeGreaterThan(wide._returned as number)
+    await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
+  })
+
+  it("keeps _offset / next_offset on original row indices", async () => {
+    const savedTo = await writeTmpJson({ list: rows(100), total: 100 })
+    const parsed = parseText(await call({ saved_to: savedTo, offset: 30, limit: 10, fields: ["close"] }))
+    expect(parsed._offset).toBe(30)
+    expect(parsed.next_offset).toBe(40)
+    expect((parsed.list as Array<{ close: number }>)[0].close).toBe(30)
+    await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
+  })
+
+  it("reports a partly-misspelled field set without silently dropping it", async () => {
+    const savedTo = await writeTmpJson({ list: rows(10), total: 10 })
+    const result = await call({ saved_to: savedTo, fields: ["securityCode", "clsoe"] })
+    expect(result.isError).toBeFalsy()
+    const parsed = parseText(result)
+    expect(parsed._unknown_fields).toEqual(["clsoe"])
+    await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
+  })
+
+  it("errors when every requested field is unknown, echoing the available ones", async () => {
+    const savedTo = await writeTmpJson({ list: rows(10), total: 10 })
+    const result = await call({ saved_to: savedTo, fields: ["nope", "alsoNope"] })
+    expect(result.isError).toBe(true)
+    expect((result.content as Array<{ text: string }>)[0].text).toContain("securityCode")
+    await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
+  })
+
+  // 未知字段判定必须扫全量，不能只看前 20 行的采样窗口
+  it("does not mistake a field that first appears on row 21 for a typo", async () => {
+    const list: Array<Record<string, unknown>> = rows(30)
+    for (let i = 0; i < 30; i += 1) delete list[i].close
+    list[20].close = 42
+    const savedTo = await writeTmpJson({ list, total: 30 })
+    const result = await call({ saved_to: savedTo, fields: ["close"] })
+    expect(result.isError).toBeFalsy()
+    const parsed = parseText(result)
+    expect(parsed._unknown_fields).toBeUndefined()
+    expect((parsed.list as Array<Record<string, unknown>>)[20]).toEqual({ close: 42 })
+    await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
+  })
+
+  it("keeps every row when a field exists on only some of them", async () => {
+    const list = [{ a: 1, b: 2 }, { a: 3 }, { a: 4, b: 5 }]
+    const savedTo = await writeTmpJson({ list, total: 3 })
+    const parsed = parseText(await call({ saved_to: savedTo, fields: ["b"] }))
+    expect(parsed._returned).toBe(3)
+    expect(parsed.list).toEqual([{ b: 2 }, {}, { b: 5 }])
+    await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
+  })
+
+  it("returns an empty list without judging field validity", async () => {
+    const savedTo = await writeTmpJson({ list: [], total: 0 })
+    const result = await call({ saved_to: savedTo, fields: ["whatever"] })
+    expect(result.isError).toBeFalsy()
+    expect(parseText(result)._unknown_fields).toBeUndefined()
+    await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
+  })
+
+  it("rejects fields on a raw-text payload instead of silently ignoring it", async () => {
+    const savedTo = await writeTmpText("天".repeat(250_000))
+    const result = await call({ saved_to: savedTo, fields: ["a"] })
+    expect(result.isError).toBe(true)
+    await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
+  })
+
+  it("rejects fields on a small non-list object", async () => {
+    const savedTo = await writeTmpJson({ scalar: 42 })
+    const result = await call({ saved_to: savedTo, fields: ["scalar"] })
+    expect(result.isError).toBe(true)
+    await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
+  })
+
+  it("rejects fields on a large char-sliced non-list object", async () => {
+    const savedTo = await writeTmpJson({ report: "数".repeat(200_000) })
+    const result = await call({ saved_to: savedTo, fields: ["report"] })
+    expect(result.isError).toBe(true)
+    await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
+  })
+
+  it("rejects fields on a primitive array and on a mixed array", async () => {
+    const prim = await writeTmpJson([1, 2, 3])
+    expect((await call({ saved_to: prim, fields: ["a"] })).isError).toBe(true)
+    const mixed = await writeTmpJson([{ a: 1 }, 2])
+    expect((await call({ saved_to: mixed, fields: ["a"] })).isError).toBe(true)
+    await fs.rm(path.dirname(prim), { recursive: true, force: true })
+    await fs.rm(path.dirname(mixed), { recursive: true, force: true })
+  })
+
+  it("rejects duplicate, blank, over-long and over-count field lists at the schema boundary", async () => {
+    const savedTo = await writeTmpJson({ list: rows(3), total: 3 })
+    expect((await call({ saved_to: savedTo, fields: ["a", "a"] })).isError).toBe(true)
+    expect((await call({ saved_to: savedTo, fields: ["   "] })).isError).toBe(true)
+    expect((await call({ saved_to: savedTo, fields: ["x".repeat(65)] })).isError).toBe(true)
+    expect((await call({ saved_to: savedTo, fields: Array.from({ length: 51 }, (_, i) => `f${i}`) })).isError).toBe(true)
+    await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
+  })
+
+  it("never lets a __proto__ key leak through the projection", async () => {
+    // 经 JSON.parse 构造，才是真的 own property "__proto__"
+    const savedTo = await writeTmpJson(JSON.parse('[{"__proto__":{"polluted":true},"a":1}]'))
+    const parsed = parseText(await call({ saved_to: savedTo, fields: ["a"] }))
+    expect((parsed.list as Array<Record<string, unknown>>)[0]).toEqual({ a: 1 })
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined()
+    await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
+  })
+
+  it("leaves data content, row order and offset semantics untouched when fields is omitted", async () => {
+    const list = rows(50)
+    const savedTo = await writeTmpJson({ list, total: 50 })
+    const parsed = parseText(await call({ saved_to: savedTo, offset: 10, limit: 5 }))
+    expect(parsed.list).toEqual(list.slice(10, 15))
+    expect(parsed._offset).toBe(10)
+    expect(parsed.next_offset).toBe(15)
+    expect(parsed._fields).toBeUndefined()
+    await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
+  })
+})

@@ -436,3 +436,35 @@ describe("_local_hint on spill pointers", () => {
     await fs.rm(path.dirname(result._saved_to as string), { recursive: true, force: true })
   })
 })
+
+describe("_available_fields on spill pointers", () => {
+  it("samples the preview window and reports how many rows it scanned", async () => {
+    const content = await buildToolContent({ list: makeLargeItems(500), total: 500 })
+    const result = JSON.parse(content[0].text)
+    expect(result._available_fields).toEqual(["id", "content"])
+    expect(result._available_fields_sampled).toBe(20) // 数字，不是 boolean —— 读者要能和 _total_items 比
+    expect(result._available_fields_truncated).toBeUndefined()
+    await fs.rm(path.dirname(result._saved_to as string), { recursive: true, force: true })
+  })
+
+  // 成对契约：一行字段都没采到时也要两个字段都在，否则读者分不清
+  // 「采了 20 行确实没字段」与「压根没采样」。
+  it("still emits both fields when the sampled rows carry no keys at all", async () => {
+    const content = await buildToolContent({ list: Array.from({ length: 400 }, () => ({})), total: 400, blob: "x".repeat(70_000) })
+    const result = JSON.parse(content[0].text)
+    expect(result._available_fields).toEqual([])
+    expect(result._available_fields_sampled).toBe(20)
+    await fs.rm(path.dirname(result._saved_to as string), { recursive: true, force: true })
+  })
+
+  it("caps the list at 50 names and flags the truncation", async () => {
+    const wide = Array.from({ length: 300 }, () =>
+      Object.fromEntries(Array.from({ length: 60 }, (_, k) => [`f${k}`, "y".repeat(40)])),
+    )
+    const content = await buildToolContent({ list: wide, total: 300 })
+    const result = JSON.parse(content[0].text)
+    expect((result._available_fields as string[]).length).toBe(50)
+    expect(result._available_fields_truncated).toBe(true)
+    await fs.rm(path.dirname(result._saved_to as string), { recursive: true, force: true })
+  })
+})
