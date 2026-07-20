@@ -209,6 +209,14 @@ export interface JsonToolSpec {
   inputSchema: ZodShape
   /** Set true for paginated list endpoints — adds size/fetchAll params and default size: 20 */
   paginated?: boolean
+  /**
+   * 发请求前改写 body（如把时间字符串转 epoch 毫秒）。契约：
+   * 同步、纯函数、必须返回新对象，不得原地改入参。
+   * 调用点固定在 sanitizeArgs 之后、client.call 之前 —— 因此它看到的是
+   * 已注入分页默认 size 的 body，且**不得**删改 from/size。
+   * 抛错走既有 catch → errorMessage() → isError: true。
+   */
+  transformBody?: (body: Record<string, unknown>) => Record<string, unknown>
 }
 
 export interface DownloadToolSpec {
@@ -254,7 +262,8 @@ export function registerJsonTool(server: McpServer, client: GangtiseClient, spec
     async (args) => {
       try {
         const { fetchAll, ...rest } = args as Record<string, unknown>
-        const body = sanitizeArgs(rest, { paginated: spec.paginated, fetchAll: Boolean(fetchAll) })
+        const sanitized = sanitizeArgs(rest, { paginated: spec.paginated, fetchAll: Boolean(fetchAll) })
+        const body = spec.transformBody ? spec.transformBody(sanitized) : sanitized
         const result = await client.call(spec.endpointKey, body)
         return { content: await buildToolContent(normalizeRows(result)) }
       } catch (err) {

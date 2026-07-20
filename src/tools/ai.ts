@@ -14,6 +14,30 @@ export interface AiToolOptions {
   asyncTimeoutMs: number
 }
 
+/** knowledge_batch 的 startTime/endTime 既收 "YYYY-MM-DD HH:mm:ss" 也收 epoch 毫秒。
+ *  不收纯日期 —— endTime 传 "2026-07-01" 会被当成 00:00:00，静默丢掉当天全部数据。 */
+const knowledgeTime = z.union([dateTimeString, z.number().int().min(0)])
+
+/** 字符串按固定 +08:00 转毫秒（不依赖机器时区）；数字原样透传。 */
+function toEpochMs(value: unknown): number | undefined {
+  if (typeof value === "number") return value
+  if (typeof value === "string") return Date.parse(`${value.replace(" ", "T")}+08:00`)
+  return undefined
+}
+
+/** transformBody hook：见 JsonToolSpec.transformBody 的契约（同步、纯、返回新对象）。 */
+export function knowledgeBatchTransform(body: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...body }
+  const start = toEpochMs(next.startTime)
+  const end = toEpochMs(next.endTime)
+  if (start !== undefined && end !== undefined && start > end) {
+    throw new ValidationError("startTime 不能晚于 endTime。")
+  }
+  if (start !== undefined) next.startTime = start
+  if (end !== undefined) next.endTime = end
+  return next
+}
+
 export const jsonSpecs: JsonToolSpec[] = [
   {
     name: "gangtise_stock_summary",
@@ -40,9 +64,10 @@ export const jsonSpecs: JsonToolSpec[] = [
       top: z.number().int().min(1).max(20).optional().describe("每个查询词返回的结果数（默认 10，最大 20）"),
       resourceTypes: z.array(z.number().int()).optional().describe("10=研报 | 11=外资研报 | 20=内部 | 40=观点 | 50=公告 | 51=港股公告 | 60=纪要 | 70=调研 | 80=网络纪要 | 90=公众号"),
       knowledgeNames: z.array(z.string()).optional().describe("system_knowledge_doc | tenant_knowledge_doc"),
-      startTime: z.number().int().min(0).optional().describe("开始时间（epoch 毫秒）"),
-      endTime: z.number().int().min(0).optional().describe("结束时间（epoch 毫秒）"),
+      startTime: knowledgeTime.optional().describe("YYYY-MM-DD HH:mm:ss 或 epoch 毫秒"),
+      endTime: knowledgeTime.optional().describe("YYYY-MM-DD HH:mm:ss 或 epoch 毫秒"),
     },
+    transformBody: knowledgeBatchTransform,
   },
   {
     name: "gangtise_security_clue_list",

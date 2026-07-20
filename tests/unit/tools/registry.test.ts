@@ -342,6 +342,31 @@ describe("registerJsonTool", () => {
     expect(result.isError).toBe(true)
     expect((result.content as Array<{ text: string }>)[0].text).toContain("API down")
   })
+
+  it("runs transformBody after sanitizeArgs so pagination defaults are already injected", async () => {
+    const mockClient = makeMockClient()
+    const server = new McpServer({ name: "test", version: "0.0.0" })
+    const seen: Array<Record<string, unknown>> = []
+    registerJsonTool(server, mockClient, {
+      name: "gangtise_drive_list",
+      description: "Test",
+      endpointKey: "vault.drive.list",
+      paginated: true,
+      inputSchema: { keyword: z.string().optional() },
+      transformBody: (body) => {
+        seen.push(body)
+        return { ...body, marker: true }
+      },
+    })
+    const mcpClient = await makeConnectedPair(server)
+    await mcpClient.callTool({ name: "gangtise_drive_list", arguments: { keyword: "x" } })
+
+    // hook 看到的 body 已含分页默认 size，且不含 fetchAll
+    expect(seen[0]).toMatchObject({ keyword: "x", size: 20 })
+    expect(seen[0]).not.toHaveProperty("fetchAll")
+    // hook 的返回值才是真正发出去的 body，pagination 默认值未被 hook 吞掉
+    expect(mockClient.call).toHaveBeenCalledWith("vault.drive.list", expect.objectContaining({ size: 20, marker: true }))
+  })
 })
 
 describe("paginated param text", () => {

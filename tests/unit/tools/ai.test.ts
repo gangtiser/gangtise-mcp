@@ -249,3 +249,73 @@ describe("theme_tracking date window follows account permission, not a hardcoded
     expect(props.date.description).not.toContain("30")
   })
 })
+
+import { knowledgeBatchTransform } from "../../../src/tools/ai.js"
+
+describe("knowledge_batch time input", () => {
+  function kbClient() {
+    const call = vi.fn(async () => ({ list: [], total: 0 }))
+    return { call, download: vi.fn() } as unknown as GangtiseClient
+  }
+
+  it("converts a datetime string to epoch ms at a fixed +08:00, independent of machine TZ", () => {
+    const out = knowledgeBatchTransform({ startTime: "2026-07-01 00:00:00" })
+    expect(out.startTime).toBe(Date.parse("2026-07-01T00:00:00+08:00"))
+  })
+
+  it("passes an epoch-ms number through unchanged (backward compatible)", () => {
+    const out = knowledgeBatchTransform({ startTime: 1_780_000_000_000 })
+    expect(out.startTime).toBe(1_780_000_000_000)
+  })
+
+  it("rejects a reversed range", () => {
+    expect(() => knowledgeBatchTransform({ startTime: "2026-07-02 00:00:00", endTime: "2026-07-01 00:00:00" })).toThrow(/不能晚于/)
+  })
+
+  it("returns a new object and never mutates its input", () => {
+    const input = { startTime: "2026-07-01 00:00:00", queries: ["a"] }
+    const out = knowledgeBatchTransform(input)
+    expect(out).not.toBe(input)
+    expect(input.startTime).toBe("2026-07-01 00:00:00")
+  })
+
+  it("rejects a date-only string at the schema boundary, before any API call", async () => {
+    const client = kbClient()
+    const mcp = await connect(client)
+    const result = await mcp.callTool({
+      name: "gangtise_knowledge_batch",
+      arguments: { queries: ["茅台"], startTime: "2026-07-01" },
+    })
+    expect(result.isError).toBe(true)
+    expect(client.call).not.toHaveBeenCalled()
+  })
+
+  it("sends converted ms upstream through the normal registered path", async () => {
+    const client = kbClient()
+    const mcp = await connect(client)
+    const result = await mcp.callTool({
+      name: "gangtise_knowledge_batch",
+      arguments: { queries: ["茅台"], startTime: "2026-07-01 00:00:00", endTime: "2026-07-02 00:00:00" },
+    })
+    expect(result.isError).toBeFalsy()
+    expect(client.call).toHaveBeenCalledWith(
+      "ai.knowledge-batch",
+      expect.objectContaining({
+        queries: ["茅台"],
+        startTime: Date.parse("2026-07-01T00:00:00+08:00"),
+        endTime: Date.parse("2026-07-02T00:00:00+08:00"),
+      }),
+    )
+  })
+
+  it("surfaces a transform error as isError, same as any other validation failure", async () => {
+    const client = kbClient()
+    const mcp = await connect(client)
+    const result = await mcp.callTool({
+      name: "gangtise_knowledge_batch",
+      arguments: { queries: ["茅台"], startTime: "2026-07-02 00:00:00", endTime: "2026-07-01 00:00:00" },
+    })
+    expect(result.isError).toBe(true)
+    expect(client.call).not.toHaveBeenCalled()
+  })
+})
