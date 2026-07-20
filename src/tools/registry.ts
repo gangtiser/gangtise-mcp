@@ -15,6 +15,15 @@ import { withBilling } from "./billing.js"
 const PREVIEW_ITEMS = 20
 const TEXT_PREVIEW_CHARS = 4_000
 
+/** 溢出文件的本地处理提示。仅在「server 与客户端共享文件系统 且 客户端获准访问该路径」
+ *  时适用；不直接给 shell 命令。远程 MCP / 容器隔离 / 无文件权限的客户端继续走
+ *  gangtise_read_response（read_response 自身的 owned-temp-path 校验不变；
+ *  本地直读不受该 guard 保护，安全性依赖客户端自己的文件权限）。 */
+const LOCAL_HINT_JSON =
+  "该路径存的是完整 JSON；若本机可直接读取，请在本地做投影/过滤/聚合后只取所需结果，不要把整个文件读进上下文。"
+const LOCAL_HINT_TEXT =
+  "该路径存的是完整正文；若本机可直接读取，请在本地搜索/分段定位所需片段，不要把整个文件读进上下文。"
+
 interface PaginatedShape {
   list: unknown[]
   [key: string]: unknown
@@ -75,6 +84,7 @@ export async function buildToolContent(normalized: unknown): Promise<Array<{ typ
       list: previewList,
       _truncated: true,
       _saved_to: savedPath,
+      _local_hint: LOCAL_HINT_JSON,
       _read_with: "gangtise_read_response",
       _total_bytes: byteLength,
       _total_items: list.length,
@@ -88,6 +98,7 @@ export async function buildToolContent(normalized: unknown): Promise<Array<{ typ
       list: previewList,
       _truncated: true,
       _saved_to: savedPath,
+      _local_hint: LOCAL_HINT_JSON,
       _read_with: "gangtise_read_response",
       _total_bytes: byteLength,
       _total_items: normalized.length,
@@ -99,6 +110,7 @@ export async function buildToolContent(normalized: unknown): Promise<Array<{ typ
     preview = {
       _truncated: true,
       _saved_to: savedPath,
+      _local_hint: LOCAL_HINT_JSON,
       _read_with: "gangtise_read_response",
       _total_bytes: byteLength,
       _preview_count: 0,
@@ -173,6 +185,7 @@ async function spillTextMeta(text: string): Promise<Record<string, unknown>> {
   return {
     _truncated: true,
     _saved_to: savedPath,
+    _local_hint: LOCAL_HINT_TEXT,
     _read_with: "gangtise_read_response",
     _total_bytes: Buffer.byteLength(text, "utf8"),
     _total_chars: text.length,

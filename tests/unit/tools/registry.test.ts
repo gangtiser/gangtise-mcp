@@ -402,3 +402,37 @@ describe("paginated param text", () => {
     expect(description).toBe("x")
   })
 })
+
+describe("_local_hint on spill pointers", () => {
+  it("attaches the JSON hint to a paginated spill", async () => {
+    const content = await buildToolContent({ list: makeLargeItems(500), total: 500 })
+    const result = JSON.parse(content[0].text)
+    expect(result._local_hint).toContain("完整 JSON")
+    await fs.rm(path.dirname(result._saved_to as string), { recursive: true, force: true })
+  })
+
+  it("attaches the JSON hint to a bare-array spill", async () => {
+    const content = await buildToolContent(makeLargeItems(500))
+    const result = JSON.parse(content[0].text)
+    expect(result._local_hint).toContain("完整 JSON")
+    await fs.rm(path.dirname(result._saved_to as string), { recursive: true, force: true })
+  })
+
+  it("attaches the text hint to a text spill", async () => {
+    const content = await buildTextResult("段落内容。".repeat(60_000))
+    const meta = JSON.parse(content[0].text)
+    expect(meta._local_hint).toContain("完整正文")
+    await fs.rm(path.dirname(meta._saved_to as string), { recursive: true, force: true })
+  })
+
+  // 注入点必须在字节预算收缩之前 —— metadata-only 回退把 list 丢掉后，
+  // _local_hint 必须还在（回退用 ...metaOnly 展开，会保留提前注入的字段）。
+  it("survives the metadata-only fallback when even one row blows the budget", async () => {
+    const items = [{ id: "0", content: "中".repeat(30_000) }]
+    const content = await buildToolContent({ list: items, total: 1 })
+    const result = JSON.parse(content[0].text)
+    expect(result._preview_count).toBe(0)
+    expect(result._local_hint).toContain("完整 JSON")
+    await fs.rm(path.dirname(result._saved_to as string), { recursive: true, force: true })
+  })
+})
