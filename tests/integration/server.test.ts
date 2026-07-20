@@ -576,4 +576,34 @@ describe("MCP server integration", () => {
     expect(result.isError).toBeFalsy()
     expect((result.content as Array<{ text: string }>)[0].text).toContain("暂无")
   })
+
+  it("keeps server instructions within the 1800-byte budget", () => {
+    const instructions = mcpClient.getInstructions() ?? ""
+    expect(Buffer.byteLength(instructions, "utf8")).toBeLessThanOrEqual(1_800)
+  })
+
+  it("routes with real tool prefixes, not src filenames", async () => {
+    const instructions = mcpClient.getInstructions() ?? ""
+    // vault / reference 是文件名不是工具名 —— 模型照此检索会扑空
+    expect(instructions).not.toContain("vault_")
+    expect(instructions).not.toContain("reference_")
+    // 真实存在的前缀
+    const names = (await mcpClient.listTools()).tools.map((t) => t.name)
+    for (const stem of ["drive_", "record_", "my_conference_", "wechat_", "stock_pool_"]) {
+      expect(instructions).toContain(stem)
+      expect(names.some((n) => n.startsWith(`gangtise_${stem}`))).toBe(true)
+    }
+  })
+
+  it("makes no unproven universal claims", () => {
+    const instructions = mcpClient.getInstructions() ?? ""
+    // 只有 theme-tracking 一个端点被证明会发 110003，edb_data 实测反证
+    expect(instructions).not.toContain("110003")
+    // resourceType=40 证明下载器接受观点资源，「不可下载」是错的
+    expect(instructions).not.toContain("不可下载")
+  })
+
+  it("declares the billing-label convention that lets free tools stay unlabelled", () => {
+    expect(mcpClient.getInstructions() ?? "").toContain("未标注即免费")
+  })
 })
