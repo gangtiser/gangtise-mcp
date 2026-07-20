@@ -7,6 +7,7 @@ import { normalizeRows } from "../core/normalize.js"
 import { unwrapIndicatorData, flattenCrossSection, flattenTimeSeries } from "../core/indicatorMatrix.js"
 import { dateDesc, dateString } from "../core/dateContext.js"
 import { ApiError, ValidationError } from "../core/errors.js"
+import { withBilling } from "./billing.js"
 
 // The EDE endpoints answer a no-data query (holiday / future date / uncovered
 // security) with HTTP 500 + code 999999 — the generic "系统错误，请稍后重试"
@@ -81,8 +82,10 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
   server.registerTool(
     "gangtise_indicator_cross_section",
     {
-      description:
+      description: withBilling(
+        "gangtise_indicator_cross_section",
         "查询指标截面数据（多指标 × 多证券，单日快照）。返回宽表：每证券一行、每指标一列。指标代码来自 gangtise_indicator_search。",
+      ),
       inputSchema: {
         indicatorCodeList,
         securityCodeList,
@@ -102,8 +105,10 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
   server.registerTool(
     "gangtise_indicator_time_series",
     {
-      description:
+      description: withBilling(
+        "gangtise_indicator_time_series",
         "查询指标时间序列（多指标 × 单证券 或 单指标 × 多证券，按区间）。返回宽表：每日期一行。指标代码来自 gangtise_indicator_search。",
+      ),
       inputSchema: {
         indicatorCodeList,
         securityCodeList,

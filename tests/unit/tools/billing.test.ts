@@ -117,3 +117,68 @@ describe("billing catalog coverage", () => {
     expect(entries.filter((s) => s.kind === "local")).toHaveLength(3)
   })
 })
+
+describe("listTools billing-label gate", () => {
+  // 目录覆盖测试证明不了每个 live tool 真带对标签，这条才能。
+  it("gives every non-free tool exactly one generated label, and free tools none", async () => {
+    for (const tool of await listLiveTools()) {
+      const label = billingLabel(tool.name)
+      const desc = tool.description ?? ""
+      if (label === "") {
+        expect(desc, `${tool.name}：免费工具不得带积分标签`).not.toContain("【积分")
+        expect(desc, `${tool.name}：免费工具不得带本地工具标签`).not.toContain("【本地工具")
+      } else {
+        expect(desc.endsWith(label), `${tool.name}：描述应以 ${label} 结尾，实际尾部 "${desc.slice(-24)}"`).toBe(true)
+        expect(desc.split(label).length - 1, `${tool.name}：标签出现了多次`).toBe(1)
+      }
+    }
+  })
+
+  it("leaves no hand-written billing prose outside the generated label and suffix", async () => {
+    const BILLING_WORDS = /积分|免费|扣分|扣费/
+    for (const tool of await listLiveTools()) {
+      const props = (tool.inputSchema as { properties?: Record<string, unknown> })?.properties ?? {}
+      const paginated = Boolean(props.from && props.size && props.fetchAll)
+      const label = billingLabel(tool.name)
+      const suffix = billingSuffix(tool.name, paginated)
+      const desc = tool.description ?? ""
+
+      // 顺序不能反：`【积分：50/次】`与`【本地工具，不消耗 OpenAPI 积分】`本身就含「积分」，
+      // 高放大尾注也含「积分」。直接扫全描述则每个带标签的工具都命中，门禁 100% 假红。
+      // 必须按尾部**逐段剥离**已验证过的生成内容，再扫剩余部分：先标签、后尾注。
+      let rest = label === "" ? desc : desc.slice(0, -label.length)
+      if (suffix !== "") {
+        expect(rest.endsWith(suffix), `${tool.name}：生成尾注不在标签之前`).toBe(true)
+        rest = rest.slice(0, -suffix.length)
+      }
+      expect(BILLING_WORDS.test(rest), `${tool.name}：描述残留手写计费文案「${rest.match(BILLING_WORDS)?.[0]}」`).toBe(false)
+    }
+  })
+
+  // 数量用独立常量钉住 —— 与 Task 1 的字面名单配合，堵住「门禁与实现同源」的循环。
+  it("puts the fetchAll billing warning on exactly the 18 paid paginated tools", async () => {
+    const warned = (await listLiveTools())
+      .filter((t) => (t.description ?? "").includes("fetchAll=true 按全部实际返回条目计费"))
+      .map((t) => t.name)
+    expect(warned).toHaveLength(18) // 21 个分页工具 − 3 个免费
+    for (const free of ["gangtise_drive_list", "gangtise_record_list", "gangtise_wechat_message_list"]) {
+      expect(warned, `${free} 是免费分页工具，不该带计费警示`).not.toContain(free)
+    }
+  })
+
+  it("surfaces all 9 amplification hints in the live listing", async () => {
+    const hinted = (await listLiveTools()).filter((t) => {
+      const spec = BILLING_CATALOG[t.name]
+      return "amplify" in spec && spec.amplify && (t.description ?? "").includes(spec.amplify)
+    })
+    expect(hinted).toHaveLength(9)
+  })
+
+  it("only scans tool.description — param descriptions keep their amplification warnings", async () => {
+    // ai.ts 的 securityList 参数描述含「避免误触发全市场扣费」，是有效的放大警示，
+    // 必须保留；门禁若扫 inputSchema 就会误杀它。这条把该边界钉死。
+    const tools = await listLiveTools()
+    const stockSummary = tools.find((t) => t.name === "gangtise_stock_summary")
+    expect(JSON.stringify(stockSummary?.inputSchema)).toContain("避免误触发全市场扣费")
+  })
+})

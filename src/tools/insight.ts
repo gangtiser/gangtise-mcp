@@ -281,7 +281,7 @@ export const listSpecs: JsonToolSpec[] = [
   {
     name: "gangtise_qa_list",
     description:
-      "按证券提取投资者问答 QA（互动平台/电话会议/调研纪要中的提问与回答，含回答方身份 member 与问题分类）。0.1 积分/条。",
+      "按证券提取投资者问答 QA（互动平台/电话会议/调研纪要中的提问与回答，含回答方身份 member 与问题分类）。",
     endpointKey: "insight.qa.list",
     paginated: true,
     inputSchema: {
@@ -307,7 +307,7 @@ export const listSpecs: JsonToolSpec[] = [
   {
     name: "gangtise_report_image_list",
     description:
-      "按关键词搜索研报图表，返回 chunkId 及元数据（标题/券商/页码/图注/该页 OCR 文本），免费；原图用 gangtise_report_image_download 按 chunkId 下载。",
+      "按关键词搜索研报图表，返回 chunkId 及元数据（标题/券商/页码/图注/该页 OCR 文本）；原图用 gangtise_report_image_download 按 chunkId 下载。",
     endpointKey: "insight.report-image.list",
     paginated: false,
     inputSchema: {
@@ -395,7 +395,7 @@ export const downloadSpecs: DownloadToolSpec[] = [
   },
   {
     name: "gangtise_report_image_download",
-    description: "按 chunkId 下载研报图表原图（JPEG 二进制，0.1 积分/张）。chunkId 来自 gangtise_report_image_list。",
+    description: "按 chunkId 下载研报图表原图（JPEG 二进制）。chunkId 来自 gangtise_report_image_list。",
     endpointKey: "insight.report-image.download",
     inputSchema: {
       chunkId: nonEmptyString.describe("图片唯一标识，来自 gangtise_report_image_list 的 chunkId"),

@@ -230,7 +230,7 @@ describe("registerDownloadTool", () => {
     } as unknown as GangtiseClient
     const server = new McpServer({ name: "test", version: "0.0.0" })
     registerDownloadTool(server, mockClient, {
-      name: "test_download",
+      name: "gangtise_research_download",
       description: "Test download",
       endpointKey: "insight.research.download",
       inputSchema: { reportId: z.string() },
@@ -241,7 +241,7 @@ describe("registerDownloadTool", () => {
   it("returns small text results inline as full JSON", async () => {
     const server = makeDownloadServer({ text: "# 小文档", contentType: "text/markdown" })
     const mcpClient = await makeConnectedPair(server)
-    const result = await mcpClient.callTool({ name: "test_download", arguments: { reportId: "r1" } })
+    const result = await mcpClient.callTool({ name: "gangtise_research_download", arguments: { reportId: "r1" } })
     expect(result.isError).toBeFalsy()
     const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text)
     expect(parsed.text).toBe("# 小文档")
@@ -252,7 +252,7 @@ describe("registerDownloadTool", () => {
     const big = "研报内容。".repeat(60_000) // ~900KB, well over the 256KB inline cap
     const server = makeDownloadServer({ text: big, contentType: "text/markdown" })
     const mcpClient = await makeConnectedPair(server)
-    const result = await mcpClient.callTool({ name: "test_download", arguments: { reportId: "r1" } })
+    const result = await mcpClient.callTool({ name: "gangtise_research_download", arguments: { reportId: "r1" } })
     expect(result.isError).toBeFalsy()
 
     const raw = (result.content as Array<{ text: string }>)[0].text
@@ -277,14 +277,14 @@ describe("registerJsonTool", () => {
     const mockClient = makeMockClient({ list: [{ id: "abc", name: "test" }], total: 1 })
     const server = new McpServer({ name: "test", version: "0.0.0" })
     registerJsonTool(server, mockClient, {
-      name: "test_tool",
+      name: "gangtise_opinion_list",
       description: "Test tool",
       endpointKey: "insight.opinion.list",
       paginated: true,
       inputSchema: { keyword: z.string().optional() },
     })
     const mcpClient = await makeConnectedPair(server)
-    const result = await mcpClient.callTool({ name: "test_tool", arguments: { keyword: "foo" } })
+    const result = await mcpClient.callTool({ name: "gangtise_opinion_list", arguments: { keyword: "foo" } })
     expect(result.isError).toBeFalsy()
     const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text)
     expect(parsed).toHaveProperty("list")
@@ -295,14 +295,14 @@ describe("registerJsonTool", () => {
     const mockClient = makeMockClient()
     const server = new McpServer({ name: "test", version: "0.0.0" })
     registerJsonTool(server, mockClient, {
-      name: "test_paginated",
+      name: "gangtise_opinion_list",
       description: "Test",
       endpointKey: "insight.opinion.list",
       paginated: true,
       inputSchema: {},
     })
     const mcpClient = await makeConnectedPair(server)
-    await mcpClient.callTool({ name: "test_paginated", arguments: {} })
+    await mcpClient.callTool({ name: "gangtise_opinion_list", arguments: {} })
     expect(mockClient.call).toHaveBeenCalledWith(
       "insight.opinion.list",
       expect.objectContaining({ size: 20 }),
@@ -313,14 +313,14 @@ describe("registerJsonTool", () => {
     const mockClient = makeMockClient({ securityCode: "600519.SH" })
     const server = new McpServer({ name: "test", version: "0.0.0" })
     registerJsonTool(server, mockClient, {
-      name: "test_nonpaginated",
+      name: "gangtise_one_pager",
       description: "Test",
       endpointKey: "ai.one-pager",
       paginated: false,
       inputSchema: { securityCode: z.string() },
     })
     const mcpClient = await makeConnectedPair(server)
-    await mcpClient.callTool({ name: "test_nonpaginated", arguments: { securityCode: "600519.SH" } })
+    await mcpClient.callTool({ name: "gangtise_one_pager", arguments: { securityCode: "600519.SH" } })
     const callArg = (mockClient.call as ReturnType<typeof vi.fn>).mock.calls[0][1] as Record<string, unknown>
     expect(callArg).not.toHaveProperty("size")
   })
@@ -331,14 +331,14 @@ describe("registerJsonTool", () => {
     } as unknown as GangtiseClient
     const server = new McpServer({ name: "test", version: "0.0.0" })
     registerJsonTool(server, mockClient, {
-      name: "test_error",
+      name: "gangtise_opinion_list",
       description: "Test",
       endpointKey: "insight.opinion.list",
       paginated: false,
       inputSchema: {},
     })
     const mcpClient = await makeConnectedPair(server)
-    const result = await mcpClient.callTool({ name: "test_error", arguments: {} })
+    const result = await mcpClient.callTool({ name: "gangtise_opinion_list", arguments: {} })
     expect(result.isError).toBe(true)
     expect((result.content as Array<{ text: string }>)[0].text).toContain("API down")
   })

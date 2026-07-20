@@ -10,6 +10,7 @@ import { downloadToResult, type DownloadResult } from "../core/download.js"
 import { errorMessage } from "../core/errors.js"
 import { createManagedTempDir } from "../core/tempCleanup.js"
 import { INLINE_MAX_BYTES } from "../core/config.js"
+import { withBilling } from "./billing.js"
 
 const PREVIEW_ITEMS = 20
 const TEXT_PREVIEW_CHARS = 4_000
@@ -249,7 +250,7 @@ export function registerJsonTool(server: McpServer, client: GangtiseClient, spec
 
   server.registerTool(
     spec.name,
-    { description: spec.description, inputSchema: schema, annotations: { readOnlyHint: true, openWorldHint: false } },
+    { description: withBilling(spec.name, spec.description, Boolean(spec.paginated)), inputSchema: schema, annotations: { readOnlyHint: true, openWorldHint: false } },
     async (args) => {
       try {
         const { fetchAll, ...rest } = args as Record<string, unknown>
@@ -266,7 +267,7 @@ export function registerJsonTool(server: McpServer, client: GangtiseClient, spec
 export function registerDownloadTool(server: McpServer, client: GangtiseClient, spec: DownloadToolSpec): void {
   server.registerTool(
     spec.name,
-    { description: spec.description, inputSchema: spec.inputSchema, annotations: { readOnlyHint: true, openWorldHint: false } },
+    { description: withBilling(spec.name, spec.description), inputSchema: spec.inputSchema, annotations: { readOnlyHint: true, openWorldHint: false } },
     async (args) => {
       try {
         const endpoint = ENDPOINTS[spec.endpointKey]

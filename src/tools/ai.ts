@@ -8,6 +8,7 @@ import { normalizeRows } from "../core/normalize.js"
 import { ApiError, AsyncTimeoutError, ValidationError, errorMessage } from "../core/errors.js"
 import { dateDesc, dateString, dateTimeDesc, dateTimeString, quarterEndDate, today, todayDate } from "../core/dateContext.js"
 import { nonEmptyString, intLiteralEnum } from "./schemas.js"
+import { withBilling } from "./billing.js"
 
 export interface AiToolOptions {
   asyncTimeoutMs: number
@@ -16,7 +17,7 @@ export interface AiToolOptions {
 export const jsonSpecs: JsonToolSpec[] = [
   {
     name: "gangtise_stock_summary",
-    description: "查询个股看点（精炼投研总结），按证券返回；无看点的证券不返回、不扣分。",
+    description: "查询个股看点（精炼投研总结），按证券返回；无看点的证券不返回。",
     endpointKey: "ai.stock-summary.list",
     paginated: false,
     inputSchema: {
@@ -135,7 +136,10 @@ function makeAsyncToolPair(
   server.registerTool(
     config.name,
     {
-      description: config.description + `任务计费且不可重复提交：超时/失败后用返回的 dataId 调 ${config.checkName} 续查，切勿重新提交。`,
+      description: withBilling(
+        config.name,
+        config.description + `任务计费且不可重复提交：超时/失败后用返回的 dataId 调 ${config.checkName} 续查，切勿重新提交。`,
+      ),
       inputSchema: {
         ...config.inputSchema,
         waitSeconds: z.number().int().min(0).max(180).optional().describe("最长等待秒数（默认 55，最大 180）；超时返回 dataId，用对应 *_check 工具续查"),
@@ -187,7 +191,10 @@ function makeAsyncToolPair(
   server.registerTool(
     config.checkName,
     {
-      description: config.checkDescription + `dataId 来自 ${config.name} 的超时/错误响应；pending 表示仍在生成，间隔 1-3 分钟再查。`,
+      description: withBilling(
+        config.checkName,
+        config.checkDescription + `dataId 来自 ${config.name} 的超时/错误响应；pending 表示仍在生成，间隔 1-3 分钟再查。`,
+      ),
       inputSchema: { dataId: z.string() },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
@@ -223,7 +230,7 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
   server.registerTool(
     "gangtise_theme_tracking",
     {
-      description: "获取指定主题的每日跟踪报告（早报或晚报版），需传入主题 ID 和日期。",
+      description: withBilling("gangtise_theme_tracking", "获取指定主题的每日跟踪报告（早报或晚报版），需传入主题 ID 和日期。"),
       inputSchema: {
         themeId: z.string().describe("主题 ID，来自 gangtise_concept_search（必填）"),
         date: dateString.describe("YYYY-MM-DD，仅支持最近 30 天（必填）"),
@@ -257,7 +264,7 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
   server.registerTool(
     "gangtise_one_pager",
     {
-      description: "生成指定证券的 AI 一页纸投资摘要，返回 Markdown 内容。",
+      description: withBilling("gangtise_one_pager", "生成指定证券的 AI 一页纸投资摘要，返回 Markdown 内容。"),
       inputSchema: { securityCode: nonEmptyString.describe("A 股或港股证券代码") },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
@@ -267,7 +274,7 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
   server.registerTool(
     "gangtise_investment_logic",
     {
-      description: "生成指定证券的 AI 投资逻辑梳理报告，返回 Markdown 内容。",
+      description: withBilling("gangtise_investment_logic", "生成指定证券的 AI 投资逻辑梳理报告，返回 Markdown 内容。"),
       inputSchema: { securityCode: nonEmptyString.describe("A 股或港股证券代码") },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
@@ -277,7 +284,7 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
   server.registerTool(
     "gangtise_peer_comparison",
     {
-      description: "生成指定证券的 AI 同业竞争格局对比报告，返回 Markdown 内容。",
+      description: withBilling("gangtise_peer_comparison", "生成指定证券的 AI 同业竞争格局对比报告，返回 Markdown 内容。"),
       inputSchema: { securityCode: nonEmptyString.describe("A 股或港股证券代码") },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
@@ -287,7 +294,7 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
   server.registerTool(
     "gangtise_research_outline",
     {
-      description: "获取指定证券的 AI 生成公司研究提纲，返回 Markdown 内容。",
+      description: withBilling("gangtise_research_outline", "获取指定证券的 AI 生成公司研究提纲，返回 Markdown 内容。"),
       inputSchema: { securityCode: nonEmptyString.describe("仅支持 A 股证券代码") },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
