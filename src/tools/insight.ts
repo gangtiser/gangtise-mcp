@@ -70,7 +70,7 @@ function scheduleSpec(name: string, label: string, endpointKey: string, fields: 
 export const listSpecs: JsonToolSpec[] = [
   {
     name: "gangtise_opinion_list",
-    description: "查询国内机构首席观点列表，支持按证券、券商、研究方向、行业、时间范围、语义标签等筛选。",
+    description: "查询国内机构首席观点列表，支持按证券、券商、研究方向、行业、时间范围、语义标签等筛选。本工具返回首席观点结论摘要，无专用下载工具。",
     endpointKey: "insight.opinion.list",
     paginated: true,
     inputSchema: {
@@ -226,7 +226,7 @@ export const listSpecs: JsonToolSpec[] = [
   },
   {
     name: "gangtise_foreign_opinion_list",
-    description: "查询外资机构观点列表（高盛、摩根士丹利等），支持按证券、地区、行业、券商、评级、时间范围筛选。",
+    description: "查询外资机构观点列表（高盛、摩根士丹利等），支持按证券、地区、行业、券商、评级、时间范围筛选。本工具返回外资机构观点结论摘要，无专用下载工具。",
     endpointKey: "insight.foreign-opinion.list",
     paginated: true,
     inputSchema: {

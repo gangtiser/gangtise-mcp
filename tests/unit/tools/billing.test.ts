@@ -182,3 +182,28 @@ describe("listTools billing-label gate", () => {
     expect(JSON.stringify(stockSummary?.inputSchema)).toContain("避免误触发全市场扣费")
   })
 })
+
+describe("tool description boundaries", () => {
+  it("states routing boundaries on the four tools that need them", async () => {
+    const byName = new Map((await listLiveTools()).map((t) => [t.name, t.description ?? ""]))
+    expect(byName.get("gangtise_indicator_search")).toContain("仅用于其未覆盖的长尾证券级指标")
+    expect(byName.get("gangtise_opinion_list")).toContain("无专用下载工具")
+    expect(byName.get("gangtise_foreign_opinion_list")).toContain("无专用下载工具")
+    expect(byName.get("gangtise_stock_summary")).toContain("单证券长文另用 one_pager")
+  })
+
+  it("says 获取 not 生成 on the pre-generated AI tools", async () => {
+    // instructions ③ 声明「AI 除注明外均取预生成内容」；描述若还写「生成」，
+    // 模型会看到 instructions 与描述互相打架。
+    const byName = new Map((await listLiveTools()).map((t) => [t.name, t.description ?? ""]))
+    for (const name of ["gangtise_one_pager", "gangtise_investment_logic", "gangtise_peer_comparison", "gangtise_research_outline"]) {
+      expect(byName.get(name), `${name} 应写「获取」`).toMatch(/^获取/)
+    }
+  })
+
+  it("does not leak the unproven opinion download path into any description", async () => {
+    for (const tool of await listLiveTools()) {
+      expect(tool.description ?? "", `${tool.name}`).not.toContain("knowledge_batch 拿 sourceId")
+    }
+  })
+})

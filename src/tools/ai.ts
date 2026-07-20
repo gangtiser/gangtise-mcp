@@ -17,7 +17,7 @@ export interface AiToolOptions {
 export const jsonSpecs: JsonToolSpec[] = [
   {
     name: "gangtise_stock_summary",
-    description: "查询个股看点（精炼投研总结），按证券返回；无看点的证券不返回。",
+    description: "查询个股看点（精炼投研总结），按证券返回；无看点的证券不返回。返回平台已生成的个股看点条目、可批量按证券取；单证券长文另用 one_pager 等。",
     endpointKey: "ai.stock-summary.list",
     paginated: false,
     inputSchema: {
@@ -260,11 +260,11 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
     registerDownloadTool(server, client, spec)
   }
 
-  // Synchronous AI content generation tools (returns content directly)
+  // Synchronous AI tools: fetch pre-generated content (returns it directly)
   server.registerTool(
     "gangtise_one_pager",
     {
-      description: withBilling("gangtise_one_pager", "生成指定证券的 AI 一页纸投资摘要，返回 Markdown 内容。"),
+      description: withBilling("gangtise_one_pager", "获取指定证券的 AI 一页纸投资摘要，返回 Markdown 内容。"),
       inputSchema: { securityCode: nonEmptyString.describe("A 股或港股证券代码") },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
@@ -274,7 +274,7 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
   server.registerTool(
     "gangtise_investment_logic",
     {
-      description: withBilling("gangtise_investment_logic", "生成指定证券的 AI 投资逻辑梳理报告，返回 Markdown 内容。"),
+      description: withBilling("gangtise_investment_logic", "获取指定证券的 AI 投资逻辑梳理报告，返回 Markdown 内容。"),
       inputSchema: { securityCode: nonEmptyString.describe("A 股或港股证券代码") },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
@@ -284,7 +284,7 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
   server.registerTool(
     "gangtise_peer_comparison",
     {
-      description: withBilling("gangtise_peer_comparison", "生成指定证券的 AI 同业竞争格局对比报告，返回 Markdown 内容。"),
+      description: withBilling("gangtise_peer_comparison", "获取指定证券的 AI 同业竞争格局对比报告，返回 Markdown 内容。"),
       inputSchema: { securityCode: nonEmptyString.describe("A 股或港股证券代码") },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
