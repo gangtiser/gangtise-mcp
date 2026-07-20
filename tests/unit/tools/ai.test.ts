@@ -205,3 +205,47 @@ describe("schema tightening (billing + ID guards)", () => {
     expect(client.download).not.toHaveBeenCalled()
   })
 })
+
+import { today } from "../../../src/core/dateContext.js"
+
+describe("theme_tracking date window follows account permission, not a hardcoded 30 days", () => {
+  function themeClient() {
+    const call = vi.fn(async () => ({ content: "# 主题跟踪" }))
+    return { call, download: vi.fn() } as unknown as GangtiseClient
+  }
+
+  it("forwards a well-formed date older than 30 days instead of rejecting it locally", async () => {
+    const client = themeClient()
+    const mcp = await connect(client)
+    const result = await mcp.callTool({
+      name: "gangtise_theme_tracking",
+      arguments: { themeId: "121000130", date: "2026-01-05", type: "morning" },
+    })
+    expect(result.isError).toBeFalsy()
+    expect(client.call).toHaveBeenCalledWith("ai.theme-tracking", expect.objectContaining({ date: "2026-01-05" }))
+  })
+
+  it("still rejects a future date locally, with a message that no longer mentions 30", async () => {
+    const client = themeClient()
+    const mcp = await connect(client)
+    const future = `${Number(today().slice(0, 4)) + 1}-01-05`
+    const result = await mcp.callTool({
+      name: "gangtise_theme_tracking",
+      arguments: { themeId: "121000130", date: future },
+    })
+    expect(result.isError).toBe(true)
+    const msg = (result.content as Array<{ text: string }>)[0].text
+    expect(msg).toContain("不能晚于当前日期")
+    // 旧文案是 >30 与 <0 两分支共用的；只删分支不改文案，会把刚废弃的约束从错误里漏回去。
+    expect(msg).not.toContain("30")
+    expect(client.call).not.toHaveBeenCalled()
+  })
+
+  it("drops the 30-day claim from the date param description", async () => {
+    const mcp = await connect(themeClient())
+    const { tools } = await mcp.listTools()
+    const t = tools.find((x) => x.name === "gangtise_theme_tracking")
+    const props = (t?.inputSchema as { properties: Record<string, { description?: string }> }).properties
+    expect(props.date.description).not.toContain("30")
+  })
+})

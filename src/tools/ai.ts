@@ -226,14 +226,14 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
     registerJsonTool(server, client, spec)
   }
 
-  // gangtise_theme_tracking: registered directly to enforce 30-day date guard
+  // gangtise_theme_tracking: registered directly to enforce the future-date guard
   server.registerTool(
     "gangtise_theme_tracking",
     {
       description: withBilling("gangtise_theme_tracking", "获取指定主题的每日跟踪报告（早报或晚报版），需传入主题 ID 和日期。"),
       inputSchema: {
         themeId: z.string().describe("主题 ID，来自 gangtise_concept_search（必填）"),
-        date: dateString.describe("YYYY-MM-DD，仅支持最近 30 天（必填）"),
+        date: dateString.describe("YYYY-MM-DD（必填）"),
         type: z.union([z.enum(["morning", "night"]), z.array(z.enum(["morning", "night"]))]).optional().describe("morning=早报 | night=晚报；可传单个值或数组"),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
@@ -245,8 +245,12 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
         throw new ValidationError(`date 格式无效：'${date}'，应为 YYYY-MM-DD。`)
       }
       const diffDays = Math.floor((todayDate().getTime() - inputDate.getTime()) / 86_400_000)
-      if (diffDays > 30 || diffDays < 0) {
-        throw new ValidationError(`date 超出最近 30 天范围。当前日期是 ${today()}，请按当前日期重新换算。`)
+      // 取数窗口随账号权限变化，MCP 不硬编码拦截过旧日期 —— 超范围由上游报 110003
+      // （errors.ts 的 ERROR_HINTS 会把人话贴在错误消息上）。
+      // 未来日期是例外：没有账号能拿到明天的早报，且上游对未来日期的行为未证；
+      // 本工具 50 积分/次，保留这条零成本本地拒绝。
+      if (diffDays < 0) {
+        throw new ValidationError(`date 不能晚于当前日期（${today()}）。`)
       }
       const body: Record<string, unknown> = { date, ...rest }
       if (type !== undefined) body.type = Array.isArray(type) ? type : [type]
