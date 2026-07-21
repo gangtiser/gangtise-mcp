@@ -191,7 +191,7 @@ describe("buildTextResult", () => {
   })
 
   it("writes oversized text to a temp .md file and returns a preview pointer", async () => {
-    const big = "# 报告\n\n" + "段落内容。".repeat(60_000) // well over 256KB
+    const big = "# 报告\n\n" + "段落内容。".repeat(60_000) // well over 64KB
     const content = await buildTextResult(big)
     const meta = JSON.parse(content[0].text)
 
@@ -230,7 +230,7 @@ describe("registerDownloadTool", () => {
     } as unknown as GangtiseClient
     const server = new McpServer({ name: "test", version: "0.0.0" })
     registerDownloadTool(server, mockClient, {
-      name: "test_download",
+      name: "gangtise_research_download",
       description: "Test download",
       endpointKey: "insight.research.download",
       inputSchema: { reportId: z.string() },
@@ -241,7 +241,7 @@ describe("registerDownloadTool", () => {
   it("returns small text results inline as full JSON", async () => {
     const server = makeDownloadServer({ text: "# 小文档", contentType: "text/markdown" })
     const mcpClient = await makeConnectedPair(server)
-    const result = await mcpClient.callTool({ name: "test_download", arguments: { reportId: "r1" } })
+    const result = await mcpClient.callTool({ name: "gangtise_research_download", arguments: { reportId: "r1" } })
     expect(result.isError).toBeFalsy()
     const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text)
     expect(parsed.text).toBe("# 小文档")
@@ -249,10 +249,10 @@ describe("registerDownloadTool", () => {
   })
 
   it("spills oversized text results to a temp file instead of inlining them", async () => {
-    const big = "研报内容。".repeat(60_000) // ~900KB, well over the 256KB inline cap
+    const big = "研报内容。".repeat(60_000) // ~900KB, well over the 64KB inline cap
     const server = makeDownloadServer({ text: big, contentType: "text/markdown" })
     const mcpClient = await makeConnectedPair(server)
-    const result = await mcpClient.callTool({ name: "test_download", arguments: { reportId: "r1" } })
+    const result = await mcpClient.callTool({ name: "gangtise_research_download", arguments: { reportId: "r1" } })
     expect(result.isError).toBeFalsy()
 
     const raw = (result.content as Array<{ text: string }>)[0].text
@@ -277,14 +277,14 @@ describe("registerJsonTool", () => {
     const mockClient = makeMockClient({ list: [{ id: "abc", name: "test" }], total: 1 })
     const server = new McpServer({ name: "test", version: "0.0.0" })
     registerJsonTool(server, mockClient, {
-      name: "test_tool",
+      name: "gangtise_opinion_list",
       description: "Test tool",
       endpointKey: "insight.opinion.list",
       paginated: true,
       inputSchema: { keyword: z.string().optional() },
     })
     const mcpClient = await makeConnectedPair(server)
-    const result = await mcpClient.callTool({ name: "test_tool", arguments: { keyword: "foo" } })
+    const result = await mcpClient.callTool({ name: "gangtise_opinion_list", arguments: { keyword: "foo" } })
     expect(result.isError).toBeFalsy()
     const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text)
     expect(parsed).toHaveProperty("list")
@@ -295,14 +295,14 @@ describe("registerJsonTool", () => {
     const mockClient = makeMockClient()
     const server = new McpServer({ name: "test", version: "0.0.0" })
     registerJsonTool(server, mockClient, {
-      name: "test_paginated",
+      name: "gangtise_opinion_list",
       description: "Test",
       endpointKey: "insight.opinion.list",
       paginated: true,
       inputSchema: {},
     })
     const mcpClient = await makeConnectedPair(server)
-    await mcpClient.callTool({ name: "test_paginated", arguments: {} })
+    await mcpClient.callTool({ name: "gangtise_opinion_list", arguments: {} })
     expect(mockClient.call).toHaveBeenCalledWith(
       "insight.opinion.list",
       expect.objectContaining({ size: 20 }),
@@ -313,14 +313,14 @@ describe("registerJsonTool", () => {
     const mockClient = makeMockClient({ securityCode: "600519.SH" })
     const server = new McpServer({ name: "test", version: "0.0.0" })
     registerJsonTool(server, mockClient, {
-      name: "test_nonpaginated",
+      name: "gangtise_one_pager",
       description: "Test",
       endpointKey: "ai.one-pager",
       paginated: false,
       inputSchema: { securityCode: z.string() },
     })
     const mcpClient = await makeConnectedPair(server)
-    await mcpClient.callTool({ name: "test_nonpaginated", arguments: { securityCode: "600519.SH" } })
+    await mcpClient.callTool({ name: "gangtise_one_pager", arguments: { securityCode: "600519.SH" } })
     const callArg = (mockClient.call as ReturnType<typeof vi.fn>).mock.calls[0][1] as Record<string, unknown>
     expect(callArg).not.toHaveProperty("size")
   })
@@ -331,15 +331,140 @@ describe("registerJsonTool", () => {
     } as unknown as GangtiseClient
     const server = new McpServer({ name: "test", version: "0.0.0" })
     registerJsonTool(server, mockClient, {
-      name: "test_error",
+      name: "gangtise_opinion_list",
       description: "Test",
       endpointKey: "insight.opinion.list",
       paginated: false,
       inputSchema: {},
     })
     const mcpClient = await makeConnectedPair(server)
-    const result = await mcpClient.callTool({ name: "test_error", arguments: {} })
+    const result = await mcpClient.callTool({ name: "gangtise_opinion_list", arguments: {} })
     expect(result.isError).toBe(true)
     expect((result.content as Array<{ text: string }>)[0].text).toContain("API down")
+  })
+
+  it("runs transformBody after sanitizeArgs so pagination defaults are already injected", async () => {
+    const mockClient = makeMockClient()
+    const server = new McpServer({ name: "test", version: "0.0.0" })
+    const seen: Array<Record<string, unknown>> = []
+    registerJsonTool(server, mockClient, {
+      name: "gangtise_drive_list",
+      description: "Test",
+      endpointKey: "vault.drive.list",
+      paginated: true,
+      inputSchema: { keyword: z.string().optional() },
+      transformBody: (body) => {
+        seen.push(body)
+        return { ...body, marker: true }
+      },
+    })
+    const mcpClient = await makeConnectedPair(server)
+    await mcpClient.callTool({ name: "gangtise_drive_list", arguments: { keyword: "x" } })
+
+    // hook 看到的 body 已含分页默认 size，且不含 fetchAll
+    expect(seen[0]).toMatchObject({ keyword: "x", size: 20 })
+    expect(seen[0]).not.toHaveProperty("fetchAll")
+    // hook 的返回值才是真正发出去的 body，pagination 默认值未被 hook 吞掉
+    expect(mockClient.call).toHaveBeenCalledWith("vault.drive.list", expect.objectContaining({ size: 20, marker: true }))
+  })
+})
+
+describe("paginated param text", () => {
+  async function paginatedProps(name: string, endpointKey: string) {
+    const server = new McpServer({ name: "test", version: "0.0.0" })
+    registerJsonTool(server, makeMockClient(), { name, description: "x", endpointKey, paginated: true, inputSchema: {} })
+    const mcpClient = await makeConnectedPair(server)
+    const { tools } = await mcpClient.listTools()
+    return {
+      props: (tools[0].inputSchema as { properties: Record<string, { description?: string }> }).properties,
+      description: tools[0].description ?? "",
+    }
+  }
+
+  it("keeps the three pagination param descriptions within 120 bytes per tool", async () => {
+    const { props } = await paginatedProps("gangtise_drive_list", "vault.drive.list")
+    const bytes = ["from", "size", "fetchAll"].reduce((a, k) => a + Buffer.byteLength(props[k].description ?? "", "utf8"), 0)
+    expect(bytes).toBeLessThanOrEqual(120)
+    // 缩短但不能丢语义：0-based、默认 20、fetchAll 覆盖 size
+    expect(props.from.description).toContain("0-based")
+    expect(props.size.description).toContain("20")
+    expect(props.fetchAll.description).toContain("size")
+  })
+
+  it("still puts the fetchAll billing warning on paid paginated tools, label last", async () => {
+    const { description } = await paginatedProps("gangtise_opinion_list", "insight.opinion.list")
+    expect(description).toContain("fetchAll=true 按全部实际返回条目计费")
+    expect(description.endsWith("【积分：30/条】")).toBe(true)
+  })
+
+  it("leaves free paginated tools with a bare description", async () => {
+    const { description } = await paginatedProps("gangtise_drive_list", "vault.drive.list")
+    expect(description).toBe("x")
+  })
+})
+
+describe("_local_hint on spill pointers", () => {
+  it("attaches the JSON hint to a paginated spill", async () => {
+    const content = await buildToolContent({ list: makeLargeItems(500), total: 500 })
+    const result = JSON.parse(content[0].text)
+    expect(result._local_hint).toContain("完整 JSON")
+    await fs.rm(path.dirname(result._saved_to as string), { recursive: true, force: true })
+  })
+
+  it("attaches the JSON hint to a bare-array spill", async () => {
+    const content = await buildToolContent(makeLargeItems(500))
+    const result = JSON.parse(content[0].text)
+    expect(result._local_hint).toContain("完整 JSON")
+    await fs.rm(path.dirname(result._saved_to as string), { recursive: true, force: true })
+  })
+
+  it("attaches the text hint to a text spill", async () => {
+    const content = await buildTextResult("段落内容。".repeat(60_000))
+    const meta = JSON.parse(content[0].text)
+    expect(meta._local_hint).toContain("完整正文")
+    await fs.rm(path.dirname(meta._saved_to as string), { recursive: true, force: true })
+  })
+
+  // 注入点必须在字节预算收缩之前 —— metadata-only 回退把 list 丢掉后，
+  // _local_hint 必须还在（回退用 ...metaOnly 展开，会保留提前注入的字段）。
+  it("survives the metadata-only fallback when even one row blows the budget", async () => {
+    const items = [{ id: "0", content: "中".repeat(30_000) }]
+    const content = await buildToolContent({ list: items, total: 1 })
+    const result = JSON.parse(content[0].text)
+    expect(result._preview_count).toBe(0)
+    expect(result._local_hint).toContain("完整 JSON")
+    await fs.rm(path.dirname(result._saved_to as string), { recursive: true, force: true })
+  })
+})
+
+describe("_available_fields on spill pointers", () => {
+  it("samples the preview window and reports how many rows it scanned", async () => {
+    const content = await buildToolContent({ list: makeLargeItems(500), total: 500 })
+    const result = JSON.parse(content[0].text)
+    expect(result._available_fields).toEqual(["id", "content"])
+    expect(result._available_fields_sampled).toBe(20) // 数字，不是 boolean —— 读者要能和 _total_items 比
+    expect(result._available_fields_truncated).toBeUndefined()
+    await fs.rm(path.dirname(result._saved_to as string), { recursive: true, force: true })
+  })
+
+  // 成对契约：一行字段都没采到时也要两个字段都在，否则读者分不清
+  // 「采了 20 行确实没字段」与「压根没采样」。
+  it("still emits both fields when the sampled rows carry no keys at all", async () => {
+    const content = await buildToolContent({ list: Array.from({ length: 400 }, () => ({})), total: 400, blob: "x".repeat(70_000) })
+    const result = JSON.parse(content[0].text)
+    expect(result._available_fields).toEqual([])
+    expect(result._available_fields_sampled).toBe(20)
+    await fs.rm(path.dirname(result._saved_to as string), { recursive: true, force: true })
+  })
+
+  it("caps the list at 50 names and flags the truncation", async () => {
+    const wide = Array.from({ length: 300 }, () =>
+      Object.fromEntries(Array.from({ length: 60 }, (_, k) => [`f${k}`, "y".repeat(40)])),
+    )
+    const content = await buildToolContent({ list: wide, total: 300 })
+    const result = JSON.parse(content[0].text)
+    expect((result._available_fields as string[]).length).toBe(50)
+    expect(result._available_fields_truncated).toBe(true)
+    await fs.rm(path.dirname(result._saved_to as string), { recursive: true, force: true })
   })
 })

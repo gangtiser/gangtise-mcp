@@ -4,6 +4,7 @@ import type { GangtiseClient } from "../core/client.js"
 import { normalizeRows } from "../core/normalize.js"
 import { buildToolContent, registerJsonTool, type JsonToolSpec } from "./registry.js"
 import { toolHandler, contentResult } from "./helpers.js"
+import { withBilling } from "./billing.js"
 
 export const referenceSpecs: JsonToolSpec[] = [
   {
@@ -19,7 +20,7 @@ export const referenceSpecs: JsonToolSpec[] = [
   {
     name: "gangtise_institution_search",
     description:
-      "按机构名称 / 简称搜索机构 ID，返回 institutionId 及 usageScopes（标明该 ID 用于哪个接口的哪个参数）。覆盖内资券商 / 外资 / 牵头 / 观点机构，供各 list 工具的 institutionList / brokerList 等参数使用。免费。提示：内资券商（domesticBroker）与外资机构（foreignInstitution）类需用较完整的机构名（如「华泰证券」「Goldman」「Morgan」），简称可能搜不到；牵头 / 观点类（leadInstitution / opinionInstitution / foreignOpinionInstitution）可用简称（如「中金」「高盛」）。",
+      "按机构名称 / 简称搜索机构 ID，返回 institutionId 及 usageScopes（标明该 ID 用于哪个接口的哪个参数）。覆盖内资券商 / 外资 / 牵头 / 观点机构，供各 list 工具的 institutionList / brokerList 等参数使用。提示：内资券商（domesticBroker）与外资机构（foreignInstitution）类需用较完整的机构名（如「华泰证券」「Goldman」「Morgan」），简称可能搜不到；牵头 / 观点类（leadInstitution / opinionInstitution / foreignOpinionInstitution）可用简称（如「中金」「高盛」）。",
     endpointKey: "reference.institution-search",
     inputSchema: {
       keyword: z.string().trim().min(1, "搜索词不能为空").describe("搜索词：机构名称或简称"),
@@ -43,7 +44,7 @@ export const referenceSpecs: JsonToolSpec[] = [
   {
     name: "gangtise_official_account_search",
     description:
-      "搜索公众号 ID：输入公众号名称/所属机构/关键字，返回 accountId（供 gangtise_official_account_list 的 accountIdList 使用）及 matchScore。免费。注意：部分公众号不属任何分类（category 为 null），传 category 过滤会漏掉这些账号，要全量就不传 category。",
+      "搜索公众号 ID：输入公众号名称/所属机构/关键字，返回 accountId（供 gangtise_official_account_list 的 accountIdList 使用）及 matchScore。注意：部分公众号不属任何分类（category 为 null），传 category 过滤会漏掉这些账号，要全量就不传 category。",
     endpointKey: "reference.official-account-search",
     inputSchema: {
       keyword: z.string().trim().min(1, "搜索词不能为空").describe("公众号名称/所属机构/关键字，如 '中信证券' '人民日报'"),
@@ -127,7 +128,7 @@ export function registerReferenceTools(server: McpServer, client: GangtiseClient
   server.registerTool(
     "gangtise_securities_search",
     {
-      description: "按关键词搜索证券，支持股票名称、代码（如 600519）、拼音或英文名。返回匹配证券及其 GTS 代码。",
+      description: withBilling("gangtise_securities_search", "按关键词搜索证券，支持股票名称、代码（如 600519）、拼音或英文名。返回匹配证券及其 GTS 代码。"),
       inputSchema: {
         keyword: z.string().trim().min(1, "搜索词不能为空").describe("搜索词：股票名称、代码（如 600519）、拼音或英文名"),
         category: z.array(z.enum(["stock", "dr", "index", "fund"])).optional().describe("按类别筛选：stock=股票 | dr=存托凭证 | index=指数 | fund=基金（不传查所有）"),

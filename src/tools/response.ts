@@ -4,10 +4,11 @@ import path from "node:path"
 import { z } from "zod"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { GangtiseClient } from "../core/client.js"
-import { errorMessage } from "../core/errors.js"
+import { errorMessage, ValidationError } from "../core/errors.js"
 import { isOwnedTempPath } from "../core/tempCleanup.js"
 import { INLINE_MAX_BYTES } from "../core/config.js"
 import { alignSliceEnd } from "./registry.js"
+import { withBilling } from "./billing.js"
 
 const DEFAULT_LIMIT = 50
 const MAX_LIMIT = 500
@@ -19,6 +20,54 @@ const MAX_LIMIT = 500
  * construct fixtures on the chunk boundary. INLINE_MAX_BYTES is the byte-based spill
  * threshold, shared with registry.ts via config.js. */
 export const TEXT_CHUNK_CHARS = Math.floor(INLINE_MAX_BYTES * 0.27)
+
+/** 本页少于请求 limit 时附在 payload 上的说明。信封预估也要带上它。 */
+function pageNote(returned: number): string {
+  return `本页按 ${Math.round(INLINE_MAX_BYTES / 1024)}KB 字节预算返回 ${returned} 条（少于请求的 limit），用 next_offset 继续翻页`
+}
+
+const FIELDS_MAX = 50
+const FIELD_NAME_MAX = 64
+const UNKNOWN_FIELDS_ECHO_MAX = 20
+
+/** 顶层投影。用 Object.hasOwn 读、Object.create(null) 造 ——
+ *  防 __proto__/constructor 这类继承键被当成数据带出或污染原型。 */
+function projectRow(row: Record<string, unknown>, fields: string[]): Record<string, unknown> {
+  const out = Object.create(null) as Record<string, unknown>
+  for (const field of fields) {
+    if (Object.hasOwn(row, field)) out[field] = row[field]
+  }
+  return out
+}
+
+/** 未知字段 = 在**全部行**里都不存在的请求字段。
+ *  判定范围必须是全量，不是溢出指针那 20 行采样窗口 ——
+ *  否则只出现在第 21 行的稀疏字段会被误判成拼写错误。
+ *  逐行剔除待查集，常见情况第一行就查完并提前退出。 */
+function findUnknownFields(list: unknown[], fields: string[]): string[] {
+  const pending = new Set(fields)
+  for (const row of list) {
+    if (!row || typeof row !== "object" || Array.isArray(row)) continue
+    for (const field of [...pending]) {
+      if (Object.hasOwn(row as object, field)) pending.delete(field)
+    }
+    if (pending.size === 0) break
+  }
+  return [...pending]
+}
+
+/** 报错时回列的可用字段，取前若干行、最多 UNKNOWN_FIELDS_ECHO_MAX 个，防错误消息自身膨胀。 */
+function sampleFieldNames(list: unknown[]): string[] {
+  const names: string[] = []
+  for (const row of list.slice(0, 20)) {
+    if (!row || typeof row !== "object" || Array.isArray(row)) continue
+    for (const key of Object.keys(row as object)) {
+      if (!names.includes(key)) names.push(key)
+      if (names.length >= UNKNOWN_FIELDS_ECHO_MAX) return names
+    }
+  }
+  return names
+}
 
 async function readSavedFile(savedTo: string): Promise<string> {
   let real: string
@@ -42,8 +91,10 @@ export function registerResponseTools(server: McpServer, _client: GangtiseClient
   server.registerTool(
     "gangtise_read_response",
     {
-      description:
+      description: withBilling(
+        "gangtise_read_response",
         "读取被截断的大响应。当其他工具返回 `_truncated: true` 且包含 `_saved_to` 临时文件路径时，用此工具按 offset/limit 分片读取完整数据。仅可读取本进程在系统临时目录下生成的 gangtise-mcp- 前缀文件。",
+      ),
       inputSchema: {
         saved_to: z
           .string()
@@ -61,10 +112,23 @@ export function registerResponseTools(server: McpServer, _client: GangtiseClient
           .max(MAX_LIMIT)
           .optional()
           .describe(`本次返回的条目数，默认 ${DEFAULT_LIMIT}，最大 ${MAX_LIMIT}`),
+        fields: z
+          .array(
+            z
+              .string()
+              .trim()
+              .min(1, "fields 项不能为空")
+              .max(FIELD_NAME_MAX, `fields 单项最长 ${FIELD_NAME_MAX} 字符`),
+          )
+          .min(1)
+          .max(FIELDS_MAX, `fields 最多 ${FIELDS_MAX} 项`)
+          .refine((v) => new Set(v).size === v.length, "fields 不能重复")
+          .optional()
+          .describe("只返回这些顶层字段（不支持点路径）；宽表按需投影可显著减少回读进上下文的字节"),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    async ({ saved_to, offset = 0, limit = DEFAULT_LIMIT }) => {
+    async ({ saved_to, offset = 0, limit = DEFAULT_LIMIT, fields }) => {
       try {
         const raw = await readSavedFile(saved_to)
 
@@ -73,6 +137,7 @@ export function registerResponseTools(server: McpServer, _client: GangtiseClient
           data = JSON.parse(raw)
         } catch {
           // Raw text payload (Markdown/HTML) — slice by character offset.
+          if (fields) throw new ValidationError("fields 仅适用于 JSON 列表响应，该文件是纯文本；去掉 fields 后重试。")
           const total = raw.length
           const start = Math.min(offset, total)
           const end = alignSliceEnd(raw, Math.min(start + TEXT_CHUNK_CHARS, total))
@@ -103,6 +168,7 @@ export function registerResponseTools(server: McpServer, _client: GangtiseClient
           list = obj.list as unknown[]
           rest = Object.fromEntries(Object.entries(obj).filter(([k]) => k !== "list"))
         } else {
+          if (fields) throw new ValidationError("fields 仅适用于 JSON 列表响应，该文件是非列表对象；去掉 fields 后重试。")
           // Non-list object. A small one is returned whole; a large one (e.g. a
           // object over INLINE_MAX_BYTES that was spilled with a metadata-only preview) is char-sliced
           // so read-back can't re-inline the whole blob and defeat the truncation.
@@ -136,23 +202,67 @@ export function registerResponseTools(server: McpServer, _client: GangtiseClient
           return { content: [{ type: "text" as const, text: JSON.stringify(payload) }] }
         }
 
+        let unknownFields: string[] = []
+        if (fields) {
+          if (list.length > 0 && list.some((r) => r === null || typeof r !== "object" || Array.isArray(r))) {
+            throw new ValidationError("fields 仅适用于对象行列表，该列表含非对象元素；去掉 fields 后重试。")
+          }
+          // 空列表无从判定字段合法性 —— 正常返回空结果，不判未知字段。
+          if (list.length > 0) {
+            unknownFields = findUnknownFields(list, fields)
+            // 逐字段判定：部分未知照常返回并回显，只有全部未知才算调用错了。
+            // 「全都没有才报错」会静默吞掉 ["securityCode","clsoe"] 里拼错的那个。
+            if (unknownFields.length === fields.length) {
+              throw new ValidationError(
+                `fields 全部不存在于数据中：${unknownFields.join("、")}。可用字段（最多 ${UNKNOWN_FIELDS_ECHO_MAX} 个）：${sampleFieldNames(list).join("、")}`,
+              )
+            }
+          }
+        }
+
         const total = list.length
         const start = Math.min(offset, total)
         const hardEnd = Math.min(start + limit, total)
-        // Byte-budget the page too: rows can be tens of KB each (announcement
-        // full text), so an item-count window alone could inline megabytes —
-        // the very thing the spill mechanism exists to prevent. Always advances
-        // by at least one item so paging can't stall on an oversized row.
+
+        // 字节预算必须算上信封（...rest + _saved_to/_total_items/_note 等），
+        // 不能只算行字节：实测单行 65,509B 未超限，拼上信封后 payload 65,779B 已超限 ——
+        // 只算行的旧写法会让这类载荷整个溜过检查。信封按最宽情形估：_note 常驻、
+        // 数字取最大位宽、has_more/next_offset 取真实两态（末页 vs 非末页）中更宽的
+        // 一种，估多不估少，保证最终 payload 一定 ≤ 预算。
+        const envelopeBytes = Buffer.byteLength(
+          JSON.stringify({
+            ...rest,
+            list: [],
+            _saved_to: saved_to,
+            _total_items: total,
+            _offset: start,
+            _returned: hardEnd - start,
+            // 估多不估少：has_more 取 'false'(5B)、next_offset 取 'null'(4B) 与 total 位宽的较大者
+            has_more: false,                                        // 5B > 'true' 的 4B
+            next_offset: String(total).length >= 4 ? total : null,  // 取更宽的那个
+            _note: pageNote(hardEnd - start),
+            ...(fields ? { _fields: fields } : {}),
+            ...(unknownFields.length > 0 ? { _unknown_fields: unknownFields } : {}),
+          }),
+          "utf8",
+        )
+        const rowBudget = INLINE_MAX_BYTES - envelopeBytes
+
+        // 至少推进一条，翻页不会卡死。JSON 数组的分隔逗号也占字节，一并计入。
+        // 投影先于预算：projectRow 后的行才拿去算字节，宽表窄投影因此每页能装更多行。
         let end = start
         let sliceBytes = 0
+        const slice: unknown[] = []
         while (end < hardEnd) {
-          sliceBytes += Buffer.byteLength(JSON.stringify(list[end]), "utf8")
-          if (end > start && sliceBytes > INLINE_MAX_BYTES) break
+          const row = fields ? projectRow(list[end] as Record<string, unknown>, fields) : list[end]
+          const rowBytes = Buffer.byteLength(JSON.stringify(row), "utf8") + (end > start ? 1 : 0)
+          if (end > start && sliceBytes + rowBytes > rowBudget) break
+          sliceBytes += rowBytes
+          slice.push(row)
           end += 1
         }
-        const slice = list.slice(start, end)
 
-        const payload = {
+        const payload: Record<string, unknown> = {
           ...rest,
           list: slice,
           _saved_to: saved_to,
@@ -161,9 +271,16 @@ export function registerResponseTools(server: McpServer, _client: GangtiseClient
           _returned: slice.length,
           has_more: end < total,
           next_offset: end < total ? end : null,
-          ...(end < hardEnd
-            ? { _note: `本页按 ${Math.round(INLINE_MAX_BYTES / 1024)}KB 字节预算返回 ${slice.length} 条（少于请求的 limit），用 next_offset 继续翻页` }
-            : {}),
+          ...(end < hardEnd ? { _note: pageNote(slice.length) } : {}),
+          ...(fields ? { _fields: fields } : {}),
+          ...(unknownFields.length > 0 ? { _unknown_fields: unknownFields } : {}),
+        }
+
+        // (b) 信封 + 最小一行仍超预算，或 (c) 零行但 rest 自己就超预算：
+        // 原样返回并显式标记。不截断 rest（非列表、无分页语义，截了会静默丢数据），
+        // 也不退化成 metadata-only（现状就是「返回一行」，改掉属破坏性变更）。
+        if (Buffer.byteLength(JSON.stringify(payload), "utf8") > INLINE_MAX_BYTES) {
+          payload._oversized = true
         }
 
         return { content: [{ type: "text" as const, text: JSON.stringify(payload) }] }

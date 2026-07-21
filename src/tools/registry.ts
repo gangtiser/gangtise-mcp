@@ -10,9 +10,20 @@ import { downloadToResult, type DownloadResult } from "../core/download.js"
 import { errorMessage } from "../core/errors.js"
 import { createManagedTempDir } from "../core/tempCleanup.js"
 import { INLINE_MAX_BYTES } from "../core/config.js"
+import { withBilling } from "./billing.js"
 
 const PREVIEW_ITEMS = 20
 const TEXT_PREVIEW_CHARS = 4_000
+const AVAILABLE_FIELDS_MAX = 50
+
+/** 溢出文件的本地处理提示。仅在「server 与客户端共享文件系统 且 客户端获准访问该路径」
+ *  时适用；不直接给 shell 命令。远程 MCP / 容器隔离 / 无文件权限的客户端继续走
+ *  gangtise_read_response（read_response 自身的 owned-temp-path 校验不变；
+ *  本地直读不受该 guard 保护，安全性依赖客户端自己的文件权限）。 */
+const LOCAL_HINT_JSON =
+  "该路径存的是完整 JSON；若本机可直接读取，请在本地做投影/过滤/聚合后只取所需结果，不要把整个文件读进上下文。"
+const LOCAL_HINT_TEXT =
+  "该路径存的是完整正文；若本机可直接读取，请在本地搜索/分段定位所需片段，不要把整个文件读进上下文。"
 
 interface PaginatedShape {
   list: unknown[]
@@ -48,6 +59,36 @@ function emptyResultHint(normalized: unknown): Record<string, unknown> | undefin
   return undefined
 }
 
+/** 采样前 PREVIEW_ITEMS 行汇总顶层字段名，供调用方决定 read_response 的 fields 投影。
+ *  这是**提示**，不是正确性判定：采样窗口外的稀疏字段可能漏列，代价只是提示不全。
+ *  read_response 的未知字段判定另扫全量 —— 两者刻意解耦，不要合并。
+ *
+ *  `_available_fields` 与 `_available_fields_sampled` **必须成对出现、缺一不可**：
+ *  读者靠 `_available_fields_sampled < _total_items` 判断字段清单可能不全。
+ *  一行字段都没采到时也返回 `[]` + 实际扫描行数（而不是两个都省略）——
+ *  「采了 20 行、确实没有字段」和「压根没采」对读者是完全不同的信息。 */
+function availableFieldsMeta(list: unknown[]): Record<string, unknown> {
+  const sampled = Math.min(PREVIEW_ITEMS, list.length)
+  const names: string[] = []
+  const seen = new Set<string>()
+  for (let i = 0; i < sampled; i += 1) {
+    const row = list[i]
+    if (!row || typeof row !== "object" || Array.isArray(row)) continue
+    for (const key of Object.keys(row as object)) {
+      if (!seen.has(key)) {
+        seen.add(key)
+        names.push(key)
+      }
+    }
+  }
+  const truncated = names.length > AVAILABLE_FIELDS_MAX
+  return {
+    _available_fields: truncated ? names.slice(0, AVAILABLE_FIELDS_MAX) : names,
+    _available_fields_sampled: sampled,
+    ...(truncated ? { _available_fields_truncated: true } : {}),
+  }
+}
+
 export async function buildToolContent(normalized: unknown): Promise<Array<{ type: "text"; text: string }>> {
   const empty = emptyResultHint(normalized)
   if (empty !== undefined) {
@@ -74,6 +115,8 @@ export async function buildToolContent(normalized: unknown): Promise<Array<{ typ
       list: previewList,
       _truncated: true,
       _saved_to: savedPath,
+      _local_hint: LOCAL_HINT_JSON,
+      ...availableFieldsMeta(list),
       _read_with: "gangtise_read_response",
       _total_bytes: byteLength,
       _total_items: list.length,
@@ -87,6 +130,8 @@ export async function buildToolContent(normalized: unknown): Promise<Array<{ typ
       list: previewList,
       _truncated: true,
       _saved_to: savedPath,
+      _local_hint: LOCAL_HINT_JSON,
+      ...availableFieldsMeta(normalized),
       _read_with: "gangtise_read_response",
       _total_bytes: byteLength,
       _total_items: normalized.length,
@@ -98,6 +143,7 @@ export async function buildToolContent(normalized: unknown): Promise<Array<{ typ
     preview = {
       _truncated: true,
       _saved_to: savedPath,
+      _local_hint: LOCAL_HINT_JSON,
       _read_with: "gangtise_read_response",
       _total_bytes: byteLength,
       _preview_count: 0,
@@ -172,6 +218,7 @@ async function spillTextMeta(text: string): Promise<Record<string, unknown>> {
   return {
     _truncated: true,
     _saved_to: savedPath,
+    _local_hint: LOCAL_HINT_TEXT,
     _read_with: "gangtise_read_response",
     _total_bytes: Buffer.byteLength(text, "utf8"),
     _total_chars: text.length,
@@ -208,6 +255,14 @@ export interface JsonToolSpec {
   inputSchema: ZodShape
   /** Set true for paginated list endpoints — adds size/fetchAll params and default size: 20 */
   paginated?: boolean
+  /**
+   * 发请求前改写 body（如把时间字符串转 epoch 毫秒）。契约：
+   * 同步、纯函数、必须返回新对象，不得原地改入参。
+   * 调用点固定在 sanitizeArgs 之后、client.call 之前 —— 因此它看到的是
+   * 已注入分页默认 size 的 body，且**不得**删改 from/size。
+   * 抛错走既有 catch → errorMessage() → isError: true。
+   */
+  transformBody?: (body: Record<string, unknown>) => Record<string, unknown>
 }
 
 export interface DownloadToolSpec {
@@ -241,19 +296,20 @@ export function registerJsonTool(server: McpServer, client: GangtiseClient, spec
   const schema: ZodShape = spec.paginated
     ? {
         ...spec.inputSchema,
-        from: z.number().int().min(0).optional().describe("起始行偏移（0-based，非页码），配合 size 翻页，默认 0"),
-        size: z.number().int().min(1).optional().describe("返回总行数上限（跨页合并计数，默认 20）；fetchAll=true 时被忽略"),
-        fetchAll: z.boolean().optional().describe("true 时忽略 size 拉取全部数据，大数据集可能较慢"),
+        from: z.number().int().min(0).optional().describe("0-based 起始偏移，默认 0"),
+        size: z.number().int().min(1).optional().describe("总行数上限，默认 20"),
+        fetchAll: z.boolean().optional().describe("拉取全部页并忽略 size，可能较慢或产生大响应"),
       }
     : spec.inputSchema
 
   server.registerTool(
     spec.name,
-    { description: spec.description, inputSchema: schema, annotations: { readOnlyHint: true, openWorldHint: false } },
+    { description: withBilling(spec.name, spec.description, Boolean(spec.paginated)), inputSchema: schema, annotations: { readOnlyHint: true, openWorldHint: false } },
     async (args) => {
       try {
         const { fetchAll, ...rest } = args as Record<string, unknown>
-        const body = sanitizeArgs(rest, { paginated: spec.paginated, fetchAll: Boolean(fetchAll) })
+        const sanitized = sanitizeArgs(rest, { paginated: spec.paginated, fetchAll: Boolean(fetchAll) })
+        const body = spec.transformBody ? spec.transformBody(sanitized) : sanitized
         const result = await client.call(spec.endpointKey, body)
         return { content: await buildToolContent(normalizeRows(result)) }
       } catch (err) {
@@ -266,7 +322,7 @@ export function registerJsonTool(server: McpServer, client: GangtiseClient, spec
 export function registerDownloadTool(server: McpServer, client: GangtiseClient, spec: DownloadToolSpec): void {
   server.registerTool(
     spec.name,
-    { description: spec.description, inputSchema: spec.inputSchema, annotations: { readOnlyHint: true, openWorldHint: false } },
+    { description: withBilling(spec.name, spec.description), inputSchema: spec.inputSchema, annotations: { readOnlyHint: true, openWorldHint: false } },
     async (args) => {
       try {
         const endpoint = ENDPOINTS[spec.endpointKey]

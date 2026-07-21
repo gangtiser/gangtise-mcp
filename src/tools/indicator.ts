@@ -7,6 +7,7 @@ import { normalizeRows } from "../core/normalize.js"
 import { unwrapIndicatorData, flattenCrossSection, flattenTimeSeries } from "../core/indicatorMatrix.js"
 import { dateDesc, dateString } from "../core/dateContext.js"
 import { ApiError, ValidationError } from "../core/errors.js"
+import { withBilling } from "./billing.js"
 
 // The EDE endpoints answer a no-data query (holiday / future date / uncovered
 // security) with HTTP 500 + code 999999 — the generic "系统错误，请稍后重试"
@@ -61,7 +62,7 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
     "gangtise_indicator_search",
     {
       description:
-        "按名称搜索证券级数据指标（EDE），返回 indicatorCode 及可传参数 parameterList（含 required 必填标记与枚举）。覆盖 A 股/港股/美股。取数前必先用本工具拿 code，不要猜编码。宏观/行业数据（产量、价格、PMI 等）请改用 gangtise_edb_search。",
+        "按名称搜索证券级数据指标（EDE），返回 indicatorCode 及可传参数 parameterList（含 required 必填标记与枚举）。覆盖 A 股/港股/美股。取数前必先用本工具拿 code，不要猜编码。宏观/行业数据（产量、价格、PMI 等）请改用 gangtise_edb_search。标准行情/估值/财务三表优先用对应专用工具，本工具仅用于其未覆盖的长尾证券级指标。",
       inputSchema: {
         keyword: z
           .string()
@@ -81,8 +82,10 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
   server.registerTool(
     "gangtise_indicator_cross_section",
     {
-      description:
+      description: withBilling(
+        "gangtise_indicator_cross_section",
         "查询指标截面数据（多指标 × 多证券，单日快照）。返回宽表：每证券一行、每指标一列。指标代码来自 gangtise_indicator_search。",
+      ),
       inputSchema: {
         indicatorCodeList,
         securityCodeList,
@@ -102,8 +105,10 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
   server.registerTool(
     "gangtise_indicator_time_series",
     {
-      description:
+      description: withBilling(
+        "gangtise_indicator_time_series",
         "查询指标时间序列（多指标 × 单证券 或 单指标 × 多证券，按区间）。返回宽表：每日期一行。指标代码来自 gangtise_indicator_search。",
+      ),
       inputSchema: {
         indicatorCodeList,
         securityCodeList,

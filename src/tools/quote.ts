@@ -196,7 +196,7 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
   server.registerTool(
     "gangtise_fund_flow",
     {
-      description: "查询 A 股个股日资金流向（沪深北），含小/中/大/特大单流入流出金额及占比、主力净流入等字段。免费。security='aShares' 配合 startDate/endDate 拉取全市场（自动按 1 天/片分片）。",
+      description: "查询 A 股个股日资金流向（沪深北），含小/中/大/特大单流入流出金额及占比、主力净流入等字段。security='aShares' 配合 startDate/endDate 拉取全市场（自动按 1 天/片分片）。",
       inputSchema: {
         security: z.union([z.string(), z.array(z.string())]).optional().describe("A 股证券代码（沪深北），如 '600519.SH' 或 ['600519.SH','000858.SZ']；传 'aShares' 拉取全市场（须同时提供 startDate 和 endDate，自动按日分片）"),
         startDate: dateString.optional().describe(dateDesc()),
