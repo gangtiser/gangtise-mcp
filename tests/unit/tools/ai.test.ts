@@ -273,6 +273,12 @@ describe("knowledge_batch time input", () => {
     expect(() => knowledgeBatchTransform({ startTime: "2026-07-02 00:00:00", endTime: "2026-07-01 00:00:00" })).toThrow(/不能晚于/)
   })
 
+  it("rejects an unparseable string a direct caller slips past the schema (NaN would silently drop the bound)", () => {
+    // Via MCP the zod union blocks this; called directly, Date.parse → NaN must not
+    // pass the start>end check (NaN compares false) and serialize to null.
+    expect(() => knowledgeBatchTransform({ startTime: "not-a-date" })).toThrow(/格式无效/)
+  })
+
   it("returns a new object and never mutates its input", () => {
     const input = { startTime: "2026-07-01 00:00:00", queries: ["a"] }
     const out = knowledgeBatchTransform(input)
