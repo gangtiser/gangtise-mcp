@@ -131,9 +131,10 @@ describe("buildToolContent", () => {
     await fs.rm(path.dirname(result._saved_to as string), { recursive: true, force: true })
   })
 
-  it("a single row larger than the cap falls back to metadata-only with _first_item_keys", async () => {
+  it("a single row larger than the cap falls back to metadata-only, with field names from _available_fields", async () => {
     // One row that alone blows the budget can't be sampled — but the model still
-    // needs the field names, so surface the first row's keys.
+    // needs the field names. They come from _available_fields (capped), not an
+    // unbounded first-row key dump that could itself exceed the byte budget.
     const items = [{ id: "0", name: "巨行", content: "中".repeat(30_000) }] // ~90KB single row
     const content = await buildToolContent({ list: items, total: 1 })
     const result = JSON.parse(content[0].text)
@@ -141,8 +142,26 @@ describe("buildToolContent", () => {
     expect(result._truncated).toBe(true)
     expect(result._preview_count).toBe(0)
     expect(result.list).toBeUndefined()
-    expect(result._first_item_keys).toEqual(["id", "name", "content"])
+    expect(result._first_item_keys).toBeUndefined()
+    expect(result._available_fields).toEqual(["id", "name", "content"])
     expect(result.has_more).toBe(true) // the file still holds the row; page it via read_response
+
+    await fs.rm(path.dirname(result._saved_to as string), { recursive: true, force: true })
+  })
+
+  it("keeps the metadata-only pointer within budget when one row has thousands of fields", async () => {
+    // The fallback fires precisely for pathologically large rows; a wide row must
+    // not make the pointer itself exceed the inline budget via an unbounded key dump.
+    const wide: Record<string, string> = {}
+    for (let i = 0; i < 8_000; i += 1) wide[`field_${i}`] = "x".repeat(10)
+    const content = await buildToolContent({ list: [wide], total: 1 })
+    const result = JSON.parse(content[0].text)
+
+    expect(result._preview_count).toBe(0)
+    expect(Buffer.byteLength(content[0].text, "utf8")).toBeLessThanOrEqual(INLINE_MAX_BYTES)
+    expect(result._first_item_keys).toBeUndefined()
+    expect((result._available_fields as string[]).length).toBe(50) // capped, so the pointer stays small
+    expect(result._available_fields_truncated).toBe(true)
 
     await fs.rm(path.dirname(result._saved_to as string), { recursive: true, force: true })
   })

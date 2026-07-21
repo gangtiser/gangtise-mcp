@@ -170,13 +170,16 @@ export async function buildToolContent(normalized: unknown): Promise<Array<{ typ
       const more = typeof totalItems === "number" && totalItems > sample.length
       preview = { ...preview, list: sample, _preview_count: sample.length, has_more: more, next_offset: more ? sample.length : null }
     } else {
-      // Even one row exceeds the budget — fall back to metadata-only, but surface
-      // the first row's keys so the model still learns the field names.
+      // Even one row exceeds the budget — fall back to metadata-only. Field names
+      // still reach the model via _available_fields (capped at 50 + a
+      // _available_fields_truncated flag), which survives the ...metaOnly spread.
+      // We deliberately do NOT re-dump the first row's keys here: an unbounded
+      // Object.keys(row) can itself blow the byte budget on a pathologically wide
+      // row — the exact case this fallback handles — and it only duplicates the
+      // (bounded) _available_fields anyway.
       const { list: _dropped, ...metaOnly } = preview as Record<string, unknown> & { list?: unknown }
-      const first = fullPreviewList[0]
-      const firstItemKeys = first && typeof first === "object" && !Array.isArray(first) ? Object.keys(first as object) : undefined
       const anyLeft = typeof totalItems === "number" && totalItems > 0
-      preview = { ...metaOnly, _preview_count: 0, ...(firstItemKeys ? { _first_item_keys: firstItemKeys } : {}), has_more: anyLeft, next_offset: anyLeft ? 0 : null }
+      preview = { ...metaOnly, _preview_count: 0, has_more: anyLeft, next_offset: anyLeft ? 0 : null }
     }
   }
 
