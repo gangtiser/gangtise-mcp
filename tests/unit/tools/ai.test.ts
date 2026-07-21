@@ -237,7 +237,8 @@ describe("theme_tracking date window follows account permission, not a hardcoded
     const msg = (result.content as Array<{ text: string }>)[0].text
     expect(msg).toContain("不能晚于当前日期")
     // 旧文案是 >30 与 <0 两分支共用的；只删分支不改文案，会把刚废弃的约束从错误里漏回去。
-    expect(msg).not.toContain("30")
+    // 断言「无 30 天窗口措辞」，而非裸 "30" —— 消息含 today()，逢 30 号或 2030 年会误命中。
+    expect(msg).not.toMatch(/30\s*天/)
     expect(client.call).not.toHaveBeenCalled()
   })
 
@@ -246,7 +247,7 @@ describe("theme_tracking date window follows account permission, not a hardcoded
     const { tools } = await mcp.listTools()
     const t = tools.find((x) => x.name === "gangtise_theme_tracking")
     const props = (t?.inputSchema as { properties: Record<string, { description?: string }> }).properties
-    expect(props.date.description).not.toContain("30")
+    expect(props.date.description).not.toMatch(/30\s*天/)
   })
 })
 
