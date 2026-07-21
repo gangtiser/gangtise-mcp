@@ -21,8 +21,9 @@ const MAX_LIMIT = 500
  * threshold, shared with registry.ts via config.js. */
 export const TEXT_CHUNK_CHARS = Math.floor(INLINE_MAX_BYTES * 0.27)
 
-/** 本页少于请求 limit 时附在 payload 上的说明。信封预估也要带上它。 */
-function pageNote(returned: number): string {
+/** 本页少于请求 limit 时附在 payload 上的说明。信封预估也要带上它。
+ *  导出供测试直接引用，避免测试逐字复刻本文案造成同源漂移（见 response.test.ts 用例 d）。 */
+export function pageNote(returned: number): string {
   return `本页按 ${Math.round(INLINE_MAX_BYTES / 1024)}KB 字节预算返回 ${returned} 条（少于请求的 limit），用 next_offset 继续翻页`
 }
 
@@ -202,10 +203,19 @@ export function registerResponseTools(server: McpServer, _client: GangtiseClient
           return { content: [{ type: "text" as const, text: JSON.stringify(payload) }] }
         }
 
+        const total = list.length
+        const start = Math.min(offset, total)
+        const hardEnd = Math.min(start + limit, total)
+
         let unknownFields: string[] = []
         if (fields) {
-          if (list.length > 0 && list.some((r) => r === null || typeof r !== "object" || Array.isArray(r))) {
-            throw new ValidationError("fields 仅适用于对象行列表，该列表含非对象元素；去掉 fields 后重试。")
+          // 非对象检查只看**本页窗口** [start, hardEnd)，不是整个文件：远在第 9000 行的
+          // 一个坏行不该让第 0 页的投影失败——那恰是 fields 要服务的场景。投影只发生在
+          // 窗口内（projectRow 仅对窗口行调用），窗口外的坏行由 findUnknownFields 的
+          // 非对象跳过逻辑安全略过。这与 _unknown_fields 必须扫全量（防稀疏字段误杀）
+          // 不同：非对象判定没有全量的必要。
+          if (list.slice(start, hardEnd).some((r) => r === null || typeof r !== "object" || Array.isArray(r))) {
+            throw new ValidationError("fields 仅适用于对象行列表，本页窗口含非对象元素；去掉 fields 后重试。")
           }
           // 空列表无从判定字段合法性 —— 正常返回空结果，不判未知字段。
           if (list.length > 0) {
@@ -219,10 +229,6 @@ export function registerResponseTools(server: McpServer, _client: GangtiseClient
             }
           }
         }
-
-        const total = list.length
-        const start = Math.min(offset, total)
-        const hardEnd = Math.min(start + limit, total)
 
         // 字节预算必须算上信封（...rest + _saved_to/_total_items/_note 等），
         // 不能只算行字节：实测单行 65,509B 未超限，拼上信封后 payload 65,779B 已超限 ——

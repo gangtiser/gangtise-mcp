@@ -6,7 +6,7 @@ import { describe, it, expect } from "vitest"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
-import { registerResponseTools, TEXT_CHUNK_CHARS } from "../../../src/tools/response.js"
+import { registerResponseTools, TEXT_CHUNK_CHARS, pageNote } from "../../../src/tools/response.js"
 import { buildToolContent } from "../../../src/tools/registry.js"
 import { createManagedTempDir } from "../../../src/core/tempCleanup.js"
 import { INLINE_MAX_BYTES } from "../../../src/core/config.js"
@@ -413,12 +413,9 @@ describe("gangtise_read_response byte contracts", () => {
     const dir = await createManagedTempDir()
     const file = path.join(dir, "response.json")
 
-    // 逐字复刻源码 pageNote 的文案 —— 它的字节数直接决定本用例的边界
-    function pageNoteLocal(returned: number): string {
-      return `本页按 ${Math.round(INLINE_MAX_BYTES / 1024)}KB 字节预算返回 ${returned} 条（少于请求的 limit），用 next_offset 继续翻页`
-    }
-    // 复刻修复前的信封估算（has_more:true + next_offset:total），反推出「旧代码
-    // 恰好还能塞下第二行」的字节边界
+    // 复刻修复**前**的信封估算（has_more:true + next_offset:total），反推出「旧代码
+    // 恰好还能塞下第二行」的字节边界。_note 用源码导出的真 pageNote，不再逐字复刻 ——
+    // 否则文案一改，本地副本与源码漂移，用例会误红或悄悄退化成普通分页测试。
     function oldEnvelopeBytes(total: number): number {
       return Buffer.byteLength(
         JSON.stringify({
@@ -429,7 +426,7 @@ describe("gangtise_read_response byte contracts", () => {
           _returned: total,
           has_more: true,
           next_offset: total,
-          _note: pageNoteLocal(total),
+          _note: pageNote(total),
         }),
         "utf8",
       )
@@ -577,6 +574,22 @@ describe("gangtise_read_response fields projection", () => {
     expect((await call({ saved_to: mixed, fields: ["a"] })).isError).toBe(true)
     await fs.rm(path.dirname(prim), { recursive: true, force: true })
     await fs.rm(path.dirname(mixed), { recursive: true, force: true })
+  })
+
+  it("projects a clean page even when a non-object row sits far outside the window", async () => {
+    // A stray non-object at row 900 must not block projecting page 0 — that's the
+    // large-wide-table case fields exists for. Only the page window is checked.
+    const list: unknown[] = rows(1_000)
+    list[900] = null
+    const savedTo = await writeTmpJson({ list, total: 1_000 })
+    const result = await call({ saved_to: savedTo, offset: 0, limit: 10, fields: ["close"] })
+    expect(result.isError).toBeFalsy()
+    const parsed = parseText(result)
+    expect((parsed.list as Array<Record<string, unknown>>)[0]).toEqual({ close: 0 })
+    // ...but a window that actually contains the bad row still rejects.
+    const bad = await call({ saved_to: savedTo, offset: 895, limit: 10, fields: ["close"] })
+    expect(bad.isError).toBe(true)
+    await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
   })
 
   it("rejects duplicate, blank, over-long and over-count field lists at the schema boundary", async () => {
