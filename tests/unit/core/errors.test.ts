@@ -26,10 +26,12 @@ describe("error hints", () => {
     expect(message).toContain("拼写")
   })
 
-  it("maps 110003 to a window-is-account-scoped hint without dropping the code", () => {
+  it("maps 110003 to an actionable hint without dropping the code", () => {
     const err = new ApiError("超出时间范围限制", "110003", 400)
     const msg = errorMessage(err)
     expect(msg).toContain("110003")
-    expect(msg).toContain("取数窗口随账号权限变化")
+    expect(msg).toContain("请缩小日期范围或改用更近日期")
+    // 只保留普适且可操作的建议——不对未证的端点断言账号权限归因（仅 theme-tracking 已证会发此码）。
+    expect(msg).not.toContain("账号权限")
   })
 })
