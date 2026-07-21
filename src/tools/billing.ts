@@ -183,7 +183,7 @@ export const BILLING_CATALOG: Record<string, BillingSpec> = {
 }
 
 /** 付费分页工具的 fetchAll 成本警示。不改默认 size、不自动开 fetchAll —— 只做告知。 */
-const PAGINATED_BILLING_WARNING = "默认最多 20 条；fetchAll=true 按全部实际返回条目计费"
+const PAGINATED_BILLING_WARNING = "默认最多 20 条；size 调大或 fetchAll=true 按全部实际返回条目计费"
 
 /**
  * 紧凑积分标签，是描述的**最后一段**。免费档返回空串 ——
@@ -222,7 +222,10 @@ export function billingSuffix(toolName: string, paginated: boolean): string {
   if (!spec) throw new Error(`billing catalog missing an entry for tool: ${toolName}`)
   if (spec.kind === "free" || spec.kind === "local") return ""
   const parts: string[] = []
-  if (paginated) parts.push(PAGINATED_BILLING_WARNING)
+  // 按条计费的分页警示只对 fixed 档成立（每条明码单价）。unconfirmed/downstream/variable
+  // 的计费方式未确认或非「按返回条数」，不能替它们断言这句——今天 18 个分页付费工具恰好
+  // 全是 fixed，此守卫零当前影响，纯为防未来新增非 fixed 分页工具时误挂计费断言。
+  if (paginated && spec.kind === "fixed") parts.push(PAGINATED_BILLING_WARNING)
   if ("amplify" in spec && spec.amplify) parts.push(spec.amplify)
   return parts.length > 0 ? `${parts.join("，")}。` : ""
 }

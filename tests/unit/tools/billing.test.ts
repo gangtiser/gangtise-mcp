@@ -72,7 +72,7 @@ describe("billing catalog coverage", () => {
   })
 
   it("emits the amplification hint as a suffix outside the label, framed as an example not a cap", () => {
-    const PAGED = "默认最多 20 条；fetchAll=true 按全部实际返回条目计费"
+    const PAGED = "默认最多 20 条；size 调大或 fetchAll=true 按全部实际返回条目计费"
     expect(billingSuffix("gangtise_hot_topic", true)).toBe(`${PAGED}，单次约 1000 积分。`)
     expect(billingSuffix("gangtise_opinion_list", true)).toBe(`${PAGED}，单次约 600 积分。`)
     expect(billingSuffix("gangtise_foreign_opinion_list", true)).toBe(`${PAGED}，单次约 600 积分。`)
