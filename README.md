@@ -15,8 +15,8 @@
   - **分页字节预算修正**：原先只累加行字节、未计入 `_saved_to`/`_total_items`/`_note` 等信封字段，导致「行贴边不超限、拼上信封就超限」的载荷溜过检查（实测单行 65,509B → 完整 payload 65,779B）。现按行+信封计；信封与最小一行仍超预算时返回该行并标 `_oversized: true`，翻页不卡死
   - **溢出指针增 `_local_hint` 与 `_available_fields`**：同机可读文件的客户端可在本地投影/过滤后只取所需结果；`_available_fields` 采样前 20 行并附 `_available_fields_sampled`（实际扫描行数，可与 `_total_items` 比对判断清单是否完整），字段超 50 个截断并标 `_available_fields_truncated`。**远程 MCP / 容器隔离 / 无文件权限的客户端必须继续用 `gangtise_read_response`**。metadata-only 回退（单行即超预算）的字段名改由封顶的 `_available_fields` 提供，移除旧的无上限 `_first_item_keys`（后者在超宽行上可自身撑爆预览指针字节预算）
   - 3 个 AI 工具描述「生成」改「获取」与 instructions ③「均取预生成内容」对齐；`indicator_search`/`opinion_list`/`foreign_opinion_list`/`stock_summary` 补路由边界句
-  - `tools/list` 实测 107,201B → 108,691B（+1,490B，+1.39%）
-- 测试 332 → 396
+  - `tools/list` 实测 107,201B → 108,961B（+1,760B，+1.64%）
+- 测试 332 → 399
 
 ### 0.1.43 (2026-07-11)
 - 同步 gangtise-openapi-cli v0.24–v0.27：
