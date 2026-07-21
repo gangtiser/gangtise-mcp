@@ -576,19 +576,19 @@ describe("gangtise_read_response fields projection", () => {
     await fs.rm(path.dirname(mixed), { recursive: true, force: true })
   })
 
-  it("projects a clean page even when a non-object row sits far outside the window", async () => {
-    // A stray non-object at row 900 must not block projecting page 0 — that's the
-    // large-wide-table case fields exists for. Only the page window is checked.
+  it("rejects fields consistently for a mixed array regardless of which page is requested", async () => {
+    // Frozen contract §四E rule 2/3: a non-object anywhere makes the whole list
+    // non-projectable — fields validity is a file-level property, not per-page.
+    // A stray non-object at row 900 must reject even when page 0 would look clean,
+    // so the answer can't flip with offset.
     const list: unknown[] = rows(1_000)
     list[900] = null
     const savedTo = await writeTmpJson({ list, total: 1_000 })
-    const result = await call({ saved_to: savedTo, offset: 0, limit: 10, fields: ["close"] })
-    expect(result.isError).toBeFalsy()
-    const parsed = parseText(result)
-    expect((parsed.list as Array<Record<string, unknown>>)[0]).toEqual({ close: 0 })
-    // ...but a window that actually contains the bad row still rejects.
-    const bad = await call({ saved_to: savedTo, offset: 895, limit: 10, fields: ["close"] })
-    expect(bad.isError).toBe(true)
+    for (const offset of [0, 895]) {
+      const result = await call({ saved_to: savedTo, offset, limit: 10, fields: ["close"] })
+      expect(result.isError, `offset ${offset} must reject`).toBe(true)
+      expect((result.content as Array<{ text: string }>)[0].text).toContain("非对象元素")
+    }
     await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
   })
 
