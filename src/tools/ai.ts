@@ -31,10 +31,12 @@ export function knowledgeBatchTransform(body: Record<string, unknown>): Record<s
   const start = toEpochMs(next.startTime)
   const end = toEpochMs(next.endTime)
   // 直接调用者（非 MCP 路径，绕过 dateTimeString schema）可能传入非法字符串 →
-  // Date.parse → NaN；NaN 会静默通过下面的 start>end 比较（NaN 比较恒 false），
-  // 最终 JSON.stringify(NaN)=null 悄悄丢掉时间界。显式拒绝，不依赖上游 schema。
-  if ((start !== undefined && Number.isNaN(start)) || (end !== undefined && Number.isNaN(end))) {
-    throw new ValidationError("startTime / endTime 格式无效：应为 YYYY-MM-DD HH:mm:ss 或 epoch 毫秒。")
+  // Date.parse → NaN，或直接传 ±Infinity；二者都会静默通过下面的 start>end 比较
+  // （非有限数比较恒 false）并 JSON.stringify → null，悄悄丢掉时间界。用 isFinite 拦掉
+  // NaN 与 Infinity；负数/小数是合法时刻（如 1970 前的日期字符串），不拦——那正是
+  // schema 的 number.int().min(0) 只约束数字入参、不约束字符串路径的原因。
+  if ((start !== undefined && !Number.isFinite(start)) || (end !== undefined && !Number.isFinite(end))) {
+    throw new ValidationError("startTime / endTime 无效：应为 YYYY-MM-DD HH:mm:ss 或有限的 epoch 毫秒。")
   }
   if (start !== undefined && end !== undefined && start > end) {
     throw new ValidationError("startTime 不能晚于 endTime。")

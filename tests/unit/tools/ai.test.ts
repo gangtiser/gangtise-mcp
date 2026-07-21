@@ -273,10 +273,14 @@ describe("knowledge_batch time input", () => {
     expect(() => knowledgeBatchTransform({ startTime: "2026-07-02 00:00:00", endTime: "2026-07-01 00:00:00" })).toThrow(/不能晚于/)
   })
 
-  it("rejects an unparseable string a direct caller slips past the schema (NaN would silently drop the bound)", () => {
-    // Via MCP the zod union blocks this; called directly, Date.parse → NaN must not
-    // pass the start>end check (NaN compares false) and serialize to null.
-    expect(() => knowledgeBatchTransform({ startTime: "not-a-date" })).toThrow(/格式无效/)
+  it("rejects non-finite epochs a direct caller slips past the schema (NaN/Infinity would silently drop the bound)", () => {
+    // Via MCP the zod union blocks these; called directly, both an unparseable
+    // string (Date.parse → NaN) and a raw Infinity would pass the start>end check
+    // (non-finite compares false) and serialize to null. A valid pre-1970 date
+    // (negative epoch) must still be accepted.
+    expect(() => knowledgeBatchTransform({ startTime: "not-a-date" })).toThrow(/无效/)
+    expect(() => knowledgeBatchTransform({ startTime: Infinity })).toThrow(/无效/)
+    expect(() => knowledgeBatchTransform({ startTime: "1960-01-01 00:00:00" })).not.toThrow()
   })
 
   it("returns a new object and never mutates its input", () => {
