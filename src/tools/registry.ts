@@ -65,8 +65,9 @@ function emptyResultHint(normalized: unknown): Record<string, unknown> | undefin
  *
  *  `_available_fields` 与 `_available_fields_sampled` **必须成对出现、缺一不可**：
  *  读者靠 `_available_fields_sampled < _total_items` 判断字段清单可能不全。
- *  一行字段都没采到时也返回 `[]` + 实际扫描行数（而不是两个都省略）——
- *  「采了 20 行、确实没有字段」和「压根没采」对读者是完全不同的信息。 */
+ *  一行字段都没采到时也返回 `[]` + 实际扫描行数（而不是两个都省略），以区分
+ *  「采了 N 行」与「压根没采」。注意 sampled 计的是**扫描行数（含非对象行）**：
+ *  `[]` + sampled:20 可能是 20 个空对象、也可能是 20 个非对象行，本提示不细分二者。 */
 function availableFieldsMeta(list: unknown[]): Record<string, unknown> {
   const sampled = Math.min(PREVIEW_ITEMS, list.length)
   const names: string[] = []
