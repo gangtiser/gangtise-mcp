@@ -330,3 +330,48 @@ describe("knowledge_batch time input", () => {
     expect(client.call).not.toHaveBeenCalled()
   })
 })
+
+// epoch 单位搞错是个静默错：秒级时间戳当毫秒读成 1970 年，上游照单全收返回空结果，
+// 看不出是时间界错了。位数校验挡在 schema 边界，10 位在转换时补到毫秒。
+describe("knowledge_batch epoch timestamps", () => {
+  it("promotes a 10-digit seconds timestamp to milliseconds", () => {
+    expect(knowledgeBatchTransform({ startTime: 1_780_000_000 }).startTime).toBe(1_780_000_000_000)
+  })
+
+  it("still passes a 13-digit milliseconds timestamp through untouched", () => {
+    expect(knowledgeBatchTransform({ startTime: 1_780_000_000_000 }).startTime).toBe(1_780_000_000_000)
+  })
+
+  it("compares the two units on the same scale (a seconds start is not 'later' than a millis end)", () => {
+    expect(() => knowledgeBatchTransform({ startTime: 1_780_000_000, endTime: 1_780_086_400_000 })).not.toThrow()
+  })
+
+  it("rejects an off-scale epoch at the schema boundary, before any API call", async () => {
+    const client = { call: vi.fn(async () => ({ list: [], total: 0 })), download: vi.fn() } as unknown as GangtiseClient
+    const mcp = await connect(client)
+    const result = await mcp.callTool({
+      name: "gangtise_knowledge_batch",
+      arguments: { queries: ["茅台"], startTime: 17_800_000 },
+    })
+    expect(result.isError).toBe(true)
+    expect(client.call).not.toHaveBeenCalled()
+  })
+})
+
+// 异步状态码 410110/410111 → 140001/140002 重排后，*_check 工具必须两代都认，
+// 否则「生成中」会被当成硬错、已计费的 dataId 白丢。
+describe("async *_check across the 2026-07-17 renumbering", () => {
+  it.each([
+    ["140001", "pending", false],
+    ["140002", "failed", true],
+  ] as Array<[string, string, boolean]>)("maps %s to status=%s", async (code, status, isError) => {
+    const client = {
+      call: vi.fn().mockRejectedValue(new ApiError("async", code, code === "140001" ? 409 : 500)),
+      download: vi.fn(),
+    } as unknown as GangtiseClient
+    const mcp = await connect(client)
+    const result = await mcp.callTool({ name: "gangtise_earnings_review_check", arguments: { dataId: "d1" } })
+    expect(Boolean(result.isError)).toBe(isError)
+    expect((result.content as Array<{ text: string }>)[0].text).toContain(`"status":"${status}"`)
+  })
+})

@@ -3,9 +3,9 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { GangtiseClient } from "../core/client.js"
 import { registerJsonTool, registerDownloadTool, buildToolContent, buildTextResult, type JsonToolSpec, type DownloadToolSpec } from "./registry.js"
 import { toolHandler, textResult, contentResult } from "./helpers.js"
-import { pollAsyncContent } from "../core/asyncContent.js"
+import { pollAsyncContent, isAsyncFailed, isAsyncPending } from "../core/asyncContent.js"
 import { normalizeRows } from "../core/normalize.js"
-import { ApiError, AsyncTimeoutError, ValidationError, errorMessage } from "../core/errors.js"
+import { AsyncTimeoutError, ValidationError, errorMessage } from "../core/errors.js"
 import { dateDesc, dateString, dateTimeDesc, dateTimeString, quarterEndDate, today, todayDate } from "../core/dateContext.js"
 import { nonEmptyString, intLiteralEnum } from "./schemas.js"
 import { withBilling } from "./billing.js"
@@ -14,13 +14,28 @@ export interface AiToolOptions {
   asyncTimeoutMs: number
 }
 
-/** knowledge_batch 的 startTime/endTime 既收 "YYYY-MM-DD HH:mm:ss" 也收 epoch 毫秒。
- *  不收纯日期 —— endTime 传 "2026-07-01" 会被当成 00:00:00，静默丢掉当天全部数据。 */
-const knowledgeTime = z.union([dateTimeString, z.number().int().min(0)])
+// epoch 只认 10 位（秒）或 13 位（毫秒）两种量级。其余量级基本是单位搞错，而把
+// 秒级时间戳静默当毫秒会读成 1970 年 —— 上游照单全收、返回空结果，看不出是时间界错了。
+const EPOCH_SECONDS_MIN = 1e9
+const EPOCH_SECONDS_MAX = 1e10
+const EPOCH_MILLIS_MIN = 1e12
+const EPOCH_MILLIS_MAX = 1e13
 
-/** 字符串按固定 +08:00 转毫秒（不依赖机器时区）；数字原样透传。 */
+const epochTimestamp = z
+  .number()
+  .int()
+  .refine(
+    (v) => (v >= EPOCH_SECONDS_MIN && v < EPOCH_SECONDS_MAX) || (v >= EPOCH_MILLIS_MIN && v < EPOCH_MILLIS_MAX),
+    "时间戳须为 10 位（秒）或 13 位（毫秒）",
+  )
+
+/** knowledge_batch 的 startTime/endTime 既收 "YYYY-MM-DD HH:mm:ss" 也收 epoch 时间戳。
+ *  不收纯日期 —— endTime 传 "2026-07-01" 会被当成 00:00:00，静默丢掉当天全部数据。 */
+const knowledgeTime = z.union([dateTimeString, epochTimestamp])
+
+/** 字符串按固定 +08:00 转毫秒（不依赖机器时区）；10 位秒级时间戳补到毫秒，13 位原样透传。 */
 function toEpochMs(value: unknown): number | undefined {
-  if (typeof value === "number") return value
+  if (typeof value === "number") return value < EPOCH_MILLIS_MIN ? value * 1000 : value
   if (typeof value === "string") return Date.parse(`${value.replace(" ", "T")}+08:00`)
   return undefined
 }
@@ -34,9 +49,9 @@ export function knowledgeBatchTransform(body: Record<string, unknown>): Record<s
   // Date.parse → NaN，或直接传 ±Infinity；二者都会静默通过下面的 start>end 比较
   // （非有限数比较恒 false）并 JSON.stringify → null，悄悄丢掉时间界。用 isFinite 拦掉
   // NaN 与 Infinity；负数/小数是合法时刻（如 1970 前的日期字符串），不拦——那正是
-  // schema 的 number.int().min(0) 只约束数字入参、不约束字符串路径的原因。
+  // epochTimestamp 的位数校验只约束数字入参、不约束字符串路径的原因。
   if ((start !== undefined && !Number.isFinite(start)) || (end !== undefined && !Number.isFinite(end))) {
-    throw new ValidationError("startTime / endTime 无效：应为 YYYY-MM-DD HH:mm:ss 或有限的 epoch 毫秒。")
+    throw new ValidationError("startTime / endTime 无效：应为 YYYY-MM-DD HH:mm:ss 或有限的 epoch 时间戳。")
   }
   if (start !== undefined && end !== undefined && start > end) {
     throw new ValidationError("startTime 不能晚于 endTime。")
@@ -72,8 +87,8 @@ export const jsonSpecs: JsonToolSpec[] = [
       top: z.number().int().min(1).max(20).optional().describe("每个查询词返回的结果数（默认 10，最大 20）"),
       resourceTypes: z.array(z.number().int()).optional().describe("10=研报 | 11=外资研报 | 20=内部 | 40=观点 | 50=公告 | 51=港股公告 | 60=纪要 | 70=调研 | 80=网络纪要 | 90=公众号"),
       knowledgeNames: z.array(z.string()).optional().describe("system_knowledge_doc | tenant_knowledge_doc"),
-      startTime: knowledgeTime.optional().describe("YYYY-MM-DD HH:mm:ss 或 epoch 毫秒"),
-      endTime: knowledgeTime.optional().describe("YYYY-MM-DD HH:mm:ss 或 epoch 毫秒"),
+      startTime: knowledgeTime.optional().describe("YYYY-MM-DD HH:mm:ss，或 epoch 时间戳（10 位秒 / 13 位毫秒）"),
+      endTime: knowledgeTime.optional().describe("YYYY-MM-DD HH:mm:ss，或 epoch 时间戳（10 位秒 / 13 位毫秒）"),
     },
     transformBody: knowledgeBatchTransform,
   },
@@ -210,9 +225,10 @@ function makeAsyncToolPair(
           return textResult(JSON.stringify({ dataId, status: "timeout", hint: `Call ${config.checkName} with this dataId in ~3 minutes` }))
         }
         // Submit already succeeded (and may be billed); never swallow the dataId on
-        // a mid-poll failure, or the user can't recover the job via _check. 410111
-        // is a terminal backend failure; anything else is transient → suggest retry.
-        if (err instanceof ApiError && err.code === "410111") {
+        // a mid-poll failure, or the user can't recover the job via _check.
+        // 410111 / 140002 are terminal backend failures; anything else is
+        // transient → suggest retry.
+        if (isAsyncFailed(err)) {
           return { ...textResult(JSON.stringify({ dataId, status: "failed", error: errorMessage(err) })), isError: true }
         }
         return textResult(JSON.stringify({ dataId, status: "error", error: errorMessage(err), hint: `Call ${config.checkName} with this dataId to retry` }))
@@ -243,9 +259,9 @@ function makeAsyncToolPair(
         }
         return textResult(JSON.stringify({ status: "pending", dataId }))
       } catch (err) {
-        if (err instanceof ApiError && err.code === "410111")
+        if (isAsyncFailed(err))
           return { ...textResult(JSON.stringify({ status: "failed", dataId, error: errorMessage(err) })), isError: true }
-        if (err instanceof ApiError && err.code === "410110")
+        if (isAsyncPending(err))
           return textResult(JSON.stringify({ status: "pending", dataId }))
         throw err
       }

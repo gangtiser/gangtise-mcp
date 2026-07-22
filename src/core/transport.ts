@@ -52,6 +52,32 @@ export async function runWithConcurrency<T, R>(
 const RETRYABLE_HTTP_STATUS = new Set([429, 500, 502, 503, 504])
 const RETRYABLE_NETWORK_CODES = new Set(["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_SOCKET", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT"])
 const RETRYABLE_API_CODES = new Set(["999999"])
+// Never replayed on any HTTP status:
+// - 999011 CREDENTIAL_INVALID (bad AK/SK): a 5xx would otherwise be replayed twice
+//   by the status rule, and a credential error never fixes itself.
+// - 140002 PROCESSING_FAILED (the 2026-07-17 renumbering of 410111): the async
+//   *_check endpoints declare no retry policy, so a 140002@500 would be retried 2×
+//   by the default policy BEFORE asyncContent's terminal check sees it — that guard
+//   sits above client.call's withRetry and cannot observe the retries. 140002 means
+//   "generation failed" (terminal by definition) and only those async endpoints can
+//   return it, so a blanket rule is safe and skips the wasted retries. The server
+//   still emits 410111 today (410111@400 isn't retryable anyway); this is a forward
+//   guard for the documented 140002@500.
+// - 410111 / 410106 / 410001: terminal or deterministic by definition — a generation
+//   that already failed, and two EDE parameter errors (missing indicator/security,
+//   missing a required indicatorParamList entry). Replaying them with identical
+//   arguments cannot change the answer. We have NOT observed the server return these
+//   with a 5xx; the guard is for the shape, not a sighting — should any of them
+//   arrive wrapped in a retryable status, the status rule would replay it 2× for a
+//   verdict that cannot move, and on the per-cell-billed indicator endpoints those
+//   replays may also cost credits. Gating by API code takes the question off the table.
+const NON_RETRYABLE_API_CODES = new Set(["999011", "140002", "410111", "410106", "410001"])
+// Rate limiting in envelope form: the 429 rule above only catches the HTTP form, so
+// a 999006 arriving inside a 2xx/4xx envelope used to fail on the first attempt with
+// the server's Retry-After parsed but never acted on. Checked AFTER the no-replay
+// return on purpose — for per-call billed endpoints we cannot prove the throttle
+// fired before the handler executed, and a wrong guess double-bills.
+const RATE_LIMIT_API_CODES = new Set(["999006"])
 // Connect-phase / DNS failures: the request provably never reached the server, so a
 // replay cannot double-execute (or double-bill) anything even under "no-replay".
 const NO_REPLAY_NETWORK_CODES = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "UND_ERR_CONNECT_TIMEOUT"])
@@ -70,8 +96,10 @@ export function isRetryableError(error: unknown, policy: RetryPolicy = "default"
     return true
   }
   if (error instanceof ApiError) {
+    if (error.code && NON_RETRYABLE_API_CODES.has(error.code)) return false
     if (error.statusCode === 429) return true
     if (policy === "no-replay") return false
+    if (error.code && RATE_LIMIT_API_CODES.has(error.code)) return true
     if (error.code && RETRYABLE_API_CODES.has(error.code)) return policy !== "no-999999"
     if (error.statusCode != null && RETRYABLE_HTTP_STATUS.has(error.statusCode)) return true
     return false
@@ -92,8 +120,9 @@ export function markRetryable<E extends object>(error: E): E {
 }
 
 /** Errors worth waiting out (anything the default policy would retry): transient
- * 5xx / network / timeout / 429 / 999999. Used by async polling to survive a
- * blip without abandoning a multi-minute wait. */
+ * 5xx / network / timeout / 429 / 999999 / 999006. Used by async polling to survive
+ * a blip without abandoning a multi-minute wait — a throttle mid-poll must not void
+ * a generation that was already billed. */
 export function isTransientError(error: unknown): boolean {
   return isRetryableError(error, "default")
 }
@@ -114,7 +143,10 @@ const RATE_LIMIT_MAX_DELAY = 15_000
 
 export function computeRetryDelay(error: unknown, attempt: number, baseDelay: number, maxDelay: number): number {
   const retryAfterMs = error instanceof ApiError ? error.retryAfterMs : undefined
-  const isRateLimit = error instanceof ApiError && error.statusCode === 429
+  // A throttle deserves the patient backoff however it arrived — HTTP 429 or the
+  // 999006 envelope form. Without the code check the envelope form would fall back
+  // to the fast generic schedule and hammer an already-throttled API.
+  const isRateLimit = error instanceof ApiError && (error.statusCode === 429 || (error.code !== undefined && RATE_LIMIT_API_CODES.has(error.code)))
   const base = isRateLimit ? RATE_LIMIT_BASE_DELAY : baseDelay
   const ceil = isRateLimit || retryAfterMs !== undefined ? RATE_LIMIT_MAX_DELAY : maxDelay
   const jitter = Math.random() * base

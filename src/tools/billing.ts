@@ -136,9 +136,10 @@ export const BILLING_CATALOG: Record<string, BillingSpec> = {
   gangtise_foreign_report_download: fixed(50, "item"),
   gangtise_my_conference_download: fixed(50, "item"),
   gangtise_independent_opinion_download: fixed(30, "item"),
-  gangtise_research_download: fixed(20, "item"),
   gangtise_announcement_hk_download: fixed(20, "item"),
   gangtise_announcement_us_download: fixed(20, "item"),
+  // 服务端 2026-07-17 调价：内资研报下载 20 → 10。
+  gangtise_research_download: fixed(10, "item"),
   gangtise_announcement_download: fixed(10, "item"),
   gangtise_official_account_download: fixed(10, "item"),
   gangtise_report_image_download: fixed(0.1, "image"),

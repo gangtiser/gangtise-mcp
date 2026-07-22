@@ -581,3 +581,116 @@ describe("GangtiseClient per-endpoint timeout floor", () => {
     expect(options.headersTimeout).toBe(300_000)
   })
 })
+
+// 2026-07-17 重排把 token 失效码从 0000001008 改成 999002。切码那天若不认新码，
+// token 自愈会静默停摆，用户直接撞上硬认证失败。
+describe("GangtiseClient auth recovery across the 2026-07-17 renumbering", () => {
+  it("recovers from the new 999002 token-invalid code by refreshing once", async () => {
+    let listCalls = 0
+    requestMock.mockImplementation((url: unknown) => {
+      if (String(url).includes("/loginV2")) {
+        return Promise.resolve(rawJsonResponse({ code: "000000", data: { accessToken: "fresh", expiresIn: 7200, time: 1 } }))
+      }
+      listCalls += 1
+      if (listCalls === 1) return Promise.resolve(rawJsonResponse({ code: "999002", msg: "token is invalid" }, 401))
+      return Promise.resolve(jsonResponse({ answer: 42 }))
+    })
+
+    const result = await keyClient().call("ai.one-pager", { securityCode: "600519.SH" })
+    expect(result).toEqual({ answer: 42 })
+    expect(listCalls).toBe(2)
+  })
+
+  // 999011 是凭证本身写错，不会自愈：既不该刷 token，也不该在 5xx 上被状态码规则重放。
+  it("does not refresh or replay on 999011 (AK/SK mismatch)", async () => {
+    let listCalls = 0
+    let loginCalls = 0
+    requestMock.mockImplementation((url: unknown) => {
+      if (String(url).includes("/loginV2")) {
+        loginCalls += 1
+        return Promise.resolve(rawJsonResponse({ code: "000000", data: { accessToken: "t", expiresIn: 7200, time: 1 } }))
+      }
+      listCalls += 1
+      return Promise.resolve(rawJsonResponse({ code: "999011", msg: "credential invalid" }, 500))
+    })
+
+    await expect(keyClient().call("ai.one-pager", { securityCode: "600519.SH" })).rejects.toMatchObject({ code: "999011" })
+    expect(listCalls).toBe(1)
+    expect(loginCalls).toBe(1) // 仅初次登录，没有自愈重刷
+  })
+})
+
+// Gangtise 也用 HTTP 200 信封返回错误（含限流），此前 Retry-After 只在 >=400 时解析，
+// 200 形态的退避窗口被丢弃。
+describe("GangtiseClient Retry-After on 200-wrapped errors", () => {
+  // 限流走的是耐心退避（秒级）。真等会把这一组拖成 8 秒，用假时钟推完即可。
+  // 循环推进：登录握手等异步步骤会让退避定时器在第一次推进之后才排上，
+  // 单次 advance 推不到它。
+  async function drainRetries<T>(promise: Promise<T>): Promise<unknown> {
+    const settled = promise.then((v) => v, (e) => e)
+    let done = false
+    void settled.then(() => { done = true })
+    for (let i = 0; i < 20 && !done; i++) {
+      await vi.advanceTimersByTimeAsync(30_000)
+    }
+    return settled
+  }
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it("keeps the server's Retry-After when the error arrives inside a 200 envelope", async () => {
+    requestMock.mockImplementation((url: unknown) => {
+      if (String(url).includes("/loginV2")) {
+        return Promise.resolve(rawJsonResponse({ code: "000000", data: { accessToken: "t", expiresIn: 7200, time: 1 } }))
+      }
+      return Promise.resolve({
+        statusCode: 200,
+        headers: { "content-type": "application/json", "retry-after": "3" },
+        body: { text: vi.fn().mockResolvedValue(JSON.stringify({ code: "999006", msg: "rate limited" })) },
+      })
+    })
+
+    await expect(keyClient().call("ai.one-pager", { securityCode: "600519.SH" }))
+      .rejects.toMatchObject({ code: "999006", retryAfterMs: 3_000 })
+  })
+
+  // 下载走独立的 JSON 分支，与主路径同样要保住这个 header。
+  it("keeps it on the download JSON path too", async () => {
+    vi.useFakeTimers()
+    requestMock.mockImplementation(() => Promise.resolve({
+      statusCode: 200,
+      headers: { "content-type": "application/json", "retry-after": "2" },
+      body: { text: vi.fn().mockResolvedValue(JSON.stringify({ code: "999006", msg: "rate limited" })) },
+    }))
+
+    await expect(drainRetries(tokenClient().call("insight.research.download", undefined, { reportId: "1" })))
+      .resolves.toMatchObject({ code: "999006", retryAfterMs: 2_000 })
+  })
+
+  // 光带上 header 不算修好 —— 得真的重放。此前 999006@200 一次即败，
+  // 解析出来的退避窗口无人使用。
+  // 用 tokenClient（静态 token、不登录）：假时钟要推进上百秒才能走完退避，
+  // 而 keyClient 的登录令牌带 300s 过期缓冲，推进量会跨过它触发二次登录，测试变 flaky。
+  it("actually replays the request instead of failing on the first attempt", async () => {
+    let calls = 0
+    requestMock.mockImplementation(() => {
+      calls += 1
+      if (calls === 1) {
+        return Promise.resolve({
+          statusCode: 200,
+          headers: { "content-type": "application/json", "retry-after": "0" },
+          body: { text: vi.fn().mockResolvedValue(JSON.stringify({ code: "999006", msg: "rate limited" })) },
+        })
+      }
+      return Promise.resolve(jsonResponse({ answer: 42 }))
+    })
+
+    // research.list 走默认重试策略（按次计费的 no-replay 端点仍不重放，另有用例覆盖）。
+    vi.useFakeTimers()
+    const result = await drainRetries(tokenClient().call("insight.research.list", { from: 0, size: 1 }))
+    expect(result).toEqual({ answer: 42 })
+    expect(calls).toBe(2)
+  })
+})

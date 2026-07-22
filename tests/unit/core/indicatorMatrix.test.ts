@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest"
 import { unwrapIndicatorData, flattenCrossSection, flattenTimeSeries } from "../../../src/core/indicatorMatrix.js"
 import { ApiError } from "../../../src/core/errors.js"
+import { unwrapEnvelope } from "../../../src/core/envelope.js"
 
 describe("unwrapIndicatorData", () => {
   it("peels the inner { code, status, data } envelope on success", () => {
@@ -122,5 +123,30 @@ describe("reserved metadata column collision", () => {
     const result = flattenTimeSeries(data) as { list: Array<Record<string, unknown>> }
     expect(result.list[0].date).toBe("2026-07-09")
     expect(result.list[0]["date (ind_a)"]).toBe(42)
+  })
+})
+
+// EDE 是双层信封，traceId 只挂在外层。外层被 unwrapEnvelope 解掉后，内层报错要能
+// 拿到它 —— 这类错误恰恰最需要报障（130001 无权限 / 999999 无数据都出在这一层）。
+describe("EDE inner-envelope failures carry the outer traceId", () => {
+  it("surfaces the traceId parked on the payload by unwrapEnvelope", () => {
+    const raw = unwrapEnvelope({ code: "0", data: { code: "130001", status: false, msg: "无数据" }, traceId: "830965" })
+    try {
+      unwrapIndicatorData(raw)
+      throw new Error("should have thrown")
+    } catch (err) {
+      expect((err as ApiError).code).toBe("130001")
+      expect((err as ApiError).traceId).toBe("830965")
+    }
+  })
+
+  it("stays undefined when the outer envelope sent no traceId", () => {
+    const raw = unwrapEnvelope({ code: "0", data: { code: "130001", status: false, msg: "无数据" } })
+    expect(() => unwrapIndicatorData(raw)).toThrowError(ApiError)
+    try {
+      unwrapIndicatorData(raw)
+    } catch (err) {
+      expect((err as ApiError).traceId).toBeUndefined()
+    }
   })
 })

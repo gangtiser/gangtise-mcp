@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { runWithConcurrency, withRetry, markRetryable, computeRetryDelay, isRetryableError } from "../../../src/core/transport.js"
 import { ApiError } from "../../../src/core/errors.js"
 
@@ -200,5 +200,85 @@ describe("computeRetryDelay", () => {
   it("honors Retry-After on a non-429 status too (e.g. 503)", () => {
     const e = new ApiError("unavailable", undefined, 503, undefined, 5_000)
     expect(computeRetryDelay(e, 0, 400, 4_000)).toBe(5_000)
+  })
+})
+
+// 2026-07-17 重排引入的终态码：任何 HTTP 状态下都不重放。
+describe("terminal API codes", () => {
+  it("never replays 999011 (bad AK/SK) — a credential error does not heal", () => {
+    // auth.login 走 useAuth=false、不声明 retry 策略，所以 5xx 形态会被默认策略
+    // 按状态码重放两次；拦在终态码上才真正堵住。
+    expect(isRetryableError(new ApiError("credential invalid", "999011", 500), "default")).toBe(false)
+    expect(isRetryableError(new ApiError("credential invalid", "999011", 429), "default")).toBe(false)
+  })
+
+  it("never replays 140002 (async generation failed) — asyncContent's guard sits above withRetry", () => {
+    // 异步 *_check 端点无 retry 声明，140002@500 会被默认策略白重试 2 次才轮到
+    // asyncContent 认它是终态；那个判定在 client.call 的 withRetry 之上、拦不到重试。
+    expect(isRetryableError(new ApiError("generation failed", "140002", 500), "default")).toBe(false)
+    expect(isRetryableError(new ApiError("generation failed", "140002", 500), "no-999999")).toBe(false)
+  })
+
+  // 断言实际重放次数，而不只是分类函数的返回值 —— isRetryableError 说 false 而
+  // withRetry 仍多打两次请求的组合，前者是测不出来的。
+  it.each([
+    ["999011", 500],
+    ["140002", 500],
+    ["410111", 500],
+    ["410111", 400],
+    ["410106", 500],
+    ["410001", 500],
+  ] as Array<[string, number]>)("withRetry issues exactly one attempt for %s@%i", async (code, status) => {
+    const fn = vi.fn().mockRejectedValue(new ApiError("terminal", code, status))
+    await expect(withRetry(fn, fast)).rejects.toMatchObject({ code })
+    expect(fn).toHaveBeenCalledTimes(1)
+  })
+})
+
+// 999006 的 429 形态由状态码规则兜住，信封形态（非 429）此前一次即败：
+// Retry-After 解析出来了却没人用它，退避窗口等于丢失。
+describe("rate limiting in envelope form (999006)", () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  // 假时钟：限流走的是耐心退避（秒级），真等会把测试拖成 8 秒。
+  async function drain<T>(promise: Promise<T>): Promise<unknown> {
+    const settled = promise.then((v) => v, (e) => e)
+    await vi.advanceTimersByTimeAsync(120_000)
+    return settled
+  }
+
+  it("retries a 999006 arriving inside a non-429 response", async () => {
+    vi.useFakeTimers()
+    const fn = vi.fn().mockRejectedValue(new ApiError("rate limited", "999006", 200))
+    await expect(drain(withRetry(fn, { ...fast, retries: 2 }))).resolves.toMatchObject({ code: "999006" })
+    expect(fn).toHaveBeenCalledTimes(3)
+  })
+
+  it("recovers when the throttle clears", async () => {
+    vi.useFakeTimers()
+    const fn = vi.fn()
+      .mockRejectedValueOnce(new ApiError("rate limited", "999006", 200))
+      .mockResolvedValueOnce("ok")
+    await expect(drain(withRetry(fn, fast))).resolves.toBe("ok")
+    expect(fn).toHaveBeenCalledTimes(2)
+  })
+
+  // 按次计费端点不能赌「限流发生在执行前」——猜错就是重复扣费。
+  it("still refuses to replay it on a per-call billed (no-replay) endpoint", async () => {
+    const fn = vi.fn().mockRejectedValue(new ApiError("rate limited", "999006", 200))
+    await expect(withRetry(fn, { ...fast, policy: "no-replay" })).rejects.toMatchObject({ code: "999006" })
+    expect(fn).toHaveBeenCalledTimes(1)
+  })
+
+  it("gives the envelope form the patient rate-limit backoff, not the fast generic one", () => {
+    const envelope = computeRetryDelay(new ApiError("rate", "999006", 200), 0, 400, 4_000)
+    const generic = computeRetryDelay(new ApiError("boom", undefined, 500), 0, 400, 4_000)
+    expect(envelope).toBeGreaterThan(generic)
+  })
+
+  it("honors the server's Retry-After over the computed backoff", () => {
+    expect(computeRetryDelay(new ApiError("rate", "999006", 200, {}, 9_000), 0, 400, 4_000)).toBe(9_000)
   })
 })

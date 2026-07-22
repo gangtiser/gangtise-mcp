@@ -50,3 +50,32 @@ describe("unwrapEnvelope", () => {
     }
   })
 })
+
+// 服务端 2026-07-17 信封新增 traceId，且 Gangtise 也用 HTTP 200 信封返回错误。
+describe("unwrapEnvelope 2026-07-17 envelope fields", () => {
+  it("carries Retry-After into a 200-wrapped error envelope", () => {
+    try {
+      unwrapEnvelope({ code: "999006", msg: "rate limited" }, 200, 5_000)
+      throw new Error("should have thrown")
+    } catch (err) {
+      expect((err as ApiError).retryAfterMs).toBe(5_000)
+    }
+  })
+
+  it("puts the envelope traceId on the ApiError via details", () => {
+    try {
+      unwrapEnvelope({ code: "999999", msg: "boom", traceId: "830965044897325056" }, 500)
+      throw new Error("should have thrown")
+    } catch (err) {
+      expect((err as ApiError).traceId).toBe("830965044897325056")
+    }
+  })
+
+  it("stashes the traceId on a successful payload so the EDE inner envelope can still reach it", () => {
+    const inner = { code: "130001", status: false, msg: "无数据" }
+    const data = unwrapEnvelope({ code: "0", data: inner, traceId: "77" })
+    // 非枚举：绝不进 JSON/工具输出。
+    expect(JSON.stringify(data)).toBe(JSON.stringify(inner))
+    expect(new ApiError("无数据", "130001", 500, data).traceId).toBe("77")
+  })
+})

@@ -20,6 +20,12 @@ export function unwrapIndicatorData(raw: unknown): unknown {
         throw new ApiError(
           typeof record.msg === "string" && record.msg ? record.msg : "Indicator API request failed",
           code,
+          undefined,
+          // Pass `record` as details: the inner envelope carries no traceId of its
+          // own, so ApiError.traceId falls back to the outer envelope's id that
+          // attachEnvelopeTraceId parked on this object. Without it these failures —
+          // the ones most in need of a support ticket — are unreportable.
+          record,
         )
       }
       if (ok && "data" in record) return record.data

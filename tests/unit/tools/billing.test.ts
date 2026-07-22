@@ -207,3 +207,17 @@ describe("tool description boundaries", () => {
     }
   })
 })
+
+// 服务端 2026-07-17 调价：内资研报下载 20 → 10 积分/篇。目录是模型看到的唯一价签，
+// 报虚高一倍会让模型无谓地回避这个工具。
+describe("2026-07-17 调价", () => {
+  it("prices gangtise_research_download at 10 credits per item", () => {
+    expect(BILLING_CATALOG.gangtise_research_download).toEqual({ kind: "fixed", credits: 10, unit: "item" })
+  })
+
+  it("leaves the other announcement downloads at their unchanged prices", () => {
+    expect(BILLING_CATALOG.gangtise_announcement_hk_download).toMatchObject({ credits: 20 })
+    expect(BILLING_CATALOG.gangtise_announcement_us_download).toMatchObject({ credits: 20 })
+    expect(BILLING_CATALOG.gangtise_announcement_download).toMatchObject({ credits: 10 })
+  })
+})

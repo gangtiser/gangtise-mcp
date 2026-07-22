@@ -15,8 +15,21 @@ interface AsyncContentClient {
   call(endpointKey: string, body?: unknown, query?: Record<string, string | number>): Promise<unknown>
 }
 
-function isAsyncPending(error: unknown): boolean {
-  return error instanceof ApiError && error.code === "410110"
+// The async endpoints are still entirely on the legacy codes today — 410110
+// "正在生成中" and 410111 "生成失败", both string-typed, both HTTP 400. The
+// 2026-07-17 spec renumbers them to 140001 RESULT_GENERATING (409) and 140002
+// PROCESSING_FAILED (500); both generations are listed ahead of the switchover
+// because the failure mode is expensive and silent — a poll that doesn't
+// recognize the pending code aborts on a job already billed 50 credits.
+const PENDING_CODES = new Set(["410110", "140001"])
+const FAILED_CODES = new Set(["410111", "140002"])
+
+export function isAsyncPending(error: unknown): boolean {
+  return error instanceof ApiError && error.code !== undefined && PENDING_CODES.has(error.code)
+}
+
+export function isAsyncFailed(error: unknown): boolean {
+  return error instanceof ApiError && error.code !== undefined && FAILED_CODES.has(error.code)
 }
 
 /** Rejects with AsyncTimeoutError if `promise` hasn't settled within `budgetMs`.
@@ -59,7 +72,7 @@ export async function pollAsyncContent(
       // A deadline abort is never "transient" — its message contains "timeout",
       // which the transient classifier would otherwise match.
       if (error instanceof AsyncTimeoutError) throw error
-      if (error instanceof ApiError && error.code === "410111") {
+      if (isAsyncFailed(error)) {
         throw error
       }
       // A transient blip (5xx / network reset / timeout) after the transport's

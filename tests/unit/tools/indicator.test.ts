@@ -5,6 +5,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { registerIndicatorTools } from "../../../src/tools/indicator.js"
 import type { GangtiseClient } from "../../../src/core/client.js"
 import { ApiError } from "../../../src/core/errors.js"
+import { unwrapEnvelope } from "../../../src/core/envelope.js"
 
 function makeMockClient() {
   return {
@@ -121,5 +122,31 @@ describe("indicator 999999 no-data hint", () => {
     const text = (result.content as Array<{ text: string }>)[0].text
     expect(text).toContain("检查查询条件")
     expect(text).not.toContain("稍后重试")
+  })
+})
+
+// EDE 是双层信封：外层成功、内层失败的 999999 是在解内层时才抛出的。此前 try/catch
+// 只裹住 client.call()，这条路径绕过 hintOverride，用户拿到的是通用的「稍后重试」——
+// 与工具本意（无数据，检查条件）完全相反。
+describe("indicator 999999 raised while peeling the inner envelope", () => {
+  it.each([
+    ["gangtise_indicator_search", { keyword: "收盘价" }],
+    ["gangtise_indicator_cross_section", { indicatorCodeList: ["qte_close"], securityCodeList: ["600519.SH"], date: "2026-07-04" }],
+    ["gangtise_indicator_time_series", { indicatorCodeList: ["qte_close"], securityCodeList: ["600519.SH"], startDate: "2026-06-01", endDate: "2026-06-30" }],
+  ] as Array<[string, Record<string, unknown>]>)("%s still reports no-data, not retry-later", async (name, args) => {
+    const client = {
+      // 成功外层 + 失败内层 + 外层 traceId，与线上形态一致。
+      call: vi.fn().mockImplementation(async () =>
+        unwrapEnvelope({ code: "0", data: { code: "999999", status: false, msg: "system error" }, traceId: "77" })),
+      download: vi.fn(),
+    } as unknown as GangtiseClient
+    const mcp = await connect(client)
+    const result = await mcp.callTool({ name, arguments: args })
+    expect(result.isError).toBe(true)
+    const text = (result.content as Array<{ text: string }>)[0].text
+    expect(text).toContain("检查查询条件")
+    expect(text).not.toContain("稍后重试")
+    // 外层 traceId 必须一路带到报错行 —— 这类失败最需要报障。
+    expect(text).toContain("trace 77")
   })
 })

@@ -19,7 +19,12 @@ import { getDispatcher, isVerbose, logTiming, markRetryable, runWithConcurrency,
 //   0000001008 — "token is invalid" (HTTP 401): a cached token rejected
 //     server-side even though not locally expired (e.g. the session was
 //     superseded by a newer login elsewhere).
-const AUTH_RETRY_CODES = new Set(["8000014", "8000015", "0000001008"])
+//   999002 — the 2026-07-17 renumbering of 0000001008. Listed ahead of the
+//     switchover: without it the self-heal silently stops working the day the
+//     token filter migrates, surfacing as a hard auth failure to the user.
+// 999011 (AK/SK mismatch) is deliberately absent — bad credentials never heal,
+// and transport's NON_RETRYABLE_API_CODES stops it being replayed on a 5xx either.
+const AUTH_RETRY_CODES = new Set(["8000014", "8000015", "0000001008", "999002"])
 const MAX_PAGES = 1000
 
 export interface PageRequest {
@@ -399,7 +404,10 @@ export class GangtiseClient {
         text = await response.body.text()
       }
       logTiming(`${endpoint.method} ${endpoint.path}`, Date.now() - startedAt, `${response.statusCode}, ${text.length}B`)
-      const retryAfterMs = response.statusCode >= 400 ? this.parseRetryAfterMs(response.headers['retry-after']) : undefined
+      // Parsed regardless of status: Gangtise also returns errors (including rate
+      // limits) inside HTTP 200 envelopes, and gating this on >= 400 dropped the
+      // server's backoff window on exactly those.
+      const retryAfterMs = this.parseRetryAfterMs(response.headers['retry-after'])
 
       let parsed: Envelope<T>
       try {
@@ -415,7 +423,7 @@ export class GangtiseClient {
         if (response.statusCode >= 400) {
           this.throwHttpError(parsed, response.statusCode, retryAfterMs)
         }
-        return unwrapEnvelope(parsed, response.statusCode)
+        return unwrapEnvelope(parsed, response.statusCode, retryAfterMs)
       } catch (error) {
         // Run through auth recovery for BOTH 4xx (e.g. 401 token-invalid) and
         // 200-envelope auth errors, so a server-rejected cached token refreshes.
@@ -462,7 +470,7 @@ export class GangtiseClient {
       const contentDisposition = Array.isArray(response.headers['content-disposition'])
         ? response.headers['content-disposition'][0]
         : response.headers['content-disposition']
-      const retryAfterMs = response.statusCode >= 400 ? this.parseRetryAfterMs(response.headers['retry-after']) : undefined
+      const retryAfterMs = this.parseRetryAfterMs(response.headers['retry-after'])
 
       // A JSON body carrying content-disposition is a real file attachment (e.g.
       // a user-stored .json in the vault drive), not an API envelope — fall
@@ -485,7 +493,7 @@ export class GangtiseClient {
           if (response.statusCode >= 400) {
             this.throwHttpError(parsed, response.statusCode, retryAfterMs)
           }
-          data = unwrapEnvelope(parsed as Envelope<unknown>, response.statusCode)
+          data = unwrapEnvelope(parsed as Envelope<unknown>, response.statusCode, retryAfterMs)
         } catch (error) {
           await this.refreshAuthIfRecoverable(error, true, authState, authorization)
           throw error

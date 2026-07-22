@@ -98,3 +98,27 @@ describe("pollAsyncContent", () => {
     expect(client.call).toHaveBeenCalledTimes(1)
   })
 })
+
+// 服务端把异步状态码从 410110/410111 重排为 140001/140002（RESULT_GENERATING /
+// PROCESSING_FAILED）。切换那天若不认新的 pending 码，首次轮询就会把「生成中」当硬错
+// 抛出，作废一个已扣 50 积分的任务——故两代并存识别。
+describe("async status codes across the 2026-07-17 renumbering", () => {
+  it("keeps polling through the new 140001 pending code", async () => {
+    vi.useFakeTimers()
+    const client = {
+      call: vi.fn()
+        .mockRejectedValueOnce(new ApiError("生成中", "140001", 409))
+        .mockResolvedValueOnce({ content: "ready" }),
+    }
+    const result = pollAsyncContent(client, "ep", "d1", 60_000)
+    await vi.advanceTimersByTimeAsync(5_000)
+    await expect(result).resolves.toEqual({ content: "ready" })
+    expect(client.call).toHaveBeenCalledTimes(2)
+  })
+
+  it("fails fast on the new 140002 terminal code without burning the wait budget", async () => {
+    const client = { call: vi.fn().mockRejectedValue(new ApiError("生成失败", "140002", 500)) }
+    await expect(pollAsyncContent(client, "ep", "d1", 60_000)).rejects.toMatchObject({ code: "140002" })
+    expect(client.call).toHaveBeenCalledTimes(1)
+  })
+})
