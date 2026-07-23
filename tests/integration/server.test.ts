@@ -603,6 +603,14 @@ describe("MCP server integration", () => {
     expect(instructions).not.toContain("不可下载")
   })
 
+  it("routes multi-security financial/valuation batches to EDE", () => {
+    const instructions = mcpClient.getInstructions() ?? ""
+    // 批量走 EDE 截面/时序（旧文案是「优先专用工具」，不含此完整串 —— 弱断言 "indicator_*(" 在旧码即通过）
+    expect(instructions).toContain("indicator_*(EDE) 截面/时序")
+    // 计费总则给出批量例外，避免与「优先免费/低价」自相矛盾
+    expect(instructions).toContain("除①批量外，优先免费/低价")
+  })
+
   it("declares the billing-label convention that lets free tools stay unlabelled", () => {
     expect(mcpClient.getInstructions() ?? "").toContain("未标注即免费")
   })

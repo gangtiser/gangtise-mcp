@@ -68,7 +68,7 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
     "gangtise_indicator_search",
     {
       description:
-        "按名称搜索证券级数据指标（EDE），返回 indicatorCode 及可传参数 parameterList（含 required 必填标记与枚举）。覆盖 A 股/港股/美股。取数前必先用本工具拿 code，不要猜编码。宏观/行业数据（产量、价格、PMI 等）请改用 gangtise_edb_search。标准行情/估值/财务三表优先用对应专用工具，本工具仅用于其未覆盖的长尾证券级指标。",
+        "按名称搜索证券级数据指标（EDE），返回 indicatorCode、scopeList（覆盖市场）及 parameterList（含 required 必填标记与枚举）。取数前必先用本工具拿 code，并核对 indicatorName/description 语义、scopeList 是否覆盖目标市场、parameterList 取值——任一不符即回退专用工具。基础行情（收盘价等）虽可搜到仍优先 realtime/day_kline；单票完整报表、盈利预测(一致预期)、估值历史分位仍用专用工具（当前 EDE 搜索未覆盖后两类）；EDE 批量优先仅针对多证券取一批已实现财务/估值指标。宏观/行业数据（产量、价格、PMI 等）请改用 gangtise_edb_search，不要猜编码。",
       inputSchema: {
         keyword: z
           .string()
@@ -90,7 +90,7 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
     {
       description: withBilling(
         "gangtise_indicator_cross_section",
-        "查询指标截面数据（多指标 × 多证券，单日快照）。返回宽表：每证券一行、每指标一列。指标代码来自 gangtise_indicator_search。",
+        "查询指标截面数据（多指标 × 多证券，单日快照）。返回宽表：每证券一行、每指标一列。指标代码来自 gangtise_indicator_search。多证券取同一批已实现财务/估值指标的首选（一次拉取，免去逐只调用专用工具）。",
       ),
       inputSchema: {
         indicatorCodeList,
@@ -113,7 +113,7 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
     {
       description: withBilling(
         "gangtise_indicator_time_series",
-        "查询指标时间序列（多指标 × 单证券 或 单指标 × 多证券，按区间）。返回宽表：每日期一行。指标代码来自 gangtise_indicator_search。",
+        "查询指标时间序列（多指标 × 单证券 或 单指标 × 多证券，按区间）。返回宽表：每日期一行。指标代码来自 gangtise_indicator_search。单指标 × 多证券即批量取财务/估值历史序列的首选；多指标 × 多证券不支持，需拆分。",
       ),
       inputSchema: {
         indicatorCodeList,

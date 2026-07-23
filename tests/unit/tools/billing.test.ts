@@ -186,10 +186,28 @@ describe("listTools billing-label gate", () => {
 describe("tool description boundaries", () => {
   it("states routing boundaries on the four tools that need them", async () => {
     const byName = new Map((await listLiveTools()).map((t) => [t.name, t.description ?? ""]))
-    expect(byName.get("gangtise_indicator_search")).toContain("仅用于其未覆盖的长尾证券级指标")
+    // 钉稳定的路由结论「回退专用工具」，而非会随指标库扩充失效的覆盖度断言
+    expect(byName.get("gangtise_indicator_search")).toContain("回退专用工具")
     expect(byName.get("gangtise_opinion_list")).toContain("无专用下载工具")
     expect(byName.get("gangtise_foreign_opinion_list")).toContain("无专用下载工具")
     expect(byName.get("gangtise_stock_summary")).toContain("单证券长文另用 one_pager")
+  })
+
+  it("declares the EDE batch-vs-dedicated routing on the indicator tools", async () => {
+    const byName = new Map((await listLiveTools()).map((t) => [t.name, t.description ?? ""]))
+    // search 侧：核对 scopeList、基础行情走专用、不匹配即回退
+    const search = byName.get("gangtise_indicator_search") ?? ""
+    expect(search).toContain("scopeList")
+    expect(search).toContain("realtime/day_kline")
+    expect(search).toContain("回退专用工具")
+    // 「一批」而非「同一」：与 server 路由行去「同一」、cross-section 多指标×多证券保持一致
+    expect(search).toContain("一批已实现财务/估值指标")
+    // 截面：多证券批量首选，免去逐只调用
+    expect(byName.get("gangtise_indicator_cross_section")).toContain("免去逐只调用")
+    // 时序：既声明批量首选，也声明多×多需拆分（优先级与限制都覆盖）
+    const ts = byName.get("gangtise_indicator_time_series") ?? ""
+    expect(ts).toContain("首选")
+    expect(ts).toContain("需拆分")
   })
 
   it("says 获取 not 生成 on the pre-generated AI tools", async () => {
