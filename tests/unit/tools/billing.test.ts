@@ -210,6 +210,20 @@ describe("tool description boundaries", () => {
     expect(ts).toContain("需拆分")
   })
 
+  it("declares the EDE parameter-filling recipe (date routing / required params / no reportType)", async () => {
+    const tools = await listLiveTools()
+    const cs = tools.find((t) => t.name === "gangtise_indicator_cross_section")
+    // 公司类型 + 999999→时序 兜底在描述里
+    expect(cs?.description ?? "").toContain("分公司类型")
+    expect(cs?.description ?? "").toContain("999999")
+    // 日期路由 + 必填参数填法 + 勿传 reportType 在 inputSchema（date / indicatorParamList 描述）
+    const schema = JSON.stringify(cs?.inputSchema)
+    expect(schema).toContain("报告期末季末")
+    for (const p of ["startDate", "periodNum", "fiscalYear"]) expect(schema, `应含参数填法 ${p}`).toContain(p)
+    // 钉「勿传」指令本身，而非只出现 reportType 一词——否则将来误改成「必须传」也会通过
+    expect(schema).toContain("reportType 勿传")
+  })
+
   it("says 获取 not 生成 on the pre-generated AI tools", async () => {
     // instructions ③ 声明「AI 除注明外均取预生成内容」；描述若还写「生成」，
     // 模型会看到 instructions 与描述互相打架。

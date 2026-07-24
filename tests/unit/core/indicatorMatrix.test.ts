@@ -43,6 +43,24 @@ describe("flattenCrossSection", () => {
     const data = { foo: "bar" }
     expect(flattenCrossSection(data)).toBe(data)
   })
+
+  // 服务端会重排返回列序；flatten 按响应数组的共同索引绑定 name[i]↔code[i]↔values[i]，
+  // 故不会贴错值。同显示名的指标（如 cf_finc_exp / _qtr 都叫「财务费用」）以 code 后缀
+  // 区分、互不覆盖——这正是 CLI 拍平按名/位置会错、而本 flatten 不会错的原因。
+  it("aligns by response index and keeps same-named indicators (dup name → code suffix, no overwrite)", () => {
+    const data = {
+      date: "2026-03-31",
+      securityCodeList: ["600519.SH"],
+      securityNameList: ["贵州茅台"],
+      indicatorCodeList: ["cf_finc_exp", "is_op_rev", "cf_finc_exp_qtr"],
+      indicatorNameList: ["财务费用", "营业收入(利润表,累计)", "财务费用"],
+      values: [[100], [1688], [40]],
+    }
+    const row = (flattenCrossSection(data) as { list: Array<Record<string, unknown>> }).list[0]
+    expect(row["财务费用"]).toBe(100) // 第一个「财务费用」= cf_finc_exp
+    expect(row["营业收入(利润表,累计)"]).toBe(1688)
+    expect(row["财务费用 (cf_finc_exp_qtr)"]).toBe(40) // 同名第二个加 code 后缀，值不丢
+  })
 })
 
 describe("flattenTimeSeries", () => {

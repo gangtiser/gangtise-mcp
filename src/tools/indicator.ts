@@ -9,26 +9,30 @@ import { dateDesc, dateString } from "../core/dateContext.js"
 import { ApiError, ValidationError } from "../core/errors.js"
 import { withBilling } from "./billing.js"
 
-// The EDE endpoints answer a no-data query (holiday / future date / uncovered
-// security) with HTTP 500 + code 999999 — the generic "稍后重试" hint would send
-// the caller into a retry loop that can never succeed. Override just the hint so
-// the code, status and details (and with them the traceId) all survive.
+// The EDE FETCH endpoints (cross-section/time-series) answer a no-data query
+// (holiday / future date / uncovered security / wrong period) with HTTP 500 +
+// 999999 — the generic "稍后重试" hint would send the caller retrying a query that
+// can never have data, so swap in a fetch-specific hint (date by indicator period /
+// scope / required params). indicator.search shares the no-999999 retry policy but
+// takes just a keyword; its 999999 is a real error (a zero-match search returns [] —
+// exit 0), so it keeps the generic hint. Mirrors gangtise-openapi-cli 0.28.2 (client.js).
 //
-// The inner envelope is peeled INSIDE this try on purpose: EDE double-wraps, and
-// a 999999 raised while peeling the inner envelope (success outer / failure inner)
-// would otherwise bypass the override and surface the generic "稍后重试" hint.
+// The inner envelope is peeled INSIDE this try on purpose: EDE double-wraps, and a
+// 999999 raised while peeling the inner envelope (success outer / failure inner)
+// would otherwise bypass the override.
 async function callIndicator(client: GangtiseClient, endpointKey: string, args: Record<string, unknown>): Promise<unknown> {
   try {
     return unwrapIndicatorData(await client.call(endpointKey, args))
   } catch (error) {
-    if (error instanceof ApiError && error.code === "999999") {
+    const isFetch = endpointKey === "indicator.cross-section" || endpointKey === "indicator.time-series"
+    if (isFetch && error instanceof ApiError && error.code === "999999") {
       throw new ApiError(
         error.message,
         error.code,
         error.statusCode,
         error.details,
         error.retryAfterMs,
-        "指标查询无数据：请检查查询条件——日期是否为交易日（节假日/未来日期无数据）、证券与指标是否在覆盖范围内、参数取值是否有效。",
+        "EDE 的 999999 多为查询无数据——先核对：日期匹配指标周期（财务/MRQ 用报告期末如 2025-12-31、日频估值用交易日）、标的在 scopeList 覆盖内、parameterList 中 required 参数已补；确认应有数据再重试。",
       )
     }
     throw error
@@ -60,7 +64,7 @@ const indicatorParamList = z
   )
   .optional()
   .describe(
-    "分指标专属参数。行情复权键 adjustmentType：1=不复权 | 2=前复权 | 3=后复权；其余指标的参数键与取值以 gangtise_indicator_search 返回的 parameterList 为准",
+    "分指标专属参数。parameterList 标 required 的必须补否则报错：qte 周期变体→startDate(整数YYYYMMDD)、N期统计→periodNum(如4)、分红/预测→fiscalYear(年份)。可选参数：行情复权 adjustmentType(1=不复权|2=前复权|3=后复权)；reportType 勿传——截至 2026-07-24 EDE 该枚举与实际不符(2/4 常报错，省略即合并口径)，要指定合并/母公司口径改用 fundamental 三大报表。其余键值以 gangtise_indicator_search 的 parameterList 为准",
   )
 
 export function registerIndicatorTools(server: McpServer, client: GangtiseClient): void {
@@ -90,12 +94,12 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
     {
       description: withBilling(
         "gangtise_indicator_cross_section",
-        "查询指标截面数据（多指标 × 多证券，单日快照）。返回宽表：每证券一行、每指标一列。指标代码来自 gangtise_indicator_search。多证券取同一批已实现财务/估值指标的首选（一次拉取，免去逐只调用专用工具）。",
+        "查询指标截面数据（多指标 × 多证券，单日快照）。返回宽表：每证券一行、每指标一列。指标代码来自 gangtise_indicator_search。多证券取同一批已实现财务/估值指标的首选（一次拉取，免去逐只调用专用工具）。财务科目分公司类型，公司类型不匹配时返 null（≠指标坏）；整批无数据报 999999 时改用 gangtise_indicator_time_series（对缺值返 null 不报错）。",
       ),
       inputSchema: {
         indicatorCodeList,
         securityCodeList,
-        date: dateString.describe(dateDesc() + "（必填）"),
+        date: dateString.describe(dateDesc() + "（必填）。财务指标填报告期末季末（现金流附注/N期统计填年报如 2025-12-31），行情填交易日；日期语义不符会整批报 999999"),
         currency,
         scale,
         indicatorParamList,
@@ -113,7 +117,7 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
     {
       description: withBilling(
         "gangtise_indicator_time_series",
-        "查询指标时间序列（多指标 × 单证券 或 单指标 × 多证券，按区间）。返回宽表：每日期一行。指标代码来自 gangtise_indicator_search。单指标 × 多证券即批量取财务/估值历史序列的首选；多指标 × 多证券不支持，需拆分。",
+        "查询指标时间序列（多指标 × 单证券 或 单指标 × 多证券，按区间）。返回宽表：每日期一行。指标代码来自 gangtise_indicator_search。单指标 × 多证券即批量取财务/估值历史序列的首选；多指标 × 多证券不支持，需拆分。财务指标区间需覆盖报告期末；对缺值返 null，是截面遇 999999（整批无数据）时的稳健替代。",
       ),
       inputSchema: {
         indicatorCodeList,

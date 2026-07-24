@@ -1,6 +1,6 @@
 {
   "name": "gangtise-mcp",
-  "version": "0.1.46",
+  "version": "0.1.47",
   "description": "MCP server for Gangtise OpenAPI",
   "license": "MIT",
   "author": "gangtiser",
@@ -26,7 +26,8 @@
   },
   "files": [
     "dist/",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "rm -rf dist && tsc",
