@@ -72,7 +72,7 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
     "gangtise_indicator_search",
     {
       description:
-        "按名称搜索证券级数据指标（EDE），返回 indicatorCode、scopeList（覆盖市场）及 parameterList（含 required 必填标记与枚举）。取数前必先用本工具拿 code，并核对 indicatorName/description 语义、scopeList 是否覆盖目标市场、parameterList 取值——任一不符即回退专用工具。基础行情（收盘价等）虽可搜到仍优先 realtime/day_kline；单票完整报表、盈利预测(一致预期)、估值历史分位仍用专用工具（当前 EDE 搜索未覆盖后两类）；EDE 批量优先仅针对多证券取一批已实现财务/估值指标。宏观/行业数据（产量、价格、PMI 等）请改用 gangtise_edb_search，不要猜编码。",
+        "按名称搜索证券级数据指标（EDE），返回 indicatorCode、scopeList（覆盖市场）及 parameterList（含 required 必填标记与枚举）。取数前必先用本工具拿 code，并核对 indicatorName/description 语义、scopeList 是否覆盖目标市场、parameterList 取值——任一不符即回退专用工具。基础行情（开高低收/成交量额/换手/涨跌幅）虽可搜到仍优先 realtime/day_kline，但**总市值 qte_mkt_cptl 这两个专用工具都没有、单票也走 EDE**（仅 A 股，默认「元」，用 scale 缩放）；单票完整报表、盈利预测(一致预期)、估值历史分位仍用专用工具（当前 EDE 搜索未覆盖后两类）；EDE 批量优先仅针对多证券取一批已实现财务/估值指标。宏观/行业数据（产量、价格、PMI 等）请改用 gangtise_edb_search，不要猜编码。",
       inputSchema: {
         keyword: z
           .string()

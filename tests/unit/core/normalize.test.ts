@@ -28,6 +28,19 @@ describe("normalizeRows", () => {
     expect(normalizeRows(raw)).toEqual([{ a: 1 }])
   })
 
+  // 上游对「fieldList 含该接口不存在的字段名」的处理：值只按**有效**字段返回、字段名却按
+  // **请求**回显 → 两者长度不等。按位置拍平会把值贴到错误的字段上：实测 realtime 传
+  // ["securityCode","close","turnoverRate"]（无 close）会把换手率 28.5573 贴成 close，
+  // 读起来就是「茅台收盘价 28.56」（真实价 ~1297）。静默错列必须变成显式失败。
+  it("throws instead of mis-zipping when the row is shorter than fieldList (invalid field name)", () => {
+    const raw = {
+      fieldList: ["securityCode", "close", "turnoverRate"],
+      list: [["600519.SH", 28.5573]],
+      total: 1,
+    }
+    expect(() => normalizeRows(raw)).toThrowError(/响应字段数与请求 fieldList 不匹配/)
+  })
+
   it("leaves non-array rows in a fieldList response untouched", () => {
     const raw = { fieldList: ["a"], list: [{ already: "object" }], total: 1 }
     expect(normalizeRows(raw)).toEqual({ total: 1, list: [{ already: "object" }] })

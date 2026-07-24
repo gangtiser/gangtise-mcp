@@ -2,6 +2,14 @@
 
 > README 顶部只保留最新 5 条；本文件是完整历史（中文）。
 
+### 0.1.48 (2026-07-24)
+- **修复取数路由盲区：单票总市值被推去 `realtime`、却查不到**。`qte_mkt_cptl`（总市值）是 `qte_` 族里唯一「专用工具没有」的指标——实测 `realtime` 只有开高低 / 最新价 / 昨收 / 涨跌 / 成交量额 / 换手 / 振幅 / 量比（**无 `close`**），`day_kline` 只有 OHLCV + 复权因子，**都不含市值**；而 0.1.46 起 `indicator_search` 的 carve-out 笼统写「基础行情虽可搜到仍优先 realtime/day_kline」，把整个 `qte_` 族推离 EDE，单票市值于是掉进空档（既不走专用工具、也不触发「多证券→EDE」批量规则）：
+  - **`indicator_search` 的 carve-out 收窄**为「开高低收 / 成交量额 / 换手 / 涨跌幅」，并点名例外：**总市值 `qte_mkt_cptl` 单票也走 EDE**（仅 A 股，默认返「元」，用 `scale` 缩放，如 `scale=8` → 亿元）
+  - **`gangtise_realtime` 描述明写「不含市值」**并指向 `qte_mkt_cptl`——realtime 是模型查市值的落点，在这里就掉头
+- **修复无效字段名导致的静默错列（数据污染，影响所有带 `fieldList` 的接口）**：上游对 `fieldList` 里不存在的字段，**只返有效字段的值、字段名却按请求原样回显**，`normalizeRows` 按位置拍平就把值贴到了错误的字段上——实测传 `['securityCode','close','turnoverRate']`（realtime **没有** `close`）会把换手率 `28.5573` 贴成 `close`，读起来就是「茅台收盘价 28.56」（真实价 ~1297）。现在 `normalizeRows` 在 `fieldList` 项数与该行返回值个数不等时**直接报错拒绝**，绝不输出错位数据；`realtime` 描述改列全部真实字段名（明写「没有 close」）、`fieldList` 参数补上该风险说明
+- `tools/list` 实测 110,648B → 111,567B（+919B，工具数仍 92）
+- 测试 508 → 510（钉住总市值路由：`realtime` 描述列全真实字段+「没有 close」+ `qte_mkt_cptl`、`indicator_search` carve-out 点名 `qte_mkt_cptl`；+ `normalizeRows` 字段数不匹配必须报错而非错位拍平）
+
 ### 0.1.47 (2026-07-24)
 - **EDE 取数参数配方写进工具描述**（纯 guidance，无新工具 / 无 schema 变更 / 向后兼容）。基于对上游全部 990 个指标的实测（raw API 按 code 精确回填 + 4 公司面板 + 补必填参 + 年报回退，786/990 可取），把「怎么填参数才不撞 410106/999999」固化进 `indicator_cross_section` / `time_series` 的 `date`、`indicatorParamList` 与工具描述，让模型自动填对：
   - **日期按类目**（`date` 描述）：财务指标填报告期末季末，现金流附注 / N期统计填年报（如 `2025-12-31`），行情填交易日；日期语义不符整批报 `999999`。

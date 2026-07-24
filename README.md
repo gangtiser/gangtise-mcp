@@ -4,6 +4,14 @@
 
 ## Changelog
 
+### 0.1.48 (2026-07-24)
+- **修复取数路由盲区：单票总市值被推去 `realtime`、却查不到**。`qte_mkt_cptl`（总市值）是 `qte_` 族里唯一「专用工具没有」的指标——实测 `realtime` 只有开高低 / 最新价 / 昨收 / 涨跌 / 成交量额 / 换手 / 振幅 / 量比（**无 `close`**），`day_kline` 只有 OHLCV + 复权因子，**都不含市值**；而 0.1.46 起 `indicator_search` 的 carve-out 笼统写「基础行情虽可搜到仍优先 realtime/day_kline」，把整个 `qte_` 族推离 EDE，单票市值于是掉进空档（既不走专用工具、也不触发「多证券→EDE」批量规则）：
+  - **`indicator_search` 的 carve-out 收窄**为「开高低收 / 成交量额 / 换手 / 涨跌幅」，并点名例外：**总市值 `qte_mkt_cptl` 单票也走 EDE**（仅 A 股，默认返「元」，用 `scale` 缩放，如 `scale=8` → 亿元）
+  - **`gangtise_realtime` 描述明写「不含市值」**并指向 `qte_mkt_cptl`——realtime 是模型查市值的落点，在这里就掉头
+- **修复无效字段名导致的静默错列（数据污染，影响所有带 `fieldList` 的接口）**：上游对 `fieldList` 里不存在的字段，**只返有效字段的值、字段名却按请求原样回显**，`normalizeRows` 按位置拍平就把值贴到了错误的字段上——实测传 `['securityCode','close','turnoverRate']`（realtime **没有** `close`）会把换手率 `28.5573` 贴成 `close`，读起来就是「茅台收盘价 28.56」（真实价 ~1297）。现在 `normalizeRows` 在 `fieldList` 项数与该行返回值个数不等时**直接报错拒绝**，绝不输出错位数据；`realtime` 描述改列全部真实字段名（明写「没有 close」）、`fieldList` 参数补上该风险说明
+- `tools/list` 实测 110,648B → 111,567B（+919B，工具数仍 92）
+- 测试 508 → 510（钉住总市值路由：`realtime` 描述列全真实字段+「没有 close」+ `qte_mkt_cptl`、`indicator_search` carve-out 点名 `qte_mkt_cptl`；+ `normalizeRows` 字段数不匹配必须报错而非错位拍平）
+
 ### 0.1.47 (2026-07-24)
 - **EDE 取数参数配方写进工具描述**（纯 guidance，无新工具 / 无 schema 变更 / 向后兼容）。基于对上游全部 990 个指标的实测（raw API 按 code 精确回填 + 4 公司面板 + 补必填参 + 年报回退，786/990 可取），把「怎么填参数才不撞 410106/999999」固化进 `indicator_cross_section` / `time_series` 的 `date`、`indicatorParamList` 与工具描述，让模型自动填对：
   - **日期按类目**（`date` 描述）：财务指标填报告期末季末，现金流附注 / N期统计填年报（如 `2025-12-31`），行情填交易日；日期语义不符整批报 `999999`。
@@ -56,23 +64,6 @@
   - 3 个 AI 工具描述「生成」改「获取」与 instructions ③「均取预生成内容」对齐；`indicator_search`/`opinion_list`/`foreign_opinion_list`/`stock_summary` 补路由边界句
   - `tools/list` 实测 107,201B → 108,961B（+1,760B，+1.64%）
 - 测试 332 → 399
-
-### 0.1.43 (2026-07-11)
-- 同步 gangtise-openapi-cli v0.24–v0.27：
-  - **资金安全：16 个按次计费端点改 no-replay 重试策略**（一页通/投资逻辑/同业对比/研究提纲/主题跟踪/管理层讨论×2/热点话题/知识库批量/业绩点评提交/观点辩证提交/题材信息/题材成分股 + 纪要/外资研报/我的会议三个下载）——上游实测（2026-07-11）按次计费且缓存命中不豁免，5xx/响应超时/999999 不再自动重放（此前一次超时最多三连扣）；仅连接期错误（ECONNREFUSED/DNS 类，请求未发出）、429 与 token 自愈仍重试，连接期错误同时纳入默认重试范围；精确集合守卫测试钉住注解清单（`gangtise_qa_list`/`gangtise_report_image_download` 经复核维持默认重试：按条计费失败响应不扣费 / 0.1 积分档风险接受，依据见 `tests/unit/core/endpoints.test.ts` 注释）
-  - **7 个同步 AI 生成端点 120s 超时下限**（生效值 = max(`GANGTISE_TIMEOUT_MS`, 120s)）——生成慢不再撞 30s 默认超时→重试→重复计费
-  - **EDE 指标 999999 不再重试**——实测 999999 + HTTP 500 = 查询无数据（节假日/未来日期/未覆盖标的），此前每次空查询白烧 3 个请求 ~4 秒；错误提示改为指向检查查询条件而非「稍后重试」
-  - **新增 4 个工具**：`gangtise_qa_list` 投资者问答（互动平台/电话会议/调研纪要的提问与回答，0.1 积分/条，自动翻页）；`gangtise_report_image_list`（免费）+ `gangtise_report_image_download`（0.1 积分/张，JPEG）研报图表按关键词搜索与下载；`gangtise_official_account_search` 公众号 ID 搜索（免费，结果喂 `gangtise_official_account_list`；注意未分类公众号 category 为 null，传 category 过滤会漏掉）
-  - **indicator 三工具覆盖扩展至 A/港/美股**（服务端变更）——描述补美股交易所后缀 `.O`(NASDAQ)/`.N`(NYSE) 说明（官方示例的 `.US` 查不到数据）
-  - **正确性**：EDE 矩阵中与 `date`/`security`/`name` 同名的指标列自动加代码后缀，不再覆盖元数据列；错误码 `100003`（参数值非法）补中文提示（服务端不指明参数，提示对照枚举拼写）；异步轮询容忍瞬态 5xx/网络错误——只消耗一次尝试继续等待，不再作废整段计费等待（410111 终态仍立即失败）
-  - **性能**：JSON 请求启用 gzip（上游实测 3.6x，K 线类更高；损坏 gzip 包装为带请求上下文的 ApiError）；全市场 1 天/片分片跳过周六日（闭市必空，省 ~28% 请求与每日配额；含单日快速路径，纯周末区间零请求直接返空）；撞行数上限的分片以 `_truncated_shards` 输出具体日期区间（与 `_failed_shards` 对称，可定向缩窗补拉）
-- GPT-5.6 review 批次（0.1.42 后未发版部分）：
-  - **异步等待预算从工具调用起点计时**——submit 耗时计入 `waitSeconds`，预算耗尽即刻返回 dataId 不再多打一次计费轮询；单次轮询调用同样受剩余预算约束（防止卡到 MCP 客户端 ~60s 截止丢失已计费 dataId）
-  - **入参校验收紧**——新增共享 `nonEmptyString` / `intLiteralEnum`（`schemas.ts`）：AI/insight/fundamental 的 ID/代码类必填参数拒绝空白，8 个下载工具 `fileType` 改字面量枚举，知识库 `securityList` 上限 6000 等
-  - **`GANGTISE_PAGE_CONCURRENCY` 上限钳制 32**——超大值不再打爆 socket/触发限流；非法值仍回退默认 5
-  - **CI 发布加固**——npm-publish workflow 拆分 verify（运行依赖代码、无 OIDC token）与 publish（仅持 token 发布已验证 tarball，不运行任何包代码）两个 job；tag 必须在 origin/main 上才允许发布
-- undici 版本下限 `^7.16.0` → `^7.28.0`（GHSA-35p6-xmwp-9g52 keep-alive 队列污染；lockfile 早已解析到 7.28.0）
-- 测试 272 → 332
 
 > 更早版本的完整更新日志见 [CHANGELOG.md](CHANGELOG.md)。
 

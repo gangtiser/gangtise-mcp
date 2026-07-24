@@ -224,6 +224,21 @@ describe("tool description boundaries", () => {
     expect(schema).toContain("reportType 勿传")
   })
 
+  // 总市值是 qte_ 族里唯一「专用工具没有」的：realtime/day_kline 实测都无市值字段，
+  // 只有 EDE qte_mkt_cptl 有。若「行情优先专用工具」这条 carve-out 不点名它，
+  // 模型查单票市值会被推去 realtime 然后空手而归（0.1.47 实际踩过）。
+  it("routes 总市值 to EDE qte_mkt_cptl (realtime/day_kline don't carry it)", async () => {
+    const byName = new Map((await listLiveTools()).map((t) => [t.name, t.description ?? ""]))
+    const rt = byName.get("gangtise_realtime") ?? ""
+    expect(rt).toContain("没有 close，也没有市值") // realtime 是模型的落点，必须在这里就掉头
+    expect(rt).toContain("qte_mkt_cptl")
+    // 字段清单要准（旧文案写「开高低收」会诱导模型传 close → 触发错列）
+    expect(rt).toContain("latestPrice")
+    expect(rt).toContain("preClose")
+    // search 的行情 carve-out 必须点名这个例外，否则又把它推回 realtime
+    expect(byName.get("gangtise_indicator_search")).toContain("qte_mkt_cptl")
+  })
+
   it("says 获取 not 生成 on the pre-generated AI tools", async () => {
     // instructions ③ 声明「AI 除注明外均取预生成内容」；描述若还写「生成」，
     // 模型会看到 instructions 与描述互相打架。

@@ -177,10 +177,10 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
   server.registerTool(
     "gangtise_realtime",
     {
-      description: "查询实时行情快照，单接口覆盖 A 股 / 港股 / 美股，可代码混合传入。非交易时间返回最近一个交易日的收盘快照；停牌证券返回停牌前最后一个有效快照。日 K 线接口（day-kline*）不含盘中数据，问\"现在/此刻\"请走本工具。",
+      description: "查询实时行情快照，单接口覆盖 A 股 / 港股 / 美股，可代码混合传入。非交易时间返回最近一个交易日的收盘快照；停牌证券返回停牌前最后一个有效快照。日 K 线接口（day-kline*）不含盘中数据，问\"现在/此刻\"请走本工具。**全部字段仅：securityCode/exchange/tradeDate/tradeTime/open/high/low/latestPrice(最新价)/preClose(昨收)/change/pctChange/volume/amount/turnoverRate/amplitude/volumeRatio——没有 close，也没有市值**；总市值请用 gangtise_indicator_cross_section 的 qte_mkt_cptl（仅 A 股，默认返「元」，用 scale 缩放）。",
       inputSchema: {
         security: z.union([z.string(), z.array(z.string())]).optional().describe("证券代码或全市场关键字：单/多只代码（'600519.SH' / ['600519.SH','00700.HK','AAPL.O']），或市场关键字 'aShares' / 'hkStocks' / 'usStocks' 拉取全市场。"),
-        fieldList: z.array(z.string()).optional().describe("【默认不传 = 返回全量字段，最稳】仅当用户明确要精简、或查全市场（aShares/hkStocks/usStocks）想省 token 时才传。一旦传入必须显式包含识别字段 securityCode/tradeDate/tradeTime（exchange 可省略），否则多只查询无法对齐行与代码。示例：['securityCode','tradeDate','tradeTime','latestPrice','pctChange','volume']"),
+        fieldList: z.array(z.string()).optional().describe("【默认不传 = 返回全量字段，最稳】仅当用户明确要精简、或查全市场（aShares/hkStocks/usStocks）想省 token 时才传。一旦传入必须显式包含识别字段 securityCode/tradeDate/tradeTime（exchange 可省略），否则多只查询无法对齐行与代码。示例：['securityCode','tradeDate','tradeTime','latestPrice','pctChange','volume']。**只传本工具真实存在的字段名**（见上方字段清单；注意没有 close）：传了不存在的字段，上游只返有效字段的值、字段名却按请求回显，按位置拍平会**整行错位**（实测传 ['securityCode','close','turnoverRate'] 会把换手率 28.5573 贴成 close）——MCP 已在拍平时检测长度不匹配并直接报错拒绝，但仍应从源头避免。"),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
