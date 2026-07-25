@@ -1,9 +1,13 @@
 import { z } from "zod"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { GangtiseClient } from "../core/client.js"
-import { registerJsonTool, registerDownloadTool, type JsonToolSpec, type DownloadToolSpec } from "./registry.js"
+import { registerJsonTool, registerDownloadTool, buildToolContent, sanitizeArgs, type JsonToolSpec, type DownloadToolSpec } from "./registry.js"
+import { toolHandler, contentResult } from "./helpers.js"
+import { normalizeRows } from "../core/normalize.js"
+import { ValidationError } from "../core/errors.js"
 import { dateString, dateTimeDesc, dateTimeString } from "../core/dateContext.js"
 import { nonEmptyString, intLiteralEnum } from "./schemas.js"
+import { withBilling } from "./billing.js"
 
 // insight.qa.list accepts either a plain date or a full datetime; the string is
 // passed through to the API as-is (no timestamp conversion).
@@ -401,7 +405,37 @@ export const downloadSpecs: DownloadToolSpec[] = [
       chunkId: nonEmptyString.describe("图片唯一标识，来自 gangtise_report_image_list 的 chunkId"),
     },
   },
+  {
+    name: "gangtise_performance_calendar_download",
+    description: "按 performanceReportId 下载业绩报告原文 PDF。仅 gangtise_performance_calendar_list 中 hasAttachment=true 的记录可下载。",
+    endpointKey: "insight.performance-calendar.download",
+    inputSchema: {
+      performanceReportId: nonEmptyString.describe("业绩报告 ID，来自 gangtise_performance_calendar_list"),
+    },
+  },
 ]
+
+// 财报日历的枚举闭集。实测 2026-07-26：枚举拼错时上游**静默返回全量**
+// （categoryList:["bogusCategory"] 与不传筛选同为 total=126683，code 仍是 000000），
+// 且按 0.1/条 照常计费 —— schema 层的 z.enum 是唯一防线。
+const PERFORMANCE_MARKET_ENUM = z.enum(["aShares", "hkStocks", "usChinaConcept", "usStocks"])
+const PERFORMANCE_CATEGORY_ENUM = z.enum(["performanceForecast", "performanceExpress", "performanceAnnouncement"])
+
+/** securityList 单约束时的隐式行数上限。实测服务端确实按 securityList 过滤
+ *  （无效码返 total=0，不像错枚举那样被静默忽略），单只证券整段日历只有几十条
+ *  （茅台 total=10），所以这个上限在正常使用中感知不到。但不拿五位数积分赌它不变：
+ *  筛选一旦失效，结果在此截断并标 _partial，而不是把 12 万行日历翻完。 */
+const SECURITY_ONLY_ROW_CAP = 1000
+/** 完全无筛选时允许请求的最大行数。超过直接拒（而不是静默截断）——调用方加个筛选
+ *  就能解决，静默返 1000 行反而让人以为那就是全部。 */
+const UNFILTERED_MAX_ROWS = 1000
+/** registry.sanitizeArgs 对分页工具注入的默认 size，本地判「实际要取多少行」时需与之一致。 */
+const DEFAULT_ROWS = 20
+
+// 财报日历按天查是常态。实测 2026-07-26：该端点对 "2026-07-20" 与
+// "2026-07-20 00:00:00" 返回完全相同的结果（total 均为 517），故两种写法都放行，
+// 不逼调用方为一个按天的日程接口补 00:00:00。
+const calendarTimeString = z.union([dateString, dateTimeString])
 
 export function registerInsightTools(server: McpServer, client: GangtiseClient): void {
   for (const spec of listSpecs) {
@@ -410,4 +444,81 @@ export function registerInsightTools(server: McpServer, client: GangtiseClient):
   for (const spec of downloadSpecs) {
     registerDownloadTool(server, client, spec)
   }
+
+  // 直接注册而非走 registerJsonTool：fetchAll 需要「必须有真实约束」的前置校验，
+  // 而 registerJsonTool 没有留出这个钩子。
+  server.registerTool(
+    "gangtise_performance_calendar_list",
+    {
+      description: withBilling(
+        "gangtise_performance_calendar_list",
+        "查询财报日历：业绩预告 / 业绩快报 / 业绩公告三类事件的发布日程（含未来已排期）。按 publishDate 过滤，返回 performanceReportId（下载用）、securityCodeList（A+H 同时上市会有多个码）、securityName、category、publishDate、title、hasAttachment。查「某公司何时披露财报」用 securityList，查「某段时间谁要出业绩」用 startTime+endTime。本工具只给排期与标题，公告全文请用 gangtise_announcement_list / _download 系列。",
+        true,
+      ),
+      inputSchema: {
+        from: z.number().int().min(0).optional().describe("0-based 起始偏移，默认 0"),
+        size: z.number().int().min(1).optional().describe(`总行数上限，默认 20。无筛选时最多 ${UNFILTERED_MAX_ROWS} 行（超出本地拒绝）；仅用 securityList 筛选时封顶 ${SECURITY_ONLY_ROW_CAP} 行`),
+        fetchAll: z.boolean().optional().describe("拉取全部页并忽略 size（等价于不限行数）。要求同时给出 startTime+endTime 或 securityList，否则拒绝执行"),
+        startTime: calendarTimeString.optional().describe("YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss，过滤 publishDate（含端点）"),
+        endTime: calendarTimeString.optional().describe("YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss，过滤 publishDate（含端点）"),
+        securityList: z.array(z.string()).optional().describe("证券代码，需含交易所后缀（600519.SH / 00700.HK）"),
+        marketList: z.array(PERFORMANCE_MARKET_ENUM).optional().describe("aShares=A股 | hkStocks=港股 | usChinaConcept=美股中概 | usStocks=美股"),
+        categoryList: z.array(PERFORMANCE_CATEGORY_ENUM).optional().describe("performanceForecast=业绩预告 | performanceExpress=业绩快报 | performanceAnnouncement=业绩公告"),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    toolHandler(async (args: Record<string, unknown>) => {
+      const { fetchAll, ...rest } = args
+      const hasDateRange = Boolean(rest.startTime && rest.endTime)
+      const hasSecurity = Array.isArray(rest.securityList) && rest.securityList.length > 0
+      // 闸门必须按「实际要取多少行」判，不能只看 fetchAll：client.requestPaginated
+      // 把 size 当作**总目标行数**按 total 自动翻页，所以 size:50000 与 fetchAll 是
+      // 同一件事（都能拉满 MAX_PAGES × 50 = 5 万行 ≈ 5000 积分）。
+      const requestedRows = fetchAll
+        ? Number.POSITIVE_INFINITY
+        : (typeof rest.size === "number" ? rest.size : DEFAULT_ROWS)
+
+      // 不加筛选时 total 是十万量级（实测 2026-07-26 为 126683，含未来排期），
+      // 按 0.1/条计费。marketList / categoryList 都不算约束（单个 aShares 实测仍有
+      // 64327 条）。这里拒而不截断：加个筛选就能解决，静默返 1000 行会被读成全部。
+      if (!hasDateRange && !hasSecurity && requestedRows > UNFILTERED_MAX_ROWS) {
+        throw new ValidationError(
+          `无筛选时本接口有十万量级数据（按 0.1/条计费），最多只能取 ${UNFILTERED_MAX_ROWS} 行：请同时给出 startTime 与 endTime，或给出 securityList，或把 size 降到 ${UNFILTERED_MAX_ROWS} 以内（fetchAll 视为不限行数）。`,
+        )
+      }
+      const body = sanitizeArgs(rest, { paginated: true, fetchAll: Boolean(fetchAll) })
+      // securityList 单约束（无日期区间）时封顶。走到这里 requestedRows > 上限就意味着
+      // hasSecurity 为真（否则上面已拒），fetchAll 与显式大 size 一视同仁。
+      const capped = !hasDateRange && requestedRows > SECURITY_ONLY_ROW_CAP
+      if (capped) body.size = SECURITY_ONLY_ROW_CAP
+
+      const result = await client.call("insight.performance-calendar.list", body)
+
+      // 取满上限且 total 显示还有剩余 = securityList 过滤可能已失效，屏上这批
+      // 是整本日历的一段切片而非某公司的日历。判据用 total 而非只看行数：
+      // 恰好 1000 行且 from+行数 >= total 是完整结果，不能误标 _partial。
+      if (capped && result && typeof result === "object" && !Array.isArray(result)) {
+        const rec = result as Record<string, unknown>
+        const list = rec.list
+        const from = typeof body.from === "number" ? body.from : 0
+        if (Array.isArray(list) && list.length >= SECURITY_ONLY_ROW_CAP) {
+          const total = typeof rec.total === "number" ? rec.total : undefined
+          if (total === undefined || from + list.length < total) {
+            // _partial_reason 是**逗号拼接的多原因列表**（见 client.requestPaginated）：
+            // 分页层可能已经写入 page_cap / total_drift / failed_pages 等，直接赋值
+            // 会把那些诊断信息抹掉。追加，不覆盖。
+            const prior = typeof rec._partial_reason === "string" && rec._partial_reason
+              ? rec._partial_reason.split(",")
+              : []
+            if (!prior.includes("security_only_row_cap")) prior.push("security_only_row_cap")
+            rec._partial = true
+            rec._partial_reason = prior.join(",")
+            rec._hint = `securityList 是唯一约束时最多取 ${SECURITY_ONLY_ROW_CAP} 行，且结果已取满、total=${String(rec.total)} 显示还有剩余 —— 该筛选可能未生效，请改用 startTime+endTime 重查。`
+          }
+        }
+      }
+
+      return contentResult(await buildToolContent(normalizeRows(result)))
+    }),
+  )
 }

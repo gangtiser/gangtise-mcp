@@ -124,6 +124,7 @@ export const BILLING_CATALOG: Record<string, BillingSpec> = {
   gangtise_announcement_hk_list: fixed(0.1, "item"),
   gangtise_announcement_us_list: fixed(0.1, "item"),
   gangtise_my_conference_list: fixed(0.1, "item"),
+  gangtise_performance_calendar_list: fixed(0.1, "item"),
   gangtise_opinion_list: fixed(30, "item", "单次约 600 积分"),
   gangtise_foreign_opinion_list: fixed(30, "item", "单次约 600 积分"),
   gangtise_independent_opinion_list: fixed(5, "item"),
@@ -141,6 +142,11 @@ export const BILLING_CATALOG: Record<string, BillingSpec> = {
   // 服务端 2026-07-17 调价：内资研报下载 20 → 10。
   gangtise_research_download: fixed(10, "item"),
   gangtise_announcement_download: fixed(10, "item"),
+  // 唯一按标的市场分档的下载：A股 10、港美股 20。冻结的标签词表没有「按市场分档」
+  // 这一档，硬塞进 variable（「按所选指标」）或按 20 统一报价都会误导模型 ——
+  // 故取实价较低的 A 股档进标签，港美股档走 amplify 尾注（它的机制本就是
+  // 「标签之外的计费补充」）。这是 amplify 名单里唯一非放大倍数的条目。
+  gangtise_performance_calendar_download: fixed(10, "item", "港美股为 20/条"),
   gangtise_official_account_download: fixed(10, "item"),
   gangtise_report_image_download: fixed(0.1, "image"),
   // 金融数据

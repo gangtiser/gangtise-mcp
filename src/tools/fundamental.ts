@@ -20,6 +20,41 @@ const dateRange = {
 }
 const fiscalYear = z.array(z.number().int()).optional().describe("财年列表，如 [2023, 2024]")
 const fieldList = z.array(z.string()).optional().describe("指定返回字段")
+// 实测 2026-07-26：valuation-analysis 全表就 7 列，且**没有 securityCode**。
+// 两个坑，都只能在 schema 层挡：
+//  1. 传不存在的字段名（如 securityCode），上游把相邻列的值复制进该槽位、**字段数与
+//     行长仍然相等**——请求 ['securityCode','tradeDate','value'] 实到
+//     ['2026-07-20','2026-07-20',20.06]，securityCode 拿到的是日期。等长错列
+//     normalize 的长度校验发现不了，静默返错值。
+//  2. tradeDate **总是自动前置**到每一行：显式请求它会让值多一个而字段名不多
+//     （请求 ['tradeDate','value'] → 2 名 3 值），反而把长度校验撞红。
+// 所以可选字段是**除 tradeDate 外的 6 个**；tradeDate 无论传不传都会返回。
+// 收 z.enum 而不是只写进 describe：描述只是建议，schema 才会拒（同 0.1.38 对
+// categoryList 收 z.enum 的理由，且这里后果更重——那边静默返全量，这边静默返错值）。
+const VALUATION_FIELD_NAMES = ["value", "percentileRank", "average", "median", "upper1Std", "lower1Std"] as const
+const valuationFieldList = z
+  .array(z.enum(VALUATION_FIELD_NAMES))
+  .optional()
+  .describe(`指定返回字段，只认这 6 个：${VALUATION_FIELD_NAMES.join(" / ")}。tradeDate 总是自动返回、**不要传**（传了会让响应长度对不上而报错）；本接口也没有 securityCode。不确定就不传（=返回全部 7 列，最稳）`)
+// 实测 2026-07-26：主营接口固定前置 periodName/periodEndDate，传错字段名会导致
+// 字段数比行长多 1（回显 5 个名、只给 4 个值），normalize 会直接报错拒绝 —— 不会
+// 静默错列，但错的字段名等于白跑一次，同样收成闭集在本地就拒。
+const MAIN_BUSINESS_FIELD_NAMES = [
+  "periodName", "periodEndDate", "categoryName",
+  "opRevenue", "opRevenueYoy", "opRevenueRatio",
+  "opCost", "opCostYoy", "opCostRatio",
+  "grossProfit", "grossProfitYoy", "grossProfitRatio",
+  "grossMargin", "grossMarginYoy", "grossMarginRatio",
+] as const
+const mainBusinessFieldList = z
+  .array(z.enum(MAIN_BUSINESS_FIELD_NAMES))
+  .optional()
+  .describe(`指定返回字段，只认这 15 个主营字段：${MAIN_BUSINESS_FIELD_NAMES.join(" / ")}。不确定就不传`)
+// 实测 2026-07-26（工行/茅台/中信证券一致）：A股**累计口径**的资产负债表与现金流量表，
+// companyType 与 currency 两列的值是互换的（companyType 返回「人民币」、currency 返回
+// 「银行」/「一般企业」）。A股利润表（累计）正确；A股单季表则是 companyType 返回未映射的
+// 数字码（如 102110100）、currency 正确。科目数字不受影响，只影响这两列的读法。
+const META_SWAP_NOTE = "注意：companyType 与 currency 两列的值上游是互换的（companyType 里是币种、currency 里才是公司类型），按值判断语义，科目数字不受影响。"
 
 export const specs: JsonToolSpec[] = [
   {
@@ -52,7 +87,7 @@ export const specs: JsonToolSpec[] = [
   },
   {
     name: "gangtise_balance_sheet",
-    description: "查询A股资产负债表，支持期间、财年、报告类型筛选。",
+    description: `查询A股资产负债表，支持期间、财年、报告类型筛选。${META_SWAP_NOTE}`,
     endpointKey: "fundamental.balance-sheet",
     paginated: false,
     inputSchema: {
@@ -66,7 +101,7 @@ export const specs: JsonToolSpec[] = [
   },
   {
     name: "gangtise_cash_flow",
-    description: "查询A股现金流量表（累计口径），支持期间、财年、报告类型筛选。",
+    description: `查询A股现金流量表（累计口径），支持期间、财年、报告类型筛选。${META_SWAP_NOTE}`,
     endpointKey: "fundamental.cash-flow",
     paginated: false,
     inputSchema: {
@@ -102,7 +137,7 @@ export const specs: JsonToolSpec[] = [
       breakdown: z.enum(["product", "industry", "region"]).describe("product=产品 | industry=行业 | region=地区（必填）"),
       ...dateRange,
       periodList: z.array(z.enum(["interim", "annual"])).optional().describe("interim=中报 | annual=年报"),
-      fieldList,
+      fieldList: mainBusinessFieldList,
     },
   },
   {
@@ -230,7 +265,7 @@ export function registerFundamentalTools(server: McpServer, client: GangtiseClie
         ...dateRange,
         limit: z.number().int().min(1).optional().describe("最大返回行数（默认 2000）"),
         skipNull: z.boolean().optional().describe("过滤掉 value 或 percentileRank 为空的行（客户端后处理）"),
-        fieldList,
+        fieldList: valuationFieldList,
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },

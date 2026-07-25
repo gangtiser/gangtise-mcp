@@ -61,14 +61,11 @@ export function registerAlternativeTools(server: McpServer, client: GangtiseClie
       const raw = await client.call("alternative.edb-data", args) as Record<string, unknown>
       let normalized: unknown = raw
       if (raw && Array.isArray(raw.fieldList) && Array.isArray(raw.dataList)) {
-        const fields = raw.fieldList as string[]
-        const list = (raw.dataList as unknown[][]).map((row) =>
-          fields.reduce<Record<string, unknown>>((acc, field, i) => {
-            acc[field] = row[i]
-            return acc
-          }, {}),
-        )
-        normalized = { list, total: list.length }
+        // 换名后交给 normalizeRows 走同一套按位置拍平 + 长度校验，不再自己 zip：
+        // 本工具不暴露 fieldList 入参（字段名由服务端给），今天不会错列，但错列一旦
+        // 发生就是静默的错值，不值得为省一次改名而留第二条未校验的拍平路径。
+        const { fieldList, dataList, ...meta } = raw
+        normalized = { ...meta, total: (dataList as unknown[]).length, fieldList, list: dataList }
       }
       return contentResult(await buildToolContent(normalizeRows(normalized)))
     }),

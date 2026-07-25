@@ -4,6 +4,25 @@
 
 ## Changelog
 
+### 0.1.49 (2026-07-26)
+同步 gangtise-openapi-cli v0.28.3 / v0.29.0。所有结论均在本机对真实 API 复验，与 CLI 结论不符处以复验为准。
+
+- **新增财报日历 2 个工具**（`gangtise_performance_calendar_list` / `_download`，工具数 92 → 94）：业绩预告 / 业绩快报 / 业绩公告三类事件的发布日程（含未来已排期）。返回 `performanceReportId`（下载用）/ `securityCodeList`（A+H 会有多个码）/ `securityName` / `category` / `publishDate` / `title` / `hasAttachment`；仅 `hasAttachment: true` 可下载（A股 10 积分 / 港美股 20）。
+  - ⚠️ **日期参数用 `startTime`/`endTime`，不是 CLI v0.29.0 写的 `startDate`/`endDate`**。实测 2026-07-26：`startDate`/`endDate` 被服务端**静默忽略**（单日区间、六日区间、单边区间的 `total` 全部等于不加筛选的 126683，且 HTTP 200）；`startTime`/`endTime` 才真正过滤 `publishDate`（07-20~07-25 → 517 条、2024-01 → 674 条、单日 07-25 → 12 条，返回行的日期均落在区间内）。两种写法都返回 200 且不回显服务端实际采用的区间，静默失效不可察觉。**gangtise-openapi-cli 侧同名 bug 尚未修复**（v0.29.0 的 `insight performance-calendar list --start-date/--end-date` 实际不过滤，且其「日期区间算一个约束」的护栏因此会放行整本日历的 fetch-all）。两端都含端点，`YYYY-MM-DD` 与 `YYYY-MM-DD HH:mm:ss` 实测等价，故两者皆放行。
+  - **按「实际要取多少行」设闸，而不是只看 `fetchAll`**：`client.requestPaginated` 把 `size` 当作**总目标行数**按 `total` 自动翻页，所以 `size:50000` 和 `fetchAll` 是同一件事（都能拉满 `MAX_PAGES × 50` = 5 万行 ≈ 5000 积分）。无筛选时 `total` 十万量级（实测 126683，含未来排期）、按 0.1/条计费，故：完全无筛选时请求行数超过 1000 直接本地 `ValidationError`、不发请求（拒而不静默截断——加个筛选就能解决，返 1000 行会被读成全部）。`marketList`/`categoryList` **不算约束**（实测单个 `aShares` 仍有 64327 条）；常规路径（默认 `size=20`）不受影响。
+  - **`securityList` 单约束时另加 1000 行隐式上限**（`fetchAll` 与显式大 `size` 一视同仁）：实测服务端确实按 `securityList` 过滤（无效码返 `total=0`），单只证券整段日历只有几十条（茅台 `total=10`），上限正常使用感知不到；筛选一旦失效，结果在此截断并标 `_partial`，而不是闷头翻完全表。判据是 `total` 而非行数——恰好取满 1000 行且 `from+行数 >= total` 是完整结果，不误标。`_partial_reason` 是**逗号拼接的多原因列表**（分页层会写入 `page_cap`/`total_drift`/`failed_pages`），本工具**追加** `security_only_row_cap` 而不是覆盖，不吞掉分页层的诊断。
+  - **`marketList`/`categoryList` 收紧为 `z.enum`**：实测枚举拼错时上游**静默返回全量**（`categoryList:["bogusCategory"]` 与不传筛选同为 `total=126683`、`code` 仍是 `000000`）且照常按 0.1/条计费，schema 层是唯一防线。
+- **`gangtise_valuation_analysis` / `gangtise_main_business` 的 `fieldList` 收成 `z.enum` 闭集**（不只是写进描述——描述是建议，schema 才会拒；等长错列既拦不住又不报错，是本仓最危险的一类失败，必须在发请求前挡下）：
+  - `valuation-analysis` 全表 7 列、**没有 `securityCode`**：传 `['securityCode','tradeDate','value']` 时上游把相邻列的值复制进该槽位、**字段数与行长仍然相等**，返回 `{tradeDate:'2026-07-20', securityCode:'2026-07-20', value:20.06}`——`securityCode` 拿到的是日期，等长错列长度校验发现不了。
+  - 且 `tradeDate` **总是自动前置到每一行**，显式请求它会让值多一个而字段名不多（请求 `['tradeDate','value']` 实到 2 名 3 值），反倒把长度校验撞红——所以可选字段是**除 `tradeDate` 外的 6 个**（`value` / `percentileRank` / `average` / `median` / `upper1Std` / `lower1Std`），`tradeDate` 传不传都会返回。这条是收 `z.enum` 时才发现的：原先照 CLI 记的「7 字段」清单本身就是错的。
+  - `main-business` 的真实字段是 `periodName` / `periodEndDate` / `categoryName` / `opRevenue…` 共 15 个（旧文档记的 `endDate` / `breakdownName` / `revenue` 实测均不存在）。它同样固定前置 `periodName`/`periodEndDate`/`categoryName`，但**会正确去重**（显式请求仍是 4 名 4 值），故 15 个都可选；只有真正不存在的字段名会让字段数比行长多 1 而报错——不静默错列，但等于白跑一次。
+- **`gangtise_balance_sheet` / `gangtise_cash_flow` 标注上游两列错位**：实测（工行 / 茅台 / 中信证券一致）A股**累计口径**的资产负债表与现金流量表，`companyType` 与 `currency` 两列的值互换（`companyType='人民币'`、`currency='银行'`/`'一般企业'`）。A股利润表（累计）正确、不带此注记；A股单季表则是 `companyType` 返回未映射的数字码（如 `102110100`）、`currency` 正确。科目数字不受影响。
+- **`gangtise_edb_data` 的列式拍平并入同一道校验**：它返回 `{fieldList, dataList}`，此前自己 zip、绕过了 `normalizeRows` 的长度校验，等于留了第二条未校验的拍平路径。该工具不暴露 `fieldList` 入参（字段名由服务端给），今天不会错列——纯防御对齐。
+- **EDE `reportType` 改为「未定论 + 需交叉核对」，撤除 0.1.47 的「勿传」**：CLI v0.28.3 复测推翻了「`2`/`4` 必报错、要指定口径改用 `fundamental`」的旧结论，给出的映射是 `1`=合并 / `3`=母公司；但服务端 `indicator.search` 自己声明的 enum 恰好相反（`1`=母公司报表 / `2`=合并报表）。2026-07-26 复验时 **EDE 取数端全线故障**（缺参仍正常返 `400`/`100001`，任何合法查询一律 `500`/`999999`，`search` 端点正常），无法裁决。因此描述改为：参数可传、但 label↔value 对应尚未定论，省略即默认合并口径，确需母公司口径时取完必须用三大报表工具交叉核对——不写任何一方的单边断言。
+- **未移植**：v0.29.0 的 PDF 解析（`tool file-parse`）。需要给 MCP 引入读本地文件的能力（现有 94 个工具全是只读查询）、`kind:"upload"` 端点类型、`client.uploadFile()` 与 POST-body 型 download，而平台自有研报走 `gangtise_research_download --fileType 2` 已直出 Markdown、无需 0.8/页解析费。v0.29.0 群消息新增的 `quoteMsg` 无需改动（响应原样透传，新字段自动出现）；CLI 侧写错的 `msgContent`/`contentUrl` 字段名 MCP 从未使用。v0.29.0 的 `bigIntFields` 防护也不需要——实测 `performanceReportId` 返回的是字符串（`"33752980"`）。
+- `tools/list` 实测 111,567B → 116,177B（+4,610B，工具数 92 → 94）
+- 测试 510 → 533（财报日历：无约束的 `fetchAll` 与超大 `size` 都拒、`securityList` 单约束两条路径都封顶、有日期区间则不封顶、`_partial_reason` 追加不覆盖、枚举本地拦截；`edb_data` 错列必须报错；`valuation_analysis`/`main_business` 的非法字段名**本地拒绝且不调 API**、`tradeDate` 禁传；两表错位注记的范围）
+
 ### 0.1.48 (2026-07-24)
 - **修复取数路由盲区：单票总市值被推去 `realtime`、却查不到**。`qte_mkt_cptl`（总市值）是 `qte_` 族里唯一「专用工具没有」的指标——实测 `realtime` 只有开高低 / 最新价 / 昨收 / 涨跌 / 成交量额 / 换手 / 振幅 / 量比（**无 `close`**），`day_kline` 只有 OHLCV + 复权因子，**都不含市值**；而 0.1.46 起 `indicator_search` 的 carve-out 笼统写「基础行情虽可搜到仍优先 realtime/day_kline」，把整个 `qte_` 族推离 EDE，单票市值于是掉进空档（既不走专用工具、也不触发「多证券→EDE」批量规则）：
   - **`indicator_search` 的 carve-out 收窄**为「开高低收 / 成交量额 / 换手 / 涨跌幅」，并点名例外：**总市值 `qte_mkt_cptl` 单票也走 EDE**（仅 A 股，默认返「元」，用 `scale` 缩放，如 `scale=8` → 亿元）
@@ -51,22 +70,6 @@
 - `tools/list` 实测 108,961B → 109,029B（+68B，工具数仍 92）
 - 测试 399 → 505（41 个公开错误码全量枚举钉住覆盖；禁重试码与限流改用 `withRetry` 实际调用次数断言，而非只测分类函数；`999006` 提示与 transport 策略双向钉住）
 
-### 0.1.44 (2026-07-21)
-- **工具发现 / 计费透明 / 大响应消费**（向后兼容，工具数仍 92）：
-  - **`server.instructions` 重写为路由层**（429B → 1,583B 静态，含日期前缀合计 1,751B，门禁 ≤1,800B）：修掉旧文案里 `vault_*` / `reference_*` 这类**并不存在的工具前缀**（那是 src 文件名，模型照此检索必扑空），补齐四大族（行情财务 / 内容 / AI / 私域参考）的路由与市场变体规则
-  - **新增积分目录 `src/tools/billing.ts`**：92 个工具全部归档（free 34 / fixed 43 / downstream 1 / variable 2 / unconfirmed 9 / local 3），由注册器自动把 `【积分：50/次】` 这类紧凑标签追加到描述尾，并清掉 7 处与计分表不符或会与标签叠字的手写计费文案。免费档不打标签（instructions 末行已声明「未标注即免费」，省 714B）。**积分与 retry 策略、MCP annotations 三者独立建模，互不推导**；目录键集合 == 注册工具名集合有测试钉住防漂移
-  - **分页参数文案单点缩短** 223B → 120B/工具（×21 = −2,163B）；18 个付费分页工具补 `fetchAll` 计费警示（不改默认 size、不自动开 fetchAll）
-  - **`gangtise_theme_tracking` 取消本地 30 天窗口拦截**：取数窗口随账号权限变化（标称窗口不等于实际拦截线，实际以账号权限为准），超范围交由上游报错；错误码 `110003` 补中文提示。**未来日期的本地拒绝保留** —— 没有账号能拿到明天的早报，50 积分/次不值得赌
-  - **`gangtise_knowledge_batch` 时间参数收字符串**：`startTime`/`endTime` 接受 `YYYY-MM-DD HH:mm:ss`（按固定 +08:00 转毫秒，不依赖机器时区）或原有 epoch 毫秒；不收纯日期（`endTime` 会被当 00:00 静默丢当天数据）
-  - **`gangtise_read_response` 新增 `fields` 顶层投影**：宽表按需取列，投影先于字节预算计算，故每页装更多行。部分字段拼错会以 `_unknown_fields` 回显而非静默丢弃，全部拼错则报错并回列可用字段；未知字段判定扫全部行（只出现在第 21 行的稀疏字段不会被误杀）
-  - **分页字节预算修正**：原先只累加行字节、未计入 `_saved_to`/`_total_items`/`_note` 等信封字段，导致「行贴边不超限、拼上信封就超限」的载荷溜过检查（实测单行 65,509B → 完整 payload 65,779B）。现按行+信封计；信封与最小一行仍超预算时返回该行并标 `_oversized: true`，翻页不卡死
-  - **溢出指针增 `_local_hint` 与 `_available_fields`**：同机可读文件的客户端可在本地投影/过滤后只取所需结果；`_available_fields` 采样前 20 行并附 `_available_fields_sampled`（实际扫描行数，可与 `_total_items` 比对判断清单是否完整），字段超 50 个截断并标 `_available_fields_truncated`。**远程 MCP / 容器隔离 / 无文件权限的客户端必须继续用 `gangtise_read_response`**。metadata-only 回退（单行即超预算）的字段名改由封顶的 `_available_fields` 提供，移除旧的无上限 `_first_item_keys`（后者在超宽行上可自身撑爆预览指针字节预算）
-  - 3 个 AI 工具描述「生成」改「获取」与 instructions ③「均取预生成内容」对齐；`indicator_search`/`opinion_list`/`foreign_opinion_list`/`stock_summary` 补路由边界句
-  - `tools/list` 实测 107,201B → 108,961B（+1,760B，+1.64%）
-- 测试 332 → 399
-
-> 更早版本的完整更新日志见 [CHANGELOG.md](CHANGELOG.md)。
-
 ## 功能覆盖
 
 <table>
@@ -77,6 +80,7 @@
 <tr><td>证券检索</td><td><code>gangtise_securities_search</code></td></tr>
 <tr><td>观点/研报</td><td>国内首席观点、纪要、券商研报、外资研报、外资独立观点、公告（A股/港股/美股）、产业公众号资讯、投资者问答 QA、研报图表搜索与下载</td></tr>
 <tr><td>路演/调研</td><td>路演、调研、策略会、论坛</td></tr>
+<tr><td>财报日历</td><td><code>gangtise_performance_calendar_list</code> / <code>_download</code> — 业绩预告/快报/公告的发布排期（含未来已排期）与原文 PDF 下载</td></tr>
 <tr><td>行情</td><td>A 股/港股/美股日 K（仅历史）、A 股分钟 K、指数日 K、实时行情快照（A/港/美）、A 股个股资金流向（日频）</td></tr>
 <tr><td>基本面</td><td>A股/港股/美股利润表、资产负债表、现金流量表（累计/单季）、主营业务、估值、股东、盈利预测</td></tr>
 <tr><td>AI 能力</td><td>知识库检索、个股看点、一页通、投资逻辑、同业对比、线索、主题跟踪、业绩点评、观点辩证、管理层讨论</td></tr>

@@ -64,7 +64,7 @@ const indicatorParamList = z
   )
   .optional()
   .describe(
-    "分指标专属参数。parameterList 标 required 的必须补否则报错：qte 周期变体→startDate(整数YYYYMMDD)、N期统计→periodNum(如4)、分红/预测→fiscalYear(年份)。可选参数：行情复权 adjustmentType(1=不复权|2=前复权|3=后复权)；reportType 勿传——截至 2026-07-24 EDE 该枚举与实际不符(2/4 常报错，省略即合并口径)，要指定合并/母公司口径改用 fundamental 三大报表。其余键值以 gangtise_indicator_search 的 parameterList 为准",
+    "分指标专属参数。parameterList 标 required 的必须补否则报错：qte 周期变体→startDate(整数YYYYMMDD)、N期统计→periodNum(如4)、分红/预测→fiscalYear(年份)。可选参数：行情复权 adjustmentType(1=不复权|2=前复权|3=后复权)；财务报表口径 reportType 可传，但 label 与 value 的对应关系尚未定论——服务端 enum 标 1=母公司/2=合并，另有实测称实际是 1=合并/3=母公司，二者对 1 的含义正好相反。省略即默认合并口径，够用就别传；确需母公司口径时取完务必用 gangtise_income_statement 等三大报表工具核对一次再用。其余键值以 gangtise_indicator_search 的 parameterList 为准",
   )
 
 export function registerIndicatorTools(server: McpServer, client: GangtiseClient): void {

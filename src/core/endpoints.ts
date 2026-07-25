@@ -103,6 +103,21 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     description: "List forums",
     pagination: { enabled: true, maxPageSize: 50 },
   },
+  "insight.performance-calendar.list": {
+    key: "insight.performance-calendar.list",
+    method: "POST",
+    path: "/application/open-insight/schedule/performance-calendar/getList",
+    kind: "json",
+    description: "List earnings calendar events (forecast / express / announcement)",
+    pagination: { enabled: true, maxPageSize: 50 },
+  },
+  "insight.performance-calendar.download": {
+    key: "insight.performance-calendar.download",
+    method: "GET",
+    path: "/application/open-insight/schedule/performance-calendar/download/file",
+    kind: "download",
+    description: "Download an earnings report file (A-share 10 credits, HK/US 20)",
+  },
   "insight.research.list": {
     key: "insight.research.list",
     method: "POST",
