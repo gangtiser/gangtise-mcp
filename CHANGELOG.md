@@ -1,6 +1,6 @@
 # 更新日志
 
-> README 顶部只保留最新 5 条；本文件是完整历史（中文）。
+> README 顶部只放最近 5 个版本的一行摘要 + 历史里程碑；本文件是完整历史明细（中文），回溯至 0.1.3。
 
 ### 0.1.49 (2026-07-26)
 同步 gangtise-openapi-cli v0.28.3 / v0.29.0。所有结论均在本机对真实 API 复验，与 CLI 结论不符处以复验为准。
@@ -169,3 +169,153 @@
   - 移除 `workflow_dispatch` 触发器——手动触发会跳过 tag↔版本一致性校验、从分支直接发版
 - 测试补盲区（210 个）：token 刷新 single-flight 并发去重、`gangtise_read_response` 拒绝他进程创建的同前缀目录（钉住 0.1.28 的进程隔离语义）、港股 2 天/片分片边界（无重叠无缺日+尾片截断）、indicator 内层失败信封 → `isError`（上述真 bug 即由此测试暴露）
 - README 修正：大响应章节改为真实路径与 `gangtise_read_response` 续读指引（此前写 `/tmp/...` 且教直接读文件，无文件能力的客户端走不通）、字段表补 `_read_with`、前置要求改 Node ≥ 20.18.1（对齐 engines）
+
+### 0.1.35 (2026-07-02)
+- 对抗式审查第二批修复（防线加固）：
+  - `gangtise_read_response`：list 分页新增 256KB 字节预算——单行巨大（公告全文等）时按字节截短本页并给 `next_offset` 指引，不再一次内联数 MB 击穿截断契约
+  - 全市场 K 线：分片数护栏（>180 片直接拒绝并提示缩小区间）——此前多年区间会先成功拉完全部分片、再在合并序列化时撞 V8 字符串上限（RangeError），数分钟抓取全部作废
+  - 文本切片（read_response 文本/大对象分片、大文本预览）不再切开 surrogate pair——70K 字符边界落在 emoji 等 4 字节字符中间时产生孤立代理项，严格 UTF-8 消费端会拒收
+  - `gangtise_read_response` 读取时刷新落盘目录 mtime——防第二个实例的 24h 启动清扫误删仍在使用的长会话（Claude Desktop 常驻场景）落盘文件
+  - auth 自愈：`noRetry` 端点（计费 submit）刷新 token 成功后现在会重放一次请求（auth 被拒的请求未到达后端处理器，重放不会重复扣费；此前刷新成功但直接把 auth 错误抛给用户）
+  - auth 自愈：强制刷新前先重读共享 token 缓存文件——若同机 gangtise CLI 已刷新，直接采纳其 token，不再重复登录互相顶号
+  - 分页：首页短返回/中间页欠填但 `total` 表明还有数据时，标记 `_partial` + `short_page`（对齐 loud-partial 契约，此前是无标记的静默数据空洞）
+  - K 线 `limit`/`security` 参数描述补关键语义：上游从窗口开头截取（取「最近 N 条」须传日期区间）；`security:'all'` 须同时传两个日期
+- 测试 195 → 203
+
+### 0.1.34 (2026-07-02)
+- 对抗式审查（7 路并行审查 + 反驳式验证）第一批修复：
+  - 下载：文件名含字面 `%`（如「盈利增长50%点评.pdf」，研报标题常见）不再抛 `URIError` 令整个下载失败；decode 失败回退原始文件名
+  - 下载：带 `content-disposition` 的 JSON 文件附件按原始字节返回，不再被误当 API 信封剥壳（内容改写）或误判为 API 错误（云盘自存 `.json` 场景）
+  - 异步 AI：`*_check` 对「已完成但内容为空」的任务不再永远返回 pending（truthiness 判断改 `!= null`）；submit→poll 路径空内容同样返回「内容为空」提示而非空白文本块
+  - 大响应：预览超限降级为 metadata-only 时 `has_more` 按 `_total_items` 重算，不再误报 `false` 误导调用方跳过整份落盘数据
+  - 全市场 K 线：缺任一日期时同样注入 10000 行上限（对齐 CLI 行为；实测上游当前对开区间全市场返回空数据或「行情查询超出限制」，此为防御性对齐，防上游语义变化后出现 6000 行静默截断）
+- 测试 189 → 195
+
+### 0.1.33 (2026-06-29)
+- 数据可靠性硬化（来自多轮审计）：
+  - 分页：后续页失败返回已取页 + `_partial` / `_failed_pages`，不再整批作废（对齐分片的 loud-partial 契约）
+  - 异步 AI：轮询中途失败（超时 / 410111 / 其他）保留 `dataId`，已扣费任务可经 `*_check` 找回
+  - 全市场日 K 线：schema 拒绝畸形或不存在的日历日期（`2026-4-1` / `2026-13-45` / `2026-02-30`），避免 `security:'all'` 静默降级为单次截断或日期被改写
+  - 指标时序：拒绝「多指标 × 多证券」歧义矩阵（此前静默丢一个维度）
+- 同步 CLI v0.21.0：
+  - `gangtise_wechat_chatroom_list` 省略 `size` 改为自动翻页拉取全部群（接口无 `total`，按页上限 50 串行翻页；传 `size` 为跨页总量上限），不再静默只返 20 条；后续页失败 fail-soft
+  - token 缓存改为临时文件 + 原子 `rename` 写入（0600 从第一字节），消除旧文件宽松权限残留与崩溃截断
+- 审计跟进修复：
+  - `gangtise_read_response` 大对象按字节预算分片，不再整坨内联回上下文（续读不再绕过 256KB 截断）
+  - `gangtise_earnings_review` / `gangtise_viewpoint_debate` 提交工具去除 `readOnlyHint`（计费、不可重试，客户端不应免确认自动调用）；对应 `_check` 仍只读
+  - `engines.node` 提升至 `>=20.18.1`（匹配 undici 7.27.2）
+- 测试扩展：新增日期校验、指标互斥守卫、chatroom 翻页 / fail-soft、token 原子写、异步 submit→poll 对、大响应字节分片等单测（共 189）
+
+### 0.1.32 (2026-06-27)
+- 修复 `gangtise_independent_opinion_download`：参数名 `opinionId` → `independentOpinionId`（上游 API 与 `gangtise_independent_opinion_list` 返回字段均为 `independentOpinionId`；旧名导致任何调用都返回 HTTP 400，该工具自注册起即不可用）。已对真实 API 端到端验证修复。
+- `gangtise_one_pager` / `gangtise_investment_logic` / `gangtise_peer_comparison` / `gangtise_research_outline`：后端返回空内容时给出「该证券暂无相关 AI 生成内容」提示，替代此前的空白文本块。
+- 全量接口真实联调：86 个 MCP 工具端到端真跑（上述 download 参数名 bug 即由此发现并修复）。
+
+### 0.1.31 (2026-06-27)
+- 同步 CLI v0.19.0 + v0.20.0：新增 10 个工具，覆盖证券级数据指标（EDE）、美股财报/公告、个股看点、首席搜索
+  - **证券级数据指标（EDE）** 3 工具：`gangtise_indicator_search`（按名称搜指标 code 及可传参数 `parameterList`，取数前必先 search，勿猜编码）/ `gangtise_indicator_cross_section`（多指标 × 多证券，单日截面）/ `gangtise_indicator_time_series`（多指标 × 单证券 或 单指标 × 多证券，按区间）；复权等分指标参数用 `indicatorParamList`（`adjustmentType` 1=不复权 | 2=前复权 | 3=后复权）；EDE 双层信封自动剥离（含内层错误码透出），二维矩阵展平为 `{date, security, 指标:值}` 宽表
+  - **美股财报** 3 工具：`gangtise_income_statement_us` / `gangtise_balance_sheet_us` / `gangtise_cash_flow_us`（参数同 A 股/港股财报）
+  - **美股公告** 2 工具：`gangtise_announcement_us_list`（按证券/类别 `usShareAnnouncementCategory`/时间筛选）/ `gangtise_announcement_us_download`（`fileType` 1=原始 PDF（默认）| 2=Markdown）
+  - **个股看点** `gangtise_stock_summary`：按证券返回精炼投研总结，`securityList` 必填（A 股/港股代码，或市场关键词 `aShares`/`hkStocks`），空列表本地拦截防全市场误扣分
+  - **首席搜索** `gangtise_chiefs_search`：按姓名/机构/团队搜首席分析师 ID，供 `gangtise_opinion_list.chiefList` 使用
+- `gangtise_announcement_hk_download` 新增 `fileType`（1=原始（默认）| 2=Markdown），此前无格式选项
+- `gangtise_constant_list` 的 `category` 枚举补 `usShareAnnouncementCategory`（美股公告分类，`103980xxx` 段）
+- CLI v0.20.0 的几项修复 MCP 早有等价实现或语义不适用：分页 fail-soft 见 0.1.28 的 `_partial` 标记；`gangtise_hot_topic` 的 `withRelatedSecurities`/`withCloseReading` 本就是显式可选布尔；`gangtise_knowledge_batch.queries` 已 `min(1)` 强制非空；MCP 不导出 CSV
+- 扩展测试覆盖：新增 EDE 矩阵展平单测 + 美股/指标/个股看点集成测试（共 154）
+
+### 0.1.30 (2026-06-17)
+- 同步 CLI v0.18.0：新增「产业公众号资讯」2 个工具
+  - `gangtise_official_account_list`：查询公众号资讯列表，支持 `keyword`（需用数据中的具体词，非整句白话）/ `accountIdList`（公众号 ID）/ `securityList` / `categoryList`（文章类型枚举：news / law / report / view / data / event / meeting / notice / recruit / investEdu / brand / notes / other）/ `industryList`（citicIndustry）/ `searchType`（1=标题 | 2=全文）/ `rankType`（1=综合 | 2=时间倒序）；返回含模型生成摘要 `summary` 及关联行业/题材/证券列表
+  - `gangtise_official_account_download`：按 `articleId` 下载公众号文章，`fileType` 1=txt（默认）| 2=HTML
+- 修复：下载流式写盘中途失败时，清理残缺临时文件与整个临时目录（对齐 CLI v0.17.1；此前遗漏，失败的下载会残留 temp 目录直到下次启动清扫）
+- CLI v0.17.1 的分页 cap 警告，MCP 早有等价且更优实现（结构化 `_partial` / `_page_cap` 字段，而非 stderr 警告）；token 服务端失效自愈 `0000001008` 已在 0.1.29 同步
+
+### 0.1.29 (2026-06-16)
+- token 自动续期覆盖「服务端失效」场景：缓存 token 被服务端判失效（HTTP 401，错误码 `0000001008`，常见于在别处重新登录挤掉了原会话）时，客户端自动重新登录并重试一次。此前仅 `8000014/8000015`（HTTP 200 信封）会触发续期，而 4xx 响应在进入续期逻辑前就抛错，导致 Cherry Studio 等 MCP 客户端遇到 token 失效只能手动重登；现在会自愈。
+
+### 0.1.28 (2026-06-16)
+内部健壮性与发布链路加固（无 CLI 同步，无工具入参变更）：
+- 分页：某页返回异常结构或 `total` 中途漂移时，响应标记 `_partial` + `_partial_reason`（此前静默返回不完整列表，仅 verbose 日志）
+- AI 异步提交（`gangtise_earnings_review` / `gangtise_viewpoint_debate`）遇 5xx 不再自动重试，避免重复建任务、重复扣分
+- 修复 auth 刷新失败掩盖原始 API 错误：重新登录失败时抛出原始请求错误而非次生错误
+- `gangtise_read_response` 仅允许读取本进程生成的临时文件（此前只校验目录名前缀，与工具描述不符）
+- 并发请求首个失败即停止后续取数并消除潜在未捕获拒绝；下载写盘失败时清理临时目录；`gangtise_lookup` 统一走大响应截断保护
+- CI 增加 Node 20/22/24 矩阵；发布流程校验 git tag 与 `package.json` 版本一致并启用 npm provenance；`build` 先清理 `dist/`
+- 新增 config / auth / 分页 partial / 并发失败 等单测（115 → 133）
+
+### 0.1.25–0.1.27 (2026-06-15)
+- 同步 CLI v0.17.0：日程类 4 工具各自只暴露 API spec 支持的字段（之前共享 11 字段大 schema，传不支持字段静默无效）
+  - `gangtise_roadshow_list`：researchArea / institution / security / location / category / market / participantRole / brokerType / permission
+  - `gangtise_site_visit_list`：同上去掉 participantRole/brokerType，加 object；market 范围排除美股
+  - `gangtise_strategy_list`：仅 institution / location
+  - `gangtise_forum_list`：仅 researchArea / location
+- `gangtise_announcement_list` 移除服务端忽略的 `announcementTypeList`（A 股公告分类筛选用 `categoryList`）
+- 对齐 CLI v0.17.0 路由建议：`industryList` / `industryIdList` 统一用 `category=citicIndustry`（`1008001xx`）；`researchAreaList` 统一用 `category=gangtiseIndustry`（行业 + 宏观/策略/固收等方向 `122000xxx`）
+- 修复 `gangtise_knowledge_resource_download` query param：`resourceId` → `resourceType`(int) + `sourceId`(str)（原字段名打错，下载必然失败）
+- 修复 `gangtise_security_clue_list` 的 `source` 类型：`string` → `string[]`，与 CLI 及 API 对齐
+- 补全 `gangtise_knowledge_batch` 的 `startTime` / `endTime` 参数（epoch 毫秒，CLI 有 MCP 之前缺失）
+- 补全 `gangtise_opinion_list.researchAreaList` 描述，对齐 `category=gangtiseIndustry`（其他工具已在 v0.1.24 更新，此处遗漏）
+
+### 0.1.24 (2026-06-13)
+- 接口路由审计后的校验与指路加固（无新增/删除工具，仍 74 个）：
+  - `gangtise_constant_list` 的 `category` 收窄为枚举：传错在本地即拦截并回显 7 个合法值，不再静默返回 `null`
+  - 上游返回空数据时归一化为稳定的 `list: []`（此前键名在 `list` 与 `constants: null` 间漂移）
+  - `gangtise_concept_search` / `gangtise_securities_search` 的 `keyword` 与 `gangtise_sector_constituents` 的 `sectorId` 加非空校验，空串/纯空白本地拦截
+  - 新增错误码 `410001` 提示，按 ID 来源引导改用对应 reference 工具
+  - 补全 `industryList` / `researchAreaList` / `industryIdList` 参数描述，写明 ID 来源分类
+  - `gangtise_sector_search` 描述澄清拼音首字母仅对概念类板块有效，申万/指数类请用中文
+
+### 0.1.22–0.1.23 (2026-06-12)
+- 同步 CLI v0.16.0：移除申万行业代码本地表，`gangtise_lookup` 仅剩券商机构 / 会议机构
+  - 31 个申万行业指数代码（`821xxx.SWI`）改走板块 API：`gangtise_sector_search`（取「指数数据板块」层级节点 `2000000014`）→ `gangtise_sector_constituents`；单个行业也可直接 `gangtise_securities_search`（如 `keyword=申万银行 category=['index']`）
+- 同步 CLI reference 常量/题材/板块 API：
+  - 新增 `gangtise_constant_category` / `gangtise_constant_list`：行业、城市、公告分类、区域等常量（树形分类含 `children`，`constants` 自动归一化为 `list`）
+  - 新增 `gangtise_concept_search`：按中文名/拼音/分组名搜索题材 ID
+  - 新增 `gangtise_sector_search` / `gangtise_sector_constituents`：板块 ID 搜索与全量成分股
+  - `gangtise_lookup` 退出研究方向/行业/地区/公告类别/主题 ID 本地数据（-2700 行静态表，改由上述 API 实时提供）
+  - 日程类工具新增 `locationList` 筛选（domesticCity 常量 ID）
+- 同步 CLI v0.15.1 错误码提示（410110/410111/410004/430004/430007/433007/10011401）
+
+### 0.1.20–0.1.21 (2026-06-10)
+- 全部工具声明 `annotations: { readOnlyHint: true }`，支持该注解的客户端（如 VS Code Copilot）可跳过确认弹窗
+- 补齐核心模块单测：`pollAsyncContent` 轮询、`normalizeRows` 矩阵转换、异步工具 submit→poll，测试 85 → 98
+- 下载类工具补 256KB 截断防护：超大载荷写临时文件，返回 `_truncated` 预览指针，配合 `gangtise_read_response` 续读
+- 日期指引去重：通过 MCP server instructions 全局声明，工具列表体积 79.6KB → 58.2KB（-27%）
+- `gangtise_theme_tracking` 对无效 `date` 直接报参数错误；异步轮询超时与 `GANGTISE_MCP_ASYNC_TIMEOUT_MS` 对齐
+
+
+### 0.1.18–0.1.19 (2026-06-09)
+- 新增 `gangtise_current_date`：运行时查询当前日期/时间/时区，供相对日期换算
+- 修复 `gangtise_theme_tracking` 的 `type` 参数：可传单字符串或数组，内部统一转数组
+- 修复显式配置 `GANGTISE_TOKEN` 时认证恢复逻辑：刷新后重试使用新 token
+- `fetchAll` 命中分页上限时返回 `_partial` / `_page_cap` 元数据，避免静默截断
+- K 线工具 `limit` 参数增加 `1..10000` 校验；加强下载文件名清洗；忽略本地 `.mcp.json`
+
+### 0.1.15–0.1.17 (2026-05-29)
+- 同步 CLI v0.15.0：新增 `gangtise_concept_info`（题材指数画像）/ `gangtise_concept_securities`（题材 F8 成分股）；`gangtise_index_day_kline` 新增 `securityName` 返回字段
+- 同步 CLI v0.14.3：下载类工具 token 过期自动刷新重试；全市场 K 线分片并发改用 `GANGTISE_PAGE_CONCURRENCY`
+- 大响应截断扩展到行情/AI 工具（`day_kline*` / `realtime` / `securities_search` / `theme_tracking`）
+- 修复 MCP 上报版本号固定为 `0.1.0` 的问题
+- `security='all'` K 线分片改为容错：部分分片失败返回成功数据 + `_partial`/`_failed_shards` 标记
+- 异步 AI 工具默认等待时间统一为 180s；启动时自动清理 24h+ 临时目录
+
+### 0.1.14 (2026-05-26)
+- 新增 `gangtise_read_response`：当其他工具返回 `_truncated: true` 时，按 `offset`/`limit` 分片续读完整数据；截断响应追加 `_read_with` 字段；仅允许读取本进程 `gangtise-mcp-*` 临时产物
+
+### 0.1.8–0.1.9 (2026-05-22)
+- 同步 CLI v0.14.0：新增 `gangtise_day_kline_us`（美股日 K）/ `gangtise_realtime`（A/港/美实时快照）
+- 修复 `security='all'` 全市场日 K 分片内静默截断（A/美股改 1 天/片，港股改 2 天/片）
+
+### 0.1.7 (2026-05-18)
+- 修复一批入参字段名与后端不一致（`securityList→securityCode`、`queryList→queries`、`dimension→discussionDimension`、多工具单数 filter→数组 `*List` 等）
+- 修复 `gangtise_valuation_analysis` 的 `skipNull` 参数未生效问题
+- 同步 CLI v0.13.x 完整入参集
+
+### 0.1.6 (2026-05-16)
+- 新增港股三大报表（`income_statement_hk`/`balance_sheet_hk`/`cash_flow_hk`）、自选股池（`stock_pool_list`/`stock_pool_stocks`）、EDB 另类数据（`edb_search`/`edb_data`）
+- 修复财报工具 `field` → `fieldList`；补充 `gangtise_management_discuss_announcement` dimension `all` 选项
+
+### 0.1.3–0.1.5
+- `0.1.5` 修复群消息分页
+- `0.1.4` 新增大响应截断与本地文件保存（超 256 KB 写临时文件，内联前 20 条预览）
+- `0.1.3` 工具元数据注入当前日期上下文
