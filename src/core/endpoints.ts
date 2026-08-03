@@ -748,4 +748,14 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     description: "Get time-series data (multi-indicator x single-security OR single-indicator x multi-security)",
     retry: "no-999999",
   },
+  // Note the path: the screener sits directly under open-indicator, NOT under
+  // the EDE/ prefix its three siblings share.
+  "indicator.screener": {
+    key: "indicator.screener",
+    method: "POST",
+    path: "/application/open-indicator/screener",
+    kind: "json",
+    description: "Screen securities by an expression over indicator values (条件选股)",
+    retry: "no-999999",
+  },
 }

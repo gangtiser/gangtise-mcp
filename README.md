@@ -6,14 +6,15 @@
 
 README 仅列最近 5 个版本摘要：
 
+- **0.1.50 — 2026-08-03**：同步 CLI v0.30.0–v0.31.0——修复服务端 2026-08-01 重构后三个 EDE 取数工具全线不可用（`universe` 改名 + 截面矩阵转置 + 日期下沉到每个指标），修正复权参数名 `adjustType`（旧名静默取到不复权数据），新增条件选股工具，并把整行/整列丢数据标成 `_partial`。
 - **0.1.49 — 2026-07-26**：新增财报日历工具，取数护栏改按实际请求行数判定，`fieldList` 收成闭集以拦截静默错列。
 - **0.1.48 — 2026-07-24**：修复无效字段名导致的静默错列（数据污染），并把单票总市值路由到 EDE `qte_mkt_cptl`。
 - **0.1.47 — 2026-07-24**：把 EDE 取数参数配方写进工具描述，并按端点收窄 `999999` 无数据提示。
 - **0.1.46 — 2026-07-23**：取数路由调整，多证券财务/估值批量优先走 EDE 截面/时序接口。
-- **0.1.45 — 2026-07-22**：同步 CLI v0.28.0，适配新版错误码三层重排、日期严格校验与 traceId 透出。
 
 ### 历史里程碑
 
+- **0.1.45**：同步 CLI v0.28.0，适配新版错误码三层重排、日期严格校验与 traceId 透出。
 - **0.1.44**：`server.instructions` 重写为路由层，建立 92 工具积分目录与自动计费标签，大响应支持字段投影与 `_available_fields`。
 - **0.1.36–0.1.43**：多轮对抗式审查收口——计费端点 `no-replay`、429 退避与 `Retry-After`、异步任务截止时间与 `dataId` 保全、紧凑 JSON，以及 OIDC 发布链 verify/publish 拆分。
 - **0.1.33–0.1.35**：确立 loud-partial 契约（分页与分片失败均标记 `_partial` 而非静默空洞），token 缓存改原子写并与 CLI 共享自愈。
@@ -41,7 +42,7 @@ README 仅列最近 5 个版本摘要：
 <tr><td>AI 能力</td><td>知识库检索、个股看点、一页通、投资逻辑、同业对比、线索、主题跟踪、业绩点评、观点辩证、管理层讨论</td></tr>
 <tr><td>云盘/语音</td><td>网盘文件、录音转写、我的会议、群消息、自选股池</td></tr>
 <tr><td>另类数据</td><td>EDB 行业经济指标搜索与时序数据查询、题材指数基本信息与成分股</td></tr>
-<tr><td>数据指标</td><td><code>gangtise_indicator_search</code> — 证券级数据指标（EDE）搜索；<code>gangtise_indicator_cross_section</code> / <code>gangtise_indicator_time_series</code> — 指标截面/时序（A/港/美股；支持复权等分指标参数，二维矩阵展平为宽表；美股代码用 <code>.O</code>/<code>.N</code> 后缀）</td></tr>
+<tr><td>数据指标</td><td><code>gangtise_indicator_search</code> — 证券级数据指标（EDE）搜索；<code>gangtise_indicator_cross_section</code> / <code>gangtise_indicator_time_series</code> — 指标截面/时序（A/港/美股；支持复权等分指标参数，二维矩阵展平为宽表；美股代码用 <code>.O</code>/<code>.N</code> 后缀）；<code>gangtise_indicator_screener</code> — 条件选股（变量绑指标 + 表达式筛选，支持板块范围与文本匹配）</td></tr>
 </tbody>
 </table>
 

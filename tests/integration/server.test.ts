@@ -511,11 +511,9 @@ describe("MCP server integration", () => {
       code: "000000",
       status: true,
       data: {
-        date: "2026-06-26",
         securityCodeList: ["600519.SH"],
         securityNameList: ["贵州茅台"],
-        indicatorCodeList: ["qte_close"],
-        indicatorNameList: ["收盘价"],
+        indicatorList: [{ code: "qte_close", name: "收盘价", dataType: "number" }],
         values: [[1800]],
       },
     })
@@ -524,9 +522,14 @@ describe("MCP server integration", () => {
       arguments: { indicatorCodeList: ["qte_close"], securityCodeList: ["600519.SH"], date: "2026-06-26" },
     })
     expect(result.isError).toBeFalsy()
+    // 2026-08-01 契约：securityCodeList → universe，根级 date → 每指标 tradeDate。
     expect(mockClient.call).toHaveBeenCalledWith(
       "indicator.cross-section",
-      expect.objectContaining({ indicatorCodeList: ["qte_close"], securityCodeList: ["600519.SH"], date: "2026-06-26" }),
+      expect.objectContaining({
+        indicatorCodeList: ["qte_close"],
+        universe: ["600519.SH"],
+        indicatorParamList: [{ indicatorCode: "qte_close", parameters: [{ paramKey: "tradeDate", paramValue: "2026-06-26" }] }],
+      }),
     )
     const parsed = JSON.parse((result.content as Array<{ text: string }>)[0].text)
     expect(parsed.list[0]).toMatchObject({ security: "600519.SH", name: "贵州茅台", 收盘价: 1800 })

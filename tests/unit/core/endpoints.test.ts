@@ -33,7 +33,7 @@ const NO_REPLAY_KEYS = [
   "vault.my-conference.download",
 ].sort()
 
-const NO_999999_KEYS = ["indicator.search", "indicator.cross-section", "indicator.time-series"].sort()
+const NO_999999_KEYS = ["indicator.search", "indicator.cross-section", "indicator.time-series", "indicator.screener"].sort()
 
 // Synchronous AI generation regularly outlives the default 30s request timeout;
 // aborting bills the orphaned generation anyway, so these carry a 120s floor.

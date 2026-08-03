@@ -93,7 +93,10 @@ const ERROR_HINTS: Record<string, string> = {
   "130004": "下载 ID 需为数字，检查该工具的 *Id 参数是否传对。",
   "130005": "对照工具参数说明检查 fileType / contentType 取值。",
   "140001": "稍后用对应 *_check 工具查询。",
-  "140002": "更换参数重新提交；重查同一 dataId 结果不会变，重新提交会再次计费。",
+  // 两类终态参数错共用此码：异步 AI 生成失败，以及 EDE 取数/表达式的入参错（必填缺失、
+  // 枚举越界、表达式语法错）。旧文案只讲 dataId，对 EDE 完全对不上——EDE 这条路径根本没有
+  // dataId，会把用户引去查一个不存在的东西。两者都不该重试，故合并成通用的「改参数再来」。
+  "140002": "终态参数错，不要重试同样的入参：核对必填项与枚举取值（EDE 指标还要核对 indicatorParamList 的参数名与 expression 语法，参数名以 gangtise_indicator_search 的 parameterList 为准）；异步生成类改参数重新提交会再次计费，重查同一 dataId 结果不会变。",
 
   // ── 接口专有层 2xxxxx ──
   "210001": "换一篇，或改用对应 list 工具取摘要。",
@@ -115,7 +118,9 @@ const ERROR_HINTS: Record<string, string> = {
   // EDE 专有旧码：未被 2026-07-17 重排收编，却是 indicator 取数最常见的两个报错。
   "410001": "检查必填参数及 ID 来源：板块 ID 用 gangtise_sector_search，行业/公告类别/地区 ID 用 gangtise_constant_list，题材 ID 用 gangtise_concept_search；EDE 指标端点此码多为漏传 indicatorCodeList / securityCodeList。",
   "410004": "换证券或日期确认该条件下本应有数据；仍失败多为未开通该指标，联系客户经理。",
-  "410106": "读 gangtise_indicator_search 返回的 parameterList，用 indicatorParamList 补上 required:true 的参数（如 periodNum / startDate / fiscalYear）。",
+  // 举例只能用实际存在的参数名：`startDate` 在 EDE 指标上根本不存在（区间指标的起始日是
+  // sDate，2026-08-03 实测），旧文案照它排查会走进死胡同。
+  "410106": "读 gangtise_indicator_search 返回的 parameterList，用 indicatorParamList 补上 required:true 的参数（常见：periodNum + reportDate / fiscalYear + tradeDate；区间指标的起始日是 sDate，没有 startDate）。",
   "410110": "稍后用对应 *_check 工具查询。",
   "410111": "更换参数重新提交；重查同一 dataId 结果不会变，重新提交会再次计费。",
   "430004": "确认 reportId 有效，或更换 fileType 重试（官方未文档化错误码）。",

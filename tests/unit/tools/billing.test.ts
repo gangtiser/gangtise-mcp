@@ -22,7 +22,7 @@ describe("billing catalog coverage", () => {
   it("classifies exactly the registered tool set", async () => {
     const live = (await listLiveTools()).map((t) => t.name).sort()
     expect(Object.keys(BILLING_CATALOG).sort()).toEqual(live)
-    expect(live).toHaveLength(94)
+    expect(live).toHaveLength(95)
   })
 
   it("renders the documented label shapes", () => {
@@ -65,6 +65,7 @@ describe("billing catalog coverage", () => {
       "gangtise_forum_list",
       "gangtise_hot_topic",
       "gangtise_indicator_cross_section",
+      "gangtise_indicator_screener",
       "gangtise_indicator_time_series",
       "gangtise_opinion_list",
       "gangtise_performance_calendar_download",
@@ -109,13 +110,13 @@ describe("billing catalog coverage", () => {
   })
 
   // 免费档 34 个不打标签（instructions 末行已声明「未标注即免费」），
-  // 省 714 B 并让付费标签更醒目；目录仍 100% 覆盖 94 个（覆盖 ≠ 输出）。
-  it("keeps 34 free tools label-free while all 94 stay classified", () => {
+  // 省 714 B 并让付费标签更醒目；目录仍 100% 覆盖 95 个（覆盖 ≠ 输出）。
+  it("keeps 34 free tools label-free while all 95 stay classified", () => {
     const entries = Object.values(BILLING_CATALOG)
     expect(entries.filter((s) => s.kind === "free")).toHaveLength(34)
     expect(entries.filter((s) => s.kind === "fixed")).toHaveLength(45)
     expect(entries.filter((s) => s.kind === "downstream")).toHaveLength(1)
-    expect(entries.filter((s) => s.kind === "variable")).toHaveLength(2)
+    expect(entries.filter((s) => s.kind === "variable")).toHaveLength(3)
     expect(entries.filter((s) => s.kind === "unconfirmed")).toHaveLength(9)
     expect(entries.filter((s) => s.kind === "local")).toHaveLength(3)
   })
@@ -169,12 +170,12 @@ describe("listTools billing-label gate", () => {
     }
   })
 
-  it("surfaces all 10 amplification hints in the live listing", async () => {
+  it("surfaces all 11 amplification hints in the live listing", async () => {
     const hinted = (await listLiveTools()).filter((t) => {
       const spec = BILLING_CATALOG[t.name]
       return "amplify" in spec && spec.amplify && (t.description ?? "").includes(spec.amplify)
     })
-    expect(hinted).toHaveLength(10)
+    expect(hinted).toHaveLength(11)
   })
 
   it("only scans tool.description — param descriptions keep their amplification warnings", async () => {
@@ -213,23 +214,34 @@ describe("tool description boundaries", () => {
     expect(ts).toContain("需拆分")
   })
 
-  it("declares the EDE parameter-filling recipe (date routing / required params / contested reportType)", async () => {
+  it("declares the EDE parameter-filling recipe (date routing / required params / resolved reportType)", async () => {
     const tools = await listLiveTools()
     const cs = tools.find((t) => t.name === "gangtise_indicator_cross_section")
-    // 公司类型 + 999999→时序 兜底在描述里
+    // 公司类型 + 四档缺数据形态在描述里。自 2026-08-01 起整批无数据返回**空表**而不是
+    // 999999，所以旧的「报 999999 时改用 time_series」兜底已作废——描述不得再教它。
     expect(cs?.description ?? "").toContain("分公司类型")
-    expect(cs?.description ?? "").toContain("999999")
+    expect(cs?.description ?? "").toContain("空表")
+    expect(cs?.description ?? "").not.toContain("999999")
     // 日期路由 + 必填参数填法 + reportType 口径在 inputSchema（date / indicatorParamList 描述）
     const schema = JSON.stringify(cs?.inputSchema)
     expect(schema).toContain("报告期末季末")
-    for (const p of ["startDate", "periodNum", "fiscalYear"]) expect(schema, `应含参数填法 ${p}`).toContain(p)
-    // CLI 0.28.3 推翻了「2/4 必报错、要指定口径改用 fundamental」的旧结论，但它给出的映射
-    // （1=合并）与服务端 indicator.search 自己声明的 enum（1=母公司报表）恰好相反，
-    // 2026-07-26 复验时 EDE 取数端全线 500/999999、无法裁决。描述必须同时保留
-    // 「未定论」与「交叉核对」两层——任一层被改成单方面断言都该红。
-    expect(schema).toContain("尚未定论")
-    expect(schema).toContain("核对")
+    for (const p of ["periodNum", "fiscalYear", "sDate"]) expect(schema, `应含参数填法 ${p}`).toContain(p)
+    // ⚠️ `startDate` 在 EDE 指标上根本不存在（2026-08-03 实测：区间指标只声明
+    // sDate/changePeriod/tradeDate），写它会被服务端静默忽略。旧描述教模型传 startDate，
+    // 这条断言防止它回归——只允许作为「没有 startDate」的否定说明出现。
+    expect(schema).toContain("没有 startDate")
+    expect(schema).not.toContain("→startDate")
+    // reportType 悬案已关闭：服务端 2026-08-01 改正了 enum label，label 与实际取数一致
+    // （CLI v0.30.0 用中信证券 FY2024 营收四值逐一对上三大报表）。描述改为直接给映射，
+    // 并保留「别读 paramDescription」——同一响应里那段旧文字仍与 enum 相反。
+    expect(schema).toContain("1=合并")
+    expect(schema).toContain("3=母公司")
+    expect(schema).toContain("paramDescription")
+    expect(schema).not.toContain("尚未定论")
     expect(schema).not.toContain("reportType 勿传")
+    // adjustType 的坑必须写死：写成 adjustmentType 会被服务端静默忽略并退回不复权
+    expect(schema).toContain("adjustType")
+    expect(schema).toContain("adjustmentType")
   })
 
   // 总市值是 qte_ 族里唯一「专用工具没有」的：realtime/day_kline 实测都无市值字段，

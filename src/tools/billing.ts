@@ -162,7 +162,7 @@ export const BILLING_CATALOG: Record<string, BillingSpec> = {
   // ───────── downstream（1） ─────────
   gangtise_knowledge_resource_download: { kind: "downstream", note: "按 resourceType 对应的下游资源标准计费" },
 
-  // ───────── variable（2） ─────────
+  // ───────── variable（3） ─────────
   // 源非 7.1：计分表只写「详见文档」。单元格计价（A股 0.05 / 港股 0.1 / 美股 0.2
   // 积分每 100 单元格）的依据是 gangtise CLI references/commands/indicator.md ——
   // 因此这里仍归 variable、note 指向该文档，不写死单价。
@@ -175,6 +175,14 @@ export const BILLING_CATALOG: Record<string, BillingSpec> = {
     kind: "variable",
     note: "按单元格计价，单价见 gangtise CLI indicator.md（A股 0.05 / 港股 0.1 / 美股 0.2 每 100 单元格）",
     amplify: "按单元格计价，指标数×证券数×日期数即放大倍数",
+  },
+  // 同族同口径：条件选股按 universe 展开后的单元格计价，而 universe 可以是一个板块 ID
+  // （服务端展开成 N 只成分股），所以放大倍数由「展开后的证券数」决定、请求里看不出来 ——
+  // 这一点写进 amplify，否则模型会按自己传的 1 个 sectorId 估成本。
+  gangtise_indicator_screener: {
+    kind: "variable",
+    note: "按单元格计价，单价见 gangtise CLI indicator.md（A股 0.05 / 港股 0.1 / 美股 0.2 每 100 单元格）",
+    amplify: "按单元格计价，指标数×证券数即放大倍数；板块 ID 由服务端展开成全部成分股，实际证券数可远大于传入条数",
   },
 
   // ───────── unconfirmed（9） ─────────
