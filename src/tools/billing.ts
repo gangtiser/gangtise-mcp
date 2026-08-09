@@ -117,6 +117,10 @@ export const BILLING_CATALOG: Record<string, BillingSpec> = {
   // 投研资讯 —— 列表
   gangtise_qa_list: fixed(0.1, "item"),
   gangtise_summary_list: fixed(0.1, "item"),
+  // 计分表未列帕米尔的两个接口 —— spec 只写了「需购买专家纪要数据库」这个准入门槛，
+  // 没给单次价格。**未确认 ≠ 免费**，标 unconfirmed 而不是 FREE。
+  gangtise_pamirs_summary_list: { kind: "unconfirmed", note: "计分表未列，单价未公布（另需购买专家纪要数据库）" },
+  gangtise_pamirs_summary_download: { kind: "unconfirmed", note: "计分表未列，单价未公布（另需购买专家纪要数据库）" },
   gangtise_research_list: fixed(0.1, "item"),
   gangtise_foreign_report_list: fixed(0.1, "item"),
   gangtise_official_account_list: fixed(0.1, "item"),

@@ -54,7 +54,7 @@ const mainBusinessFieldList = z
 // companyType 与 currency 两列的值是互换的（companyType 返回「人民币」、currency 返回
 // 「银行」/「一般企业」）。A股利润表（累计）正确；A股单季表则是 companyType 返回未映射的
 // 数字码（如 102110100）、currency 正确。科目数字不受影响，只影响这两列的读法。
-const META_SWAP_NOTE = "注意：companyType 与 currency 两列的值上游是互换的（companyType 里是币种、currency 里才是公司类型），按值判断语义，科目数字不受影响。"
+const META_SWAP_NOTE = "注意：companyType 与 currency 两列的取值互换（companyType 列里是币种、currency 列里是公司类型），请按值本身判断语义、不要按列名；报表科目数字不受影响。"
 
 export const specs: JsonToolSpec[] = [
   {
@@ -161,7 +161,7 @@ export const specs: JsonToolSpec[] = [
     inputSchema: {
       securityCode,
       ...dateRange,
-      consensusList: z.array(z.string()).optional().describe("netIncome=净利润 | netIncomeYoy=净利润增速 | eps | pe | bps | pb | peg | roe | ps"),
+      consensusList: z.array(z.enum(["netIncome", "netIncomeYoy", "eps", "pe", "bps", "pb", "peg", "roe", "ps"])).optional().describe("netIncome=净利润 | netIncomeYoy=净利润增速 | eps | pe | bps | pb | peg | roe | ps"),
     },
   },
   {

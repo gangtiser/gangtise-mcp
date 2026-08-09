@@ -6,14 +6,15 @@
 
 README 仅列最近 5 个版本摘要：
 
+- **0.1.51 — 2026-08-09**：🔴 修复财报日历日期筛选完全失效（发错字段名 `startTime`/`endTime`，服务端只认 `startDate`/`endDate`，静默返回全库 12.8 万行且按条计费）；同步 CLI v0.32.0——新增帕米尔专家纪要工具；EDE 缺数据改为保留行列并填占位值（`null` 或 `0`，取决于指标），`_partial` 语义随之反转为「多半是 code 没被服务端解析」；`searchType`/`rankType` 收成闭集（非法值会静默吞掉 `keyword` 并转储全库）。
 - **0.1.50 — 2026-08-03**：同步 CLI v0.30.0–v0.31.0——修复服务端 2026-08-01 重构后三个 EDE 取数工具全线不可用（`universe` 改名 + 截面矩阵转置 + 日期下沉到每个指标），修正复权参数名 `adjustType`（旧名静默取到不复权数据），新增条件选股工具，并把整行/整列丢数据标成 `_partial`。
 - **0.1.49 — 2026-07-26**：新增财报日历工具，取数护栏改按实际请求行数判定，`fieldList` 收成闭集以拦截静默错列。
 - **0.1.48 — 2026-07-24**：修复无效字段名导致的静默错列（数据污染），并把单票总市值路由到 EDE `qte_mkt_cptl`。
 - **0.1.47 — 2026-07-24**：把 EDE 取数参数配方写进工具描述，并按端点收窄 `999999` 无数据提示。
-- **0.1.46 — 2026-07-23**：取数路由调整，多证券财务/估值批量优先走 EDE 截面/时序接口。
 
 ### 历史里程碑
 
+- **0.1.46**：取数路由调整，多证券财务/估值批量优先走 EDE 截面/时序接口。
 - **0.1.45**：同步 CLI v0.28.0，适配新版错误码三层重排、日期严格校验与 traceId 透出。
 - **0.1.44**：`server.instructions` 重写为路由层，建立 92 工具积分目录与自动计费标签，大响应支持字段投影与 `_available_fields`。
 - **0.1.36–0.1.43**：多轮对抗式审查收口——计费端点 `no-replay`、429 退避与 `Retry-After`、异步任务截止时间与 `dataId` 保全、紧凑 JSON，以及 OIDC 发布链 verify/publish 拆分。
@@ -34,7 +35,7 @@ README 仅列最近 5 个版本摘要：
 <tr><td>上下文</td><td><code>gangtise_current_date</code> — 查询运行时当前日期、年份、时间和时区</td></tr>
 <tr><td>参考数据</td><td><code>gangtise_constant_category</code> / <code>gangtise_constant_list</code> — 行业、城市、公告分类、区域等常量；<code>gangtise_concept_search</code> — 题材 ID 搜索；<code>gangtise_sector_search</code> / <code>gangtise_sector_constituents</code> — 板块及成分股（含申万行业代码 <code>821xxx.SWI</code>）；<code>gangtise_chiefs_search</code> — 首席分析师 ID 搜索；<code>gangtise_institution_search</code> — 机构 ID 搜索（内资券商/外资/牵头/观点机构）；<code>gangtise_official_account_search</code> — 公众号 ID 搜索；<code>gangtise_lookup</code> — 券商机构、会议机构（本地表）</td></tr>
 <tr><td>证券检索</td><td><code>gangtise_securities_search</code></td></tr>
-<tr><td>观点/研报</td><td>国内首席观点、纪要、券商研报、外资研报、外资独立观点、公告（A股/港股/美股）、产业公众号资讯、投资者问答 QA、研报图表搜索与下载</td></tr>
+<tr><td>观点/研报</td><td>国内首席观点、纪要、帕米尔专家纪要（独立库，需单独购买）、券商研报、外资研报、外资独立观点、公告（A股/港股/美股）、产业公众号资讯、投资者问答 QA、研报图表搜索与下载</td></tr>
 <tr><td>路演/调研</td><td>路演、调研、策略会、论坛</td></tr>
 <tr><td>财报日历</td><td><code>gangtise_performance_calendar_list</code> / <code>_download</code> — 业绩预告/快报/公告的发布排期（含未来已排期）与原文 PDF 下载</td></tr>
 <tr><td>行情</td><td>A 股/港股/美股日 K（仅历史）、A 股分钟 K、指数日 K、实时行情快照（A/港/美）、A 股个股资金流向（日频）</td></tr>

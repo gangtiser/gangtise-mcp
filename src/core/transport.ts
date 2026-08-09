@@ -86,8 +86,10 @@ const NO_REPLAY_NETWORK_CODES = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN
  * cache-hit exemption): never resend a request the server may have executed.
  * Only connect-phase errors, 429 (rejected before processing) and the explicit
  * token-self-heal mark retry; 5xx / response timeouts / 999999 fail fast.
- * "no-999999" (EDE indicator endpoints): the server answers a no-data query with
- * HTTP 500 + 999999 (probed 2026-07-11) — retrying that is pure waste; everything
+ * "no-999999" (EDE indicator endpoints): 999999 is a server-side fault here (it
+ * also meant "no data" until 2026-08-01; a no-data answer now keeps its row and
+ * column and carries a placeholder — null for most indicators, 0 for some) and
+ * replaying an already-billed query buys nothing; everything
  * else follows the default policy. */
 export type RetryPolicy = "default" | "no-replay" | "no-999999"
 

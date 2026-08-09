@@ -11,8 +11,13 @@ export interface EndpointDefinition {
   /** "no-replay": never resend a request the server may have executed — set on
    * per-call billed endpoints (billing probed non-idempotent, cache hits still
    * charge), where a transport-level replay re-bills or duplicates a job.
-   * "no-999999": EDE indicator endpoints answer a no-data query with HTTP 500 +
-   * code 999999 — retrying that is pure waste. See transport.ts RetryPolicy. */
+   * "no-999999": EDE used to answer a no-data query with HTTP 500 + code 999999
+   * (probed 2026-07-11). It stopped doing that on 2026-08-01, and since
+   * 2026-08-07 a no-data answer keeps its row and column and carries a placeholder
+   * (null for most indicators, 0 for some),
+   * so 999999 is now a generic server fault here — the marker stays because
+   * replaying an already-billed EDE query on a fault buys nothing.
+   * See transport.ts RetryPolicy. */
   retry?: "no-replay" | "no-999999"
   /** Floor for the HTTP timeout (ms): effective timeout is max(config.timeoutMs,
    * timeoutMs). Set on synchronous AI generation that outlives the 30s default —
@@ -69,6 +74,26 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-insight/summary/v2/download/file",
     kind: "download",
     description: "Download summary file",
+    retry: "no-replay",
+  },
+  "insight.pamirs-summary.list": {
+    key: "insight.pamirs-summary.list",
+    method: "POST",
+    path: "/application/open-insight/pamirs-summary/getList",
+    kind: "json",
+    description: "List Pamirs expert summaries (requires the expert-summary database)",
+    pagination: { enabled: true, maxPageSize: 50 },
+  },
+  "insight.pamirs-summary.download": {
+    key: "insight.pamirs-summary.download",
+    method: "GET",
+    path: "/application/open-insight/pamirs-summary/download/file",
+    kind: "download",
+    description: "Download a Pamirs expert summary file",
+    // The 2026-08-07 spec states an entitlement (the expert-summary database) but
+    // no per-call price. Treated as non-idempotent anyway, like its
+    // insight.summary.download sibling: if it does meter, a 5xx replay
+    // double-bills, and the only cost of being wrong is losing one retry.
     retry: "no-replay",
   },
   "insight.roadshow.list": {

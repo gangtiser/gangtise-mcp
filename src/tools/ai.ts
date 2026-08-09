@@ -85,8 +85,8 @@ export const jsonSpecs: JsonToolSpec[] = [
     inputSchema: {
       queries: z.array(z.string()).min(1).max(5).describe("搜索词列表（最多 5 个）"),
       top: z.number().int().min(1).max(20).optional().describe("每个查询词返回的结果数（默认 10，最大 20）"),
-      resourceTypes: z.array(z.number().int()).optional().describe("10=研报 | 11=外资研报 | 20=内部 | 40=观点 | 50=公告 | 51=港股公告 | 60=纪要 | 70=调研 | 80=网络纪要 | 90=公众号"),
-      knowledgeNames: z.array(z.string()).optional().describe("system_knowledge_doc | tenant_knowledge_doc"),
+      resourceTypes: z.array(intLiteralEnum([10, 11, 20, 40, 50, 51, 60, 70, 80, 90])).optional().describe("10=研报 | 11=外资研报 | 20=内部 | 40=观点 | 50=公告 | 51=港股公告 | 60=纪要 | 70=调研 | 80=网络纪要 | 90=公众号"),
+      knowledgeNames: z.array(z.enum(["system_knowledge_doc", "tenant_knowledge_doc"])).optional().describe("system_knowledge_doc | tenant_knowledge_doc"),
       startTime: knowledgeTime.optional().describe("YYYY-MM-DD HH:mm:ss，或 epoch 时间戳（10 位秒 / 13 位毫秒）"),
       endTime: knowledgeTime.optional().describe("YYYY-MM-DD HH:mm:ss，或 epoch 时间戳（10 位秒 / 13 位毫秒）"),
     },
@@ -102,7 +102,7 @@ export const jsonSpecs: JsonToolSpec[] = [
       endTime: dateTimeString.describe(dateTimeDesc() + "（必填）"),
       queryMode: z.enum(["bySecurity", "byIndustry"]).describe("bySecurity=按个股 | byIndustry=按行业（必填）"),
       gtsCodeList: z.array(z.string()).optional().describe("个股代码（如 600519.SH）或申万行业代码（如 821035.SWI）列表。全量 31 个行业代码用 gangtise_sector_constituents sectorId=2000000014；单个行业可用 gangtise_securities_search（如 keyword=申万银行 category=['index']）"),
-      source: z.array(z.string()).optional().describe("researchReport=研报 | conference=会议 | announcement=公告 | view=观点"),
+      source: z.array(z.enum(["researchReport", "conference", "announcement", "view"])).optional().describe("researchReport=研报 | conference=会议 | announcement=公告 | view=观点"),
     },
   },
   {
@@ -113,7 +113,7 @@ export const jsonSpecs: JsonToolSpec[] = [
     inputSchema: {
       startDate: dateString.optional().describe(dateDesc()),
       endDate: dateString.optional().describe(dateDesc()),
-      categoryList: z.array(z.string()).optional().describe("morningBriefing=早报 | noonBriefing=午报 | afternoonFlash=午后快讯 | eveningBriefing=晚报"),
+      categoryList: z.array(z.enum(["morningBriefing", "noonBriefing", "afternoonFlash", "eveningBriefing"])).optional().describe("morningBriefing=早报 | noonBriefing=午报 | afternoonFlash=午后快讯 | eveningBriefing=晚报"),
       withRelatedSecurities: z.boolean().optional().describe("是否返回话题关联证券（默认 true；只需话题清单时传 false 精简响应）"),
       withCloseReading: z.boolean().optional().describe("是否返回话题精读长文（默认 true；传 false 可大幅减小响应体积）"),
     },

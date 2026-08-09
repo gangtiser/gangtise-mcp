@@ -12,9 +12,23 @@ function makeMockClient() {
   return {
     call: vi.fn().mockImplementation(async (key: string) => {
       if (key.startsWith("lookup.")) return [{ id: "1", name: "Test" }]
+      // EDE 走双层信封 + 矩阵，返回通用 list 会被 requireIndicatorMatrix 硬拒。
+      // 闭集参数用例靠正向对照判断「这条红是不是枚举造成的」，mock 形状不对
+      // 会让 currency/scale/calendarType 全部沦为跳过——测不到就是漏。
+      if (key.startsWith("indicator.")) {
+        return {
+          code: "000000",
+          status: true,
+          data: {
+            securityCodeList: ["600519.SH"], securityNameList: ["贵州茅台"],
+            indicatorList: [{ code: "qte_close", name: "收盘价", dataType: "number" }],
+            dates: ["2026-07-31"], values: [[1]],
+          },
+        }
+      }
       return { list: [{ id: "test-id" }], total: 1 }
     }),
-    download: vi.fn(),
+    download: vi.fn().mockResolvedValue({ text: "mock", contentType: "text/plain", filename: "mock.txt" }),
   } as unknown as GangtiseClient
 }
 
@@ -616,5 +630,348 @@ describe("MCP server integration", () => {
 
   it("declares the billing-label convention that lets free tools stay unlabelled", () => {
     expect(mcpClient.getInstructions() ?? "").toContain("未标注即免费")
+  })
+})
+
+// 未知入参必须**报错**，不能被静默剥掉。
+//
+// 非 strict 时 SDK 在进 handler 之前就 strip 掉未声明的键，于是「传了个没人认识的
+// 参数」变成一次**没有该筛选条件的正常调用**：isError=false、按条计费、返回全量。
+// 而我们发布的 JSON Schema 写的是 additionalProperties:false —— 契约声明拒绝、行为
+// 却静默接受。财报日历 2026-08-08 换日期字段名时，沿用旧名的调用方就是这样静默拿到
+// 12.8 万行全库切片的。
+//
+// 这层保护挂在 createGangtiseMcpServer 上（server.ts 的 enforceStrictInput），所以
+// **只有集成测试覆盖得到**——各单元测试自己 new McpServer，绕过它。别把这些用例挪走。
+describe("strict input schemas", () => {
+  const connect = async () => {
+    const client = makeMockClient()
+    const server = createGangtiseMcpServer(client)
+    const [ct, st] = InMemoryTransport.createLinkedPair()
+    await server.connect(st)
+    const mcp = new Client({ name: "t", version: "0" })
+    await mcp.connect(ct)
+    return { mcp, client }
+  }
+
+  // 三条注册路径各取一个：registerJsonTool / registerDownloadTool / 直接 server.registerTool。
+  it.each([
+    ["registry-driven", "gangtise_research_list", { keyword: "茅台", bogusKey: "x" }],
+    ["download", "gangtise_research_download", { reportId: "1", bogusKey: "x" }],
+    ["direct", "gangtise_performance_calendar_list", { bogusKey: "x" }],
+    ["direct", "gangtise_indicator_cross_section", { indicatorCodeList: ["qte_close"], securityCodeList: ["600519.SH"], date: "2026-08-07", bogusKey: "x" }],
+  ] as Array<[string, string, Record<string, unknown>]>)(
+    "%s tool %s rejects an unknown key without spending a call",
+    async (_path, name, args) => {
+      const { mcp, client } = await connect()
+      const result = await mcp.callTool({ name, arguments: args }).catch(() => ({ isError: true }))
+      expect((result as { isError?: boolean }).isError).toBe(true)
+      expect(client.call).not.toHaveBeenCalled()
+      expect(client.download).not.toHaveBeenCalled()
+    },
+  )
+
+  // 财报日历的旧日期名是这条保护最现实的触发点（服务端 2026-08-08 换了接受的字段名）。
+  it("rejects the calendar's superseded startTime/endTime by name", async () => {
+    const { mcp, client } = await connect()
+    const result = await mcp.callTool({
+      name: "gangtise_performance_calendar_list",
+      arguments: { startTime: "2026-07-20", endTime: "2026-07-25" },
+    }).catch(() => ({ isError: true }))
+    expect((result as { isError?: boolean }).isError).toBe(true)
+    expect(client.call).not.toHaveBeenCalled()
+  })
+
+  // 合法入参必须照常通过——strict 不能误伤。
+  it.each([
+    ["gangtise_research_list", { keyword: "茅台" }],
+    ["gangtise_performance_calendar_list", { startDate: "2026-07-20", endDate: "2026-07-25" }],
+  ] as Array<[string, Record<string, unknown>]>)("%s still accepts its declared params", async (name, args) => {
+    const { mcp, client } = await connect()
+    const result = await mcp.callTool({ name, arguments: args })
+    expect(result.isError).toBeFalsy()
+    expect(client.call).toHaveBeenCalledTimes(1)
+  })
+})
+
+// 根级 strict 只管最外层。嵌套对象（indicatorParamList 的元素、screener 的
+// indicatorList 元素、parameters 的键值对）也必须拒未知键——把 `parameters` 误写成
+// `parameterList` 是很常见的，非 strict 时它被静默剥掉、请求照发，body 里 adjustType
+// 整个消失，客户要后复权价却拿到不复权价（与 adjustmentType 写错名同一类静默错数）。
+describe("strict nested objects", () => {
+  const connect = async () => {
+    const client = makeMockClient()
+    const server = createGangtiseMcpServer(client)
+    const [ct, st] = InMemoryTransport.createLinkedPair()
+    await server.connect(st)
+    const mcp = new Client({ name: "t", version: "0" })
+    await mcp.connect(ct)
+    return { mcp, client }
+  }
+  const CS = { indicatorCodeList: ["qte_close"], securityCodeList: ["600519.SH"], date: "2026-08-07" }
+  const SCR = { expression: "F1 > 0", securityCodeList: ["600519.SH"], date: "2026-08-07" }
+
+  it.each([
+    ["screener 元素误写 parameterList", "gangtise_indicator_screener", { ...SCR, indicatorList: [{ field: "F1", indicatorCode: "qte_close", parameterList: [{ paramKey: "adjustType", paramValue: "3" }] }] }],
+    ["截面元素误写 paramList", "gangtise_indicator_cross_section", { ...CS, indicatorParamList: [{ indicatorCode: "qte_close", paramList: [{ paramKey: "adjustType", paramValue: "3" }] }] }],
+    ["键值对多一个键", "gangtise_indicator_cross_section", { ...CS, indicatorParamList: [{ indicatorCode: "qte_close", parameters: [{ paramKey: "adjustType", paramValue: "3", bogus: 1 }] }] }],
+  ] as Array<[string, string, Record<string, unknown>]>)("%s is rejected without calling upstream", async (_l, name, args) => {
+    const { mcp, client } = await connect()
+    const result = await mcp.callTool({ name, arguments: args }).catch(() => ({ isError: true }))
+    expect((result as { isError?: boolean }).isError).toBe(true)
+    expect(client.call).not.toHaveBeenCalled()
+  })
+
+  it("still accepts the correct nested spelling", async () => {
+    const { mcp, client } = await connect()
+    const result = await mcp.callTool({
+      name: "gangtise_indicator_cross_section",
+      arguments: { ...CS, indicatorParamList: [{ indicatorCode: "qte_close", parameters: [{ paramKey: "adjustType", paramValue: "3" }] }] },
+    })
+    expect(client.call).toHaveBeenCalledTimes(1)
+    const body = (client.call as ReturnType<typeof vi.fn>).mock.calls[0][1] as Record<string, unknown>
+    const groups = body.indicatorParamList as Array<{ parameters: Array<{ paramKey: string }> }>
+    expect(groups[0].parameters.map((p) => p.paramKey)).toContain("adjustType")
+    // 不断言 isError：mock 返回的不是合法 EDE 矩阵，requireIndicatorMatrix 会拒。
+    // 这里要验的是「合法嵌套写法能通过 schema 并把 adjustType 带到 body 里」，上面两条已够。
+    void result
+  })
+})
+
+// 闭集参数的负向测试。上游对非法枚举**静默 no-op 返回未过滤的全量**（A2），
+// 所以 schema 层是唯一防线——漏一个字段，客户 agent 就会以为过滤生效、实得全库，
+// 且按条计费。
+// 当前全部闭集参数（工具名去掉 gangtise_ 前缀）。遍历是自动的，这份快照只负责
+// 挡「悄悄退回自由类型」——见文件末尾的集合断言。
+const CLOSED_SET_SNAPSHOT = [
+    "lookup.type",
+    "securities_search.category",
+    "institution_search.categoryList",
+    "official_account_search.category",
+    "constant_list.category",
+    "opinion_list.rankType",
+    "opinion_list.llmTagList",
+    "opinion_list.sourceList",
+    "summary_list.searchType",
+    "summary_list.rankType",
+    "summary_list.categoryList",
+    "summary_list.marketList",
+    "summary_list.participantRoleList",
+    "summary_list.sourceList",
+    "pamirs_summary_list.searchType",
+    "pamirs_summary_list.rankType",
+    "pamirs_summary_list.categoryList",
+    "pamirs_summary_list.marketList",
+    "roadshow_list.categoryList",
+    "roadshow_list.marketList",
+    "roadshow_list.participantRoleList",
+    "roadshow_list.brokerTypeList",
+    "roadshow_list.permission",
+    "site_visit_list.objectList",
+    "site_visit_list.categoryList",
+    "site_visit_list.marketList",
+    "site_visit_list.permission",
+    "research_list.searchType",
+    "research_list.rankType",
+    "research_list.categoryList",
+    "research_list.llmTagList",
+    "research_list.ratingList",
+    "research_list.ratingChangeList",
+    "research_list.sourceList",
+    "foreign_report_list.searchType",
+    "foreign_report_list.rankType",
+    "foreign_report_list.categoryList",
+    "foreign_report_list.llmTagList",
+    "foreign_report_list.ratingList",
+    "foreign_report_list.ratingChangeList",
+    "announcement_list.searchType",
+    "announcement_list.rankType",
+    "announcement_hk_list.searchType",
+    "announcement_hk_list.rankType",
+    "announcement_us_list.searchType",
+    "announcement_us_list.rankType",
+    "foreign_opinion_list.rankType",
+    "foreign_opinion_list.ratingList",
+    "foreign_opinion_list.ratingChangeList",
+    "independent_opinion_list.rankType",
+    "independent_opinion_list.ratingList",
+    "independent_opinion_list.ratingChangeList",
+    "official_account_list.searchType",
+    "official_account_list.rankType",
+    "official_account_list.categoryList",
+    "qa_list.answerImportant",
+    "summary_download.fileType",
+    "pamirs_summary_download.fileType",
+    "research_download.fileType",
+    "foreign_report_download.fileType",
+    "announcement_download.fileType",
+    "announcement_hk_download.fileType",
+    "announcement_us_download.fileType",
+    "independent_opinion_download.fileType",
+    "official_account_download.fileType",
+    "performance_calendar_list.marketList",
+    "performance_calendar_list.categoryList",
+    "income_statement.period",
+    "income_statement.reportType",
+    "income_statement_quarterly.period",
+    "income_statement_quarterly.reportType",
+    "balance_sheet.period",
+    "balance_sheet.reportType",
+    "cash_flow.period",
+    "cash_flow.reportType",
+    "cash_flow_quarterly.period",
+    "cash_flow_quarterly.reportType",
+    "main_business.breakdown",
+    "main_business.periodList",
+    "main_business.fieldList",
+    "top_holders.holderType",
+    "top_holders.period",
+    "earning_forecast.consensusList",
+    "income_statement_hk.period",
+    "income_statement_hk.reportType",
+    "balance_sheet_hk.period",
+    "balance_sheet_hk.reportType",
+    "cash_flow_hk.period",
+    "cash_flow_hk.reportType",
+    "income_statement_us.period",
+    "income_statement_us.reportType",
+    "balance_sheet_us.period",
+    "balance_sheet_us.reportType",
+    "cash_flow_us.period",
+    "cash_flow_us.reportType",
+    "valuation_analysis.indicator",
+    "valuation_analysis.fieldList",
+    "knowledge_batch.resourceTypes",
+    "knowledge_batch.knowledgeNames",
+    "security_clue_list.queryMode",
+    "security_clue_list.source",
+    "hot_topic.categoryList",
+    "management_discuss_announcement.discussionDimension",
+    "management_discuss_earnings_call.discussionDimension",
+    "knowledge_resource_download.resourceType",
+    "drive_list.fileTypeList",
+    "drive_list.spaceTypeList",
+    "record_list.categoryList",
+    "record_list.spaceTypeList",
+    "my_conference_list.categoryList",
+    "my_conference_list.sourceList",
+    "wechat_message_list.categoryList",
+    "wechat_message_list.tagList",
+    "record_download.contentType",
+    "my_conference_download.contentType",
+    "indicator_cross_section.currency",
+    "indicator_cross_section.scale",
+    "indicator_time_series.calendarType",
+    "indicator_time_series.currency",
+    "indicator_time_series.scale",
+]
+
+describe("closed-set params reject illegal values before calling upstream", () => {
+  // **用例由 live schema 自动生成；字段清单由 CLOSED_SET_SNAPSHOT 维护**——
+  // 新增和消失都会响亮失败。两者分工不同，别把它当成「全自动、零维护」：
+  // 快照仍要手工补行，只是补漏的代价从「悄悄没测」变成了「一条点名的红」。
+  //
+  // 之所以拆成这两层，是因为手工表连续三轮出现「又漏了 N 个」：先漏数字型闭集，
+  // 再漏 helper 生成的字段（scheduleInputSchema 按 fields.* 拼出来的），再漏标量 enum。
+  // 根因不是粗心，是「新增闭集参数时记得往表里加一行」这条规则**同时**决定了
+  // 「测不测它」和「有没有人知道漏了」——忘一次，两件事一起没了。
+  //
+  // 拆开之后：遍历 listTools() 的每个闭集参数（数组元素 enum、标量 enum、字面量联合）
+  // 逐个断言非法值在**发请求之前**被拒，所以新参数**当场就被测到**，不依赖谁记得；
+  // 快照只管另一件事——某个参数从闭集退回自由类型时点名报出来。
+  //
+  // 每个用例都配**正向对照**（同一组入参、只把被测字段换成合法值 → 必须打通）。
+  // 没有它，用例会因为缺必填参数而红、看着绿却根本没测到枚举——本轮之前就漏过两条。
+  const enumValuesOf = (v: Record<string, unknown>): unknown[] | undefined => {
+    const item = (v.items ?? v) as Record<string, unknown>
+    if (Array.isArray(item.enum)) return item.enum
+    if (Array.isArray(item.anyOf) && item.anyOf.every((x) => (x as Record<string, unknown>).const !== undefined)) {
+      return (item.anyOf as Array<Record<string, unknown>>).map((x) => x.const)
+    }
+    return undefined
+  }
+  const isArrayParam = (v: Record<string, unknown>) => v.type === "array"
+
+  // 用 schema 的 required 列表合成一组「除被测字段外完全合法」的入参。
+  const fillRequired = (schema: Record<string, unknown>, skip: string) => {
+    const props = (schema.properties ?? {}) as Record<string, Record<string, unknown>>
+    const required = (schema.required ?? []) as string[]
+    const args: Record<string, unknown> = {}
+    for (const key of required) {
+      if (key === skip) continue
+      const v = props[key] ?? {}
+      const vals = enumValuesOf(v)
+      const one = vals ? vals[0] : /^(reportDate|period)$|报告期/i.test(key) ? "2026-06-30" : /Date$/i.test(key) ? "2026-08-07" : /Time$/i.test(key) ? "2026-08-07 00:00:00"
+        : /securityCode|security$/i.test(key) ? "600519.SH" : v.type === "number" || v.type === "integer" ? 1
+        : v.type === "boolean" ? false : "1"
+      args[key] = isArrayParam(v) ? [one] : one
+    }
+    return args
+  }
+
+  it("rejects an illegal value for every closed-set param, and accepts the legal one", async () => {
+    // 复用同一对连接、每例 mockClear。此前每个断言各建一个 server（120 个参数 = 240 个实例），
+    // 单文件跑得过、全量并行下超 5s 默认超时——一个只在并行时红的用例比没有更糟。
+    const client = makeMockClient()
+    const probe = await makeTestClient(client)
+    const calls = () =>
+      (client.call as ReturnType<typeof vi.fn>).mock.calls.length +
+      (client.download as ReturnType<typeof vi.fn>).mock.calls.length
+    const reset = () => {
+      ;(client.call as ReturnType<typeof vi.fn>).mockClear()
+      ;(client.download as ReturnType<typeof vi.fn>).mockClear()
+    }
+    const invoke = async (name: string, args: Record<string, unknown>) => {
+      reset()
+      const r = await probe.callTool({ name, arguments: args }).catch(() => ({ isError: true, content: [] }))
+      return {
+        isError: (r as { isError?: boolean }).isError,
+        called: calls(),
+        why: String((r as { content?: Array<{ text?: string }> }).content?.[0]?.text ?? "").slice(0, 120),
+      }
+    }
+
+    const checked: string[] = []
+    const skipped: string[] = []
+    for (const tool of (await probe.listTools()).tools) {
+      const schema = tool.inputSchema as unknown as Record<string, unknown>
+      const props = (schema.properties ?? {}) as Record<string, Record<string, unknown>>
+      for (const [key, spec] of Object.entries(props)) {
+        const vals = enumValuesOf(spec)
+        if (!vals || vals.length === 0) continue
+        const base = fillRequired(schema, key)
+        const wrap = (v: unknown) => (isArrayParam(spec) ? [v] : v)
+
+        // ② 正向对照先跑：换成合法值必须打通。打不通说明这条用例的「红」另有原因
+        //    （多半是必填参数没合成对），那它就证明不了枚举——记为 skipped 而不是假绿。
+        const good = await invoke(tool.name, { ...base, [key]: wrap(vals[0]) })
+        if (good.isError) { skipped.push(`${tool.name}.${key} :: ${good.why}`); continue }
+
+        // ① 非法值必须在发请求之前被拒
+        const bad = await invoke(tool.name, { ...base, [key]: wrap(typeof vals[0] === "number" ? 987654 : "__bogus__") })
+        expect(bad.isError, `${tool.name}.${key}：非法值应被拒`).toBe(true)
+        expect(bad.called, `${tool.name}.${key}：非法值不得调用上游`).toBe(0)
+        checked.push(`${tool.name}.${key}`)
+      }
+    }
+
+    // 一个都不许跳过。跳过 = 正向对照没打通 = 这条用例的「红」另有原因，证明不了枚举。
+    // 故意做成硬失败而不是 warn：新工具带来合成不了的必填参数时，要么补合成规则、
+    // 要么补 mock 形状，不能让覆盖率悄悄掉下去——本条断言存在的全部理由就是这个。
+    expect(skipped, "正向对照未通过（补 fillRequired 规则或 makeMockClient 形状）").toEqual([])
+    // 另一个方向：某个参数从闭集退回自由类型（z.enum → z.string）后会直接从遍历结果里
+    // **消失**，skipped 仍是空、用例照绿。计数下限挡不住这个——退一个同时加一个，数还是平的。
+    // 所以钉的是集合本身：少了哪个、多了哪个，diff 直接把名字报出来。
+    // 新增闭集参数要往 CLOSED_SET_SNAPSHOT 补一行——但那是**响亮的红**，
+    // 跟手工表时代「忘了加 = 悄悄没测」是两回事。
+    const now = checked.map((x) => x.replace(/^gangtise_/, ""))
+    expect(
+      CLOSED_SET_SNAPSHOT.filter((x) => !now.includes(x)),
+      "闭集参数消失了——多半是 z.enum 退回了 z.string，非法值将被原样透传给上游",
+    ).toEqual([])
+    expect(
+      now.filter((x) => !CLOSED_SET_SNAPSHOT.includes(x)),
+      "新增了闭集参数（已自动测到），补进 CLOSED_SET_SNAPSHOT 即可",
+    ).toEqual([])
   })
 })

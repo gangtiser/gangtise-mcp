@@ -1,6 +1,6 @@
 {
   "name": "gangtise-mcp",
-  "version": "0.1.50",
+  "version": "0.1.51",
   "description": "MCP server for Gangtise OpenAPI",
   "license": "MIT",
   "author": "gangtiser",
@@ -40,8 +40,8 @@
     "pre-commit": "npm run build"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.29.0",
-    "undici": "^7.28.0",
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "undici": "^7.29.0",
     "zod": "^3.25.0"
   },
   "devDependencies": {

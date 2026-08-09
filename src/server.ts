@@ -1,3 +1,4 @@
+import { z } from "zod"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { GangtiseClient } from "./core/client.js"
 import { DEFAULT_ASYNC_TIMEOUT_MS } from "./core/config.js"
@@ -31,6 +32,45 @@ const ROUTING_INSTRUCTIONS = `日期 YYYY-MM-DD；时间 YYYY-MM-DD HH:mm:ss。�
 ④其他：drive_*/record_*/my_conference_*/wechat_* 查云盘/录音/会议/群消息；stock_pool_* 查股票池；名称与 ID 解析用 *_search/concept_*/sector_*/constant_*/lookup。
 计费见各工具【积分】标签，未标注即免费；除①批量外，优先免费/低价，慎用全市场/超大 size/fetchAll。`
 
+
+/** 把每个工具的 raw-shape `inputSchema` 收成 **strict** ZodObject：未声明的键**报错**，
+ * 而不是被静默剥掉。
+ *
+ * 为什么必须有：SDK 用这个 schema 解析入参，非 strict 时未知键在进 handler 之前就被
+ * strip 掉，于是「传了个没人认识的参数」变成一次**没有该筛选条件的正常调用**——
+ * `isError=false`、按条计费、返回全量。而我们发布的 JSON Schema 写的是
+ * `additionalProperties: false`，契约声明拒绝、行为却静默接受，两者矛盾。
+ *
+ * 不是假想：财报日历的日期入参在 2026-08-08 从 `startTime`/`endTime` 改成
+ * `startDate`/`endDate`（服务端换了它接受的字段名），沿用旧名的调用方因此静默拿到
+ * 12.8 万行全库切片而不是一周排期。
+ *
+ * 为什么拦在 server 层而不是逐个注册点改：直接 `server.registerTool` 的调用点有 27 个
+ * 分散在 12 个文件里，漏一个就是一个静默剥参的工具，且将来新增工具还会再漏。这里拦
+ * 一次，全部覆盖并自动继承。
+ *
+ * 幂等：已经是 Zod schema 的（`registerJsonTool` / `registerDownloadTool` 自己包过）
+ * 原样放行，不会二次包裹。
+ *
+ * `registerTool` 的 `inputSchema` 接受 `ZodRawShapeCompat | AnySchema`（1.29.0 起就
+ * 是这个签名，核对过 1.29.0 的类型定义——**升级到 1.30 是为了修 audit 漏洞，不是为了
+ * 这个能力**）。对 tools/list 的 schema 表面无影响：strict 只改解析行为，不加字段。 */
+function enforceStrictInput(server: McpServer): McpServer {
+  const original = server.registerTool.bind(server) as (...args: unknown[]) => unknown
+  // 用 rest 参数并只重写 args[1]，不写死 arity：当前 SDK 是 3 参签名，但将来加重载
+  // 或补参数时，写死 (name, config, cb) 会把多出来的参数悄悄吃掉。
+  const patched = (...args: unknown[]) => {
+    const cfg = args[1] as { inputSchema?: unknown } | undefined
+    const shape = cfg?.inputSchema
+    const isRawShape =
+      shape !== null && typeof shape === "object" && !("_def" in (shape as object)) && !("parse" in (shape as object))
+    if (isRawShape) args[1] = { ...cfg, inputSchema: z.object(shape as z.ZodRawShape).strict() }
+    return original(...args)
+  }
+  ;(server as unknown as { registerTool: unknown }).registerTool = patched
+  return server
+}
+
 export interface McpServerOptions {
   asyncTimeoutMs?: number
   version?: string
@@ -46,6 +86,7 @@ export function createGangtiseMcpServer(
     { name: "gangtise-mcp", version: options.version ?? getPackageVersion() },
     { instructions: dateContextInstruction() + ROUTING_INSTRUCTIONS },
   )
+  enforceStrictInput(server)
   const asyncTimeoutMs = options.asyncTimeoutMs ?? DEFAULT_ASYNC_TIMEOUT_MS
 
   registerContextTools(server, client)

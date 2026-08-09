@@ -29,6 +29,10 @@ const NO_REPLAY_KEYS = [
   "alternative.concept-info",
   "alternative.concept-securities",
   "insight.summary.download",
+  // Price not published (the 2026-08-07 spec states only an entitlement), so it
+  // is treated as its insight.summary.download sibling: if it does meter, a 5xx
+  // replay double-bills, and being wrong costs only one retry.
+  "insight.pamirs-summary.download",
   "insight.foreign-report.download",
   "vault.my-conference.download",
 ].sort()

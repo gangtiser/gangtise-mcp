@@ -545,28 +545,41 @@ describe("gangtise_indicator_screener", () => {
     expect(client.call).toHaveBeenCalledTimes(1)
   })
 
-  // 同一 code 绑到两个变量：API 规格允许，但服务端当前把这些绑定全部按其中最早的日期
-  // 取数、值落在第一列、其余返 null——活下来的数字未必属于它标注的变量。CLI 只警告
-  // （它有 stderr），MCP 没有旁路通道，一张看着正常的错值表正是本仓最危险的失败类型，
-  // 所以在发请求前本地拒绝。服务端修好后撤除。
-  it("rejects binding one indicator to two variables without calling the API", async () => {
-    const client = makeMockClient()
+  // 同一 code 绑到两个变量（同指标不同参数）是 API 规格支持的用法。服务端曾把这些
+  // 绑定全部按其中最早的日期取数，本工具因此在本地拒绝；实测 2026-08-08 已修复
+  // （F1@08-07 + F2@08-06 各自返回 1309.22 / 1308.55，连跑稳定），拦截已撤除。
+  // 这条钉住「不再本地拒绝」，防止哪天又把它当成非法输入加回来。
+  it("allows binding one indicator to two variables and labels the columns by field", async () => {
+    const client = makeMockClient(
+      matrix({
+        securityCodeList: ["600519.SH"],
+        securityNameList: ["贵州茅台"],
+        indicatorList: [
+          { field: "F1", code: "qte_close", name: "日收盘价" },
+          { field: "F2", code: "qte_close", name: "日收盘价" },
+        ],
+        values: [[1309.22, 1308.55]],
+      }),
+    )
     const mcp = await connect(client)
     const result = await mcp.callTool({
       name: "gangtise_indicator_screener",
       arguments: {
         ...SCREENER_ARGS,
         indicatorList: [
-          { field: "F1", indicatorCode: "qte_close", parameters: [{ paramKey: "tradeDate", paramValue: "2026-07-31" }] },
-          { field: "F2", indicatorCode: "qte_close", parameters: [{ paramKey: "tradeDate", paramValue: "2026-07-30" }] },
+          { field: "F1", indicatorCode: "qte_close", parameters: [{ paramKey: "tradeDate", paramValue: "2026-08-07" }] },
+          { field: "F2", indicatorCode: "qte_close", parameters: [{ paramKey: "tradeDate", paramValue: "2026-08-06" }] },
         ],
         expression: "F1 > F2",
       },
     })
-    expect(result.isError).toBe(true)
-    expect(client.call).not.toHaveBeenCalled()
+    expect(result.isError).toBeFalsy()
+    expect(client.call).toHaveBeenCalledTimes(1)
+    // 同名两列必须靠 field 区分，否则后一列会覆盖前一列。
     const text = (result.content as Array<{ text: string }>)[0].text
-    expect(text).toContain("qte_close")
+    expect(text).toContain("日收盘价 (F1)")
+    expect(text).toContain("日收盘价 (F2)")
+    expect(text).toContain("1308.55")
   })
 
   // 响应里每列带的 field 是唯一能把这一列追溯回它来自哪个筛选条件的东西。
@@ -638,8 +651,9 @@ describe("gangtise_indicator_screener", () => {
   })
 })
 
-// 自 2026-08-01 起 EDE 查询无数据返回**空表**，所以 999999 基本只剩真故障。
-// 参数排查清单仍要保留——参数名/日期语义写错同样表现为空表，那才是调用方需要的。
+// 自 2026-08-01 起 EDE 无数据不再返回 999999，所以此码基本只剩真故障。
+// 参数排查清单仍要保留——参数名/日期语义写错**同样不报错**（表现为 null/0 占位、
+// 或区间指标的默认区间错数；**不是**空表），那才是调用方需要的。
 const FETCH_CASES = [
   ["gangtise_indicator_cross_section", CS_ARGS],
   ["gangtise_indicator_time_series", TS_ARGS],
@@ -661,7 +675,7 @@ describe("indicator 999999 hint (fetch endpoints)", () => {
     expect(text).toContain("scopeList")
     expect(text).toContain("required")
     expect(text).not.toContain("稍后重试")
-    // 「多为查询无数据」已作废——无数据现在返回空表，这么写会把真故障误导成无数据
+    // 「多为查询无数据」已作废——无数据现在返回保留行列的占位单元格，这么写会把真故障误导成无数据
     expect(text).not.toContain("多为查询无数据")
   })
 
@@ -695,4 +709,78 @@ describe("indicator.search keeps the generic 999999 hint", () => {
     // 正向钉住通用回落提示——search 的 999999 走 errors.ts 默认表
     expect(text).toContain("稍后重试")
   })
+})
+
+// EDE 的空表提示是 runtime 行为（不进 schema，对外口径自查脚本也扫不到），
+// 回归时最容易被静默改掉。这里钉住两件事：截面/时序用 EDE 专属提示（空表几乎
+// 只剩「code 没被识别」，而不是通用提示说的「可能确无数据」——自 2026-08-07 起
+// 能识别的 code 无数据返回的是保留行列的 null 单元格）；screener **不挂**该提示，
+// 它零命中是选股的合法结果。
+describe("EDE empty-table hint", () => {
+  it.each([
+    ["gangtise_indicator_cross_section", { indicatorCodeList: ["qte_close"], securityCodeList: ["600519.SH"], date: "2026-08-07" }],
+    ["gangtise_indicator_time_series", { indicatorCodeList: ["qte_close"], securityCodeList: ["600519.SH"], startDate: "2026-08-01", endDate: "2026-08-07" }],
+  ])("%s tells the caller the codes were probably unrecognised", async (name, args) => {
+    const client = makeMockClient(emptyMatrix())
+    const mcp = await connect(client)
+    const result = await mcp.callTool({ name, arguments: args })
+    const payload = JSON.parse((result.content as Array<{ text: string }>)[0].text)
+    expect(payload.list).toEqual([])
+    expect(payload._hint).toContain("没被服务端解析")
+    // 通用提示以「可能该条件下确无数据」开头，对 EDE 说反了，不能落到这两个端点上。
+    // （EDE 提示里也有「确无数据」四个字，但那是否定句，所以要匹配通用提示的完整开头。）
+    expect(payload._hint).not.toContain("可能该条件下确无数据")
+    // 日期用错不会产生空表（返的是 null 单元格，行列俱在），提示里不该把人引去查日期。
+    expect(payload._hint).not.toContain("日期")
+  })
+
+  it("screener keeps the generic hint — a zero-row screen is a legitimate result", async () => {
+    const client = makeMockClient(emptyMatrix(false))
+    const mcp = await connect(client)
+    const result = await mcp.callTool({ name: "gangtise_indicator_screener", arguments: SCREENER_ARGS })
+    const payload = JSON.parse((result.content as Array<{ text: string }>)[0].text)
+    expect(payload._hint).not.toContain("没被服务端解析")
+  })
+})
+
+// 占位形态由**指标**决定，不由场景决定（2026-08-09 判别性实测：同一报告期末日期下
+// is_dnrpnp × AAPL.O/MSFT.O/TSLA.O/NVDA.O 全为 0，而同批的 600519.SH=45390247623.82、
+// 09992.HK=4574368000 是真值；同一批美股换 is_op_rev / finc_pb_mrq 则全为 null）。
+// 所以「缺数据一律补 null」是错的，而且最危险的形态是**日期完全正确**时拿到一个
+// 看着像真值的 0。这条钉住描述里不再出现那个绝对断言，且必须点名 0。
+describe("cross-section description: placeholder is indicator-bound", () => {
+  it("never promises that missing data is always null, and names the 0 case", async () => {
+    const mcp = await connect(makeMockClient())
+    const { tools } = await mcp.listTools()
+    const desc = tools.find((t) => t.name === "gangtise_indicator_cross_section")!.description!
+    // 被证伪的绝对断言——尤其「跨市场不覆盖…都是 null」正好是它自己的反例。
+    expect(desc).not.toContain("一律补 null")
+    expect(desc).not.toContain("跨市场不覆盖都是 null")
+    // 必须点名 0 这一档，并说明它取决于指标而不是查法。
+    expect(desc).toContain("is_dnrpnp")
+    expect(desc).toContain("取决于指标")
+  })
+})
+
+// 区间类指标写错参数名的后果是**错数**，不是 null——错名与臆造名都等同于「没传起点」，
+// 服务端静默套默认区间返回一个完全合理的数（2026-08-09：茅台 qte_amp_intvl 终点
+// 2026-08-07，sDate=2026-07-01 → 16.6193，写成 startDate → 23.1634 = 不传时的默认值；
+// 换 qte_vol_intvl 同形态 1.33 亿 vs 3.99 亿）。两个数都正常，从结果看不出用错了，
+// 比 0 占位更难发现。描述必须点明这一层，只说「会被静默忽略」不够。
+describe("interval-indicator parameter guidance", () => {
+  it.each(["gangtise_indicator_cross_section", "gangtise_indicator_time_series"])(
+    "%s warns that a wrong interval key yields a wrong number, not null",
+    async (name) => {
+      const mcp = await connect(makeMockClient())
+      const { tools } = await mcp.listTools()
+      const schema = tools.find((t) => t.name === name)!.inputSchema as {
+        properties: Record<string, { description?: string }>
+      }
+      const guidance = schema.properties.indicatorParamList?.description ?? ""
+      expect(guidance).toContain("sDate")
+      // 后果必须写明：默认区间 + 拿到的是数不是 null
+      expect(guidance).toContain("默认区间")
+      expect(guidance).not.toContain("写 startDate 会被静默忽略")
+    },
+  )
 })

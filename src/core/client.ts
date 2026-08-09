@@ -62,6 +62,9 @@ export interface DownloadResponse {
   savedPath?: string
 }
 
+const TOTAL_CAPPED_NOTE =
+  "服务端返回的 total 是上限值而非真实计数，实际条数更多；本次只取到了上限内的部分"
+
 export class GangtiseClient {
   private refreshPromise: Promise<string> | null = null
   private memoCache: TokenCache | null = null
@@ -204,6 +207,46 @@ export class GangtiseClient {
     )
   }
 
+
+  /** `total` 是否是**上限值**而不是真实计数。
+   *
+   * 部分端点（实测：三个 opinion 系列）把 `total` 钉在一个固定上限——继续用更大的
+   * `from` 翻页仍能取到真实记录、发布时间单调变老，说明真实条数远大于它。这是
+   * Elasticsearch `track_total_hits` 默认值的典型形态。
+   *
+   * 危害在于它**静默**：`requestPaginated` 用 `total - startFrom` 决定翻页目标，
+   * total 封顶时正好取满、每页都是满页，`short_page` / `page_cap` / `total_drift`
+   * 一个都不触发——调用方拿到的是一段截断数据，读起来却像完整集。
+   *
+   * 判据不写死那个上限值（服务端换个配置就失效，也不该把某个具体数字当契约）：
+   * **直接探一行 `from = total`**，并**同时比对探针自己的 `total`**：total 没变且还有行
+   * → 是上限；total 变了（涨或跌）→ 数据集动过（`total_drift`）；total 没变且没有行
+   * → 是真计数。
+   * 一次 size=1 的额外请求，只在调用方**以为自己取全了**时才发（见调用点）。 */
+  private async probeBeyondTotal(
+    endpoint: EndpointDefinition,
+    initialBody: Record<string, unknown>,
+    total: number,
+  ): Promise<"capped" | "drift" | "clean"> {
+    try {
+      const beyond = await this.requestJson<Record<string, unknown>>(endpoint, { ...initialBody, from: total, size: 1 })
+      if (!this.isPaginatedListResponse(beyond)) return "clean"
+      // 顺序要紧：**先比 total，再看有没有行**。
+      //  - total 变了（涨或跌）→ 数据集在翻页期间动过 = `total_drift`。跌的那一档
+      //    （100 → 99）探针必然返回 0 行，若先按「0 行 = clean」短路就漏报了。
+      //  - total 没变、上限之外还有行 → `total` 本身就是上限 = `total_capped`。
+      //  - total 没变、上限之外没有行 → 干净。
+      // 不比 total 就会把每个正在增长的分页数据集误标成封顶；只看 total 不看行数，
+      // 又会把「真计数」误标成封顶。两个维度都要看。
+      if (beyond.total !== total) return "drift"
+      return beyond.list.length > 0 ? "capped" : "clean"
+    } catch {
+      // 探针失败不能反过来污染主结果：宁可不标，也不要因为一次网络抖动就把
+      // 一份完整数据标成 partial。
+      return "clean"
+    }
+  }
+
   private async requestPaginated(endpoint: EndpointDefinition, body?: unknown) {
     const initialBody = body && typeof body === 'object' ? { ...(body as Record<string, unknown>) } : {}
 
@@ -249,6 +292,22 @@ export class GangtiseClient {
       if (returned < expectable) {
         shortResult._partial = true
         shortResult._partial_reason = "short_page"
+        return shortResult
+      }
+      // 短页**恰好覆盖了 reported total** = 调用方以为拿到了全部，和下面「取满 target」
+      // 是同一种处境，同样要探。上限比单页还小、或记录全落在首屏时会走这条路径——
+      // 早期实现在这里直接 return，于是那两种情形拿不到任何 _partial 标记。
+      // 触发条件不是「没限 size」，而是「**这次请求已经覆盖到 reported end**」——
+      // 显式传 size=200 而 total=100 时，调用方同样以为自己取全了，漏探就漏标。
+      const coversReportedEnd =
+        requestedSize === undefined || (typeof total === "number" && startFrom + requestedSize >= total)
+      if (coversReportedEnd && typeof total === "number" && total > 0) {
+        const verdict = await this.probeBeyondTotal(endpoint, initialBody, total)
+        if (verdict !== "clean") {
+          shortResult._partial = true
+          shortResult._partial_reason = verdict === "capped" ? "total_capped" : "total_drift"
+          if (verdict === "capped") shortResult._total_capped = { reportedTotal: total, note: TOTAL_CAPPED_NOTE }
+        }
       }
       return shortResult
     }
@@ -257,11 +316,24 @@ export class GangtiseClient {
     const target = requestedSize === undefined ? available : Math.min(requestedSize, available)
 
     if (collected.length >= target) {
-      return {
+      const early: Record<string, unknown> = {
         ...firstPage,
         total,
         list: requestedSize === undefined ? collected : collected.slice(0, requestedSize),
       }
+      // 触发条件是「本次请求**已覆盖 reported end**」——只有没覆盖到尾部的请求
+      // （size 小于剩余量）才不探，因为那种调用方本来就没声称取全。
+      // 注意 size 大小本身说明不了问题：size=200/total=100 覆盖到了，
+      // size=20/total=10 也覆盖到了，两者都要探。
+      if ((requestedSize === undefined || startFrom + requestedSize >= total) && total > 0) {
+        const verdict = await this.probeBeyondTotal(endpoint, initialBody, total)
+        if (verdict !== "clean") {
+          early._partial = true
+          early._partial_reason = verdict === "capped" ? "total_capped" : "total_drift"
+          if (verdict === "capped") early._total_capped = { reportedTotal: total, note: TOTAL_CAPPED_NOTE }
+        }
+      }
+      return early
     }
 
     // Build remaining page requests
@@ -328,6 +400,17 @@ export class GangtiseClient {
     }
     if (unexpectedShape) partialReasons.push("unexpected_page_shape")
     if (totalDrift) partialReasons.push("total_drift")
+    // total 封顶：翻页目标是按 total 算的，封顶时会「正好取满」而不触发任何其他标记。
+    // 只在真的把 target 取满（= 调用方以为拿到了全部）时才探。
+    if ((requestedSize === undefined || startFrom + requestedSize >= total) && total > 0 && returnedList.length >= target && failedPages.length === 0) {
+      const verdict = await this.probeBeyondTotal(endpoint, initialBody, total)
+      if (verdict === "capped") {
+        partialReasons.push("total_capped")
+        response._total_capped = { reportedTotal: total, note: TOTAL_CAPPED_NOTE }
+      } else if (verdict === "drift" && !partialReasons.includes("total_drift")) {
+        partialReasons.push("total_drift")
+      }
+    }
     if (failedPages.length > 0) {
       partialReasons.push("failed_pages")
       response._failed_pages = failedPages

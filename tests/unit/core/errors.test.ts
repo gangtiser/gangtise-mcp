@@ -31,8 +31,13 @@ describe("error hints", () => {
     const err = new ApiError("超出时间范围限制", "110003", 400)
     const msg = errorMessage(err)
     expect(msg).toContain("110003")
-    expect(msg).toContain("请缩小日期范围或改用更近日期")
-    // 只保留普适且可操作的建议——不对未证的端点断言账号权限归因（仅 theme-tracking 已证会发此码）。
+    expect(msg).toContain("可查范围")
+    // 旧文案「请缩小日期范围」被证伪：单个日期也会报此码（screener 传较早的 date），
+    // 此时没有窗口可缩，照做会陷进一个永远返回同一个码的循环。
+    expect(msg).not.toContain("请缩小日期范围")
+    // 归因只到「接口」，不到「账号权限」——原始报文只有「超出时间范围限制」，
+    // 除 theme-tracking 外没有端点证过权限归因。这条守卫自 v0.1.44 round-3 起有效，
+    // v0.1.51 一度被放开又改回，别再放开。
     expect(msg).not.toContain("账号权限")
   })
 })

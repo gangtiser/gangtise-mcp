@@ -49,7 +49,7 @@ const ERROR_HINTS: Record<string, string> = {
   "999001": "检查 GANGTISE_TOKEN 或 GANGTISE_ACCESS_KEY / GANGTISE_SECRET_KEY 是否已配置。",
   "999002": "配了 AK/SK 时会自动重新登录重试一次；仅配 GANGTISE_TOKEN 时请手动更新令牌。反复出现说明有其他客户端用同一账号反复登录挤掉本会话。",
   "999003": "定制接口需联系客户经理开通。",
-  "999004": "换一条本账号可见的记录重试。",
+  "999004": "本账号无权访问该资源：先确认对应的数据库/模块已开通（如帕米尔专家纪要需单独购买），再确认该条记录本账号可见。list 类接口报此码通常是整个库没开通，不是某条记录的问题。",
   "999005": "联系客户经理充值，或缩小查询范围降低消耗。",
   // 与 transport 的 RATE_LIMIT_API_CODES 一一对应，改一处必须改另一处：
   // 普通端点对任何状态下的 999006 都退避重试；按次计费的 no-replay 端点只在 HTTP 429
@@ -85,7 +85,12 @@ const ERROR_HINTS: Record<string, string> = {
   // knowledge_batch 收 datetime 或 epoch 毫秒。
   "110001": "看参数名：*Date 用 YYYY-MM-DD，*Time 用 YYYY-MM-DD HH:mm:ss（gangtise_knowledge_batch 的 startTime/endTime 另可传 epoch 时间戳，10 位秒或 13 位毫秒）。",
   "110002": "起始晚于结束——检查 startDate/endDate 或 startTime/endTime 的先后。",
-  "110003": "请缩小日期范围或改用更近日期。",
+  // 旧文案是「请缩小日期范围或改用更近日期」，前半句被证伪：单个日期也会报此码
+  // （gangtise_indicator_screener 传一个较早的 date），此时根本没有窗口可缩。
+  // 只写证据支持的两点：把日期移近、可查范围按接口而异。**有意不归因到「账号权限」**
+  // —— 原始报文只说「超出时间范围限制」，除 theme-tracking 外没有端点证过那个归因，
+  // 这与 v0.1.44 round-3 的决定一致，别再加回去。
+  "110003": "查询时间超出该接口的可查范围——把日期改到更近的范围内；整段区间都在界外时缩短窗口没有用（单个日期同样会报此码）。可查范围随接口而异，同一账号下不同接口也可能不同（如 EDE 条件选股比截面/时序窄），撞界可改用范围更宽的同族工具。",
   "120001": "用 gangtise_securities_search 确认证券代码与后缀（如 600519.SH / 00700.HK / AAPL.O）。",
   "130001": "先核对查询条件；EDE 指标端点此码也可能是未开通该指标权限，仍失败联系客户经理。",
   "130002": "确认下载 ID 有效且本账号可见；下载类还需检查 fileType 取值是否合法（非法 fileType 也归此码）。",
@@ -102,6 +107,9 @@ const ERROR_HINTS: Record<string, string> = {
   "210001": "换一篇，或改用对应 list 工具取摘要。",
   "220001": "改用对应 list 工具取摘要。",
   "230001": "只有自己上传的文件可下载。",
+  // 2026-08-07 新增码。私域模块，gangtise_wechat_* 就在这个模块下且明确要求
+  // 「已绑定并激活群消息助理」，所以本服务够得着，不能当不可达而不给提示。
+  "230002": "微信账号未绑定——群消息类工具要求先在 Gangtise 端绑定并激活群消息助理、且助理已入群。",
   "240001": "换更早的报告期。",
   "240002": "改述后重新提交。",
   "240003": "对照工具参数说明检查取值。",
@@ -143,8 +151,10 @@ export class ApiError extends CliError {
     readonly details?: unknown,
     /** Parsed from a Retry-After response header (ms), when the server sent one. */
     readonly retryAfterMs?: number,
-    /** Context-specific hint that beats the generic per-code table — e.g. EDE's
-     * 999999 means "no data", not the table's "稍后重试". */
+    /** Context-specific hint that beats the generic per-code table — e.g. the EDE
+     * fetch endpoints override 999999 with a parameter checklist (that code used to
+     * mean "no data" there; since 2026-08-07 it is essentially a real fault, and a
+     * no-data answer is a placeholder cell instead). */
     hintOverride?: string,
   ) {
     super(message)

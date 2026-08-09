@@ -3,6 +3,7 @@ dist/
 *.env
 .env.*
 CLAUDE.md
+bug/
 .claude/settings.local.json
 .mcp.json
 ~/.config/gangtise/

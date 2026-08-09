@@ -22,7 +22,7 @@ describe("billing catalog coverage", () => {
   it("classifies exactly the registered tool set", async () => {
     const live = (await listLiveTools()).map((t) => t.name).sort()
     expect(Object.keys(BILLING_CATALOG).sort()).toEqual(live)
-    expect(live).toHaveLength(95)
+    expect(live).toHaveLength(97)
   })
 
   it("renders the documented label shapes", () => {
@@ -110,14 +110,16 @@ describe("billing catalog coverage", () => {
   })
 
   // 免费档 34 个不打标签（instructions 末行已声明「未标注即免费」），
-  // 省 714 B 并让付费标签更醒目；目录仍 100% 覆盖 95 个（覆盖 ≠ 输出）。
-  it("keeps 34 free tools label-free while all 95 stay classified", () => {
+  // 省 714 B 并让付费标签更醒目；目录仍 100% 覆盖 97 个（覆盖 ≠ 输出）。
+  it("keeps 34 free tools label-free while all 97 stay classified", () => {
     const entries = Object.values(BILLING_CATALOG)
     expect(entries.filter((s) => s.kind === "free")).toHaveLength(34)
     expect(entries.filter((s) => s.kind === "fixed")).toHaveLength(45)
     expect(entries.filter((s) => s.kind === "downstream")).toHaveLength(1)
     expect(entries.filter((s) => s.kind === "variable")).toHaveLength(3)
-    expect(entries.filter((s) => s.kind === "unconfirmed")).toHaveLength(9)
+    // 11 = 9 + 帕米尔两个：计分表未列它们，spec 只写了「需购买专家纪要数据库」这个
+    // 准入门槛、没给单价。未确认 ≠ 免费。
+    expect(entries.filter((s) => s.kind === "unconfirmed")).toHaveLength(11)
     expect(entries.filter((s) => s.kind === "local")).toHaveLength(3)
   })
 })
@@ -217,8 +219,9 @@ describe("tool description boundaries", () => {
   it("declares the EDE parameter-filling recipe (date routing / required params / resolved reportType)", async () => {
     const tools = await listLiveTools()
     const cs = tools.find((t) => t.name === "gangtise_indicator_cross_section")
-    // 公司类型 + 四档缺数据形态在描述里。自 2026-08-01 起整批无数据返回**空表**而不是
-    // 999999，所以旧的「报 999999 时改用 time_series」兜底已作废——描述不得再教它。
+    // 公司类型 + 占位值形态在描述里（占位是 null 还是 0 取决于指标，不是「四档」那套旧模型）。
+    // 自 2026-08-01 起整批无数据不再返回 999999，所以旧的「报 999999 时改用 time_series」
+    // 兜底已作废——描述不得再教它。
     expect(cs?.description ?? "").toContain("分公司类型")
     expect(cs?.description ?? "").toContain("空表")
     expect(cs?.description ?? "").not.toContain("999999")

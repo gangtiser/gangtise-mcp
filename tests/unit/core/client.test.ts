@@ -694,3 +694,173 @@ describe("GangtiseClient Retry-After on 200-wrapped errors", () => {
     expect(calls).toBe(2)
   })
 })
+
+// 部分端点（实测：三个 opinion 系列）把 `total` 钉在一个固定上限，而继续用更大的
+// `from` 仍能取到真实记录——真实条数远大于它。危害在于**静默**：requestPaginated 用
+// `total - startFrom` 定翻页目标，封顶时正好取满、每页都是满页，short_page /
+// page_cap / total_drift 一个都不触发，调用方拿到一段截断数据却读起来像完整集。
+//
+// 判据有意**不写死那个上限数字**（服务端换配置就失效，也不该把某个具体数当契约）：
+// 探一行 from = total，并**同时比对探针自己的 total**——total 没变且还有行才是上限；
+// total 变了（涨或跌）说明数据集在翻页期间动过，归 total_drift。
+describe("total capped detection", () => {
+  const page = (n: number, from = 0) => ({ total: 100, list: Array.from({ length: n }, (_, i) => ({ id: from + i })) })
+
+  it("flags _partial/total_capped when a row exists beyond the reported total", async () => {
+    requestMock.mockReset()
+    requestMock.mockImplementation(async (_url: unknown, opts?: { body?: string }) => {
+      const body = JSON.parse(opts?.body ?? "{}")
+      if (body.from >= 100) return jsonResponse({ total: 100, list: [{ id: 999 }] }) // 上限之外仍有数据
+      return jsonResponse(page(Math.min(50, 100 - body.from), body.from))
+    })
+    const result = await tokenClient().call("insight.foreign-opinion.list", { fetchAll: true }) as Record<string, unknown>
+    expect(result._partial).toBe(true)
+    expect(String(result._partial_reason)).toContain("total_capped")
+    expect((result._total_capped as { reportedTotal: number }).reportedTotal).toBe(100)
+  })
+
+  it("stays quiet when the total is a real count", async () => {
+    requestMock.mockReset()
+    requestMock.mockImplementation(async (_url: unknown, opts?: { body?: string }) => {
+      const body = JSON.parse(opts?.body ?? "{}")
+      if (body.from >= 100) return jsonResponse({ total: 100, list: [] })   // 上限之外没有数据 = 真计数
+      return jsonResponse(page(Math.min(50, 100 - body.from), body.from))
+    })
+    const result = await tokenClient().call("insight.foreign-opinion.list", { fetchAll: true }) as Record<string, unknown>
+    expect(result._partial).toBeUndefined()
+    expect(result._total_capped).toBeUndefined()
+  })
+
+  // 真正的判据是 **from + size >= total**——不是 size 大小、也不是 from 是否为 0。
+  // 下面三条把三档都钉住：偏移到尾部要探；from=0 没到尾部不探；偏移了但仍没到尾部也不探。
+  const probedBeyond = () =>
+    requestMock.mock.calls.some((c) => JSON.parse(((c[1] as { body?: string } | undefined)?.body) ?? "{}").from >= 100)
+
+  it("probes when an OFFSET request reaches the reported end (from + size >= total)", async () => {
+    requestMock.mockReset()
+    requestMock.mockImplementation(async (_url: unknown, opts?: { body?: string }) => {
+      const body = JSON.parse(opts?.body ?? "{}")
+      if (body.from >= 100) return jsonResponse({ total: 100, list: [{ id: 999 }] })   // 上限外仍有行
+      return jsonResponse({ total: 100, list: Array.from({ length: 10 }, (_, i) => ({ id: body.from + i })) })
+    })
+    // from=90 + size=20 ⇒ 覆盖到 100，调用方以为拿到了尾部
+    const r = await tokenClient().call("insight.foreign-opinion.list", { from: 90, size: 20 }) as Record<string, unknown>
+    expect(r._partial).toBe(true)
+    expect(String(r._partial_reason)).toContain("total_capped")
+  })
+
+  it("does not probe when from + size stops short of the reported end", async () => {
+    requestMock.mockReset()
+    requestMock.mockImplementation(async () => jsonResponse(page(20)))
+    await tokenClient().call("insight.foreign-opinion.list", { size: 20 })   // 0 + 20 < 100
+    expect(probedBeyond()).toBe(false)
+  })
+
+  // 偏移了但仍没到尾部：50 + 20 = 70 < 100。单看 from>0 或单看 size 都判不出来。
+  it("does not probe for an offset request that still stops short", async () => {
+    requestMock.mockReset()
+    requestMock.mockImplementation(async () => jsonResponse({ total: 100, list: Array.from({ length: 20 }, (_, i) => ({ id: 50 + i })) }))
+    await tokenClient().call("insight.foreign-opinion.list", { from: 50, size: 20 })
+    expect(probedBeyond()).toBe(false)
+  })
+})
+
+// 探针的两个边界。两条都不是假想——本地模拟都复现过。
+describe("total capped probe boundaries", () => {
+  it("does not mistake a GROWING dataset for a capped total", async () => {
+    // 翻页期间数据集从 100 涨到 101：from=100 确实有一行，但那是**新记录**，
+    // 不是被截断的旧数据。判据必须比对探针自己的 total —— 封顶时它是常数，
+    // 增长时它变大。不比对的话，每个正在增长的分页数据集都会被误标成封顶，
+    // 而本探针作用于**所有**分页端点，误报面很大。
+    requestMock.mockReset()
+    requestMock.mockImplementation(async (_url: unknown, opts?: { body?: string }) => {
+      const body = JSON.parse(opts?.body ?? "{}")
+      if (body.from >= 100) return jsonResponse({ total: 101, list: [{ id: 100 }] })  // total 变大 = 增长
+      return jsonResponse({ total: 100, list: Array.from({ length: Math.min(50, 100 - body.from) }, (_, i) => ({ id: body.from + i })) })
+    })
+    const r = await tokenClient().call("insight.foreign-opinion.list", { fetchAll: true }) as Record<string, unknown>
+    expect(String(r._partial_reason ?? "")).not.toContain("total_capped")
+    expect(r._total_capped).toBeUndefined()
+    expect(String(r._partial_reason ?? "")).toContain("total_drift")
+  })
+
+  // 上限比单页还小、或记录全落在首屏时走的是「短页」分支——早期实现在那里直接
+  // return，于是这两种情形拿不到任何 _partial 标记。
+  it("probes on a short first page that exactly covers the reported total", async () => {
+    requestMock.mockReset()
+    requestMock.mockImplementation(async (_url: unknown, opts?: { body?: string }) => {
+      const body = JSON.parse(opts?.body ?? "{}")
+      if (body.from >= 3) return jsonResponse({ total: 3, list: [{ id: 99 }] })   // 上限外仍有数据
+      return jsonResponse({ total: 3, list: [{ id: 0 }, { id: 1 }, { id: 2 }] })  // 首屏就是全部（短页）
+    })
+    const r = await tokenClient().call("insight.foreign-opinion.list", { fetchAll: true }) as Record<string, unknown>
+    expect(r._partial).toBe(true)
+    expect(String(r._partial_reason)).toContain("total_capped")
+    expect((r._total_capped as { reportedTotal: number }).reportedTotal).toBe(3)
+  })
+
+  it("stays quiet on a short first page when the total is honest", async () => {
+    requestMock.mockReset()
+    requestMock.mockImplementation(async (_url: unknown, opts?: { body?: string }) => {
+      const body = JSON.parse(opts?.body ?? "{}")
+      if (body.from >= 3) return jsonResponse({ total: 3, list: [] })
+      return jsonResponse({ total: 3, list: [{ id: 0 }, { id: 1 }, { id: 2 }] })
+    })
+    const r = await tokenClient().call("insight.foreign-opinion.list", { fetchAll: true }) as Record<string, unknown>
+    expect(r._partial).toBeUndefined()
+    expect(r._total_capped).toBeUndefined()
+  })
+})
+
+// 触发条件不是「没限 size」，而是「这次请求已经覆盖到 reported end」。
+// 显式传 size=200 而 total=100 时，调用方同样以为自己取全了。
+describe("total capped probe: explicit size that covers the reported end", () => {
+  it("probes and flags on a bounded size that covers the whole reported range (paged path)", async () => {
+    requestMock.mockReset()
+    requestMock.mockImplementation(async (_url: unknown, opts?: { body?: string }) => {
+      const body = JSON.parse(opts?.body ?? "{}")
+      if (body.from >= 100) return jsonResponse({ total: 100, list: [{ id: 999 }] })
+      return jsonResponse({ total: 100, list: Array.from({ length: Math.min(50, 100 - body.from) }, (_, i) => ({ id: body.from + i })) })
+    })
+    const r = await tokenClient().call("insight.foreign-opinion.list", { size: 200 }) as Record<string, unknown>
+    expect(r._partial).toBe(true)
+    expect(String(r._partial_reason)).toContain("total_capped")
+  })
+
+  it("probes and flags on a bounded size that covers a short first page", async () => {
+    requestMock.mockReset()
+    requestMock.mockImplementation(async (_url: unknown, opts?: { body?: string }) => {
+      const body = JSON.parse(opts?.body ?? "{}")
+      if (body.from >= 3) return jsonResponse({ total: 3, list: [{ id: 99 }] })
+      return jsonResponse({ total: 3, list: [{ id: 0 }, { id: 1 }, { id: 2 }] })
+    })
+    const r = await tokenClient().call("insight.foreign-opinion.list", { size: 200 }) as Record<string, unknown>
+    expect(r._partial).toBe(true)
+    expect(String(r._partial_reason)).toContain("total_capped")
+  })
+
+  // 反向：没覆盖到尾部的请求（from + size < total）不该多花一次请求。
+  it("still does not probe when the size stops short of the reported end", async () => {
+    requestMock.mockReset()
+    requestMock.mockImplementation(async () => jsonResponse({ total: 100, list: Array.from({ length: 20 }, (_, i) => ({ id: i })) }))
+    await tokenClient().call("insight.foreign-opinion.list", { size: 20 })
+    const probed = requestMock.mock.calls.some((c) => JSON.parse(((c[1] as { body?: string } | undefined)?.body) ?? "{}").from >= 100)
+    expect(probed).toBe(false)
+  })
+})
+
+// total **下降**（100 → 99）时探针必然返回 0 行。若先按「0 行 = clean」短路就漏报了
+// —— 必须先比 total 再看行数。
+describe("total capped probe: shrinking dataset", () => {
+  it("reports drift when the probe's own total dropped", async () => {
+    requestMock.mockReset()
+    requestMock.mockImplementation(async (_url: unknown, opts?: { body?: string }) => {
+      const body = JSON.parse(opts?.body ?? "{}")
+      if (body.from >= 100) return jsonResponse({ total: 99, list: [] })   // 变小 + 0 行
+      return jsonResponse({ total: 100, list: Array.from({ length: Math.min(50, 100 - body.from) }, (_, i) => ({ id: body.from + i })) })
+    })
+    const r = await tokenClient().call("insight.foreign-opinion.list", { fetchAll: true }) as Record<string, unknown>
+    expect(String(r._partial_reason ?? "")).toContain("total_drift")
+    expect(r._total_capped).toBeUndefined()
+  })
+})

@@ -46,14 +46,29 @@ const EMPTY_RESULT_HINT =
  * "genuinely no data" from a param mismatch (missing code suffix / wrong market).
  * Returns a hinted payload when the result is empty, else undefined. Empty payloads
  * are tiny, so this always inlines and never spills. */
-function emptyResultHint(normalized: unknown): Record<string, unknown> | undefined {
+function emptyResultHint(normalized: unknown, options?: BuildOptions): Record<string, unknown> | undefined {
+  const hint = options?.emptyHint ?? EMPTY_RESULT_HINT
+  // A null payload means zero rows on the few LIST endpoints known to answer that
+  // way — probed 2026-08-09: insight.foreign-opinion.list and
+  // insight.independent-opinion.list answer any `industryList` value (valid citic
+  // code, valid sw code, or garbage) with a literal `null`, which used to render as
+  // the bare text "null" with isError=false.
+  //
+  // Strictly OPT-IN (`nullMeansEmpty`). buildToolContent is shared by every JSON
+  // tool including single-object ones (concept-info, edb-data, AI content, lookup);
+  // turning their `null` into `{list: [], _hint: "…证券代码…日期区间…"}` would both
+  // answer a non-list question with a list and disguise a protocol anomaly as a
+  // normal empty result. Those must keep failing loudly instead.
+  if (options?.nullMeansEmpty && (normalized === null || normalized === undefined)) {
+    return { list: [], _hint: hint }
+  }
   if (Array.isArray(normalized)) {
-    return normalized.length === 0 ? { list: [], _hint: EMPTY_RESULT_HINT } : undefined
+    return normalized.length === 0 ? { list: [], _hint: hint } : undefined
   }
   if (normalized !== null && typeof normalized === "object") {
     const list = (normalized as Record<string, unknown>).list
     if (list === null || (Array.isArray(list) && list.length === 0)) {
-      return { ...(normalized as Record<string, unknown>), list: Array.isArray(list) ? list : [], _hint: EMPTY_RESULT_HINT }
+      return { ...(normalized as Record<string, unknown>), list: Array.isArray(list) ? list : [], _hint: hint }
     }
   }
   return undefined
@@ -90,8 +105,24 @@ function availableFieldsMeta(list: unknown[]): Record<string, unknown> {
   }
 }
 
-export async function buildToolContent(normalized: unknown): Promise<Array<{ type: "text"; text: string }>> {
-  const empty = emptyResultHint(normalized)
+export interface BuildOptions {
+  /** Overrides the generic zero-row hint (EDE says the opposite of the default). */
+  emptyHint?: string
+  /** Opt in to treating a `null` payload as zero rows. List endpoints only. */
+  nullMeansEmpty?: boolean
+}
+
+export async function buildToolContent(normalized: unknown, options?: BuildOptions): Promise<Array<{ type: "text"; text: string }>> {
+  // 没开 nullMeansEmpty 的端点收到 null/undefined = 协议异常，必须**响亮失败**。
+  // 此前它会被 JSON.stringify 成字面量 "null" 原样返回、且 isError=false，调用方分不清
+  // 「报错 / 无数据 / 坏了」——这正是 CHANGELOG 承诺「其余保持原样响亮暴露」时没做到的。
+  // 只有确认以 null 表示零行的**列表**端点才 opt-in（目前是两个外资观点列表）。
+  if (!options?.nullMeansEmpty && (normalized === null || normalized === undefined)) {
+    // 有意**不**让调用方「带上 trace」：走到这里时信封已被剥掉，而 attachEnvelopeTraceId
+    // 挂不到 null 上，所以这条路径根本没有 traceId 可给——要一个不存在的东西只会让人白找。
+    throw new Error("上游返回了空响应体（null），本接口不以 null 表示零行——这通常是服务端异常。请重试；持续出现请带上工具名与入参报障。")
+  }
+  const empty = emptyResultHint(normalized, options)
   if (empty !== undefined) {
     return [{ type: "text" as const, text: JSON.stringify(empty) }]
   }
@@ -267,6 +298,19 @@ export interface JsonToolSpec {
    * 抛错走既有 catch → errorMessage() → isError: true。
    */
   transformBody?: (body: Record<string, unknown>) => Record<string, unknown>
+  /**
+   * 该端点用 `null` 表示「零行」时置 true —— 只对**列表**端点开。
+   * 默认关闭：null 一律原样透出，让协议异常响亮地暴露，而不是被伪装成空列表。
+   * 目前只有 insight.foreign-opinion.list / insight.independent-opinion.list
+   * 需要：它们对任何 industryList 取值都返回字面 null（2026-08-09 探测）。
+   */
+  nullMeansEmpty?: boolean
+  /**
+   * 覆盖零行时的 `_hint`。通用文案以「可能该条件下确无数据」开头并指向证券后缀 /
+   * 日期区间 / 市场——当某个端点的零行有**已知的、别的**真因时，那段话每一条都不对，
+   * 模型会照着排查错方向。给出真因即可。
+   */
+  emptyHint?: string
 }
 
 export interface DownloadToolSpec {
@@ -296,6 +340,24 @@ export function sanitizeArgs(
   return rest
 }
 
+/** 把 raw shape 收成 **strict** ZodObject —— 未声明的键**报错**，而不是被静默剥掉。
+ *
+ * 为什么必须 strict：SDK 用这个 schema 解析入参，非 strict 时未知键在进 handler 之前
+ * 就被 strip 掉，于是「传了个没人认识的参数」会变成一次**没有该筛选条件的正常调用**，
+ * `isError=false`、按条计费、返回全量。而我们发布的 JSON Schema 里写的是
+ * `additionalProperties: false`——契约声明拒绝，行为却是静默接受，两者矛盾。
+ *
+ * 这不是假想：财报日历 2026-08-08 把日期入参从 `startTime`/`endTime` 改成
+ * `startDate`/`endDate`（服务端换了接受的字段名），沿用旧名的调用方因此静默拿到
+ * 12.8 万行全库切片。strict 之后他们会收到一条指名道姓的报错。
+ *
+ * registerTool 的 inputSchema 接受 `ZodRawShapeCompat | AnySchema`（1.29.0 起即如此），
+ * 所以可以直接传 ZodObject。
+ * 对已发布的 tools/list schema 表面无影响（strict 只改解析行为，不加字段）。 */
+function strictSchema(shape: ZodShape) {
+  return z.object(shape).strict()
+}
+
 export function registerJsonTool(server: McpServer, client: GangtiseClient, spec: JsonToolSpec): void {
   const schema: ZodShape = spec.paginated
     ? {
@@ -308,14 +370,14 @@ export function registerJsonTool(server: McpServer, client: GangtiseClient, spec
 
   server.registerTool(
     spec.name,
-    { description: withBilling(spec.name, spec.description, Boolean(spec.paginated)), inputSchema: schema, annotations: { readOnlyHint: true, openWorldHint: false } },
+    { description: withBilling(spec.name, spec.description, Boolean(spec.paginated)), inputSchema: strictSchema(schema), annotations: { readOnlyHint: true, openWorldHint: false } },
     async (args) => {
       try {
         const { fetchAll, ...rest } = args as Record<string, unknown>
         const sanitized = sanitizeArgs(rest, { paginated: spec.paginated, fetchAll: Boolean(fetchAll) })
         const body = spec.transformBody ? spec.transformBody(sanitized) : sanitized
         const result = await client.call(spec.endpointKey, body)
-        return { content: await buildToolContent(normalizeRows(result)) }
+        return { content: await buildToolContent(normalizeRows(result), { nullMeansEmpty: spec.nullMeansEmpty, emptyHint: spec.emptyHint }) }
       } catch (err) {
         return { content: [{ type: "text" as const, text: errorMessage(err) }], isError: true }
       }
@@ -326,7 +388,7 @@ export function registerJsonTool(server: McpServer, client: GangtiseClient, spec
 export function registerDownloadTool(server: McpServer, client: GangtiseClient, spec: DownloadToolSpec): void {
   server.registerTool(
     spec.name,
-    { description: withBilling(spec.name, spec.description), inputSchema: spec.inputSchema, annotations: { readOnlyHint: true, openWorldHint: false } },
+    { description: withBilling(spec.name, spec.description), inputSchema: strictSchema(spec.inputSchema), annotations: { readOnlyHint: true, openWorldHint: false } },
     async (args) => {
       try {
         const endpoint = ENDPOINTS[spec.endpointKey]
