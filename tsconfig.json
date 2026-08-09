@@ -11,6 +11,10 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "declaration": false,
+    // 源码注释里记着服务端行为的排查笔记（「实测」「上游」等内部视角措辞）。
+    // dist/ 随 npm 包公开分发，tsc 默认会把注释一起编译进去——剥掉，
+    // 注释留给维护者，客户拿到的包里不该有我们的排查过程。
+    "removeComments": true,
     "sourceMap": false,
     "types": ["node"]
   },

@@ -26,7 +26,7 @@ export function normalizeRows(value: unknown): unknown {
       // 危险，这里必须直接失败，不允许输出错位数据。
       if (row.length !== fields.length) {
         throw new ValidationError(
-          `响应字段数与请求 fieldList 不匹配（fieldList ${fields.length} 项、该行返回 ${row.length} 个值）——通常是 fieldList 里含该接口不存在的字段名：上游只返回有效字段的值、字段名却按请求回显，按位置拍平会把值贴到错误的字段上。请只传该工具实际支持的字段名；不确定就不传 fieldList（=返回全量字段，最稳）。`,
+          `响应字段数与请求 fieldList 不匹配（fieldList ${fields.length} 项、该行返回 ${row.length} 个值）——通常是 fieldList 里含该接口不存在的字段名：此时只返回有效字段的值、字段名却按请求回显，按位置拍平会把值贴到错误的字段上。请只传该工具实际支持的字段名；不确定就不传 fieldList（=返回全量字段，最稳）。`,
         )
       }
       return fields.reduce<Record<string, unknown>>((acc, field, index) => {

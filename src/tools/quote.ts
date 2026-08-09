@@ -19,10 +19,10 @@ const US_KLINE_DEFAULT_FIELDS = ["tradeDate", "open", "high", "low", "close", "p
 const DEFAULT_QUOTE_LIMIT = 6000
 
 const commonKlineSchema = {
-  security: z.union([z.string(), z.array(z.string())]).optional().describe("证券代码，如 '600519.SH' 或 ['600519.SH','000858.SZ']；传 'all' 拉取全市场（须同时提供 startDate 和 endDate——上游对开区间的全市场查询返回空数据或报「行情查询超出限制」）"),
+  security: z.union([z.string(), z.array(z.string())]).optional().describe("证券代码，如 '600519.SH' 或 ['600519.SH','000858.SZ']；传 'all' 拉取全市场（须同时提供 startDate 和 endDate——本接口对开区间的全市场查询返回空数据或报「行情查询超出限制」）"),
   startDate: dateString.optional().describe(dateDesc()),
   endDate: dateString.optional().describe(dateDesc()),
-  limit: z.number().int().min(1).max(10_000).optional().describe("单次请求最大返回行数（默认 6000，最大 10000）。上游从查询窗口开头截取——取「最近 N 条」须传日期区间而非只传 limit；全市场分片查询时该值作用于每个分片"),
+  limit: z.number().int().min(1).max(10_000).optional().describe("单次请求最大返回行数（默认 6000，最大 10000）。截取从查询窗口开头开始——取「最近 N 条」须传日期区间而非只传 limit；全市场分片查询时该值作用于每个分片"),
   fieldList: z.array(z.string()).optional().describe("指定返回字段，如 ['open','close','pctChange']"),
 }
 
@@ -201,7 +201,7 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
         security: z.union([z.string(), z.array(z.string())]).optional().describe("A 股证券代码（沪深北），如 '600519.SH' 或 ['600519.SH','000858.SZ']；传 'aShares' 拉取全市场（须同时提供 startDate 和 endDate，自动按日分片）"),
         startDate: dateString.optional().describe(dateDesc()),
         endDate: dateString.optional().describe(dateDesc()),
-        limit: z.number().int().min(1).max(10_000).optional().describe("单次请求最大返回行数（默认 6000，最大 10000）。上游从查询窗口开头截取——取「最近 N 条」须传日期区间；返回行数撞上限时结果标 _partial（可能被截断）；全市场分片时该值作用于每个分片"),
+        limit: z.number().int().min(1).max(10_000).optional().describe("单次请求最大返回行数（默认 6000，最大 10000）。截取从查询窗口开头开始——取「最近 N 条」须传日期区间；返回行数撞上限时结果标 _partial（可能被截断）；全市场分片时该值作用于每个分片"),
         fieldList: z.array(z.string()).optional().describe("指定返回字段，如 ['mainNetInflow','largeInflow','xlargeOutflow']；省略返回全部"),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },

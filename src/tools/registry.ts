@@ -120,7 +120,7 @@ export async function buildToolContent(normalized: unknown, options?: BuildOptio
   if (!options?.nullMeansEmpty && (normalized === null || normalized === undefined)) {
     // 有意**不**让调用方「带上 trace」：走到这里时信封已被剥掉，而 attachEnvelopeTraceId
     // 挂不到 null 上，所以这条路径根本没有 traceId 可给——要一个不存在的东西只会让人白找。
-    throw new Error("上游返回了空响应体（null），本接口不以 null 表示零行——这通常是服务端异常。请重试；持续出现请带上工具名与入参报障。")
+    throw new Error("本接口返回了空响应体（null），而它不以 null 表示零行——这是一次异常响应。请重试；持续出现请带上工具名与入参报障。")
   }
   const empty = emptyResultHint(normalized, options)
   if (empty !== undefined) {
