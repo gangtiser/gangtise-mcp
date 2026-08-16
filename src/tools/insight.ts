@@ -37,6 +37,11 @@ const LLM_TAG_DESC = "inDepth=深度报告 | earningsReview=业绩点评 | indus
 // 不可能发现，所以 schema 层的闭集是唯一防线。
 const SEARCH_TYPE = intLiteralEnum([1, 2]).optional()
 const RANK_TYPE = intLiteralEnum([1, 2]).optional()
+// 12 处 rankType 共用。⚠️ 默认档（1）在有 keyword 时挑的是**相关度子集**，而两档返回的
+// 结果都按时间倒序**排列** —— 所以「看着是时间倒序」不代表拿到的是最新的：实测同一查询
+// 下默认档可返回一个月前的条目（差别随关键词区分度而变，宽泛词下两档可能完全一致）。
+const RANK_TYPE_DESC =
+  "1=综合排序（默认，有 keyword 时按相关度挑条目，取到的子集可能不含最新的）| 2=时间倒序（严格按发布时间取最新）。⚠️ 两档结果都按时间倒序**排列**，不能据此判断本参数是否生效；两档差别随关键词区分度而变（宽泛词下可能完全一致）。**要「最新的 N 条」必须显式传 2**。"
 
 type ScheduleFields = {
   researchArea?: boolean
@@ -93,7 +98,7 @@ export const listSpecs: JsonToolSpec[] = [
       startTime: dateTimeString.optional().describe(dateTimeDesc()),
       endTime: dateTimeString.optional().describe(dateTimeDesc()),
       keyword: z.string().optional(),
-      rankType: RANK_TYPE.describe("1=综合排序（默认）| 2=时间倒序"),
+      rankType: RANK_TYPE.describe(RANK_TYPE_DESC),
       researchAreaList: z.array(z.string()).optional().describe("研究方向 ID，接受两类码：行业码用 gangtise_constant_list category=citicIndustry（1008001xx，如食品饮料 100800119）；宏观/策略/固收/金工/海外/其他这类方向码用 category=gangtiseIndustry（122000xxx，该 category 只有这 6 条、不含行业）。本端点不支持申万码（104xxxxxx），传了会返 0 条而不报错"),
       chiefList: z.array(z.string()).optional().describe("首席分析师 ID 列表"),
       securityList: z.array(z.string()).optional().describe("证券代码列表，如 ['600519.SH']"),
@@ -115,7 +120,7 @@ export const listSpecs: JsonToolSpec[] = [
       endTime: dateTimeString.optional().describe(dateTimeDesc()),
       keyword: z.string().optional(),
       searchType: SEARCH_TYPE.describe("1=标题搜索（快）| 2=全文搜索"),
-      rankType: RANK_TYPE.describe("1=综合排序（默认）| 2=时间倒序"),
+      rankType: RANK_TYPE.describe(RANK_TYPE_DESC),
       researchAreaList: z.array(z.string()).optional().describe("研究方向 ID，接受三类码：行业码用 gangtise_constant_list category=citicIndustry（1008001xx，如食品饮料 100800119）或 category=swIndustry（104xxxxxx，本端点是少数同时支持申万码的之一）；宏观/策略/固收/金工/海外/其他这类方向码用 category=gangtiseIndustry（122000xxx，该 category 只有这 6 条、不含行业）"),
       securityList: z.array(z.string()).optional(),
       institutionList: z.array(z.string()).optional().describe("机构 ID（牵头机构）：用 gangtise_institution_search categoryList=['leadInstitution'] 按名称搜；需全量枚举用 gangtise_lookup type=meeting-orgs"),
@@ -151,7 +156,7 @@ export const listSpecs: JsonToolSpec[] = [
       endTime: dateTimeString.optional().describe(dateTimeDesc()),
       keyword: z.string().optional(),
       searchType: SEARCH_TYPE.describe("1=标题搜索（默认）| 2=全文搜索"),
-      rankType: RANK_TYPE.describe("1=综合排序（默认，本端点在 searchType=2 下是真正的相关度重排）| 2=时间倒序"),
+      rankType: RANK_TYPE.describe(RANK_TYPE_DESC),
       // ⚠️ 「方向码返 0」这条来自 gangtise-openapi-cli v0.32.0 的实测记录，**本仓未独立复现**
       // ——账号自 2026-08-09 起对帕米尔库返 999004，验不了。行业码那半是本仓实测过的
       // （中信 143 / 申万 145）。权限恢复后补一次方向码探针，见 bug/server-open.md B2。
@@ -193,7 +198,7 @@ export const listSpecs: JsonToolSpec[] = [
       endTime: dateTimeString.optional().describe(dateTimeDesc()),
       keyword: z.string().optional(),
       searchType: SEARCH_TYPE.describe("1=标题搜索 | 2=全文搜索"),
-      rankType: RANK_TYPE.describe("1=综合排序（默认）| 2=时间倒序"),
+      rankType: RANK_TYPE.describe(RANK_TYPE_DESC),
       brokerList: z.array(z.string()).optional().describe("券商机构 ID（内资券商）：用 gangtise_institution_search categoryList=['domesticBroker'] 按名称搜；需全量枚举用 gangtise_lookup type=broker-orgs"),
       securityList: z.array(z.string()).optional(),
       industryList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx，全场景首选）"),
@@ -220,7 +225,7 @@ export const listSpecs: JsonToolSpec[] = [
       endTime: dateTimeString.optional().describe(dateTimeDesc()),
       keyword: z.string().optional(),
       searchType: SEARCH_TYPE.describe("1=标题搜索 | 2=全文搜索"),
-      rankType: RANK_TYPE.describe("1=综合排序 | 2=时间倒序"),
+      rankType: RANK_TYPE.describe(RANK_TYPE_DESC),
       securityList: z.array(z.string()).optional(),
       regionList: z.array(z.string()).optional().describe("地区 ID，来自 gangtise_constant_list category=regionCategory"),
       categoryList: z.array(RESEARCH_CATEGORY_ENUM).optional().describe(RESEARCH_CATEGORY_DESC),
@@ -244,7 +249,7 @@ export const listSpecs: JsonToolSpec[] = [
       endTime: dateTimeString.optional().describe(dateTimeDesc()),
       keyword: z.string().optional(),
       searchType: SEARCH_TYPE.describe("1=标题搜索 | 2=全文搜索"),
-      rankType: RANK_TYPE.describe("1=综合排序 | 2=时间倒序"),
+      rankType: RANK_TYPE.describe(RANK_TYPE_DESC),
       securityList: z.array(z.string()).optional(),
       categoryList: z.array(z.string()).optional().describe("公告分类 ID，来自 gangtise_constant_list category=aShareAnnouncementCategory"),
     },
@@ -260,7 +265,7 @@ export const listSpecs: JsonToolSpec[] = [
       endTime: dateTimeString.optional().describe(dateTimeDesc()),
       keyword: z.string().optional(),
       searchType: SEARCH_TYPE.describe("1=标题搜索 | 2=全文搜索"),
-      rankType: RANK_TYPE.describe("1=综合排序 | 2=时间倒序"),
+      rankType: RANK_TYPE.describe(RANK_TYPE_DESC),
       securityList: z.array(z.string()).optional(),
       categoryList: z.array(z.string()).optional().describe("公告类别 ID，来自 gangtise_constant_list category=hkShareAnnouncementCategory"),
     },
@@ -276,7 +281,7 @@ export const listSpecs: JsonToolSpec[] = [
       endTime: dateTimeString.optional().describe(dateTimeDesc()),
       keyword: z.string().optional(),
       searchType: SEARCH_TYPE.describe("1=标题搜索 | 2=全文搜索"),
-      rankType: RANK_TYPE.describe("1=综合排序 | 2=时间倒序"),
+      rankType: RANK_TYPE.describe(RANK_TYPE_DESC),
       securityList: z.array(z.string()).optional().describe("证券代码列表，如 ['TSLA.O']"),
       categoryList: z.array(z.string()).optional().describe("公告类别 ID，来自 gangtise_constant_list category=usShareAnnouncementCategory"),
     },
@@ -299,7 +304,7 @@ export const listSpecs: JsonToolSpec[] = [
       startTime: dateTimeString.optional().describe(dateTimeDesc()),
       endTime: dateTimeString.optional().describe(dateTimeDesc()),
       keyword: z.string().optional(),
-      rankType: RANK_TYPE.describe("1=综合排序 | 2=时间倒序"),
+      rankType: RANK_TYPE.describe(RANK_TYPE_DESC),
       regionList: z.array(z.string()).optional().describe("地区 ID，来自 gangtise_constant_list category=regionCategory。⚠️ **本端点按具体地区筛选当前不可用**：cn / cnHk / cnTw / us / jp / uk 等具体地区值都返回空结果且不报错；只有全局值 gl 会返回数据，但它**不收窄结果**（与不传本参数逐位相同）。要按地区筛，请不带本参数取回后用结果里的地区字段本地筛"),
       industryList: z.array(z.string()).optional().describe("行业 ID（来自 gangtise_constant_list category=citicIndustry）。⚠️ **本端点该筛选当前不可用**：传任何值（合法中信码、合法申万码、乱码一样）都返回空结果且不报错。需要按行业筛时不要传本参数，取回后按结果里的 industryList 字段本地筛"),
       securityList: z.array(z.string()).optional(),
@@ -326,7 +331,7 @@ export const listSpecs: JsonToolSpec[] = [
       startTime: dateTimeString.optional().describe(dateTimeDesc()),
       endTime: dateTimeString.optional().describe(dateTimeDesc()),
       keyword: z.string().optional(),
-      rankType: RANK_TYPE.describe("1=综合排序 | 2=时间倒序"),
+      rankType: RANK_TYPE.describe(RANK_TYPE_DESC),
       industryList: z.array(z.string()).optional().describe("行业 ID（来自 gangtise_constant_list category=citicIndustry）。⚠️ **本端点该筛选当前不可用**：传任何值（合法中信码、合法申万码、乱码一样）都返回空结果且不报错。需要按行业筛时不要传本参数，取回后按结果里的 industryList 字段本地筛"),
       securityList: z.array(z.string()).optional(),
       ratingList: z.array(RATING_ENUM).optional().describe(RATING_DESC),
@@ -344,7 +349,7 @@ export const listSpecs: JsonToolSpec[] = [
       endTime: dateTimeString.optional().describe(dateTimeDesc()),
       keyword: z.string().optional().describe("需用数据中的具体词（如 泡泡玛特），不要用整句白话"),
       searchType: SEARCH_TYPE.describe("1=标题搜索（默认）| 2=全文搜索"),
-      rankType: RANK_TYPE.describe("1=综合排序（默认）| 2=时间倒序"),
+      rankType: RANK_TYPE.describe(RANK_TYPE_DESC),
       accountIdList: z.array(z.string()).optional().describe("公众号 ID，来自 gangtise_official_account_search（或本工具此前返回的 accountId）"),
       securityList: z.array(z.string()).optional().describe("证券代码列表，如 ['000001.SZ']"),
       categoryList: z.array(z.enum(["news", "law", "report", "view", "data", "event", "meeting", "notice", "recruit", "investEdu", "brand", "notes", "other"])).optional().describe("文章类型：news=新闻资讯 | law=法律法规 | report=报告类 | view=个人观点 | data=产业数据 | event=日程活动 | meeting=会议纪要 | notice=通知 | recruit=招聘 | investEdu=投资科普 | brand=品牌宣传 | notes=个人随笔 | other=其他"),

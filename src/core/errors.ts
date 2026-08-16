@@ -157,7 +157,9 @@ const ERROR_HINTS: Record<string, string> = {
  * ⚠️ 不要把这里改写成「哪些指标吃哪个日期」的归纳规则 —— 这两件事都不按 code 前缀分
  * （`is_*` 里两种都有，`finc_*` / `div_*` 同样），个别指标两个日期都必填，另有指标要的
  * 是 fiscalYear。提示只指向 gangtise_indicator_search 的 parameterList，不做断言。 */
-// 🔴 顺序即优先级（`.find` 先到先得），而这五条的排法是有讲究的，改动前先读完这段。
+// 🔴 **这张表刻意做成顺序无关**：`.find` 虽然先到先得，但每条规则的命中条件都写在它自己
+// 身上（`all` 全中 + `none` 全不中 + `when` 成立），任意重排结果不变，`errors.test.ts` 的
+// "does not depend on rule order" 逐一轮转验证。**新增规则时给足判别式，别靠往表头插。**
 //
 // 服务端的日期报错有两种形态：**拼接句**（`指标 X 不支持参数 A; 指标 X 缺少必填参数 B`，
 // 两半同时出现，能唯一确定该换成哪个键）和**半句**（只有「不支持 A」，没有「缺少 B」）。
@@ -174,11 +176,65 @@ const ERROR_HINTS: Record<string, string> = {
 // 一种形态。所以每条提示都带上这句：告诉调用方逐个处理，别以为改完一个就完事。
 const MULTI_NOTE = " ⚠️ 一条报错可能同时点名多个指标，且各自要补的键不同——逐个按各自的 parameterList 处理，改完一个再看新的报错。"
 
-const MESSAGE_HINTS: Array<{ codes: string[]; all: RegExp[]; hint: string }> = [
+/** 这条报错里出现了几种**互不相同**的失败形态。
+ *
+ * 服务端把每个指标的每个问题写成一个分句（`指标 X 不支持参数 tradeDate; 指标 X 缺少必填
+ * 参数 reportDate; 指标 Y 不支持参数 tradeDate`）。按指标聚成各自的形态再去重：
+ * 上例里 X 是「换键」、Y 是「一个日期都不要」，两种改法完全不同。
+ *
+ * 为什么需要它：下面每条断言式提示都只讲一种形态，而 `find` 只会命中一条。形态不止一种
+ * 时，任何一条断言式提示都会**对着其中一部分指标说错话**（MULTI_NOTE 只提醒「还有别的
+ * 指标」，纠不回一个已经给错的药方）。此时改用不断言的批量提示。
+ *
+ * 认不出任何分句时按「单一形态」计（返回 1），让下面的规则照常匹配——报文形态变了的时候
+ * 该退回旧行为，不该整张表一起哑掉。 */
+export function distinctFailureShapes(message: string): number {
+  const byIndicator = new Map<string, Set<string>>()
+  for (const clause of message.split(/[;；]/)) {
+    const matched = /指标\s+(\S+)\s+(不支持参数|缺少必填参数)[:：]?\s*(\S+)/.exec(clause)
+    if (!matched) continue
+    const [, indicator, kind, key] = matched
+    const shape = byIndicator.get(indicator) ?? new Set<string>()
+    shape.add(`${kind}:${key}`)
+    byIndicator.set(indicator, shape)
+  }
+  if (byIndicator.size === 0) return 1
+  return new Set([...byIndicator.values()].map((shape) => [...shape].sort().join("|"))).size
+}
+
+// `when` 把「形态是否唯一」这个判别式**写进每条规则**，而不是靠数组顺序兜住。少了它，
+// 谁往表头插一条新规则都会把批量形态重新漏给断言式提示，而测试全绿。
+const oneShape = (message: string) => distinctFailureShapes(message) <= 1
+const manyShapes = (message: string) => distinctFailureShapes(message) > 1
+
+/** 判别式全部写在规则自己身上：`all` 必须全中、`none` 必须全不中、`when` 必须成立。
+ *
+ * 🔴 `none` 是**必需**的，不是保险。拼接句同时匹配它自己那条和「半句」那条——
+ * 「不支持参数 tradeDate; 缺少必填参数 reportDate」既中「缺 reportDate」那条（该换成
+ * reportDate，对的），又中「只拒 tradeDate」那条（一个日期都不要，对这条**是错的**）。
+ * 此前靠前者排在后者前面兜住，把表里两条挪一下顺序就会给出完全相反的药方，而所有测试
+ * 照样全绿。**规则之间用报文形态互相指认，不要用序号**——序号会随新增规则整体漂移。
+ *
+ * 导出仅供测试：顺序无关性只能靠「把整张表换个顺序再跑一遍」来证明。 */
+export const MESSAGE_HINTS: Array<{
+  codes: string[]
+  all: RegExp[]
+  none?: RegExp[]
+  when?: (message: string) => boolean
+  hint: string
+}> = [
+  {
+    // 多个指标、失败形态互不相同：任何一条断言式提示都会对其中一部分说错话。
+    codes: ["100001", "100003"],
+    all: [/不支持参数\s*(?:tradeDate|reportDate)|缺少必填参数[:：]?\s*(?:tradeDate|reportDate)/],
+    when: manyShapes,
+    hint: "🔴 **这条报错点名了多个指标，而且它们失败的方式不一样**——同一个改法套不到全部，按 msg 里每个指标各自说的话分别处理：对某个指标说「不支持参数 X; 缺少必填参数 Y」= 把该指标的 X 换成 Y；只说「不支持参数 tradeDate」而没说缺什么 = 该指标一个日期都不要，在 gangtise_indicator_cross_section 上给它加 { indicatorCode: '<该指标>', noQueryDate: true }（条件选股没有这个开关，改用截面取数再本地筛）；只说「缺少必填参数 Y」= 把 Y 补进该指标的 parameters。**最省事的办法是把这批指标拆成几次单独查**，那样每条报错只对应一个指标，提示也能给准。要哪些键以 gangtise_indicator_search 返回的 parameterList 为准。",
+  },
   {
     // 拼接句 / 半句都成立：明确点名「缺 reportDate」，那就是要 reportDate。
     codes: ["100001", "100003"],
     all: [/缺少必填参数[:：]?\s*reportDate/],
+    when: oneShape,
     hint: "报错里点名的那个指标要的是 reportDate（报告期），不是本工具的 date 下发的 tradeDate：在 indicatorParamList 里给该指标补一条 { indicatorCode, parameters: [{ paramKey: 'reportDate', paramValue: 'YYYY-MM-DD' }] }（条件选股写在对应变量上），date 参数仍要保留。以 gangtise_indicator_search 返回的 parameterList 为准，别按指标 code 前缀推断要哪个日期。" + MULTI_NOTE,
   },
   {
@@ -186,29 +242,41 @@ const MESSAGE_HINTS: Array<{ codes: string[]; all: RegExp[]; hint: string }> = [
     // reportDate 就好——删掉后本服务会自动把 date 作为 tradeDate 注入，那半句一并消失。
     codes: ["100001", "100003"],
     all: [/不支持参数\s*reportDate/, /缺少必填参数[:：]?\s*tradeDate/],
+    when: oneShape,
     hint: "报错里点名的那个指标要的是 tradeDate（交易日），不吃 reportDate：把 indicatorParamList 里该指标的 reportDate 删掉即可——删掉后本工具的 date 会自动作为 tradeDate 下发，不需要另外补。以 gangtise_indicator_search 返回的 parameterList 为准。" + MULTI_NOTE,
   },
   {
     // 半句：只说拒收 reportDate。删掉它是对的，但**不能承诺**删掉就能出数——该指标可能
-    // 连 tradeDate 都不吃，删完会撞上下面那条。
+    // 连 tradeDate 都不吃，删完会撞上「只拒 tradeDate」那条。
     codes: ["100001", "100003"],
     all: [/不支持参数\s*reportDate/],
+    // 拼接句（还说了「缺 tradeDate」）归上一条：那种形态能唯一确定该换成哪个键。
+    none: [/缺少必填参数[:：]?\s*tradeDate/],
+    when: oneShape,
     hint: "报错里点名的那个指标不接受 reportDate：先把 indicatorParamList 里该指标的 reportDate 删掉，再照 gangtise_indicator_search 返回的 parameterList 补它真正要的键（可能是 tradeDate，也可能是 fiscalYear，或者一个日期都不要）。" + MULTI_NOTE,
   },
   {
-    // 半句：只说拒收 tradeDate，没说缺什么。**这一条最容易断错**，所以只描述现状 + 给出
-    // 一条确定可行的路：本工具（截面/选股）会无条件把 date 作为 tradeDate 下发，所以
-    // 「压根不吃 tradeDate」的指标在这两个工具上没法回避它；时序工具不下发单日期参数。
+    // 半句：只说拒收 tradeDate，没说缺什么。**这一条最容易断错**——服务端没说该换成哪个
+    // 键，多半是因为一个都不要，所以提示只给 opt-out，不替它挑一个替代键。
+    // 截面有 noQueryDate 开关，选股没有（见 indicator.ts 里 indicatorParamListWith 的注释）。
     codes: ["100001", "100003"],
     all: [/不支持参数\s*tradeDate/],
-    hint: "报错里点名的那个指标不接受 tradeDate，而截面/条件选股会把 date 作为 tradeDate 下发给每个指标——所以这类指标**在这两个工具上取不到数**，请改用 gangtise_indicator_time_series（它不下发单日期参数，用 startDate/endDate 圈区间即可，每行返回同一个值）。它真正要哪些键以 gangtise_indicator_search 返回的 parameterList 为准：只要 fiscalYear 的（如股利支付率、年度现金分红总额）在时序里按变量传 fiscalYear；一个日期都不要的静态属性（如上市日期、上市市场、主营业务）在时序里不用传任何参数。**如果你本来是在做条件选股**：这类指标当前不能当选股变量，改用「把原来的 securityCodeList（板块 ID 也行，会展开成全部成分股）交给时序工具取到该列，再在本地按条件筛」。" + MULTI_NOTE,
+    // 🔴 服务端顺带说了「缺哪个键」时，那就不是「一个日期都不要」，而是「换成它说的那个」
+    // ——归第一条。少了这个否定判别式，本条会把拼接句也接走并给出完全相反的药方。
+    none: [/缺少必填参数[:：]?\s*(?:reportDate|tradeDate)/],
+    when: oneShape,
+    hint: "报错里点名的那个指标不接受 tradeDate，而截面/条件选股默认会把 date 作为 tradeDate 下发给每个指标。**在 gangtise_indicator_cross_section 上给它加一条 { indicatorCode: '<该指标>', noQueryDate: true } 即可**——date 参数仍要保留，本工具只是不再给这个指标注入日期；它若另有必填键（如股利支付率、年度现金分红总额要的 fiscalYear），写进同一条的 parameters 里。**条件选股上没有这个开关**：这类指标当前不能当选股变量，改用「把原来的 securityCodeList（板块 ID 也行，会展开成全部成分股）交给 gangtise_indicator_cross_section 取到该列，再在本地按条件筛」。它真正要哪些键以 gangtise_indicator_search 返回的 parameterList 为准。" + MULTI_NOTE,
   },
   {
-    // 半句：没有任何键被拒，只是缺 tradeDate。本服务见到已声明的 reportDate 就不再注入
-    // tradeDate（见 withQueryDate），所以这是「两个日期都必填」那类指标的形态。
+    // 半句：没有任何键被拒，只是缺 tradeDate。本服务见到已声明的 reportDate、或调用方
+    // 声明了 noQueryDate，就不再注入 tradeDate（见 withQueryDate）——两条路都会走到这里。
     codes: ["100001", "100003"],
     all: [/缺少必填参数[:：]?\s*tradeDate/],
-    hint: "报错里点名的那个指标两个日期都必填：在同一个 indicatorParamList 条目的 parameters 里，除已有的 reportDate 外再补 { paramKey: 'tradeDate', paramValue: 'YYYY-MM-DD' }。必填项以 gangtise_indicator_search 返回的 parameterList 为准。" + MULTI_NOTE,
+    // 同时说了「不支持 reportDate」的拼接句归第二条：那是「删掉多传的 reportDate」，
+    // 而不是「两个日期都补上」。
+    none: [/不支持参数\s*reportDate/],
+    when: oneShape,
+    hint: "本工具这次没给该指标注入 date 的 tradeDate——因为你给它显式传了 reportDate/tradeDate，或者给它加了 noQueryDate: true，两者都会关掉注入。对症改：该指标若两个日期都必填，就在同一个 indicatorParamList 条目的 parameters 里把 tradeDate 也写上（{ paramKey: 'tradeDate', paramValue: 'YYYY-MM-DD' }）；若是 noQueryDate 加错了指标，删掉它即可。必填项以 gangtise_indicator_search 返回的 parameterList 为准。" + MULTI_NOTE,
   },
 ]
 
@@ -232,7 +300,13 @@ export class ApiError extends CliError {
     // 优先级：显式 override > 按消息匹配 > 按码。按消息的规则比码本身指认的原因更窄，
     // 所以排在按码之前；但调用点自带上下文时仍然它最准。
     const byMessage = code
-      ? MESSAGE_HINTS.find((rule) => rule.codes.includes(code) && rule.all.every((re) => re.test(message)))?.hint
+      ? MESSAGE_HINTS.find(
+          (rule) =>
+            rule.codes.includes(code) &&
+            rule.all.every((re) => re.test(message)) &&
+            !rule.none?.some((re) => re.test(message)) &&
+            (rule.when?.(message) ?? true),
+        )?.hint
       : undefined
     this.hint = hintOverride ?? byMessage ?? (code ? ERROR_HINTS[code] : undefined)
   }

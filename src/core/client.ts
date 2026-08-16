@@ -237,6 +237,11 @@ export class GangtiseClient {
     initialBody: Record<string, unknown>,
     total: number,
   ): Promise<"capped" | "drift" | "clean"> {
+    // ⚠️ 别按 `retry === "no-replay"` 跳过本探针。两个理由：`no-replay` 治的是「重放一个
+    // 服务端可能已执行的请求」，而探针是一次**新**请求，不是重放；且唯一同时分页 + no-replay
+    // 的 ai.hot-topic 在 BILLING_CATALOG 里是 fixed(50, "article") —— 与 insight.opinion*
+    // 同为按行计费，空探针零行零积分，跳过换不来省钱，只会让全库唯一的 search 型分页端点
+    // 失去封顶检测。撞到封顶时那一行的成本，正是发现「你拿到的是截断数据」的代价。
     try {
       const beyond = await this.requestJson<Record<string, unknown>>(endpoint, { ...initialBody, from: total, size: 1 })
       if (!this.isPaginatedListResponse(beyond)) return "clean"

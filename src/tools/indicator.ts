@@ -146,12 +146,20 @@ function flagOmitted(result: unknown, dropped: { securities: string[]; indicator
 // 的指标不再收到注入的 tradeDate：这修好了「只要 fiscalYear」的 2 个指标
 // （div_cash_paid_ratio / div_cash_yr），却打断「fiscalYear 与 tradeDate 都必填」的 6 个
 // （frcst_* 预测族——它们现在正是靠这次注入补齐 tradeDate 才能出数的）。2 换 6，是笔亏本
-// 买卖。本地无法区分这两类（要区分就得先调 indicator.search），所以截面/选股对
-// 「不吃 tradeDate」的指标暂时取不到数，由 errors.ts 的消息提示把调用方引去时序工具。
-// 完整取舍与影响面记在 bug/mcp-backlog.md M-EDE-INJECT。
+// 买卖。要让「不吃任何日期」的指标能取到数，走 noQueryDate 这个显式开关，别动这个集合。
 const DATE_PARAM_KEYS = new Set(["tradeDate", "reportDate"])
 
-type ParamGroup = { indicatorCode: string; parameters: { paramKey: string; paramValue: string }[] }
+type ParamGroup = {
+  indicatorCode: string
+  parameters: { paramKey: string; paramValue: string }[]
+  /** 本地标记：调用方声明该指标不接受查询日期，抑制 tradeDate 注入。发请求前必须剥掉
+   * （见 stripNoQueryDate）——服务端对未知 body 字段的处理并不一致。 */
+  noQueryDate?: boolean
+}
+
+function stripNoQueryDate(groups: ParamGroup[]): { indicatorCode: string; parameters: { paramKey: string; paramValue: string }[] }[] {
+  return groups.map(({ indicatorCode, parameters }) => ({ indicatorCode, parameters }))
+}
 
 /** Collapse repeated `indicatorCode` entries into one, concatenating their
  * parameters.
@@ -174,8 +182,18 @@ function mergeParamGroups(groups: ParamGroup[] | undefined): ParamGroup[] {
   const merged = new Map<string, ParamGroup>()
   for (const group of groups ?? []) {
     const existing = merged.get(group.indicatorCode)
-    if (existing) existing.parameters.push(...group.parameters)
-    else merged.set(group.indicatorCode, { indicatorCode: group.indicatorCode, parameters: [...group.parameters] })
+    // 标记按 OR 合并：同一指标拆成两条写（一条给 noQueryDate、一条给真实参数）是自然写法，
+    // 合并时丢掉标记会让注入重新发生、请求照旧被拒。
+    if (existing) {
+      existing.parameters.push(...(group.parameters ?? []))
+      if (group.noQueryDate) existing.noQueryDate = true
+    } else {
+      merged.set(group.indicatorCode, {
+        indicatorCode: group.indicatorCode,
+        parameters: [...(group.parameters ?? [])],
+        ...(group.noQueryDate ? { noQueryDate: true } : {}),
+      })
+    }
   }
   return [...merged.values()]
 }
@@ -186,7 +204,7 @@ function withQueryDate(groups: ParamGroup[] | undefined, codes: string[], date: 
     const group = merged.get(code)
     if (!group) {
       merged.set(code, { indicatorCode: code, parameters: [{ paramKey: "tradeDate", paramValue: date }] })
-    } else if (!group.parameters.some((param) => DATE_PARAM_KEYS.has(param.paramKey))) {
+    } else if (!group.noQueryDate && !group.parameters.some((param) => DATE_PARAM_KEYS.has(param.paramKey))) {
       group.parameters.push({ paramKey: "tradeDate", paramValue: date })
     }
   }
@@ -237,20 +255,29 @@ const PARAM_GUIDANCE_RANGE =
   "⚠️ **本端点禁止在 parameters 里传单日期参数**：`tradeDate` 与 `reportDate` 都会被拒（报 100003「parameters不得传入单日期参数，时间范围由startDate与endDate控制」），时间范围一律由本工具的 startDate/endDate 决定。因此：N期统计只传 periodNum(如4)、**不要**传 reportDate；区间类指标只传 sDate 作为区间起点，区间终点是每行自己的日期。🔴 **由此带来一个躲不开的后果**：报告期类指标（营收/净利等）没有任何参数能让它只返回报告期末，非期末的每一行都是占位值（多数 null、个别 0），聚合整列前必须先筛掉——详见本工具描述。" +
   PARAM_GUIDANCE_COMMON
 
+const NO_QUERY_DATE_DESC =
+  "声明**这个指标不接受查询日期**，本工具就不给它注入 date 下发的 tradeDate。用于 parameterList 里既没有 tradeDate 也没有 reportDate 的指标——公司属性 pty_*（主营业务/经营范围/注册地/法定代表人…）与证券属性 scr_*（上市市场/上市板块/上市日期/ISIN…）两族，以及 div_cash_paid_ratio（股利支付率）/ div_cash_yr（年度现金分红总额）/ pty_shr_reg（注册资本）。不加这个开关，它们一律报 100003「不支持参数 tradeDate」而取不到数。可与真实参数共存（如 { indicatorCode: 'div_cash_yr', parameters: [{ paramKey: 'fiscalYear', paramValue: '2025' }], noQueryDate: true }）。🔴 **加了这个开关就必须把该指标 parameterList 里其余 required 键一并补齐**：日期键缺失会硬报错，而 fiscalYear 这类**非日期必填键缺失不报错**——返回的是 `null`（或某些指标一个来自默认年份的合理数值），HTTP 200、不标 _partial，与「该证券没有这项数据」无法区分（如 div_cash_yr 漏传 fiscalYear 返 null，补上 fiscalYear 才返真值）。⚠️ 只对**确实不要日期**的指标加：给要日期的指标加上会变成「缺少必填参数 tradeDate」——注意 scr_ 里的 scr_indu / scr_indu_citic / scr_indu_sw / scr_indu_gics / scr_concept 反而**必填 tradeDate**，别给它们加。哪些指标属于这一类以 gangtise_indicator_search 返回的 parameterList 为准，别按 code 前缀推断（同一前缀下两类都有）。"
+
 /** 按端点的日期语义生成 `indicatorParamList`——截面/选股与时序的日期规则相反，
- * 说明不能共用（见 PARAM_GUIDANCE_DATED / _RANGE）。 */
-const indicatorParamListWith = (guidance: string) =>
-  z
-    .array(
-      // .strict()：把 `parameters` 误写成 `parameterList` / `paramList` 这类是很常见的，
-      // 非 strict 时它会被静默剥掉、请求照发，结果是「参数没生效」而不是报错。
-      z.object({
-        indicatorCode: z.string().min(1).describe("指标代码，如 qte_close"),
-        parameters: z.array(paramPair).min(1).describe("参数键值对，如 [{ paramKey: 'adjustType', paramValue: '2' }]"),
-      }).strict(),
-    )
-    .optional()
-    .describe("分指标专属参数。" + guidance)
+ * 说明不能共用（见 PARAM_GUIDANCE_DATED / _RANGE）。
+ *
+ * `noDateOptOut` 只给截面开。时序不注入单日期参数，本来就没有要抑制的东西；选股则是
+ * 有意不开——服务端对 `parameters: []` 的指标会**静默丢弃整条绑定**（200、无错误码、
+ * indicatorList 里那项消失），筛的就是它时返 0 行，载荷与真·无匹配逐字相同。本工具
+ * 无条件注入 tradeDate，因此永远发不出空参数表，那条静默路径在选股上够不着——开了
+ * opt-out 才会把它打开。详见 bug/server-open.md A22。 */
+const indicatorParamListWith = (guidance: string, noDateOptOut = false) => {
+  // .strict()：把 `parameters` 误写成 `parameterList` / `paramList` 这类是很常见的，
+  // 非 strict 时它会被静默剥掉、请求照发，结果是「参数没生效」而不是报错。
+  const shape = {
+    indicatorCode: z.string().min(1).describe("指标代码，如 qte_close"),
+    parameters: noDateOptOut
+      ? z.array(paramPair).optional().describe("参数键值对，如 [{ paramKey: 'adjustType', paramValue: '2' }]；只声明 noQueryDate 时可以不传")
+      : z.array(paramPair).min(1).describe("参数键值对，如 [{ paramKey: 'adjustType', paramValue: '2' }]"),
+    ...(noDateOptOut ? { noQueryDate: z.boolean().optional().describe(NO_QUERY_DATE_DESC) } : {}),
+  }
+  return z.array(z.object(shape).strict()).optional().describe("分指标专属参数。" + guidance)
+}
 
 export function registerIndicatorTools(server: McpServer, client: GangtiseClient): void {
   server.registerTool(
@@ -286,11 +313,11 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
         securityCodeList,
         date: dateString.describe(
           dateDesc() +
-            "（必填）。下发为每个指标各自的 tradeDate。财务指标填报告期末季末（现金流附注/N期统计填年报如 2025-12-31），行情与日频估值（PE TTM、PB MRQ 现均为日频、逐日变动）填交易日；吃 reportDate 的指标**必须**在 indicatorParamList 里显式传 reportDate——它们拒收本参数下发的 tradeDate 并报错，date 取什么值都救不回来",
+            "（必填）。下发为每个指标各自的 tradeDate（在 indicatorParamList 里声明了 noQueryDate 的指标除外）。财务指标填报告期末季末（现金流附注/N期统计填年报如 2025-12-31），行情与日频估值（PE TTM、PB MRQ 现均为日频、逐日变动）填交易日；吃 reportDate 的指标**必须**在 indicatorParamList 里显式传 reportDate——它们拒收本参数下发的 tradeDate 并报错，date 取什么值都救不回来",
         ),
         currency,
         scale,
-        indicatorParamList: indicatorParamListWith(PARAM_GUIDANCE_DATED),
+        indicatorParamList: indicatorParamListWith(PARAM_GUIDANCE_DATED, true),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
@@ -304,7 +331,8 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
         universe: securities,
         currency: args.currency,
         scale: args.scale,
-        indicatorParamList: withQueryDate(args.indicatorParamList as ParamGroup[] | undefined, indicators, args.date as string),
+        // stripNoQueryDate：noQueryDate 是本地开关，不能进 body。
+        indicatorParamList: stripNoQueryDate(withQueryDate(args.indicatorParamList as ParamGroup[] | undefined, indicators, args.date as string)),
       }
       const data = await callMatrix(client, "indicator.cross-section", body)
       if (isEmptyMatrix(data)) return contentResult(await buildToolContent({ list: [], total: 0 }, { emptyHint: EDE_EMPTY_HINT }))

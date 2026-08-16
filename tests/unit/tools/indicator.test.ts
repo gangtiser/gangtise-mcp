@@ -131,6 +131,95 @@ describe("EDE request body uses the post-2026-08-01 contract", () => {
     ])
   })
 
+  // parameterList 里一个日期键都没有的指标（pty_* / scr_* 两族、div_cash_paid_ratio 等）
+  // 收到注入的 tradeDate 会硬报 100003，整条请求被拒——在服务端接受并忽略多余日期之前，
+  // 这个开关是它们在截面上取到数的唯一通路。
+  it("skips the injection for an indicator declared noQueryDate", async () => {
+    const client = makeMockClient()
+    const mcp = await connect(client)
+    await mcp.callTool({
+      name: "gangtise_indicator_cross_section",
+      arguments: {
+        indicatorCodeList: ["scr_exchg_mkt", "qte_close"],
+        securityCodeList: ["600519.SH"],
+        date: "2026-07-31",
+        indicatorParamList: [{ indicatorCode: "scr_exchg_mkt", noQueryDate: true }],
+      },
+    })
+    expect(bodyOf(client).indicatorParamList).toEqual([
+      // 标记本身是本地开关，**不能进 body**：服务端对未知字段的处理并不一致。
+      { indicatorCode: "scr_exchg_mkt", parameters: [] },
+      { indicatorCode: "qte_close", parameters: [{ paramKey: "tradeDate", paramValue: "2026-07-31" }] },
+    ])
+  })
+
+  // div_cash_yr / div_cash_paid_ratio 要 fiscalYear 但不要日期——开关必须能和真实参数
+  // 共存，不能实现成「空参数表 = 不要日期」，否则这两个指标仍然取不到数。
+  it("keeps real parameters alongside noQueryDate", async () => {
+    const client = makeMockClient()
+    const mcp = await connect(client)
+    await mcp.callTool({
+      name: "gangtise_indicator_cross_section",
+      arguments: {
+        indicatorCodeList: ["div_cash_yr"],
+        securityCodeList: ["600519.SH"],
+        date: "2026-07-31",
+        indicatorParamList: [{ indicatorCode: "div_cash_yr", parameters: [{ paramKey: "fiscalYear", paramValue: "2025" }], noQueryDate: true }],
+      },
+    })
+    expect(bodyOf(client).indicatorParamList).toEqual([
+      { indicatorCode: "div_cash_yr", parameters: [{ paramKey: "fiscalYear", paramValue: "2025" }] },
+    ])
+  })
+
+  // 同一指标拆成两条写（一条给标记、一条给参数）是很自然的写法。合并时丢掉标记会让注入
+  // 重新发生，请求照旧被拒——而合并本身成功了，看不出哪里错。
+  //
+  // 🔴 **两种先后都要测**。标记在前时，第一条就把标记写进了 map，后来那条丢不丢都看不出来
+  //（变异测试实证：只测这一种顺序时，把合并里的标记传递整行删掉照样全绿）。
+  it.each([
+    [
+      "marker first",
+      [
+        { indicatorCode: "div_cash_yr", noQueryDate: true },
+        { indicatorCode: "div_cash_yr", parameters: [{ paramKey: "fiscalYear", paramValue: "2025" }] },
+      ],
+    ],
+    [
+      "marker second",
+      [
+        { indicatorCode: "div_cash_yr", parameters: [{ paramKey: "fiscalYear", paramValue: "2025" }] },
+        { indicatorCode: "div_cash_yr", noQueryDate: true },
+      ],
+    ],
+  ] as Array<[string, unknown[]]>)("carries noQueryDate through the merge of two groups for one code (%s)", async (_label, indicatorParamList) => {
+    const client = makeMockClient()
+    const mcp = await connect(client)
+    await mcp.callTool({
+      name: "gangtise_indicator_cross_section",
+      arguments: { indicatorCodeList: ["div_cash_yr"], securityCodeList: ["600519.SH"], date: "2026-07-31", indicatorParamList },
+    })
+    expect(bodyOf(client).indicatorParamList).toEqual([
+      { indicatorCode: "div_cash_yr", parameters: [{ paramKey: "fiscalYear", paramValue: "2025" }] },
+    ])
+  })
+
+  // 时序不注入单日期参数，没有要抑制的东西；选股则是**有意不开**——见下面 A22 那组。
+  // 两处都靠 .strict() 拒掉，别把开关加进去。
+  it.each([
+    ["gangtise_indicator_time_series", { ...TS_ARGS, indicatorParamList: [{ indicatorCode: "qte_close", noQueryDate: true }] }],
+    [
+      "gangtise_indicator_screener",
+      { ...SCREENER_ARGS, indicatorList: [{ field: "F1", indicatorCode: "scr_exchg_sctr", noQueryDate: true }] },
+    ],
+  ] as Array<[string, Record<string, unknown>]>)("%s rejects noQueryDate instead of accepting a no-op", async (name, args) => {
+    const client = makeMockClient()
+    const mcp = await connect(client)
+    const result = await mcp.callTool({ name, arguments: args })
+    expect(result.isError).toBe(true)
+    expect(client.call).not.toHaveBeenCalled()
+  })
+
   // 同一 indicatorCode 的两条参数组必须**合并**，且**每个矩阵端点都要**——两条路径的丢参
   // 机制不同但后果一样，且都静默：截面是裸 Map.set() 在本地丢掉前一条；时序是把两条原样
   // 发出去、由**服务端**只取最后一条（实测 2026-08-03：`adjustType=3` + `currency=USD`
@@ -406,6 +495,30 @@ describe("gangtise_indicator_screener", () => {
       },
       { field: "F2", indicatorCode: "finc_pe_ttm", parameters: [{ paramKey: "tradeDate", paramValue: "2026-07-31" }] },
     ])
+  })
+
+  // 🔴 服务端对 `parameters: []` 的绑定会**静默丢弃整条**：200、无错误码、indicatorList 里
+  // 那一项消失，筛的就是它时返 0 行，而载荷与真·无匹配逐字相同（server-open.md A22）。
+  // 本工具无条件注入 tradeDate，因此发不出空参数表——这条静默路径在选股上够不着。
+  // 任何「不注入」的分支（如把截面的 noQueryDate 搬过来）都会把它打开，故钉住。
+  it("never sends an empty parameters array (the payload the server silently drops)", async () => {
+    const client = makeMockClient()
+    const mcp = await connect(client)
+    await mcp.callTool({
+      name: "gangtise_indicator_screener",
+      arguments: {
+        indicatorList: [
+          { field: "F1", indicatorCode: "scr_exchg_sctr" },
+          { field: "F2", indicatorCode: "qte_close", parameters: [] },
+        ],
+        expression: "F1 contains '主板' && F2 > 0",
+        securityCodeList: ["600519.SH"],
+        date: "2026-07-31",
+      },
+    })
+    const bindings = bodyOf(client).indicatorList as Array<{ parameters: unknown[] }>
+    expect(bindings).toHaveLength(2)
+    for (const binding of bindings) expect(binding.parameters.length).toBeGreaterThan(0)
   })
 
   it("flattens matched securities into a wide table", async () => {
