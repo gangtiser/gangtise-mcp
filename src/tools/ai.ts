@@ -7,7 +7,7 @@ import { pollAsyncContent, isAsyncFailed, isAsyncPending } from "../core/asyncCo
 import { normalizeRows } from "../core/normalize.js"
 import { AsyncTimeoutError, ValidationError, errorMessage } from "../core/errors.js"
 import { dateDesc, dateString, dateTimeDesc, dateTimeString, quarterEndDate, today, todayDate } from "../core/dateContext.js"
-import { nonEmptyString, intLiteralEnum } from "./schemas.js"
+import { nonEmptyString, intLiteralEnum, MARKET_KEYWORDS } from "./schemas.js"
 import { withBilling } from "./billing.js"
 
 export interface AiToolOptions {
@@ -72,8 +72,14 @@ export const jsonSpecs: JsonToolSpec[] = [
         .array(z.string().trim().min(1))
         .min(1, "securityList 不能为空")
         .max(6000, "securityList 单次最多 6000 个")
+        // 本接口只按具体代码批量，市场关键字会被判为无效证券代码（报「证券代码无效」，
+        // 读起来像代码写错了）。按条计费，所以在 schema 层就拦下、不发请求。
+        .refine(
+          (list) => !list.some((code) => MARKET_KEYWORDS.has(code.toLowerCase())),
+          "本工具不支持 aShares / hkStocks 这类全市场关键字，请传具体证券代码（单次最多 6000 个）",
+        )
         .describe(
-          "证券代码列表（A股/港股，如 ['600519.SH','00700.HK']，单次最多 6000），或市场关键词 aShares=A股全市场 | hkStocks=港股全市场。必填，避免误触发全市场扣费",
+          "证券代码列表（A股/港股，如 ['600519.SH','00700.HK']，单次最多 6000）。必填，且**只接受具体代码**——本工具不支持全市场关键字。⚠️ 本工具按条计费，成本随实际返回条数增长，别为了省调用次数一次性铺满 6000 个代码",
         ),
     },
   },

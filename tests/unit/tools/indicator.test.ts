@@ -720,17 +720,20 @@ describe("EDE empty-table hint", () => {
   it.each([
     ["gangtise_indicator_cross_section", { indicatorCodeList: ["qte_close"], securityCodeList: ["600519.SH"], date: "2026-08-07" }],
     ["gangtise_indicator_time_series", { indicatorCodeList: ["qte_close"], securityCodeList: ["600519.SH"], startDate: "2026-08-01", endDate: "2026-08-07" }],
-  ])("%s tells the caller the codes were probably unrecognised", async (name, args) => {
+  ])("%s tells the caller an empty table is not simply 'no data'", async (name, args) => {
     const client = makeMockClient(emptyMatrix())
     const mcp = await connect(client)
     const result = await mcp.callTool({ name, arguments: args })
     const payload = JSON.parse((result.content as Array<{ text: string }>)[0].text)
     expect(payload.list).toEqual([])
-    expect(payload._hint).toContain("没被服务端解析")
+    // 两条路都不产生空表：能识别的 code 无数据填占位、识别不了的 code 直接报错。
+    expect(payload._hint).toContain("占位值")
+    expect(payload._hint).toContain("直接报错")
     // 通用提示以「可能该条件下确无数据」开头，对 EDE 说反了，不能落到这两个端点上。
     // （EDE 提示里也有「确无数据」四个字，但那是否定句，所以要匹配通用提示的完整开头。）
     expect(payload._hint).not.toContain("可能该条件下确无数据")
-    // 日期用错不会产生空表（返的是 null 单元格，行列俱在），提示里不该把人引去查日期。
+    // 日期用错不会产生空表（吃 reportDate 的指标是硬报错，时序是占位行），提示里不该把
+    // 人引去查日期。
     expect(payload._hint).not.toContain("日期")
   })
 
@@ -739,7 +742,7 @@ describe("EDE empty-table hint", () => {
     const mcp = await connect(client)
     const result = await mcp.callTool({ name: "gangtise_indicator_screener", arguments: SCREENER_ARGS })
     const payload = JSON.parse((result.content as Array<{ text: string }>)[0].text)
-    expect(payload._hint).not.toContain("没被服务端解析")
+    expect(payload._hint).not.toContain("直接报错")
   })
 })
 
@@ -767,9 +770,12 @@ describe("cross-section description: placeholder is indicator-bound", () => {
 // 2026-08-07，sDate=2026-07-01 → 16.6193，写成 startDate → 23.1634 = 不传时的默认值；
 // 换 qte_vol_intvl 同形态 1.33 亿 vs 3.99 亿）。两个数都正常，从结果看不出用错了，
 // 比 0 占位更难发现。描述必须点明这一层，只说「会被静默忽略」不够。
+// 区间指标的起点键名仍必须点名（sDate，不是 startDate）。变的是写错之后会怎样：
+// 错名不再被静默当成「没传起点」并套用默认区间返一个合理的错数，而是被接口指名拒绝。
+// 所以这里钉「键名 + 会被拒绝」，并禁止那句已作废的「静默套用默认区间」回归。
 describe("interval-indicator parameter guidance", () => {
   it.each(["gangtise_indicator_cross_section", "gangtise_indicator_time_series"])(
-    "%s warns that a wrong interval key yields a wrong number, not null",
+    "%s names sDate and says a wrong key is rejected, not silently defaulted",
     async (name) => {
       const mcp = await connect(makeMockClient())
       const { tools } = await mcp.listTools()
@@ -778,9 +784,10 @@ describe("interval-indicator parameter guidance", () => {
       }
       const guidance = schema.properties.indicatorParamList?.description ?? ""
       expect(guidance).toContain("sDate")
-      // 后果必须写明：默认区间 + 拿到的是数不是 null
-      expect(guidance).toContain("默认区间")
-      expect(guidance).not.toContain("写 startDate 会被静默忽略")
+      expect(guidance).toContain("没有 startDate")
+      expect(guidance).toContain("不支持参数")
+      expect(guidance).not.toContain("默认区间")
+      expect(guidance).not.toContain("静默")
     },
   )
 })

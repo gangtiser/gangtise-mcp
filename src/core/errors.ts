@@ -80,7 +80,9 @@ const ERROR_HINTS: Record<string, string> = {
   "100003": "msg 已指明字段名或取值范围时按 msg 改；msg 只说「参数值非法」时多为枚举参数拼写错误，对照工具参数说明列出的合法值检查。",
   "100004": "检查 from / size 是否为非负数且未超单页上限。",
   "100005": "对照工具参数说明列出的合法取值检查。",
-  "100006": "缩短日期范围或调小 size / limit。",
+  // list 类端点把单页上限（50）也归到此码，不再只是「一次要太多行」。分页由本服务自动
+  // 处理，所以调用方能碰到的多半是前半句。
+  "100006": "缩短日期范围或调小 size / limit（list 类接口单页上限为 50）。",
   // 按参数名判断，不要按工具族：ai 的 reportDate 是 date 型，而同属 ai 的
   // knowledge_batch 收 datetime 或 epoch 毫秒。
   "110001": "看参数名：*Date 用 YYYY-MM-DD，*Time 用 YYYY-MM-DD HH:mm:ss（gangtise_knowledge_batch 的 startTime/endTime 另可传 epoch 时间戳，10 位秒或 13 位毫秒）。",
@@ -93,8 +95,10 @@ const ERROR_HINTS: Record<string, string> = {
   "110003": "查询时间超出该接口的可查范围——把日期改到更近的范围内；整段区间都在界外时缩短窗口没有用（单个日期同样会报此码）。可查范围随接口而异，同一账号下不同接口也可能不同（如 EDE 条件选股比截面/时序窄），撞界可改用范围更宽的同族工具。",
   "120001": "用 gangtise_securities_search 确认证券代码与后缀（如 600519.SH / 00700.HK / AAPL.O）。",
   "130001": "先核对查询条件；EDE 指标端点此码也可能是未开通该指标权限，仍失败联系客户经理。",
-  "130002": "确认下载 ID 有效且本账号可见；下载类还需检查 fileType 取值是否合法（非法 fileType 也归此码）。",
-  "130003": "该条记录可能未附带文件。",
+  // 非法 fileType 已拆到 130005、资源未生成已拆到 130003，但历史上两者都归过此码，
+  // 所以提示保留对 fileType 的指引。
+  "130002": "确认下载 ID 有效且本账号可见；下载类还需检查 fileType 取值是否合法。",
+  "130003": "资源未生成，或该条记录未附带文件——换一条列表里标着有附件的记录，或稍后再试。",
   "130004": "下载 ID 需为数字，检查该工具的 *Id 参数是否传对。",
   "130005": "对照工具参数说明检查 fileType / contentType 取值。",
   "140001": "稍后用对应 *_check 工具查询。",
@@ -141,6 +145,73 @@ const ERROR_HINTS: Record<string, string> = {
   "10011401": "联系客户经理开通白名单。",
 }
 
+/** Hints keyed on the server's message rather than its code, for the cases where one
+ * code covers many causes and only the message says which. The EDE input-error codes
+ * are the reason this layer exists: `100001` / `100003` are the catch-all for every
+ * indicator parameter problem, so their per-code hints can only be generic.
+ *
+ * Kept to cases where the message names the problem but not the fix: the caller is told
+ * 「缺少必填参数 reportDate」 and still has to work out that such indicators need an
+ * `indicatorParamList` entry rather than the tool's own `date`.
+ *
+ * ⚠️ 不要把这里改写成「哪些指标吃哪个日期」的归纳规则 —— 这两件事都不按 code 前缀分
+ * （`is_*` 里两种都有，`finc_*` / `div_*` 同样），个别指标两个日期都必填，另有指标要的
+ * 是 fiscalYear。提示只指向 gangtise_indicator_search 的 parameterList，不做断言。 */
+// 🔴 顺序即优先级（`.find` 先到先得），而这五条的排法是有讲究的，改动前先读完这段。
+//
+// 服务端的日期报错有两种形态：**拼接句**（`指标 X 不支持参数 A; 指标 X 缺少必填参数 B`，
+// 两半同时出现，能唯一确定该换成哪个键）和**半句**（只有「不支持 A」，没有「缺少 B」）。
+// 半句只证明「A 被拒了」，**推不出该换成哪个键**——推断就会断错：
+//   - 只有「不支持 tradeDate」的指标，可能吃 reportDate、可能吃 fiscalYear、也可能一个
+//     日期都不吃（如上市日期、交易市场这类静态属性）。
+//   - 只有「不支持 reportDate」的同理。
+// 所以拼接句配**断言式**提示（能确定），半句配**不断言**的提示（指向 parameterList）。
+//
+// 前一版把两种形态合并处理，结果是：给一个只吃 fiscalYear 的指标先建议「补 reportDate」，
+// 照做后又建议「删掉 reportDate，date 会自动补 tradeDate」，回到原点——**两条建议互相
+// 指反，构成死循环，而正确答案 fiscalYear 一次都没出现**。errors.test.ts 钉住了这一点。
+// 一次请求里多个指标各自缺不同的键时，服务端会在同一句报错里逐个点名，而提示只讲得了其中
+// 一种形态。所以每条提示都带上这句：告诉调用方逐个处理，别以为改完一个就完事。
+const MULTI_NOTE = " ⚠️ 一条报错可能同时点名多个指标，且各自要补的键不同——逐个按各自的 parameterList 处理，改完一个再看新的报错。"
+
+const MESSAGE_HINTS: Array<{ codes: string[]; all: RegExp[]; hint: string }> = [
+  {
+    // 拼接句 / 半句都成立：明确点名「缺 reportDate」，那就是要 reportDate。
+    codes: ["100001", "100003"],
+    all: [/缺少必填参数[:：]?\s*reportDate/],
+    hint: "报错里点名的那个指标要的是 reportDate（报告期），不是本工具的 date 下发的 tradeDate：在 indicatorParamList 里给该指标补一条 { indicatorCode, parameters: [{ paramKey: 'reportDate', paramValue: 'YYYY-MM-DD' }] }（条件选股写在对应变量上），date 参数仍要保留。以 gangtise_indicator_search 返回的 parameterList 为准，别按指标 code 前缀推断要哪个日期。" + MULTI_NOTE,
+  },
+  {
+    // 拼接句：拒收 reportDate **且**缺 tradeDate ⇒ 这是个交易日指标，删掉多传的
+    // reportDate 就好——删掉后本服务会自动把 date 作为 tradeDate 注入，那半句一并消失。
+    codes: ["100001", "100003"],
+    all: [/不支持参数\s*reportDate/, /缺少必填参数[:：]?\s*tradeDate/],
+    hint: "报错里点名的那个指标要的是 tradeDate（交易日），不吃 reportDate：把 indicatorParamList 里该指标的 reportDate 删掉即可——删掉后本工具的 date 会自动作为 tradeDate 下发，不需要另外补。以 gangtise_indicator_search 返回的 parameterList 为准。" + MULTI_NOTE,
+  },
+  {
+    // 半句：只说拒收 reportDate。删掉它是对的，但**不能承诺**删掉就能出数——该指标可能
+    // 连 tradeDate 都不吃，删完会撞上下面那条。
+    codes: ["100001", "100003"],
+    all: [/不支持参数\s*reportDate/],
+    hint: "报错里点名的那个指标不接受 reportDate：先把 indicatorParamList 里该指标的 reportDate 删掉，再照 gangtise_indicator_search 返回的 parameterList 补它真正要的键（可能是 tradeDate，也可能是 fiscalYear，或者一个日期都不要）。" + MULTI_NOTE,
+  },
+  {
+    // 半句：只说拒收 tradeDate，没说缺什么。**这一条最容易断错**，所以只描述现状 + 给出
+    // 一条确定可行的路：本工具（截面/选股）会无条件把 date 作为 tradeDate 下发，所以
+    // 「压根不吃 tradeDate」的指标在这两个工具上没法回避它；时序工具不下发单日期参数。
+    codes: ["100001", "100003"],
+    all: [/不支持参数\s*tradeDate/],
+    hint: "报错里点名的那个指标不接受 tradeDate，而截面/条件选股会把 date 作为 tradeDate 下发给每个指标——所以这类指标**在这两个工具上取不到数**，请改用 gangtise_indicator_time_series（它不下发单日期参数，用 startDate/endDate 圈区间即可，每行返回同一个值）。它真正要哪些键以 gangtise_indicator_search 返回的 parameterList 为准：只要 fiscalYear 的（如股利支付率、年度现金分红总额）在时序里按变量传 fiscalYear；一个日期都不要的静态属性（如上市日期、上市市场、主营业务）在时序里不用传任何参数。**如果你本来是在做条件选股**：这类指标当前不能当选股变量，改用「把原来的 securityCodeList（板块 ID 也行，会展开成全部成分股）交给时序工具取到该列，再在本地按条件筛」。" + MULTI_NOTE,
+  },
+  {
+    // 半句：没有任何键被拒，只是缺 tradeDate。本服务见到已声明的 reportDate 就不再注入
+    // tradeDate（见 withQueryDate），所以这是「两个日期都必填」那类指标的形态。
+    codes: ["100001", "100003"],
+    all: [/缺少必填参数[:：]?\s*tradeDate/],
+    hint: "报错里点名的那个指标两个日期都必填：在同一个 indicatorParamList 条目的 parameters 里，除已有的 reportDate 外再补 { paramKey: 'tradeDate', paramValue: 'YYYY-MM-DD' }。必填项以 gangtise_indicator_search 返回的 parameterList 为准。" + MULTI_NOTE,
+  },
+]
+
 export class ApiError extends CliError {
   readonly hint?: string
 
@@ -158,7 +229,12 @@ export class ApiError extends CliError {
     hintOverride?: string,
   ) {
     super(message)
-    this.hint = hintOverride ?? (code ? ERROR_HINTS[code] : undefined)
+    // 优先级：显式 override > 按消息匹配 > 按码。按消息的规则比码本身指认的原因更窄，
+    // 所以排在按码之前；但调用点自带上下文时仍然它最准。
+    const byMessage = code
+      ? MESSAGE_HINTS.find((rule) => rule.codes.includes(code) && rule.all.every((re) => re.test(message)))?.hint
+      : undefined
+    this.hint = hintOverride ?? byMessage ?? (code ? ERROR_HINTS[code] : undefined)
   }
 
   /** Server-side correlation id from the 2026-07-17 envelope

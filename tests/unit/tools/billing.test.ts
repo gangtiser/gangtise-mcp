@@ -181,11 +181,11 @@ describe("listTools billing-label gate", () => {
   })
 
   it("only scans tool.description — param descriptions keep their amplification warnings", async () => {
-    // ai.ts 的 securityList 参数描述含「避免误触发全市场扣费」，是有效的放大警示，
-    // 必须保留；门禁若扫 inputSchema 就会误杀它。这条把该边界钉死。
+    // ai.ts 的 securityList 参数描述含「按条计费」，是有效的放大警示，必须保留；
+    // 门禁若扫 inputSchema 就会误杀它。这条把该边界钉死。
     const tools = await listLiveTools()
     const stockSummary = tools.find((t) => t.name === "gangtise_stock_summary")
-    expect(JSON.stringify(stockSummary?.inputSchema)).toContain("避免误触发全市场扣费")
+    expect(JSON.stringify(stockSummary?.inputSchema)).toContain("按条计费")
   })
 })
 
@@ -220,11 +220,13 @@ describe("tool description boundaries", () => {
     const tools = await listLiveTools()
     const cs = tools.find((t) => t.name === "gangtise_indicator_cross_section")
     // 公司类型 + 占位值形态在描述里（占位是 null 还是 0 取决于指标，不是「四档」那套旧模型）。
-    // 自 2026-08-01 起整批无数据不再返回 999999，所以旧的「报 999999 时改用 time_series」
-    // 兜底已作废——描述不得再教它。
+    // 整批无数据不再返回 999999，所以旧的「报 999999 时改用 time_series」兜底已作废——
+    // 描述不得再教它。
     expect(cs?.description ?? "").toContain("分公司类型")
-    expect(cs?.description ?? "").toContain("空表")
     expect(cs?.description ?? "").not.toContain("999999")
+    // 认不出的 code 现在会被接口指名拒绝，不再静默丢整行整列——描述必须说这一点，
+    // 否则模型仍会按旧模型把报错当成「覆盖缺口」去排查。
+    expect(cs?.description ?? "").toContain("拒绝并指名")
     // 日期路由 + 必填参数填法 + reportType 口径在 inputSchema（date / indicatorParamList 描述）
     const schema = JSON.stringify(cs?.inputSchema)
     expect(schema).toContain("报告期末季末")
@@ -242,9 +244,13 @@ describe("tool description boundaries", () => {
     expect(schema).toContain("paramDescription")
     expect(schema).not.toContain("尚未定论")
     expect(schema).not.toContain("reportType 勿传")
-    // adjustType 的坑必须写死：写成 adjustmentType 会被服务端静默忽略并退回不复权
+    // adjustType 仍要点名（它是复权的正确键名）。但「写成 adjustmentType 会被静默忽略并
+    // 退回不复权」那套警示已经作废——参数名写错现在会被接口指名拒绝，所以描述改成教
+    // 「照 msg 改 + 以 parameterList 为准」，不再列举某个错名。
     expect(schema).toContain("adjustType")
-    expect(schema).toContain("adjustmentType")
+    expect(schema).not.toContain("adjustmentType")
+    expect(schema).toContain("不支持参数")
+    expect(schema).toContain("parameterList 为准")
   })
 
   // 总市值是 qte_ 族里唯一「专用工具没有」的：realtime/day_kline 实测都无市值字段，

@@ -181,6 +181,35 @@ describe("schema tightening (billing + ID guards)", () => {
     expect(client.call).not.toHaveBeenCalled()
   })
 
+  // 本接口只按具体代码批量。市场关键字会被判为无效证券代码（报「证券代码无效」，读起来
+  // 像代码写错了），而它按条计费——所以必须在 schema 层拦下，不能让请求发出去。
+  it.each(["aShares", "hkStocks", "usStocks", "all", "ashares"])(
+    "rejects the market keyword %s on gangtise_stock_summary without calling the API",
+    async (keyword) => {
+      const client = makeClient(async () => ({}))
+      const mcp = await connect(client)
+      const result = await mcp.callTool({ name: "gangtise_stock_summary", arguments: { securityList: [keyword] } })
+      expect(result.isError).toBe(true)
+      expect(client.call).not.toHaveBeenCalled()
+    },
+  )
+
+  it("rejects a market keyword mixed in with real codes too", async () => {
+    const client = makeClient(async () => ({}))
+    const mcp = await connect(client)
+    const result = await mcp.callTool({ name: "gangtise_stock_summary", arguments: { securityList: ["600519.SH", "aShares"] } })
+    expect(result.isError).toBe(true)
+    expect(client.call).not.toHaveBeenCalled()
+  })
+
+  it("still forwards a plain code list", async () => {
+    const client = makeClient(async () => ({ total: 1, list: [{ securityCode: "600519.SH" }] }))
+    const mcp = await connect(client)
+    const result = await mcp.callTool({ name: "gangtise_stock_summary", arguments: { securityList: ["600519.SH", "00700.HK"] } })
+    expect(result.isError).toBeFalsy()
+    expect(client.call).toHaveBeenCalledTimes(1)
+  })
+
   it("rejects a blank securityCode on a content-generating tool", async () => {
     const client = makeClient(async () => ({}))
     const mcp = await connect(client)

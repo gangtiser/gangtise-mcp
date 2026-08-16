@@ -50,16 +50,16 @@ const mainBusinessFieldList = z
   .array(z.enum(MAIN_BUSINESS_FIELD_NAMES))
   .optional()
   .describe(`指定返回字段，只认这 15 个主营字段：${MAIN_BUSINESS_FIELD_NAMES.join(" / ")}。不确定就不传`)
-// 实测 2026-07-26（工行/茅台/中信证券一致）：A股**累计口径**的资产负债表与现金流量表，
-// companyType 与 currency 两列的值是互换的（companyType 返回「人民币」、currency 返回
-// 「银行」/「一般企业」）。A股利润表（累计）正确；A股单季表则是 companyType 返回未映射的
-// 数字码（如 102110100）、currency 正确。科目数字不受影响，只影响这两列的读法。
-const META_SWAP_NOTE = "注意：companyType 与 currency 两列的取值互换（companyType 列里是币种、currency 列里是公司类型），请按值本身判断语义、不要按列名；报表科目数字不受影响。"
+// 报表里有两个披露日字段，取值可能不同，而选错的后果是 point-in-time 校验得出相反结论
+// （拿一个晚得多的日期去回溯，等于把未来信息当成当时可见）。这不是普遍现象、是个股级的，
+// 所以只能靠字段选择规避，没法靠「换只票验一下」发现——茅台两个字段一致，用它当探针
+// 什么也测不出来。
+const PIT_NOTE = "做 point-in-time / 时点对齐请用 earliestAnncDate（首次公告日）：announcementDate 在部分个股上会把同一财年各期都填成最后一期的披露日，用它回溯会把本来早已可得的数据算成尚不可见（一/中/三季要等到年报日才「出现」），据此做的回测会漏掉整段区间。⚠️ 另一个方向也要留意：category 为「补充更正」「其他财务报告」的行，其数字来自那次更正公告，此时 earliestAnncDate 早于数字真正可得的时点——这类行两个字段都不是安全的时点，需按 category 单独判断。"
 
 export const specs: JsonToolSpec[] = [
   {
     name: "gangtise_income_statement",
-    description: "查询A股利润表（累计口径），支持期间、财年、报告类型筛选。",
+    description: `查询A股利润表（累计口径），支持期间、财年、报告类型筛选。${PIT_NOTE}`,
     endpointKey: "fundamental.income-statement",
     paginated: false,
     inputSchema: {
@@ -73,7 +73,7 @@ export const specs: JsonToolSpec[] = [
   },
   {
     name: "gangtise_income_statement_quarterly",
-    description: "查询A股单季利润表。",
+    description: `查询A股单季利润表。${PIT_NOTE}本工具的 companyType 返回的是未映射的数字码，要读公司类型请取累计口径报表的同名字段。`,
     endpointKey: "fundamental.income-statement-quarterly",
     paginated: false,
     inputSchema: {
@@ -87,7 +87,7 @@ export const specs: JsonToolSpec[] = [
   },
   {
     name: "gangtise_balance_sheet",
-    description: `查询A股资产负债表，支持期间、财年、报告类型筛选。${META_SWAP_NOTE}`,
+    description: `查询A股资产负债表，支持期间、财年、报告类型筛选。${PIT_NOTE}`,
     endpointKey: "fundamental.balance-sheet",
     paginated: false,
     inputSchema: {
@@ -101,7 +101,7 @@ export const specs: JsonToolSpec[] = [
   },
   {
     name: "gangtise_cash_flow",
-    description: `查询A股现金流量表（累计口径），支持期间、财年、报告类型筛选。${META_SWAP_NOTE}`,
+    description: `查询A股现金流量表（累计口径），支持期间、财年、报告类型筛选。${PIT_NOTE}`,
     endpointKey: "fundamental.cash-flow",
     paginated: false,
     inputSchema: {
@@ -115,7 +115,7 @@ export const specs: JsonToolSpec[] = [
   },
   {
     name: "gangtise_cash_flow_quarterly",
-    description: "查询A股单季现金流量表。",
+    description: `查询A股单季现金流量表。${PIT_NOTE}本工具的 companyType 返回的是未映射的数字码，要读公司类型请取累计口径报表的同名字段。`,
     endpointKey: "fundamental.cash-flow-quarterly",
     paginated: false,
     inputSchema: {

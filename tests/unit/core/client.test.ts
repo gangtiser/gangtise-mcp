@@ -684,13 +684,17 @@ describe("GangtiseClient Retry-After on 200-wrapped errors", () => {
           body: { text: vi.fn().mockResolvedValue(JSON.stringify({ code: "999006", msg: "rate limited" })) },
         })
       }
-      return Promise.resolve(jsonResponse({ answer: 42 }))
+      // 分页端点的合法形状：用 {total, list} 而不是任意对象，否则首包形状告警会插进来，
+      // 把这条「有没有真的重放」的断言变成在断言告警文案。total 取 5 > size，这次请求
+      // 就没覆盖到 reported end，封顶探针不会追发第三个请求、calls 才守得住。
+      return Promise.resolve(jsonResponse({ total: 5, list: [{ answer: 42 }] }))
     })
 
     // research.list 走默认重试策略（按次计费的 no-replay 端点仍不重放，另有用例覆盖）。
     vi.useFakeTimers()
     const result = await drainRetries(tokenClient().call("insight.research.list", { from: 0, size: 1 }))
-    expect(result).toEqual({ answer: 42 })
+    expect(result).toMatchObject({ total: 5, list: [{ answer: 42 }] })
+    expect(result).not.toHaveProperty("_partial")
     expect(calls).toBe(2)
   })
 })
@@ -703,6 +707,46 @@ describe("GangtiseClient Retry-After on 200-wrapped errors", () => {
 // 判据有意**不写死那个上限数字**（服务端换配置就失效，也不该把某个具体数当契约）：
 // 探一行 from = total，并**同时比对探针自己的 total**——total 没变且还有行才是上限；
 // total 变了（涨或跌）说明数据集在翻页期间动过，归 total_drift。
+// 分页端点的真实空结果是 {total: 0, list: []}。形状不对就说明翻页根本没发生——拿到的
+// 只是首包，而调用方分不清「筛选没命中」和「筛选没生效」。最隐蔽的一档是 total 漂成
+// 字符串：fetchAll 被截断成第 1 页，结果看着却完整。
+describe("unexpected first-page shape", () => {
+  it.each([
+    ["total 是字符串", { total: "100", list: [{ id: 1 }] }],
+    ["没有 list", { total: 3, data: [{ id: 1 }] }],
+  ])("flags _partial on a paginated endpoint whose first page is malformed (%s)", async (_label, payload) => {
+    requestMock.mockReset()
+    requestMock.mockImplementation(async () => jsonResponse(payload))
+    const result = await tokenClient().call("insight.foreign-opinion.list", { fetchAll: true }) as Record<string, unknown>
+    expect(result._partial).toBe(true)
+    expect(result._partial_reason).toBe("unexpected_page_shape")
+    expect(String(result._unexpected_page_shape)).toContain("不要当作完整结果使用")
+    // 原始内容必须原样带出，标记是附加的而不是替换的。
+    expect(result.total).toBe(payload.total)
+  })
+
+  it("leaves a well-formed first page unmarked", async () => {
+    requestMock.mockReset()
+    requestMock.mockImplementation(async (_url: unknown, opts?: { body?: string }) => {
+      const body = JSON.parse(opts?.body ?? "{}")
+      if (body.from >= 2) return jsonResponse({ total: 2, list: [] })
+      return jsonResponse({ total: 2, list: [{ id: 0 }, { id: 1 }] })
+    })
+    const result = await tokenClient().call("insight.foreign-opinion.list", { fetchAll: true }) as Record<string, unknown>
+    expect(result._partial).toBeUndefined()
+    expect(result._unexpected_page_shape).toBeUndefined()
+  })
+
+  // null 首包由工具层的 nullMeansEmpty 契约处理（没开就响亮失败），这里不能挂属性——
+  // 挂了会把 null 变成一个看起来有内容的对象。
+  it("passes a null payload through untouched", async () => {
+    requestMock.mockReset()
+    requestMock.mockImplementation(async () => jsonResponse(null))
+    const result = await tokenClient().call("insight.foreign-opinion.list", { fetchAll: true })
+    expect(result).toBeNull()
+  })
+})
+
 describe("total capped detection", () => {
   const page = (n: number, from = 0) => ({ total: 100, list: Array.from({ length: n }, (_, i) => ({ id: from + i })) })
 
@@ -862,5 +906,40 @@ describe("total capped probe: shrinking dataset", () => {
     const r = await tokenClient().call("insight.foreign-opinion.list", { fetchAll: true }) as Record<string, unknown>
     expect(String(r._partial_reason ?? "")).toContain("total_drift")
     expect(r._total_capped).toBeUndefined()
+  })
+})
+
+// 🔴 相当一部分分页端点用 {total: 0, list: null} 编码空结果（summary / 三个公告 list /
+// 财报日历 / 热点话题…），另一部分用 {total: 0, list: []}。**两种都是合法空结果。**
+// 把前者当异形，会在正常的零命中查询上打出「结果不完整、不要当作完整结果使用」，而调用方
+// 对这句的自然反应是放宽条件重查——在按条计费的端点上那就是钱。
+//
+// ⚠️ 这一节存在的直接原因：上一版那两条用的是 {total:"100",list:[…]} 和 {total:3,data:[…]}，
+// 两个都是**编出来的**形状；生产里真正出现的 {total:0,list:null} 一次都没测。变异测试当时
+// 是合格的（删掉调用只红那两条），但验的对象不是被验证的那个东西。
+describe("empty-result encodings that are NOT malformed", () => {
+  it.each([
+    ["list 为 null", { total: 0, list: null }],
+    ["list 缺失", { total: 0 }],
+    ["list 为空数组", { total: 0, list: [] }],
+  ])("does not flag %s as an unexpected shape", async (_label, payload) => {
+    requestMock.mockReset()
+    requestMock.mockImplementation(async () => jsonResponse(payload))
+    const result = await tokenClient().call("insight.summary.list", { size: 1 }) as Record<string, unknown>
+    expect(result._partial).toBeUndefined()
+    expect(result._partial_reason).toBeUndefined()
+    expect(result._unexpected_page_shape).toBeUndefined()
+    // 两种写法在这里合流：下游一律按数组处理
+    expect(result.list).toEqual([])
+    expect(result.total).toBe(0)
+  })
+
+  // 放宽只覆盖 total===0 这一格：total 非 0 却没有 list 是真的丢了数据，仍须响亮失败。
+  it("still flags a non-zero total with no list", async () => {
+    requestMock.mockReset()
+    requestMock.mockImplementation(async () => jsonResponse({ total: 42, list: null }))
+    const result = await tokenClient().call("insight.summary.list", { size: 1 }) as Record<string, unknown>
+    expect(result._partial).toBe(true)
+    expect(result._partial_reason).toBe("unexpected_page_shape")
   })
 })

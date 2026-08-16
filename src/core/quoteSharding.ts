@@ -16,7 +16,10 @@ interface ShardConfig {
   shardDays: number
   concurrency?: number
   /** securityList sentinel that means "whole market" and triggers day-sharding.
-   * Defaults to "all" (day-kline); fund-flow uses "aShares". */
+   * `aShares` / `hkStocks` / `usStocks` on the unified day K-line (each with its own
+   * shardDays — the caller resolves which one was asked for) and `aShares` on
+   * fund-flow; the market-specific day K-line tools still use the historical `all`,
+   * which is the default here. */
   fullMarketValue?: string
 }
 
@@ -25,9 +28,9 @@ interface KlineClient {
 }
 
 const DAY_MS = 86_400_000
-/** API-side row cap (per docs). Lifts the default 6000-row cap on
- * `--security all` queries so a single shard (~5-6K rows/day per market)
- * isn't silently truncated. Single-security queries are untouched. */
+/** API-side row cap (per docs). Lifts the default 6000-row cap on whole-market
+ * queries so a single shard (~5-6K rows/day per market) isn't silently truncated.
+ * Single-security queries are untouched. */
 const ALL_MARKET_LIMIT = 10_000
 /** Hard cap on shard fan-out. ~180 one-day shards ≈ 6+ months of A-share
  * full-market rows; beyond that the merged rows approach the V8 string limit in
@@ -82,7 +85,11 @@ function buildShards(start: Date, end: Date, shardDays: number): Array<{ startDa
     const shardEnd = Math.min(cursor + (shardDays - 1) * DAY_MS, endTime)
     // A/HK/US markets close Sat/Sun, so a 1-day weekend shard is a
     // guaranteed-empty request — skip it (~28% of a long range, and daily
-    // quota). Multi-day shards may straddle a weekend and are kept whole.
+    // quota). Multi-day shards (hkStocks=2, index=15) are kept whole: this is a
+    // deliberate simplification, not a claim that they always contain a weekday —
+    // a 2-day shard starting on a Saturday is Sat+Sun and returns nothing. That
+    // costs one wasted request at a range boundary and never drops a trading day,
+    // whereas filtering multi-day windows correctly means walking each window.
     if (!(shardDays === 1 && isWeekend(cursor))) {
       shards.push({
         startDate: formatDate(new Date(cursor)),

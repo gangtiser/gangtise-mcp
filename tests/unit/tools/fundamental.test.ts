@@ -117,16 +117,48 @@ describe("fieldList closed set (schema is the defence against equal-length mis-z
   })
 })
 
-// 实测 2026-07-26（工行/茅台/中信证券一致）：A股累计口径的资产负债表与现金流量表，
-// companyType 与 currency 两列的值互换（companyType='人民币'、currency='银行'）。
-// A股利润表（累计）正确，故不该带这条注记 —— 一并钉住范围，避免注记被复制到全部报表。
-describe("upstream companyType/currency swap note", () => {
-  it("warns on the two swapped statements and stays off the correct one", async () => {
+// companyType 与 currency 两列曾经取值互换，现已各归各位（一般企业/银行/保险/证券四类
+// 逐一核对，companyType 跟着公司变而 currency 恒为币种）。注记已撤——留着一条针对已修
+// 问题的警示，等于教调用方按值反推列名、把对的读法读成错的。
+describe("companyType/currency swap note is withdrawn", () => {
+  it("no longer tells anyone the two columns are swapped", async () => {
+    const mcp = await connect(makeClient())
+    for (const [, description] of (await mcp.listTools()).tools.map((t) => [t.name, t.description ?? ""])) {
+      expect(description).not.toContain("取值互换")
+    }
+  })
+})
+
+// 两个披露日字段的取值可能不同，而选错的后果是 point-in-time 校验得出相反结论。
+// 只挂在**真的有 earliestAnncDate 的** A 股报表上：港股/美股报表没有这个字段，
+// 在那里教人用它等于指向一个不存在的列。
+describe("point-in-time announcement-date guidance", () => {
+  it("names earliestAnncDate on the A-share statements that carry it", async () => {
     const mcp = await connect(makeClient())
     const byName = new Map((await mcp.listTools()).tools.map((t) => [t.name, t.description ?? ""]))
-    for (const n of ["gangtise_balance_sheet", "gangtise_cash_flow"]) {
-      expect(byName.get(n), `${n} 应标注两列互换`).toContain("companyType 与 currency")
+    for (const n of [
+      "gangtise_income_statement",
+      "gangtise_income_statement_quarterly",
+      "gangtise_balance_sheet",
+      "gangtise_cash_flow",
+      "gangtise_cash_flow_quarterly",
+    ]) {
+      expect(byName.get(n), `${n} 应指向 earliestAnncDate`).toContain("earliestAnncDate")
     }
-    expect(byName.get("gangtise_income_statement")).not.toContain("companyType 与 currency")
+  })
+
+  it("stays off the HK/US statements, which have no such field", async () => {
+    const mcp = await connect(makeClient())
+    const byName = new Map((await mcp.listTools()).tools.map((t) => [t.name, t.description ?? ""]))
+    for (const n of [
+      "gangtise_income_statement_hk",
+      "gangtise_balance_sheet_hk",
+      "gangtise_cash_flow_hk",
+      "gangtise_income_statement_us",
+      "gangtise_balance_sheet_us",
+      "gangtise_cash_flow_us",
+    ]) {
+      expect(byName.get(n), `${n} 不该提 earliestAnncDate`).not.toContain("earliestAnncDate")
+    }
   })
 })

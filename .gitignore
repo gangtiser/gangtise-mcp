@@ -5,6 +5,8 @@ dist/
 CLAUDE.md
 bug/
 .claude/settings.local.json
+# 开发工作流命令，只在本地，不入库
+.claude/commands/
 .mcp.json
 ~/.config/gangtise/
 .understand-anything/

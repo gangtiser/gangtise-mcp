@@ -17,3 +17,22 @@ export function intLiteralEnum(values: readonly [number, number, ...number[]]) {
     values.map((v) => z.literal(v)) as [z.ZodLiteral<number>, z.ZodLiteral<number>, ...z.ZodLiteral<number>[]],
   )
 }
+
+/**
+ * Whole-market keywords the quote APIs accept in `securityList`, lower-cased for
+ * comparison. Which ones a given endpoint takes differs — the unified day K-line and
+ * realtime take `aShares` / `hkStocks` / `usStocks`, the market-specific day K-line
+ * endpoints take `all`, fund flow takes only `aShares`, and `gangtise_stock_summary`
+ * takes none — so callers pass their own accepted list; this set only answers "is this
+ * string a market keyword at all".
+ *
+ * Unknown keywords are deliberately absent rather than guessed at: this is a
+ * known-keyword list, so a future server-side addition degrades to "not recognised as a
+ * keyword" instead of being refused outright.
+ */
+export const MARKET_KEYWORDS = new Set(["all", "ashares", "hkstocks", "usstocks"])
+
+/** Market keywords are compared case-insensitively — see the note on
+ * `assertMarketKeywords` in tools/quote.ts for why that folding is load-bearing. */
+export const matchesKeyword = (value: string, keyword: string): boolean =>
+  value.toLowerCase() === keyword.toLowerCase()

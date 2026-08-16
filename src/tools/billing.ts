@@ -107,9 +107,9 @@ export const BILLING_CATALOG: Record<string, BillingSpec> = {
   gangtise_earnings_review: fixed(50, "call"),
   gangtise_viewpoint_debate: fixed(50, "call"),
   gangtise_hot_topic: fixed(50, "article", "单次约 1000 积分"),
-  // stock_summary 刻意不带 amplify：成本 = 3 × 实际返回条数，全市场展开上限未证
-  // （6000 只约束显式数组长度，aShares 哨兵只占一个元素）。放大源已在
-  // securityList 的参数描述里警示，那里不受 listTools 门禁扫描。
+  // stock_summary 刻意不带 amplify：成本 = 3 × 实际返回条数，而请求侧只有「传了几个
+  // 代码」这一个上限（6000）。放大源已在 securityList 的参数描述里警示，那里不受
+  // listTools 门禁扫描。
   gangtise_stock_summary: fixed(3, "item"),
   gangtise_security_clue_list: fixed(5, "item"),
   gangtise_management_discuss_announcement: fixed(10, "call"),

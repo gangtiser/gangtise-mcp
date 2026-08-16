@@ -198,13 +198,22 @@ export class GangtiseClient {
     throw new ApiError(`Unsupported local lookup endpoint: ${endpoint.key}`)
   }
 
+  /** 🔴 `{total: 0, list: null}` 是**合法的空结果**，不是异形。
+   *
+   * 相当一部分分页端点就是这么编码空结果的（summary / 三个公告 list / 财报日历 / 热点话题
+   * 等），另一部分用 `{total: 0, list: []}`（research / official-account / qa / vault 系）。
+   * 两种写法都得当空结果收——把前者当异形会在**正常的零命中查询**上打出「结果不完整、
+   * 不要当作完整结果使用」，而调用方对这句话的自然反应是放宽条件重查，在按条计费的端点上
+   * 直接就是钱。`normalizeRows` 下游本来也会把 `list: null` 归一成 `[]`。
+   *
+   * 判据只放宽这一格：`total === 0` 且 `list` 为 null/undefined。`total` 非 0 却没有 list，
+   * 仍然是异形（那是真的丢了数据）。 */
   private isPaginatedListResponse(value: unknown): value is Record<string, unknown> & { total: number; list: unknown[] } {
-    return Boolean(
-      value
-      && typeof value === 'object'
-      && typeof (value as { total?: unknown }).total === 'number'
-      && Array.isArray((value as { list?: unknown[] }).list),
-    )
+    if (!value || typeof value !== 'object') return false
+    const { total, list } = value as { total?: unknown; list?: unknown }
+    if (typeof total !== 'number') return false
+    if (Array.isArray(list)) return true
+    return total === 0 && (list === null || list === undefined)
   }
 
 
@@ -247,6 +256,24 @@ export class GangtiseClient {
     }
   }
 
+  /** 分页端点的首包不是 `{total, list}` 时标记它。
+   *
+   * 这些端点的真实空结果是 `{total: 0, list: []}`，形状不对就说明本次翻页**没有发生**：
+   * 拿到的只是第一页，而调用方无从分辨「这个筛选确实没命中」和「这个筛选没生效」。
+   * 最隐蔽的一档是 `total` 漂成字符串这类——fetchAll 会被截断成第 1 页，结果看着却完整。
+   *
+   * 只给普通对象加标记：`null` 由工具层的 `nullMeansEmpty` 契约处理（没开就响亮失败），
+   * 数组上挂属性会在序列化时消失，两种情况加了也没用。 */
+  private flagUnexpectedPageShape(page: unknown): unknown {
+    if (!page || typeof page !== "object" || Array.isArray(page)) return page
+    return {
+      ...(page as Record<string, unknown>),
+      _partial: true,
+      _partial_reason: "unexpected_page_shape",
+      _unexpected_page_shape: "本接口标记为分页，但返回的首包不是 {total, list} 结构；已原样返回，未进行翻页——这份结果可能只是第一页，也可能是筛选条件未生效，不要当作完整结果使用",
+    }
+  }
+
   private async requestPaginated(endpoint: EndpointDefinition, body?: unknown) {
     const initialBody = body && typeof body === 'object' ? { ...(body as Record<string, unknown>) } : {}
 
@@ -269,7 +296,9 @@ export class GangtiseClient {
       size: firstPageSize,
     })
 
-    if (!this.isPaginatedListResponse(firstPage)) return firstPage
+    if (!this.isPaginatedListResponse(firstPage)) return this.flagUnexpectedPageShape(firstPage)
+    // 合法空结果的两种写法（`list: []` 与 `list: null`）在这里合流，后面一律按数组处理。
+    if (!Array.isArray(firstPage.list)) firstPage.list = []
 
     const total = firstPage.total
     const collected: unknown[] = [...firstPage.list]

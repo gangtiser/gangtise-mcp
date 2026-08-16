@@ -185,3 +185,127 @@ describe("999006 hint matches the actual retry policy", () => {
     expect(new ApiError("rate limited", "999006").hint).not.toContain("形态不重试")
   })
 })
+
+// EDE 的入参错全部压在 100001 / 100003 两个码上，按码只能给通用建议。日期这一类的 msg
+// 已经指名了问题，但没说在本服务里怎么改——补一层按 msg 匹配的提示，把改法直接给出来。
+describe("message-keyed hints for EDE date params", () => {
+  it("tells a reportDate indicator's caller to add it to indicatorParamList", () => {
+    const hint = new ApiError("指标 is_op_rev 不支持参数 tradeDate; 指标 is_op_rev 缺少必填参数 reportDate", "100003").hint!
+    expect(hint).toContain("reportDate")
+    expect(hint).toContain("indicatorParamList")
+    // 不能归纳成「哪些前缀吃哪个日期」——同一前缀下两种都有，只能指向 parameterList。
+    expect(hint).toContain("parameterList")
+    expect(hint).not.toContain("is_*")
+  })
+
+  // 声明了 reportDate 会让本服务不再注入 tradeDate；两个日期都必填的指标因此报缺
+  // tradeDate。方向相反，提示也必须相反，否则会让调用方再补一次已经补过的 reportDate。
+  it("tells a both-dates indicator's caller to add tradeDate as well", () => {
+    const hint = new ApiError("指标 div_cash_yld 缺少必填参数 tradeDate", "100001").hint!
+    expect(hint).toContain("两个日期都必填")
+    expect(hint).toContain("tradeDate")
+  })
+
+  // 🔴 服务端把「拒收了哪个键」和「缺哪个键」拼在同一句里。给一个只吃 tradeDate 的指标
+  // 传了 reportDate，收到的是「不支持参数 reportDate; 缺少必填参数 tradeDate」——只看后半
+  // 句会建议「再补 tradeDate」，而正确的改法是**删掉 reportDate**（删掉后 date 会自动作为
+  // tradeDate 注入，那半句自然消失）。两条规则的先后顺序就是为了守住这一点。
+  it("tells a tradeDate-only indicator's caller to DROP reportDate, not add tradeDate", () => {
+    const hint = new ApiError("指标 qte_close 不支持参数 reportDate; 指标 qte_close 缺少必填参数 tradeDate", "100003").hint!
+    expect(hint).toContain("删掉")
+    expect(hint).not.toContain("两个日期都必填")
+  })
+
+  // 反方向的同款拼接句必须仍然走第一条规则。
+  it("keeps the reportDate advice for the mirrored combined message", () => {
+    const hint = new ApiError("指标 is_op_rev 不支持参数 tradeDate; 指标 is_op_rev 缺少必填参数 reportDate", "100003").hint!
+    expect(hint).toContain("要的是 reportDate")
+    expect(hint).not.toContain("删掉")
+  })
+
+  // 🔴 半句（只说拒收、没说缺什么）**推不出**该换成哪个键：只吃 fiscalYear 的指标、以及
+  // 一个日期都不吃的静态属性指标，收到的都是这半句。前一版把半句并进拼接句的规则里，于是
+  // 「补 reportDate」与「删掉 reportDate」互相指反、构成死循环，而正确答案 fiscalYear 一次
+  // 都没出现。这两条钉住半句只给不断言的指引，并点名那条确定可行的路。
+  it("does not assert reportDate on a bare 不支持参数 tradeDate", () => {
+    const hint = new ApiError("指标 div_cash_paid_ratio 不支持参数 tradeDate", "100003").hint!
+    expect(hint).not.toContain("要的是 reportDate")
+    expect(hint).toContain("fiscalYear")
+    expect(hint).toContain("gangtise_indicator_time_series")
+  })
+
+  it("does not promise an auto-injected tradeDate on a bare 不支持参数 reportDate", () => {
+    const hint = new ApiError("指标 div_cash_paid_ratio 不支持参数 reportDate", "100003").hint!
+    expect(hint).toContain("删掉")
+    // 半句里不能承诺「删掉后 date 会自动补上」——该指标可能连 tradeDate 都不吃。
+    expect(hint).not.toContain("自动作为 tradeDate 下发")
+    expect(hint).toContain("parameterList")
+  })
+
+  // 三步闭环的回归钉：把这三种形态的建议连起来读，不能绕回起点。
+  it("breaks the add-reportDate / drop-reportDate loop", () => {
+    const step1 = new ApiError("指标 div_cash_paid_ratio 不支持参数 tradeDate", "100003").hint!
+    const step2 = new ApiError("指标 div_cash_paid_ratio 不支持参数 reportDate", "100003").hint!
+    expect(step1).not.toContain("补一条 { indicatorCode")
+    expect(step2).not.toContain("自动作为 tradeDate 下发")
+  })
+
+  it("falls back to the per-code hint for other messages on the same codes", () => {
+    const hint = new ApiError("请求体结构错误或字段类型不匹配", "100003").hint!
+    expect(hint).toContain("msg 已指明字段名")
+  })
+
+  it("does not fire on a different code carrying a similar message", () => {
+    expect(new ApiError("指标 x 缺少必填参数 reportDate", "410106").hint).toContain("parameterList")
+    expect(new ApiError("指标 x 缺少必填参数 reportDate", "410106").hint).not.toContain("indicatorParamList 里给该指标补")
+  })
+
+  it("still lets an explicit hintOverride win", () => {
+    const err = new ApiError("指标 is_op_rev 不支持参数 tradeDate", "100003", undefined, undefined, undefined, "调用点更清楚")
+    expect(err.hint).toBe("调用点更清楚")
+  })
+})
+
+// 一次请求里多个指标各有各的毛病时，服务端在同一句 msg 里逐个点名，而提示只讲得了其中
+// 一种形态。提示因此不能用「这个指标」这种单数口吻假装只有一个问题。
+describe("multi-indicator date errors", () => {
+  const MULTI = "指标 div_cash_paid_ratio 不支持参数 tradeDate; 指标 is_op_rev 不支持参数 tradeDate; 指标 is_op_rev 缺少必填参数 reportDate"
+
+  it("points at the indicator the message names, not an unnamed 'this one'", () => {
+    const hint = new ApiError(MULTI, "100003").hint!
+    expect(hint).toContain("报错里点名的那个指标")
+    expect(hint).not.toContain("这个指标")
+  })
+
+  it("warns that one message may name several indicators", () => {
+    expect(new ApiError(MULTI, "100003").hint).toContain("同时点名多个指标")
+  })
+
+  it("carries that warning on every date rule, not just the first", () => {
+    for (const msg of [
+      "指标 X 缺少必填参数 reportDate",
+      "指标 X 不支持参数 reportDate; 指标 X 缺少必填参数 tradeDate",
+      "指标 X 不支持参数 reportDate",
+      "指标 X 不支持参数 tradeDate",
+      "指标 X 缺少必填参数 tradeDate",
+    ]) {
+      expect(new ApiError(msg, "100003").hint, msg).toContain("同时点名多个指标")
+    }
+  })
+})
+
+// 规则 4 覆盖的那批指标（静态属性 / 只要 fiscalYear）在截面和条件选股上都取不到数。
+// 时序工具能取到值，但**不能筛**（没有 expression），所以只说「改用时序」对选股调用方
+// 是把人指去一个做不到那件事的工具。可行路径是「时序 + 板块 ID 取到该列，再本地筛」。
+describe("rule 4 gives the screener caller a route that can actually filter", () => {
+  const hint = () => new ApiError("指标 scr_exchg_sctr 不支持参数 tradeDate", "100003").hint!
+
+  it("names the time-series tool for plain lookups", () => {
+    expect(hint()).toContain("gangtise_indicator_time_series")
+  })
+
+  it("tells a screener caller to fetch the column and filter locally", () => {
+    expect(hint()).toContain("条件选股")
+    expect(hint()).toContain("本地")
+  })
+})
