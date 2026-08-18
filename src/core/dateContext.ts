@@ -82,28 +82,44 @@ export function dateTimeDesc(): string {
   return "YYYY-MM-DD HH:mm:ss"
 }
 
+// 三种「年在前」写法，发请求前统一归一成 YYYY-MM-DD。反向引用保证分隔符一致，
+// 所以 "2026-07/01" 这种手误不是日期。
+//
+// 🔴 只收年在前，是有意的不对称。服务端对「年在后」也做解析，且按美式月在前读
+// （2026-08-17 实测：01-07-2026 与 01/07/2026 都是 1 月 7 日，07-01-2026 与
+// 07/01/2026 都是 7 月 1 日）——那是平台约定，不是缺陷。但 2026/07/01 对任何人
+// 都是同一天，01-07-2026 对美国人是 1 月 7 日、对欧洲人是 7 月 1 日：放过去等于
+// 让一半调用方拿到差半年的数据，HTTP 200、行数合理、无任何信号。本地拒掉还省一
+// 次往返（不发请求、不计费），报错直接给出可用的写法。
+const YEAR_FIRST_DATE = /^(\d{4})([-/]?)(\d{2})\2(\d{2})$/
+const YEAR_FIRST_DATE_HEAD = /^(\d{4})([-/]?)(\d{2})\2(\d{2})/
+const DATE_HINT = "日期格式须为 YYYY-MM-DD（YYYY/MM/DD、YYYYMMDD 也可，须零填充）；不接受「年在后」写法——接口按美式月在前解析，01-07-2026 是 1 月 7 日而不是 7 月 1 日"
+
+/** 日历有效性：拒掉 JS Date 会顺延掉的日期（2026-02-30 → 2026-03-02）。
+ * !isNaN 短路，避免 toISOString() 在 "2026-13-45" 上抛异常。 */
+const isRealDate = (isoDate: string) => {
+  const d = new Date(`${isoDate}T00:00:00Z`)
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === isoDate
+}
+
 // Shared date-param schema: reject malformed dates at the schema boundary so
 // they fail fast locally instead of reaching the backend, which silently
-// coerces (JS Date rolls "2026-02-30" to 2026-03-02) or errors opaquely. The
-// round-trip check rejects any date JS would normalize away; the !isNaN guard
-// short-circuits so toISOString() never throws on values like "2026-13-45".
+// coerces or errors opaquely. 归一放在校验之后、日历检查之前，所以
+// 日历检查与下发的都是 YYYY-MM-DD。
 export const dateString = z
   .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, "日期格式须为 YYYY-MM-DD（须零填充，如 2026-04-01）")
-  .refine((v) => {
-    const d = new Date(`${v}T00:00:00Z`)
-    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v
-  }, "无效日期（不存在的日历日期，请检查月份/日期取值）")
+  .regex(YEAR_FIRST_DATE, DATE_HINT)
+  .transform((v) => v.replace(YEAR_FIRST_DATE, "$1-$3-$4"))
+  .refine(isRealDate, "无效日期（不存在的日历日期，请检查月份/日期取值）")
 
 // YYYY-MM-DD HH:mm:ss — hour/minute/second ranges enforced by the regex, the
-// date part gets the same calendar round-trip as dateString.
+// date part gets the same normalization + calendar round-trip as dateString.
+// 时间部分原样保留：接口回显它，不要重排。
 export const dateTimeString = z
   .string()
-  .regex(/^\d{4}-\d{2}-\d{2} ([01]\d|2[0-3]):[0-5]\d:[0-5]\d$/, "时间格式须为 YYYY-MM-DD HH:mm:ss（如 2026-04-01 09:30:00）")
-  .refine((v) => {
-    const d = new Date(`${v.slice(0, 10)}T00:00:00Z`)
-    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v.slice(0, 10)
-  }, "无效日期（不存在的日历日期，请检查月份/日期取值）")
+  .regex(/^(\d{4})([-/]?)(\d{2})\2(\d{2}) ([01]\d|2[0-3]):[0-5]\d:[0-5]\d$/, "时间格式须为 YYYY-MM-DD HH:mm:ss（日期部分同样接受 YYYY/MM/DD、YYYYMMDD；不接受年在后写法，接口按美式月在前解析）")
+  .transform((v) => v.replace(YEAR_FIRST_DATE_HEAD, "$1-$3-$4"))
+  .refine((v) => isRealDate(v.slice(0, 10)), "无效日期（不存在的日历日期，请检查月份/日期取值）")
 
 /** Quarter-end report dates (financial reporting periods), e.g. quarterEndDate("06-30", "12-31"). */
 export function quarterEndDate(...monthDays: string[]) {

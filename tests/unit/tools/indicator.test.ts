@@ -204,20 +204,73 @@ describe("EDE request body uses the post-2026-08-01 contract", () => {
     ])
   })
 
-  // 时序不注入单日期参数，没有要抑制的东西；选股则是**有意不开**——见下面 A22 那组。
-  // 两处都靠 .strict() 拒掉，别把开关加进去。
-  it.each([
-    ["gangtise_indicator_time_series", { ...TS_ARGS, indicatorParamList: [{ indicatorCode: "qte_close", noQueryDate: true }] }],
-    [
-      "gangtise_indicator_screener",
-      { ...SCREENER_ARGS, indicatorList: [{ field: "F1", indicatorCode: "scr_exchg_sctr", noQueryDate: true }] },
-    ],
-  ] as Array<[string, Record<string, unknown>]>)("%s rejects noQueryDate instead of accepting a no-op", async (name, args) => {
+  // 时序不注入单日期参数，没有要抑制的东西，所以那里的开关是个 no-op —— 靠 .strict()
+  // 拒掉，别把它加进去。选股**已经开了**（见下一组）。
+  it("gangtise_indicator_time_series rejects noQueryDate instead of accepting a no-op", async () => {
     const client = makeMockClient()
     const mcp = await connect(client)
-    const result = await mcp.callTool({ name, arguments: args })
+    const result = await mcp.callTool({
+      name: "gangtise_indicator_time_series",
+      arguments: { ...TS_ARGS, indicatorParamList: [{ indicatorCode: "qte_close", noQueryDate: true }] },
+    })
     expect(result.isError).toBe(true)
     expect(client.call).not.toHaveBeenCalled()
+  })
+
+  // 选股的 noQueryDate：2026-08-17 放开。此前服务端会**静默丢弃**参数表为空的绑定
+  // （200、无码、indicatorList 里那项消失，载荷与真·无匹配逐字相同），所以本工具无条件
+  // 注入 tradeDate、并拒掉这个开关；服务端修好后再拦就是拒绝一个能正常工作的查询。
+  // 两条断言缺一不可：① 不注入 tradeDate（否则报 100003、整条请求失败）；
+  // ② 标记不进 body（它是本地开关，服务端对未知字段的处理并不一致）。
+  it("gangtise_indicator_screener honours noQueryDate and never leaks the marker", async () => {
+    const client = makeMockClient()
+    const mcp = await connect(client)
+    await mcp.callTool({
+      name: "gangtise_indicator_screener",
+      arguments: {
+        ...SCREENER_ARGS,
+        expression: "F1 contains '主板'",
+        indicatorList: [{ field: "F1", indicatorCode: "scr_exchg_sctr", noQueryDate: true }],
+      },
+    })
+    expect(bodyOf(client).indicatorList).toEqual([{ field: "F1", indicatorCode: "scr_exchg_sctr", parameters: [] }])
+  })
+
+  // 开关与真实参数共存：div_cash_* 一族既不要日期、又必填 fiscalYear。
+  it("gangtise_indicator_screener keeps real parameters alongside noQueryDate", async () => {
+    const client = makeMockClient()
+    const mcp = await connect(client)
+    await mcp.callTool({
+      name: "gangtise_indicator_screener",
+      arguments: {
+        ...SCREENER_ARGS,
+        expression: "F1 > 50",
+        indicatorList: [
+          {
+            field: "F1",
+            indicatorCode: "div_cash_paid_ratio",
+            parameters: [{ paramKey: "fiscalYear", paramValue: "2025" }],
+            noQueryDate: true,
+          },
+        ],
+      },
+    })
+    expect(bodyOf(client).indicatorList).toEqual([
+      { field: "F1", indicatorCode: "div_cash_paid_ratio", parameters: [{ paramKey: "fiscalYear", paramValue: "2025" }] },
+    ])
+  })
+
+  // 反向钉住：不加开关的变量照旧被注入 tradeDate。放开开关不该影响默认行为。
+  it("gangtise_indicator_screener still injects tradeDate for a binding without the opt-out", async () => {
+    const client = makeMockClient()
+    const mcp = await connect(client)
+    await mcp.callTool({
+      name: "gangtise_indicator_screener",
+      arguments: { ...SCREENER_ARGS, indicatorList: [{ field: "F1", indicatorCode: "qte_close" }] },
+    })
+    expect(bodyOf(client).indicatorList).toEqual([
+      { field: "F1", indicatorCode: "qte_close", parameters: [{ paramKey: "tradeDate", paramValue: SCREENER_ARGS.date }] },
+    ])
   })
 
   // 同一 indicatorCode 的两条参数组必须**合并**，且**每个矩阵端点都要**——两条路径的丢参
@@ -497,11 +550,12 @@ describe("gangtise_indicator_screener", () => {
     ])
   })
 
-  // 🔴 服务端对 `parameters: []` 的绑定会**静默丢弃整条**：200、无错误码、indicatorList 里
-  // 那一项消失，筛的就是它时返 0 行，而载荷与真·无匹配逐字相同（server-open.md A22）。
-  // 本工具无条件注入 tradeDate，因此发不出空参数表——这条静默路径在选股上够不着。
-  // 任何「不注入」的分支（如把截面的 noQueryDate 搬过来）都会把它打开，故钉住。
-  it("never sends an empty parameters array (the payload the server silently drops)", async () => {
+  // 空参数表只能由 `noQueryDate` **显式**声明产生，绝不因为「调用方没填 parameters」而
+  // 默认发出——两种写法（省略 parameters / 传 `[]`）都要照常注入 tradeDate。
+  // 这条在 2026-08-17 之前的意义是躲开一个服务端 bug（`parameters: []` 的绑定被静默丢弃，
+  // 载荷与真·无匹配逐字相同，closed.md A22）；那个 bug 已修，但断言仍然要留：默认注入是
+  // 本工具的契约，绝大多数指标吃 tradeDate，漏注入换来的是 100003 而不是一张空表。
+  it("only sends an empty parameters array when noQueryDate asks for it", async () => {
     const client = makeMockClient()
     const mcp = await connect(client)
     await mcp.callTool({

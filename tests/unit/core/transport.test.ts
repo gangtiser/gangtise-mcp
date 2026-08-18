@@ -126,7 +126,7 @@ describe("isRetryableError policies", () => {
     })
   })
 
-  describe("no-replay policy (per-call billed endpoints)", () => {
+  describe("no-replay policy (replay-unsafe endpoints)", () => {
     it("never replays a request the server may have executed", () => {
       expect(isRetryableError(new ApiError("s", undefined, 502), "no-replay")).toBe(false)
       expect(isRetryableError(new ApiError("sys", "999999", 500), "no-replay")).toBe(false)
@@ -265,8 +265,8 @@ describe("rate limiting in envelope form (999006)", () => {
     expect(fn).toHaveBeenCalledTimes(2)
   })
 
-  // 按次计费端点不能赌「限流发生在执行前」——猜错就是重复扣费。
-  it("still refuses to replay it on a per-call billed (no-replay) endpoint", async () => {
+  // no-replay 端点不能赌「限流发生在执行前」——猜错就是重复扣费。
+  it("still refuses to replay it on a no-replay endpoint", async () => {
     const fn = vi.fn().mockRejectedValue(new ApiError("rate limited", "999006", 200))
     await expect(withRetry(fn, { ...fast, policy: "no-replay" })).rejects.toMatchObject({ code: "999006" })
     expect(fn).toHaveBeenCalledTimes(1)

@@ -52,7 +52,7 @@ const SLOW_AI_KEYS = [
 ].sort()
 
 describe("ENDPOINTS retry/timeout annotations", () => {
-  it("marks exactly the per-call billed endpoints as no-replay", () => {
+  it("marks exactly the replay-unsafe endpoints as no-replay", () => {
     const annotated = Object.values(ENDPOINTS)
       .filter((e) => e.retry === "no-replay")
       .map((e) => e.key)

@@ -172,13 +172,20 @@ describe("999006 hint matches the actual retry policy", () => {
     expect(new ApiError("rate limited", "999006").hint).toContain("普通端点会自动退避重试")
   })
 
-  it("按次计费端点：仅 429 重试，非 429 不重放，提示如此声明", () => {
+  it("no-replay 端点：仅 429 重试，非 429 不重放，提示如此声明", () => {
     expect(isRetryableError(err(429), "no-replay")).toBe(true)
     expect(isRetryableError(err(200), "no-replay")).toBe(false)
     expect(isRetryableError(err(500), "no-replay")).toBe(false)
     const hint = new ApiError("rate limited", "999006").hint!
-    expect(hint).toContain("按次计费端点仅在 HTTP 429 时重试")
+    expect(hint).toContain("重放会重复扣分的端点仅在 HTTP 429 时重试")
     expect(hint).toContain("非 429 错误信封不重放")
+  })
+
+  // 🔴 反向断言：这条提示的归因不能写成「按次计费」。no-replay 标的是**重放安全**，
+  // 18 个里 ai.hot-topic 按篇（一整份报告 = 一行）计费、pamirs-summary.download
+  // 单价未公布——按计费模型归因既不成立，也会诱导下一个人拿 retry 注解去做计费判断。
+  it("提示不把 no-replay 归因成「按次计费」", () => {
+    expect(new ApiError("rate limited", "999006").hint).not.toContain("按次计费")
   })
 
   it("提示不得再出现「不重试」式的反向断言", () => {
@@ -370,18 +377,23 @@ describe("multi-indicator date errors", () => {
 describe("the bare-不支持-tradeDate rule routes no-date indicators to the escape hatch", () => {
   const hint = () => new ApiError("指标 scr_exchg_sctr 不支持参数 tradeDate", "100003").hint!
 
-  it("names the cross-section opt-out", () => {
+  it("names the opt-out", () => {
     expect(hint()).toContain("noQueryDate")
-    expect(hint()).toContain("gangtise_indicator_cross_section")
   })
 
-  it("tells a screener caller to fetch the column and filter locally", () => {
+  // 两个端点的写法不同（截面按指标、选股按变量），提示必须两个都给出——只给一个的话，
+  // 撞到这条报错的调用方有一半会照着抄一个在自己端点上不成立的形状。
+  it("spells out both call shapes, cross-section and screener", () => {
+    expect(hint()).toContain("indicatorParamList")
     expect(hint()).toContain("条件选股")
-    expect(hint()).toContain("本地")
+    expect(hint()).toContain("field")
   })
 
-  // 选股上没有这个开关，提示不能让人以为有——否则调用方会去找一个不存在的参数。
-  it("says the opt-out is not available on the screener", () => {
-    expect(hint()).toContain("条件选股上没有这个开关")
+  // 🔴 反向断言：2026-08-17 前提示写的是「条件选股上没有这个开关，改用截面取数再本地筛」。
+  // 服务端修好（closed.md A22）、选股开关放开之后，那句话会把调用方支去绕远路——
+  // 而它读起来完全合理，不会有人怀疑。钉住它不再出现。
+  it("no longer tells screener callers the opt-out is unavailable", () => {
+    expect(hint()).not.toContain("条件选股上没有这个开关")
+    expect(hint()).not.toContain("本地按条件筛")
   })
 })

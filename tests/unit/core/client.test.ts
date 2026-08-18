@@ -690,7 +690,7 @@ describe("GangtiseClient Retry-After on 200-wrapped errors", () => {
       return Promise.resolve(jsonResponse({ total: 5, list: [{ answer: 42 }] }))
     })
 
-    // research.list 走默认重试策略（按次计费的 no-replay 端点仍不重放，另有用例覆盖）。
+    // research.list 走默认重试策略（no-replay 端点仍不重放，另有用例覆盖）。
     vi.useFakeTimers()
     const result = await drainRetries(tokenClient().call("insight.research.list", { from: 0, size: 1 }))
     expect(result).toMatchObject({ total: 5, list: [{ answer: 42 }] })

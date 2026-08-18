@@ -41,6 +41,33 @@ describe("dateString schema", () => {
   it("accepts a leap day", () => {
     expect(dateString.safeParse("2024-02-29").success).toBe(true)
   })
+
+  // 年在前的三种写法对任何读者都是同一天，故都收，并归一成一种下发。
+  it("accepts the other two year-first layouts and normalizes them", () => {
+    expect(dateString.parse("2026/07/01")).toBe("2026-07-01")
+    expect(dateString.parse("20260701")).toBe("2026-07-01")
+    expect(dateString.parse("2026-07-01")).toBe("2026-07-01")
+  })
+
+  it("applies the calendar check to the normalized value, not just the shape", () => {
+    expect(dateString.safeParse("2026/02/30").success).toBe(false)
+    expect(dateString.safeParse("20260230").success).toBe(false)
+  })
+
+  // 🔴 反向断言，本组最重要的一条。服务端对年在后也解析、且按美式月在前读（平台约定，
+  // 不是缺陷），但 01-07-2026 对美国人是 1 月 7 日、对欧洲人是 7 月 1 日——放过去等于让
+  // 一半调用方静默拿到差半年的数据（HTTP 200、行数合理、无信号）。**放开年在前写法时
+  // 不要顺手把年在后也放开**，那才是这条不对称存在的意义。
+  it("still refuses year-last layouts, which read differently per convention", () => {
+    for (const bad of ["07-01-2026", "07/01/2026", "01-07-2026", "01/07/2026"]) {
+      expect(dateString.safeParse(bad).success, `should reject ${bad}`).toBe(false)
+    }
+  })
+
+  it("refuses a mixed separator, which is a typo rather than a layout", () => {
+    expect(dateString.safeParse("2026-07/01").success).toBe(false)
+    expect(dateString.safeParse("2026/07-01").success).toBe(false)
+  })
 })
 
 describe("dateTimeString schema", () => {
@@ -54,6 +81,17 @@ describe("dateTimeString schema", () => {
 
   it("rejects a non-zero-padded date part", () => {
     expect(dateTimeString.safeParse("2026-4-1 09:00:00").success).toBe(false)
+  })
+
+  // 只归一日期那一半：时间部分被接口原样回显，不要重排。
+  it("normalizes only the date half of the other year-first layouts", () => {
+    expect(dateTimeString.parse("2026/04/01 09:30:00")).toBe("2026-04-01 09:30:00")
+    expect(dateTimeString.parse("20260401 09:30:00")).toBe("2026-04-01 09:30:00")
+  })
+
+  it("still refuses a year-last date part", () => {
+    expect(dateTimeString.safeParse("01-04-2026 09:30:00").success).toBe(false)
+    expect(dateTimeString.safeParse("01/04/2026 09:30:00").success).toBe(false)
   })
 
   it("rejects a calendar-impossible date part", () => {

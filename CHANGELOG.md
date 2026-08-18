@@ -2,6 +2,32 @@
 
 > README 顶部只放最近 5 个版本的一行摘要 + 历史里程碑；本文件是完整历史明细（中文），回溯至 0.1.3。
 
+### 0.2.2 (2026-08-18)
+
+同步 gangtise-openapi-cli v0.36.0。日期入参放宽到三种「年在前」写法；条件选股放开无日期指标（订正 0.2.1 里「有意不提供」的说法）；`999006` 限流提示的措辞订正。无破坏性变更。
+
+**日期入参接受三种「年在前」写法**
+
+全部日期参数现在同时接受 `YYYY-MM-DD`、`YYYY/MM/DD`、`YYYYMMDD`，一律归一成 `YYYY-MM-DD` 再发出；datetime 参数只归一日期那一半，时间部分原样保留。三种写法对任何读者都指向同一天。
+
+🔴 **「年在后」写法仍会被本地拒绝，这是有意的。** 接口本身会解析 `01-07-2026` / `07/01/2026`，且一律按美式「月在前」读——按国际习惯写 `01-07-2026` 表示「7 月 1 日」的调用方会拿到 **1 月 7 日**的数据：HTTP 200、行数看着正常、没有任何信号。本地拒掉才有信号，也省一次请求与计费；报错直接给出可用的写法。
+
+**`gangtise_indicator_screener` 新增 `noQueryDate` 开关**
+
+⬆️ **本条订正 0.2.1**：那一节写的「条件选股有意不提供这个开关，要按这批指标筛股请改用 `gangtise_indicator_cross_section` 取到该列后在本地筛」**已不适用**，现在可以直接筛。
+
+`indicatorList` 的每一条绑定都可以带 `noQueryDate: true`，声明该变量对应的指标不接受查询日期，本工具就不再给它注入由 `date` 下发的 `tradeDate`。写法与截面只差一层——截面写在 `indicatorParamList` 里、按指标（`{ indicatorCode: 'scr_exchg_sctr', noQueryDate: true }`），选股写在该变量自己的绑定里（`{ field: 'F1', indicatorCode: 'scr_exchg_sctr', noQueryDate: true }`），两边同样可与真实参数共存。
+
+这同时解锁了**按静态属性筛股**：`contains` / `notcontains` 配 `pty_*` / `scr_*` 这类字符串指标，可以直接筛上市板块、经营范围、注册地。适用名单与截面完全一致（`gangtise_indicator_search` 返回的 `parameterList` 里既没有 `tradeDate` 也没有 `reportDate` 的那批），🔴 **同样必须把该指标其余 required 键一并补齐**——`fiscalYear` 这类非日期必填键缺失不报错，返回的是 `null`，HTTP 200、不标 `_partial`，与「该证券没有这项数据」无法区分。
+
+`100003「不支持参数 tradeDate」` 的报错提示随之改写：现在同时给出截面与选股两种写法，不再把选股调用方指向「先用截面取回该列、再在本地筛」这条已经不必要的路径。
+
+**`999006`（限流）提示的措辞订正**
+
+该提示把「仅在 HTTP 429 时重试、非 429 错误信封不重放」的那批端点称作「按次计费端点」，这个说法不准确：这批端点标记的是「**重放可能被重复扣分**」，与计费模型无关——其中 `gangtise_hot_topic` 按篇计费（一篇 = 一整份热点话题报告，按返回条数计），`gangtise_pamirs_summary_download` 单价未公布。提示改为「重放会重复扣分的端点仅在 HTTP 429 时重试」。**重试行为与端点名单均无变化。**
+
+同一处订正适用于两条历史说明：0.1.43 的「按次计费的 no-replay 端点仅在 HTTP 429 时重试」、0.1.36–0.1.43 的「16 个按次计费端点改 no-replay 重试策略」——其中「按次计费」应读作「重放会重复扣分」。
+
 ### 0.2.1 (2026-08-16)
 
 同步 gangtise-openapi-cli v0.35.0。新增一个参数开关，让 `parameterList` 里没有日期参数的那批指标可以经指标截面取数；EDE 日期参数的报错提示改为按报文形态分派。无破坏性变更。
@@ -13,6 +39,8 @@
 **判据是「`parameterList` 里既没有 `tradeDate` 也没有 `reportDate`」**：公司属性 `pty_*`（主营业务 / 经营范围 / 注册地 / 法定代表人 / 成立日期 / 注册资本…）与证券属性 `scr_*`（上市市场 / 上市板块 / 上市日期 / 退市日期 / ISIN / 交易状态…）两族，加上 `div_cash_paid_ratio`（股利支付率）与 `div_cash_yr`（年度现金分红总额）。不加这个开关时，它们会返回 `100003 指标 X 不支持参数 tradeDate`。名单以 `gangtise_indicator_search` 当下返回的 `parameterList` 为准。要按族列全，用指标代码当搜索词（`pty_` / `scr_` / `div_`…）——⚠️ 它是**子串匹配**，返回的是超集（搜 `scr_` 会捞进 `cf_recv_trade_scr_cash` 这类名字里含 `scr` 的），拿到后自己按前缀筛一遍。
 
 开关可与真实参数共存，写在同一条里即可：`{ indicatorCode: 'div_cash_yr', parameters: [{ paramKey: 'fiscalYear', paramValue: '2025' }], noQueryDate: true }`。🔴 **加了开关就必须把该指标其余 required 键补齐**：日期键缺失会硬报错，而 `fiscalYear` 这类**非日期必填键缺失不报错**——返回 `null`（个别指标返回一个来自默认年份的合理数值），HTTP 200、不标 `_partial`，与「该证券没有这项数据」无法区分（`div_cash_yr` 漏传 `fiscalYear` 返 `null`，补上后才返真值）。⚠️ **只给确实不要日期的指标加**——加到要日期的指标上会变成「缺少必填参数 tradeDate」。哪些指标属于这一类以 `gangtise_indicator_search` 返回的 `parameterList` 为准，**不要按 code 前缀推断**：同一前缀下两类都有，且 `parameterList` 为空也不等于会被拒（如 `cdr_conv_ratio` 空参数表却照常接受日期）。
+
+> ⬆️ **下面这段已被 0.2.2 取代**：`gangtise_indicator_screener` 现在同样支持 `noQueryDate`，可以直接按这批指标筛股，不必先用截面取回。保留原文以说明 0.2.1 当时的行为。
 
 🔴 **`gangtise_indicator_screener` 有意不提供这个开关。** 条件选股接口对**没有任何参数**的指标绑定，会把整条绑定从结果里去掉：返回 200、不报错、`indicatorList` 里那一项直接消失。表达式筛的正是它时，这个条件等于没加、返回 0 行，而**返回的载荷与「确实没有股票符合条件」逐字相同**，调用方无从分辨。本工具对每个变量无条件下发 `tradeDate`，因此不会构造出这种请求。要按这批指标筛股，请用 `gangtise_indicator_cross_section` 取到该列后在本地筛。
 
@@ -71,7 +99,7 @@
 - 少数指标**两个日期都必填**。声明 `reportDate` 会让本服务不再自动注入 `tradeDate`，这类指标因此会报「缺少必填参数 tradeDate」，补进同一条即可。
 - 新增**按报错消息匹配**的提示层：`100001` / `100003` 是 EDE 所有入参错误的兜底码，按码只能给通用建议；日期类报错现在各自给出该怎么改。⚠️ 提示**刻意不做归纳**——吃哪个日期不按指标 code 前缀分，一律以 `gangtise_indicator_search` 的 `parameterList` 为准。
 - 🔴 **少数指标（如上市日期、上市市场、主营业务这类静态属性，以及只要 `fiscalYear` 的股利支付率、年度现金分红总额）压根不接受 `tradeDate`。** 截面与条件选股会把 `date` 作为 `tradeDate` 下发给每个指标，所以这类指标**在这两个工具上取不到数**——请改用 `gangtise_indicator_time_series`（它不下发单日期参数，每行返回同一个值）。报错提示会直接点名这条路。
-  > ⬆️ **这一条已被 0.2.1 取代**：`gangtise_indicator_cross_section` 现在可以用 `noQueryDate` 开关直接取这批指标，不必绕道时间序列。条件选股仍然不行，见 0.2.1 那节。
+  > ⬆️ **这一条已被 0.2.1 / 0.2.2 取代**：`gangtise_indicator_cross_section` 自 0.2.1 起可以用 `noQueryDate` 开关直接取这批指标，不必改用时间序列；`gangtise_indicator_screener` 自 0.2.2 起同样支持，见那两节。
 - 时序接口不受影响：报告期类指标仍按日返回，非报告期末的行是占位值。
 
 **移除若干已不再成立的参数警示**（下表列出各自现在的行为）

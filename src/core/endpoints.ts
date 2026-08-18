@@ -8,9 +8,11 @@ export interface EndpointDefinition {
     enabled: true
     maxPageSize: number
   }
-  /** "no-replay": never resend a request the server may have executed — set on
-   * per-call billed endpoints (billing probed non-idempotent, cache hits still
-   * charge), where a transport-level replay re-bills or duplicates a job.
+  /** "no-replay": never resend a request the server may have executed — set
+   * where a transport-level replay re-bills or duplicates a job. This is a
+   * REPLAY-SAFETY marker, not a billing-model one: ai.hot-topic carries it and
+   * bills per article (i.e. per row), and insight.pamirs-summary.download
+   * publishes no price at all. Never read it as "charges per call".
    * "no-999999": EDE used to answer a no-data query with HTTP 500 + code 999999
    * (probed 2026-07-11). It stopped doing that on 2026-08-01, and since
    * 2026-08-07 a no-data answer keeps its row and column and carries a placeholder

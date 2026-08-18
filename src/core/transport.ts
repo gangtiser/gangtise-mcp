@@ -75,15 +75,16 @@ const NON_RETRYABLE_API_CODES = new Set(["999011", "140002", "410111", "410106",
 // Rate limiting in envelope form: the 429 rule above only catches the HTTP form, so
 // a 999006 arriving inside a 2xx/4xx envelope used to fail on the first attempt with
 // the server's Retry-After parsed but never acted on. Checked AFTER the no-replay
-// return on purpose — for per-call billed endpoints we cannot prove the throttle
-// fired before the handler executed, and a wrong guess double-bills.
+// return on purpose — on no-replay endpoints we cannot prove the throttle fired
+// before the handler executed, and a wrong guess double-bills.
 const RATE_LIMIT_API_CODES = new Set(["999006"])
 // Connect-phase / DNS failures: the request provably never reached the server, so a
 // replay cannot double-execute (or double-bill) anything even under "no-replay".
 const NO_REPLAY_NETWORK_CODES = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "UND_ERR_CONNECT_TIMEOUT"])
 
-/** "no-replay" (per-call billed endpoints — billing probed non-idempotent, no
- * cache-hit exemption): never resend a request the server may have executed.
+/** "no-replay" (endpoints where a replay may bill twice — REPLAY safety, not a
+ * billing model; see endpoints.ts): never resend a request the server may have
+ * executed.
  * Only connect-phase errors, 429 (rejected before processing) and the explicit
  * token-self-heal mark retry; 5xx / response timeouts / 999999 fail fast.
  * "no-999999" (EDE indicator endpoints): 999999 is a server-side fault here (it

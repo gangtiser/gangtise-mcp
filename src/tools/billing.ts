@@ -106,6 +106,9 @@ export const BILLING_CATALOG: Record<string, BillingSpec> = {
   gangtise_theme_tracking: fixed(50, "call"),
   gangtise_earnings_review: fixed(50, "call"),
   gangtise_viewpoint_debate: fixed(50, "call"),
+  // 「篇」= 一整份热点话题报告（早报 / 午报 / 盘中快报 / 晚报），**不是**报告里的一条
+  // 话题；一份通常含多条。所以它是按行计费，与 insight.opinion*（30/条）同模型 ——
+  // 别把它归进「按次」那一档，也别据此给 no-replay 端点做计费归因。
   gangtise_hot_topic: fixed(50, "article", "单次约 1000 积分"),
   // stock_summary 刻意不带 amplify：成本 = 3 × 实际返回条数，而请求侧只有「传了几个
   // 代码」这一个上限（6000）。放大源已在 securityList 的参数描述里警示，那里不受

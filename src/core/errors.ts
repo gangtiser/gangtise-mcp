@@ -52,10 +52,14 @@ const ERROR_HINTS: Record<string, string> = {
   "999004": "本账号无权访问该资源：先确认对应的数据库/模块已开通（如帕米尔专家纪要需单独购买），再确认该条记录本账号可见。list 类接口报此码通常是整个库没开通，不是某条记录的问题。",
   "999005": "联系客户经理充值，或缩小查询范围降低消耗。",
   // 与 transport 的 RATE_LIMIT_API_CODES 一一对应，改一处必须改另一处：
-  // 普通端点对任何状态下的 999006 都退避重试；按次计费的 no-replay 端点只在 HTTP 429
-  // 时重试（429 由服务端在处理前拒绝，重放不会重复计费），非 429 形态一律不重放。
+  // 普通端点对任何状态下的 999006 都退避重试；标了 no-replay 的端点只在 HTTP 429
+  // 时重试（429 由服务端在处理前拒绝，重放不会重复扣分），非 429 形态一律不重放。
+  // 🔴 归因写「重放会重复扣分」，别写「按次计费」——no-replay 标的是重放安全，不是
+  // 计费模型：18 个里 ai.hot-topic 按篇（= 一整份报告，属按行）计费、
+  // insight.pamirs-summary.download 单价未公布。按计费模型归因既不成立，也会诱导
+  // 下一个人拿 retry 注解去做计费判断。
   // errors.test.ts 有断言把这句话与 isRetryableError 的实际判定钉在一起，防止再次漂移。
-  "999006": "稍后再试或联系客户经理提额；普通端点会自动退避重试，按次计费端点仅在 HTTP 429 时重试、非 429 错误信封不重放。",
+  "999006": "稍后再试或联系客户经理提额；普通端点会自动退避重试，重放会重复扣分的端点仅在 HTTP 429 时重试、非 429 错误信封不重放。",
   "999007": "接口方法不被支持，服务端路由可能已变更，请报障。",
   "999008": "该接口只接受 application/json，请报障。",
   "999009": "请求体无法解析，检查参数中是否含非法字符。",
@@ -228,7 +232,7 @@ export const MESSAGE_HINTS: Array<{
     codes: ["100001", "100003"],
     all: [/不支持参数\s*(?:tradeDate|reportDate)|缺少必填参数[:：]?\s*(?:tradeDate|reportDate)/],
     when: manyShapes,
-    hint: "🔴 **这条报错点名了多个指标，而且它们失败的方式不一样**——同一个改法套不到全部，按 msg 里每个指标各自说的话分别处理：对某个指标说「不支持参数 X; 缺少必填参数 Y」= 把该指标的 X 换成 Y；只说「不支持参数 tradeDate」而没说缺什么 = 该指标一个日期都不要，在 gangtise_indicator_cross_section 上给它加 { indicatorCode: '<该指标>', noQueryDate: true }（条件选股没有这个开关，改用截面取数再本地筛）；只说「缺少必填参数 Y」= 把 Y 补进该指标的 parameters。**最省事的办法是把这批指标拆成几次单独查**，那样每条报错只对应一个指标，提示也能给准。要哪些键以 gangtise_indicator_search 返回的 parameterList 为准。",
+    hint: "🔴 **这条报错点名了多个指标，而且它们失败的方式不一样**——同一个改法套不到全部，按 msg 里每个指标各自说的话分别处理：对某个指标说「不支持参数 X; 缺少必填参数 Y」= 把该指标的 X 换成 Y；只说「不支持参数 tradeDate」而没说缺什么 = 该指标一个日期都不要，给它加 noQueryDate: true（截面写进 indicatorParamList 那条，条件选股写进该变量自己的绑定）；只说「缺少必填参数 Y」= 把 Y 补进该指标的 parameters。**最省事的办法是把这批指标拆成几次单独查**，那样每条报错只对应一个指标，提示也能给准。要哪些键以 gangtise_indicator_search 返回的 parameterList 为准。",
   },
   {
     // 拼接句 / 半句都成立：明确点名「缺 reportDate」，那就是要 reportDate。
@@ -258,14 +262,15 @@ export const MESSAGE_HINTS: Array<{
   {
     // 半句：只说拒收 tradeDate，没说缺什么。**这一条最容易断错**——服务端没说该换成哪个
     // 键，多半是因为一个都不要，所以提示只给 opt-out，不替它挑一个替代键。
-    // 截面有 noQueryDate 开关，选股没有（见 indicator.ts 里 indicatorParamListWith 的注释）。
+    // 截面与选股都有 noQueryDate 开关（选股侧 2026-08-17 放开，见 indicator.ts）；
+    // 时序没有，因为它本来就不注入单日期参数。
     codes: ["100001", "100003"],
     all: [/不支持参数\s*tradeDate/],
     // 🔴 服务端顺带说了「缺哪个键」时，那就不是「一个日期都不要」，而是「换成它说的那个」
     // ——归第一条。少了这个否定判别式，本条会把拼接句也接走并给出完全相反的药方。
     none: [/缺少必填参数[:：]?\s*(?:reportDate|tradeDate)/],
     when: oneShape,
-    hint: "报错里点名的那个指标不接受 tradeDate，而截面/条件选股默认会把 date 作为 tradeDate 下发给每个指标。**在 gangtise_indicator_cross_section 上给它加一条 { indicatorCode: '<该指标>', noQueryDate: true } 即可**——date 参数仍要保留，本工具只是不再给这个指标注入日期；它若另有必填键（如股利支付率、年度现金分红总额要的 fiscalYear），写进同一条的 parameters 里。**条件选股上没有这个开关**：这类指标当前不能当选股变量，改用「把原来的 securityCodeList（板块 ID 也行，会展开成全部成分股）交给 gangtise_indicator_cross_section 取到该列，再在本地按条件筛」。它真正要哪些键以 gangtise_indicator_search 返回的 parameterList 为准。" + MULTI_NOTE,
+    hint: "报错里点名的那个指标不接受 tradeDate，而截面/条件选股默认会把 date 作为 tradeDate 下发给每个指标。**给它加 noQueryDate: true 即可**——date 参数仍要保留，本工具只是不再给这个指标注入日期；它若另有必填键（如股利支付率、年度现金分红总额要的 fiscalYear），写进同一条的 parameters 里。两个端点的写法只差一层：截面写在 indicatorParamList 里 { indicatorCode: '<该指标>', noQueryDate: true }；条件选股写在该变量自己的绑定里 { field: 'F1', indicatorCode: '<该指标>', noQueryDate: true }。它真正要哪些键以 gangtise_indicator_search 返回的 parameterList 为准。" + MULTI_NOTE,
   },
   {
     // 半句：没有任何键被拒，只是缺 tradeDate。本服务见到已声明的 reportDate、或调用方

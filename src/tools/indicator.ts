@@ -258,14 +258,17 @@ const PARAM_GUIDANCE_RANGE =
 const NO_QUERY_DATE_DESC =
   "声明**这个指标不接受查询日期**，本工具就不给它注入 date 下发的 tradeDate。用于 parameterList 里既没有 tradeDate 也没有 reportDate 的指标——公司属性 pty_*（主营业务/经营范围/注册地/法定代表人…）与证券属性 scr_*（上市市场/上市板块/上市日期/ISIN…）两族，以及 div_cash_paid_ratio（股利支付率）/ div_cash_yr（年度现金分红总额）/ pty_shr_reg（注册资本）。不加这个开关，它们一律报 100003「不支持参数 tradeDate」而取不到数。可与真实参数共存（如 { indicatorCode: 'div_cash_yr', parameters: [{ paramKey: 'fiscalYear', paramValue: '2025' }], noQueryDate: true }）。🔴 **加了这个开关就必须把该指标 parameterList 里其余 required 键一并补齐**：日期键缺失会硬报错，而 fiscalYear 这类**非日期必填键缺失不报错**——返回的是 `null`（或某些指标一个来自默认年份的合理数值），HTTP 200、不标 _partial，与「该证券没有这项数据」无法区分（如 div_cash_yr 漏传 fiscalYear 返 null，补上 fiscalYear 才返真值）。⚠️ 只对**确实不要日期**的指标加：给要日期的指标加上会变成「缺少必填参数 tradeDate」——注意 scr_ 里的 scr_indu / scr_indu_citic / scr_indu_sw / scr_indu_gics / scr_concept 反而**必填 tradeDate**，别给它们加。哪些指标属于这一类以 gangtise_indicator_search 返回的 parameterList 为准，别按 code 前缀推断（同一前缀下两类都有）。"
 
+/** 选股的 noQueryDate 补充说明：它比截面多一层用处——能拿静态属性当筛选条件。
+ * ⚠️ 这段进 tools/list，只写当前行为：历史沿革（这类绑定曾被静默丢弃）留在
+ * CHANGELOG 与 bug/closed.md A22，写进描述会让模型不敢用一个现在正常的开关。 */
+const SCREENER_NO_QUERY_DATE_NOTE =
+  " 📌 本端点上这个开关**同时解锁了按静态属性筛股**——`contains` / `notcontains` 正是 pty_*/scr_* 这类字符串指标最自然的用法（筛上市板块、筛经营范围、筛注册地）。"
+
 /** 按端点的日期语义生成 `indicatorParamList`——截面/选股与时序的日期规则相反，
  * 说明不能共用（见 PARAM_GUIDANCE_DATED / _RANGE）。
  *
- * `noDateOptOut` 只给截面开。时序不注入单日期参数，本来就没有要抑制的东西；选股则是
- * 有意不开——服务端对 `parameters: []` 的指标会**静默丢弃整条绑定**（200、无错误码、
- * indicatorList 里那项消失），筛的就是它时返 0 行，载荷与真·无匹配逐字相同。本工具
- * 无条件注入 tradeDate，因此永远发不出空参数表，那条静默路径在选股上够不着——开了
- * opt-out 才会把它打开。详见 bug/server-open.md A22。 */
+ * `noDateOptOut` 只给截面开：时序不注入单日期参数，本来就没有要抑制的东西。选股不走
+ * 这个 helper（它的绑定按变量索引、schema 是独立写的），开关直接加在那边。 */
 const indicatorParamListWith = (guidance: string, noDateOptOut = false) => {
   // .strict()：把 `parameters` 误写成 `parameterList` / `paramList` 这类是很常见的，
   // 非 strict 时它会被静默剥掉、请求照发，结果是「参数没生效」而不是报错。
@@ -427,6 +430,7 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
                   "该变量专属参数（按变量索引，不是按指标）。⚠️ **本端点没有根级 currency/scale——量纲与币种只能在这里按变量传**：根级写法在本端点不生效，而表达式是拿指标原始值去比的，于是「市值≥500亿」若指望根级 scale 就会变成「≥500 元」——恒真、筛不掉任何股票且不报错。按变量传 scale=8，qte_mkt_cptl 才从 1688360210310.6 变成 16883.6021（亿）。"
                     + PARAM_GUIDANCE_DATED,
                 ),
+              noQueryDate: z.boolean().optional().describe(NO_QUERY_DATE_DESC + SCREENER_NO_QUERY_DATE_NOTE),
             }).strict(),
           )
           .min(1, "indicatorList 至少 1 个")
@@ -450,7 +454,7 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     toolHandler(async (args: Record<string, unknown>) => {
-      const bindings = args.indicatorList as { field: string; indicatorCode: string; parameters?: { paramKey: string; paramValue: string }[] }[]
+      const bindings = args.indicatorList as { field: string; indicatorCode: string; parameters?: { paramKey: string; paramValue: string }[]; noQueryDate?: boolean }[]
       const expression = args.expression as string
       const securities = args.securityCodeList as string[]
 
@@ -480,12 +484,22 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
       const body = {
         universe: securities,
         expression,
-        // Every variable gets a date, including ones whose parameterList is empty
-        // — harmless for a parameterless indicator, and one rule for the whole
-        // list beats a per-indicator exception.
+        // Every variable gets a date unless it opts out with `noQueryDate` — the
+        // same escape hatch the cross-section has, and for the same reason:
+        // indicators whose parameterList declares no date key answer `100003
+        // 不支持参数 tradeDate` for the WHOLE request. `noQueryDate` is a local
+        // marker and must never reach the body (see stripNoQueryDate).
+        //
+        // Sending `parameters: []` is how those indicators are reached here.
+        // Until 2026-08-16 the server silently DROPPED such bindings (200, no
+        // code, the entry gone from `indicatorList`, and a payload byte-identical
+        // to a genuine no-match), which is why this tool used to inject
+        // unconditionally. Re-probed 2026-08-17: the binding survives and its
+        // condition applies — `scr_exchg_sctr contains '创业板'` picks 300750.SZ
+        // out of a four-stock universe while `contains '不存在的板'` returns none.
         indicatorList: bindings.map((binding) => {
           const parameters = binding.parameters ?? []
-          return parameters.some((param) => DATE_PARAM_KEYS.has(param.paramKey))
+          return binding.noQueryDate || parameters.some((param) => DATE_PARAM_KEYS.has(param.paramKey))
             ? { field: binding.field, indicatorCode: binding.indicatorCode, parameters }
             : {
                 field: binding.field,
