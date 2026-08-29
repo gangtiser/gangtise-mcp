@@ -23,16 +23,21 @@ import { withBilling } from "./billing.js"
 // 2026-08-07 a no-data answer is a null CELL with its row and column intact
 // (re-probed 2026-08-08: finc_pb_mrq × 09992.HK alone returns one row of null),
 // so this code is now almost always a real fault. The hint keeps the parameter
-// checklist anyway — writing a parameter name or date semantic wrong is silent
-// (a null cell, a 0 cell, or a plausible wrong number from a default window,
-// depending on the indicator) rather than an error, so the checklist is what the
-// caller needs either way. indicator.search shares the no-999999 retry policy but takes just a
+// checklist anyway, and it must state BOTH halves — they are opposites:
+// a wrong parameter NAME (invented, or real-but-wrong like `startDate` for
+// `sDate`) is now a hard `100003` that names the offending key, while a wrong
+// date VALUE / statement basis, or a missing non-date required key, stays silent
+// (a null cell, or a plausible wrong number from a default). Collapsing the two
+// into "getting a parameter wrong is silent" contradicts the cross-section
+// description in this same package — see PARAM_NAME_HARD_FAIL / PARAM_VALUE_SILENT. indicator.search shares the no-999999 retry policy but takes just a
 // keyword; its 999999 is a real error (a zero-match search returns []), so it
 // keeps the generic hint.
 //
-// NB: a wrong parameter name or date semantic surfaces as a `null` cell, a `0`
-// cell, or — for interval indicators — a PLAUSIBLE WRONG NUMBER from the default
-// window. It has never been observed to produce an empty table: probed 2026-08-09
+// NB: of the two halves above, the SILENT one (a wrong date value / statement
+// basis, or a missing non-date required key) surfaces as a `null` cell or — for
+// interval indicators — a PLAUSIBLE WRONG NUMBER from the default window. A wrong
+// parameter NAME is not silent at all; it is a hard `100003`. Neither has ever been
+// observed to produce an empty table: probed 2026-08-09
 // across five date mistakes (Saturday / market holiday / future / non-period-end /
 // pre-listing), an invented param key, a wrong-but-real key (`startDate` for
 // `sDate`), a missing required param, and illegal enum values — every one kept its
@@ -45,33 +50,61 @@ import { withBilling } from "./billing.js"
 // would otherwise bypass the override.
 const FETCH_KEYS = new Set(["indicator.cross-section", "indicator.time-series", "indicator.screener"])
 
+/** EDE 取不到数时的**唯一**占位形态。这句话逐字进每一个客户可见面（三个工具描述、
+ * 空表提示、999999 提示），并由 indicator.test.ts 逐字钉住。
+ *
+ * 它曾经是「多数 null、个别 0」——`0` 会穿过数值比较与比率计算，是本仓危害最高的
+ * 一类静默错数。服务端统一为 `null` 后那一档撤除。🔴 **要改这句话，先按 A10 的复现
+ * 命令重跑一遍**：跨市场覆盖缺口、非报告期末日期、公司类型不匹配三种形态各一组。 */
+export const EDE_NULL_ONLY = "取不到数时唯一的占位值是 `null`，不会填数值 0"
+
+/** 999999 的补充提示，只挂在取数端点（`callMatrix`）上。
+ *
+ * 此前它是两份逐字重复的字面量，另一份在 `callIndicator` 里、且**按构造不可达**
+ * （那里唯一的调用方是 indicator.search，而 search 不在 FETCH_KEYS 里）——没有测试
+ * 覆盖，可以单独漂走。那个分支已删；search 走通用提示，由
+ * `indicator.search keeps the generic 999999 hint` 反向钉住。
+ *
+ * ⚠️ **「参数写错」要分两类说，它们的行为相反**：参数**名**写错（臆造键、或错但真实的
+ * 键如把 sDate 写成 startDate）现在会被接口硬拒并指名该键；而**日期取值/口径不对、
+ * 或漏掉非日期的 required 键**才可能静默返回 `null` 或一个来自默认值的合理错数。
+ * 早先这里把两类合成一句「参数写错不会报错」，与截面描述里「参数名写错会被接口拒绝
+ * 并指名」直接矛盾——同一个包里发出去两句相反的话。 */
+/** 参数出错的**两类相反行为**。两句都是声明，都逐字钉住——只钉其中一句，另一句可以被
+ * 静默删掉或被一句反话盖过去（两种漏法都实测过）。
+ *
+ * 实测（2026-08-30）：臆造键 `bogusKey` 与错但真实的键 `startDate` 都硬报 `100003` 并指名；
+ * 而 `div_cash_yr` 漏传非日期的 required 键 `fiscalYear` 返 200 + `null`。 */
+export const PARAM_NAME_HARD_FAIL =
+  "参数**名**写错（臆造的键、或错但真实的键）会被接口拒绝并指名该键，照 msg 改即可"
+export const PARAM_VALUE_SILENT =
+  "**日期取值/口径不对、或漏掉非日期的 required 键**才不报错——那种情况下拿到的是 null 单元格，或一个来自默认值的合理错数"
+
+export const EDE_999999_HINT =
+  "EDE 的 999999 现在基本只剩真故障——此码不表示无数据（有效 code 无数据时会保留行列，" +
+  EDE_NULL_ONLY +
+  "）。仍先核对：指标参数名以 gangtise_indicator_search 的 parameterList 为准、日期匹配指标周期、标的在 scopeList 覆盖内、required 参数已补。⚠️ " +
+  PARAM_NAME_HARD_FAIL + "；" + PARAM_VALUE_SILENT + "。确认应有数据再重试。"
+
 // registry 的通用空结果提示以「可能该条件下确无数据」开头，对 EDE 已经说反了：能识别的
-// code 无数据会保留行列并填占位值（null 或 0，取决于指标），而识别不了的 code 现在直接
-// 报错并指名——两条路都不产生空表，所以走到这条提示时形态本身已经不寻常。
+// code 无数据会保留行列并填 null，而识别不了的 code 现在直接报错并指名——两条路都不产生
+// 空表，所以走到这条提示时形态本身已经不寻常。
 //
 // 有意**不**在这里提日期字段：日期用错也不产生空表。吃 reportDate 的指标收到注入的
-// tradeDate 会硬报错（见 PARAM_GUIDANCE_DATED），时序里非报告期末的行是占位值、行仍在。
+// tradeDate 会硬报错（见 PARAM_GUIDANCE_DATED），时序里非报告期末的行是 null 占位、行仍在。
 // 把日期写进来会把调用方引向错误的排查方向。
 // screener 也不用这条提示——零命中是选股的合法结果。
-const EDE_EMPTY_HINT =
-  "0 行结果：本接口对能识别的 code 会保留行列并填占位值（`null` 或 `0`，取决于指标），识别不了的 code 会直接报错，两条路都不会返回空表——所以整表为空通常**不是**「确无数据」这么简单。请核对证券后缀（A股 .SH/.SZ、港股 .HK、美股 .O/.N 而非 .US）与指标权限，指标代码以 gangtise_indicator_search 返回的为准。"
+export const EDE_EMPTY_HINT =
+  "0 行结果：本接口对能识别的 code 会保留行列（" + EDE_NULL_ONLY + "），识别不了的 code 会直接报错，两条路都不会返回空表——所以整表为空通常**不是**「确无数据」这么简单。请核对证券后缀（A股 .SH/.SZ、港股 .HK、美股 .O/.N 而非 .US）与指标权限，指标代码以 gangtise_indicator_search 返回的为准。"
 
+/** 非矩阵端点（当前只有 indicator.search）的取数：剥内层信封，错误原样上抛。
+ *
+ * ⚠️ **这里有意不套 EDE_999999_HINT**。取数端点的 999999 提示挂在 callMatrix 上；
+ * search 的 999999 是真系统错误（零命中返回的是 `[]`，不是错误码），套上那份提示会把
+ * 调用方引去查指标参数与日期语义，而那和 search 无关。
+ * `indicator.search keeps the generic 999999 hint` 反向钉住这一点。 */
 async function callIndicator(client: GangtiseClient, endpointKey: string, body: Record<string, unknown>): Promise<unknown> {
-  try {
-    return unwrapIndicatorData(await client.call(endpointKey, body))
-  } catch (error) {
-    if (FETCH_KEYS.has(endpointKey) && error instanceof ApiError && error.code === "999999") {
-      throw new ApiError(
-        error.message,
-        error.code,
-        error.statusCode,
-        error.details,
-        error.retryAfterMs,
-        "EDE 的 999999 现在基本只剩真故障——此码不表示无数据（有效 code 无数据时会保留行列并填占位值 null 或 0）。仍先核对：指标参数名以 gangtise_indicator_search 的 parameterList 为准、日期匹配指标周期、标的在 scopeList 覆盖内、required 参数已补——参数写错不会报错、也未必是空表——按指标不同表现为 null 单元格、0、或一个来自默认区间的合理错数；确认应有数据再重试。",
-      )
-    }
-    throw error
-  }
+  return unwrapIndicatorData(await client.call(endpointKey, body))
 }
 
 /** Raw matrix call: keep the envelope until requireIndicatorMatrix has validated
@@ -87,7 +120,7 @@ async function callMatrix(client: GangtiseClient, endpointKey: string, body: Rec
         error.statusCode,
         error.details,
         error.retryAfterMs,
-        "EDE 的 999999 现在基本只剩真故障——此码不表示无数据（有效 code 无数据时会保留行列并填占位值 null 或 0）。仍先核对：指标参数名以 gangtise_indicator_search 的 parameterList 为准、日期匹配指标周期、标的在 scopeList 覆盖内、required 参数已补——参数写错不会报错、也未必是空表——按指标不同表现为 null 单元格、0、或一个来自默认区间的合理错数；确认应有数据再重试。",
+        EDE_999999_HINT,
       )
     }
     throw error
@@ -97,10 +130,8 @@ async function callMatrix(client: GangtiseClient, endpointKey: string, body: Rec
 /** Mark and report the request codes the server did not answer for at all.
  *
  * Both known ways an axis used to disappear have since closed on the server side.
- * A coverage gap keeps its row and column and is filled with a PLACEHOLDER, down
- * to the 1×1 case — `null` for most indicators but `0` for some (is_dnrpnp), a
- * property of the indicator rather than of the query, so never treat `0` as
- * necessarily a real value. And a code the server cannot resolve — an unknown
+ * A coverage gap keeps its row and column and is filled with `null`, down to the
+ * 1×1 case. And a code the server cannot resolve — an unknown
  * indicator code, or a security code with the wrong market suffix (`AAPL.US`) —
  * now fails the whole request with a `100003` that names the offending code,
  * including when it is mixed with codes that do resolve.
@@ -198,6 +229,26 @@ function mergeParamGroups(groups: ParamGroup[] | undefined): ParamGroup[] {
   return [...merged.values()]
 }
 
+/** 每条 `indicatorParamList` 的 `indicatorCode` 都必须出现在 `indicatorCodeList` 里。
+ *
+ * 不校验时，一个拼错的 code 会作为「另一个指标的参数组」原样发出去：要查的那个指标
+ * 收不到调用方以为设上的参数，服务端照常返回 200 和一批用默认口径算出的数。截面上
+ * 这会被日期注入撞出错误（真指标另外拿到一条注入的 tradeDate），时序上则**全程无声**
+ * ——那里不注入日期，没有任何东西会暴露它。
+ *
+ * `noQueryDate` 拼错更糟：开关落在一个根本没查的指标上，真指标照旧被注入 tradeDate，
+ * 而那正是这个开关要去掉的东西。选股端已由 checkScreenerBindings 覆盖同一类错误。 */
+function assertParamCodesBound(groups: ParamGroup[] | undefined, codes: string[]): void {
+  if (!groups?.length) return
+  const bound = new Set(codes)
+  const unbound = groups.map((group) => group.indicatorCode).filter((code) => !bound.has(code))
+  if (unbound.length > 0) {
+    throw new ValidationError(
+      `indicatorParamList 里的 ${unbound.map((code) => `"${code}"`).join(" / ")} 不在 indicatorCodeList 中，这些参数不会作用到任何被查询的指标（多为拼写错误）。请改成 indicatorCodeList 里的指标代码，或把它加进 indicatorCodeList。`,
+    )
+  }
+}
+
 function withQueryDate(groups: ParamGroup[] | undefined, codes: string[], date: string): ParamGroup[] {
   const merged = new Map(mergeParamGroups(groups).map((group) => [group.indicatorCode, group]))
   for (const code of codes) {
@@ -243,7 +294,7 @@ const paramPair = z.object({ paramKey: z.string().min(1), paramValue: z.string()
 // （工具有 date，会注入 tradeDate），时序是区间（服务端明确禁止 parameters 里出现单日期
 // 参数）——两套语义相反，共用一段就必然对其中一个是错的。
 const PARAM_GUIDANCE_COMMON =
-  "可选参数：行情复权 adjustType(1=不复权|2=前复权|3=后复权)；财务报表口径 reportType（1=合并(默认) | 2=合并(调整) | 3=母公司 | 4=母公司(调整)；按 parameterList 里的 enum label 传，同一响应的 paramDescription 字段留着相反的旧文字，不要读它）。区间类指标（qte_*_intvl / 区间均值等）的起始日是 sDate(yyyy-MM-dd)——**没有 startDate 这个参数**，全部区间指标只声明 sDate/changePeriod/tradeDate。参数名写错或臆造会被接口拒绝并指名该键（报 100003「指标 X 不支持参数 Y」），照 msg 改即可；键名一律以 gangtise_indicator_search 返回的 parameterList 为准，不要照抄任何文档示例。同一指标的多个参数请放进同一条的 parameters 数组"
+  "可选参数：行情复权 adjustType(1=不复权|2=前复权|3=后复权)；财务报表口径 reportType（1=合并(默认) | 2=合并(调整) | 3=母公司 | 4=母公司(调整)；取值以 parameterList 的 enumList 为准）。区间类指标（qte_*_intvl / 区间均值等）的起始日是 sDate(yyyy-MM-dd)——**没有 startDate 这个参数**，全部区间指标只声明 sDate/changePeriod/tradeDate。参数名写错或臆造会被接口拒绝并指名该键（报 100003「指标 X 不支持参数 Y」），照 msg 改即可；键名一律以 gangtise_indicator_search 返回的 parameterList 为准，不要照抄任何文档示例。同一指标的多个参数请放进同一条的 parameters 数组"
 
 /** 截面 / 选股（单日快照，工具有 `date`）。 */
 const PARAM_GUIDANCE_DATED =
@@ -252,7 +303,7 @@ const PARAM_GUIDANCE_DATED =
 
 /** 时序（区间，工具有 startDate/endDate）。 */
 const PARAM_GUIDANCE_RANGE =
-  "⚠️ **本端点禁止在 parameters 里传单日期参数**：`tradeDate` 与 `reportDate` 都会被拒（报 100003「parameters不得传入单日期参数，时间范围由startDate与endDate控制」），时间范围一律由本工具的 startDate/endDate 决定。因此：N期统计只传 periodNum(如4)、**不要**传 reportDate；区间类指标只传 sDate 作为区间起点，区间终点是每行自己的日期。🔴 **由此带来一个躲不开的后果**：报告期类指标（营收/净利等）没有任何参数能让它只返回报告期末，非期末的每一行都是占位值（多数 null、个别 0），聚合整列前必须先筛掉——详见本工具描述。" +
+  "⚠️ **本端点禁止在 parameters 里传单日期参数**：`tradeDate` 与 `reportDate` 都会被拒（报 100003「parameters不得传入单日期参数，时间范围由startDate与endDate控制」），时间范围一律由本工具的 startDate/endDate 决定。因此：N期统计只传 periodNum(如4)、**不要**传 reportDate；区间类指标只传 sDate 作为区间起点，区间终点是每行自己的日期。🔴 **由此带来一个躲不开的后果**：报告期类指标（营收/净利等）没有任何参数能让它只返回报告期末，非期末的每一行都是 `null` 占位，聚合整列前必须先筛掉——详见本工具描述。" +
   PARAM_GUIDANCE_COMMON
 
 const NO_QUERY_DATE_DESC =
@@ -309,7 +360,7 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
     {
       description: withBilling(
         "gangtise_indicator_cross_section",
-        "查询指标截面数据（多指标 × 多证券，单日快照）。返回宽表：每证券一行、每指标一列（无 date 列——查询日期挂在每个指标自己的参数上，各列可以是不同日期）。指标代码来自 gangtise_indicator_search。多证券取同一批已实现财务/估值指标的首选（一次拉取，免去逐只调用专用工具）。财务科目分公司类型，公司类型不匹配时返 null（≠指标坏）。指标代码、证券代码、参数名写错都会被接口拒绝并指名出错的那一个，照 msg 改即可。**取不到数时保留整行整列、填占位值**（不是缺行）。🔴 **占位值是 `null` 还是 `0`，取决于指标本身，与你查得对不对无关**：`is_op_rev`、`finc_pb_mrq` 这类填 `null`，而 `is_dnrpnp`（扣非归母净利润）这类填 **`0`**。所以即使日期、代码、市场全对，只要该指标不覆盖那只证券，你拿到的可能是一个**看着像真值的 0**（如同一批查询里美股的 is_dnrpnp 返 0、A 股/港股返真值；别的指标与市场组合可能还有其他形态，拿到 0 请交叉核验），既不报错也不标 _partial。**批量取财务指标后，先确认 0 是真值还是占位**。一个快速的交叉检查：换一个同族指标（如 is_op_rev）查同一格，它返 null 说明这一格大概率本来就没数——但这只是**信号不是证明**，结论要紧时请用专用报表工具单查该证券核对。结果若标了 _partial + omittedIndicators/omittedSecurities，说明那几个 code 没进入结果，先核对该指标/标的的权限与证券后缀（美股是 .O/.N，不是 .US）。",
+        "查询指标截面数据（多指标 × 多证券，单日快照）。返回宽表：每证券一行、每指标一列（无 date 列——查询日期挂在每个指标自己的参数上，各列可以是不同日期）。指标代码来自 gangtise_indicator_search。多证券取同一批已实现财务/估值指标的首选（一次拉取，免去逐只调用专用工具）。财务科目分公司类型，公司类型不匹配时返 null（≠指标坏）。指标代码、证券代码、参数名写错都会被接口拒绝并指名出错的那一个，照 msg 改即可。**取不到数时保留整行整列**（不是缺行），" + EDE_NULL_ONLY + "，既不报错也不标 _partial。所以 `null` 有三种读法——「该证券确实没有这项数据」「日期或口径不对导致取不到」「该指标不覆盖这个市场或证券类型」（覆盖面见 gangtise_indicator_search 的 scopeList），从结果本身分不出来；结论要紧时请用专用报表工具单查该证券核对。结果若标了 _partial + omittedIndicators/omittedSecurities，说明那几个 code 没进入结果，先核对该指标/标的的权限与证券后缀（美股是 .O/.N，不是 .US）。",
       ),
       inputSchema: {
         indicatorCodeList,
@@ -327,6 +378,7 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
     toolHandler(async (args: Record<string, unknown>) => {
       const indicators = args.indicatorCodeList as string[]
       const securities = args.securityCodeList as string[]
+      assertParamCodesBound(args.indicatorParamList as ParamGroup[] | undefined, indicators)
       const body = {
         indicatorCodeList: indicators,
         // The 2026-08-01 revision renamed this field; the old securityCodeList is
@@ -349,7 +401,7 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
     {
       description: withBilling(
         "gangtise_indicator_time_series",
-        "查询指标时间序列（多指标 × 单证券 或 单指标 × 多证券，按区间）。返回宽表：每日期一行。指标代码来自 gangtise_indicator_search。单指标 × 多证券即批量取财务/估值历史序列的首选；多指标 × 多证券不支持，需拆分——注意传 1 个 sectorId（板块）算多证券（服务端展开成 N 只成分股），所以板块只能配单指标。🔴 **财务/报告期类指标按日返回，但只有报告期末那几行是真值，其余全是占位**——占位值由指标决定：多数为 null，个别为 **0**（如 is_dnrpnp 扣非归母净利润——已验证的样本里，非期末日期与跨市场覆盖缺口下均为 0；未覆盖到的指标可能还有别的占位形态，拿到 0 请交叉核验）。**不要对整列直接做均值/求和/比率**：null 通常会被聚合函数跳过，0 不会（茅台 is_dnrpnp 五个月区间 104 行里 102 行是 0，整列均值 6.9 亿 vs 真实 361.2 亿，差 52 倍且看着像个正常数字）。本端点**无法**只取报告期末——parameters 里传 tradeDate/reportDate 会被硬拒，calendarType 也只有 ND/TD/WD——所以要么自行只取报告期末那几行，要么改用 gangtise_indicator_cross_section 按报告期逐期取。指标代码或证券代码写错会被接口拒绝并指名，照 msg 改即可；结果若标了 _partial，说明有 code 没进入结果，查该指标/标的的权限与后缀。",
+        "查询指标时间序列（多指标 × 单证券 或 单指标 × 多证券，按区间）。返回宽表：每日期一行。指标代码来自 gangtise_indicator_search。单指标 × 多证券即批量取财务/估值历史序列的首选；多指标 × 多证券不支持，需拆分——注意传 1 个 sectorId（板块）算多证券（服务端展开成 N 只成分股），所以板块只能配单指标。🔴 **财务/报告期类指标按日返回，但只有报告期末那几行是真值**——" + EDE_NULL_ONLY + "，其余每一行都是占位。**不要对整列直接做均值/求和/比率**：聚合函数通常跳过 null，但**行数不变**——手工「整列求和 ÷ 行数」会把占位行算进分母（茅台 is_dnrpnp 五个月区间 104 行里只有 2 行有值：真值均值 361.2 亿，而整列求和 ÷ 104 得到 6.9 亿——差 52 倍，且看着像个正常数字）。本端点**无法**只取报告期末——parameters 里传 tradeDate/reportDate 会被硬拒，calendarType 也只有 ND/TD/WD——所以要么自行只取报告期末那几行，要么改用 gangtise_indicator_cross_section 按报告期逐期取。整列都是 `null` 时先查 gangtise_indicator_search 的 scopeList——该指标可能不覆盖这个市场或证券类型，那与「这段区间没有数据」从结果里分不出来。指标代码或证券代码写错会被接口拒绝并指名，照 msg 改即可；结果若标了 _partial，说明有 code 没进入结果，查该指标/标的的权限与后缀。",
       ),
       inputSchema: {
         indicatorCodeList,
@@ -375,6 +427,7 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
           "时间序列仅支持「多指标 × 单证券」或「单指标 × 多证券」，indicatorCodeList 与 securityCodeList 不能同时多于 1 个；请拆分为多次查询，或改用 gangtise_indicator_cross_section（单日多指标 × 多证券）。",
         )
       }
+      assertParamCodesBound(args.indicatorParamList as ParamGroup[] | undefined, indicators)
       // A sector ID expands server-side into N constituents, so it is a
       // multi-security request no matter that it is one entry — and the endpoint
       // does not support that alongside multiple indicators.
@@ -412,7 +465,7 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
     {
       description: withBilling(
         "gangtise_indicator_screener",
-        "条件选股：把变量绑到指标（F1=某指标、F2=另一指标），再用 expression 组合筛选，从证券/板块范围里筛出命中的股票。返回宽表：每命中证券一行、每绑定指标一列（无 date 列）。指标代码来自 gangtise_indicator_search。这是唯一能按指标数值筛股的工具（专用工具都不支持），典型用法：给 securityCodeList 传一个板块 sectorId（服务端展开为全部成分股）再按市值/PE 筛。支持数值比较（>= <= > < == !=）与文本匹配 contains/notcontains（仅 dataType: string 的指标）。零命中返回空表，不是报错——先核对指标参数名与日期语义再断定「真没有符合条件的」。🔴 **报告期类指标（营收/净利等）必须按变量传 reportDate 且值为报告期末**：它们拒收 date 下发的 tradeDate 并直接报错，补 { indicatorCode: 'F1', parameters: [{ paramKey: 'reportDate', ... }] } 即可。取到数之后仍要留意占位值：某只证券不被该指标覆盖时多数填 null、个别填 **0**（如 is_dnrpnp 扣非归母净利润），而 **0 会照常参与比较**，可能把不该命中的证券筛进来。⚠️ 本端点的可回溯范围比同族的截面/时序**窄**（同一账号、同一天、同指标同证券，截面/时序能出数的历史日期，本端点可能已报 110003）。具体边界随账号数据权限而定，不要假定某个固定年限；date 报 110003 就改用 gangtise_indicator_cross_section 拉数再本地筛。",
+        "条件选股：把变量绑到指标（F1=某指标、F2=另一指标），再用 expression 组合筛选，从证券/板块范围里筛出命中的股票。返回宽表：每命中证券一行、每绑定指标一列（无 date 列）。指标代码来自 gangtise_indicator_search。这是唯一能按指标数值筛股的工具（专用工具都不支持），典型用法：给 securityCodeList 传一个板块 sectorId（服务端展开为全部成分股）再按市值/PE 筛。支持数值比较（>= <= > < == !=）与文本匹配 contains/notcontains（仅 dataType: string 的指标）。零命中返回空表，不是报错。🔴 **但空表有两种同形的假阴性，载荷与「确实没有股票符合条件」逐字相同**：① **日期没落在报告期末**——报告期类指标在非期末日期上整列是 `null`；② **该指标不覆盖所查市场或证券类型**——覆盖面见 gangtise_indicator_search 返回的 scopeList（如预测类 frcst_* 只覆盖 A 股，用它筛港股/美股就是这种情形）。两种情形整列都是占位（" + EDE_NULL_ONLY + "），而 **null 不满足任何数值比较**，条件因此恒假。判别方法二选一：把表达式**反向再跑一次**（`F1 > 0` 与 `F1 < 一个极大值` 同时返 0 行 = 恒假，不是真无匹配），或先用 gangtise_indicator_cross_section 取回该列看是不是全 `null`。🔴 **报告期类指标（营收/净利等）必须按变量传 reportDate 且值为报告期末**：它们拒收 date 下发的 tradeDate 并直接报错，补 { indicatorCode: 'F1', parameters: [{ paramKey: 'reportDate', ... }] } 即可。⚠️ 本端点的可回溯范围比同族的截面/时序**窄**（同一账号、同一天、同指标同证券，截面/时序能出数的历史日期，本端点可能已报 110003）。具体边界随账号数据权限而定，不要假定某个固定年限；date 报 110003 就改用 gangtise_indicator_cross_section 拉数再本地筛。",
       ),
       inputSchema: {
         indicatorList: z

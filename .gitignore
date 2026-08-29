@@ -10,3 +10,4 @@ bug/
 .mcp.json
 ~/.config/gangtise/
 .understand-anything/
+.DS_Store

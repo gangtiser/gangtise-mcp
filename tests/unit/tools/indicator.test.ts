@@ -2,7 +2,14 @@ import { describe, it, expect, vi } from "vitest"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
-import { registerIndicatorTools } from "../../../src/tools/indicator.js"
+import {
+  registerIndicatorTools,
+  EDE_NULL_ONLY,
+  EDE_999999_HINT,
+  EDE_EMPTY_HINT,
+  PARAM_NAME_HARD_FAIL,
+  PARAM_VALUE_SILENT,
+} from "../../../src/tools/indicator.js"
 import type { GangtiseClient } from "../../../src/core/client.js"
 import { ApiError } from "../../../src/core/errors.js"
 import { unwrapEnvelope } from "../../../src/core/envelope.js"
@@ -202,6 +209,44 @@ describe("EDE request body uses the post-2026-08-01 contract", () => {
     expect(bodyOf(client).indicatorParamList).toEqual([
       { indicatorCode: "div_cash_yr", parameters: [{ paramKey: "fiscalYear", paramValue: "2025" }] },
     ])
+  })
+
+  // indicatorParamList 里写了 indicatorCodeList 没有的指标代码（多半是拼写错误）时，
+  // 那条参数不会作用到任何被查询的指标：截面上真指标另外拿到一条注入的 tradeDate，
+  // 时序上则**全程无声**——那里不注入日期，没有任何东西会暴露它，调用方以为设上的
+  // 参数根本没生效，而服务端照常返回 200 和一批默认口径算出来的数。
+  // 选股端由 checkScreenerBindings 覆盖同一类错误，这两个端点此前没有。
+  describe("indicatorParamList must name an indicator that is actually queried", () => {
+    it.each([
+      ["gangtise_indicator_cross_section", CS_ARGS],
+      ["gangtise_indicator_time_series", TS_ARGS],
+    ] as Array<[string, Record<string, unknown>]>)("%s rejects an unbound indicatorCode before sending", async (name, args) => {
+      const client = makeMockClient()
+      const mcp = await connect(client)
+      const result = await mcp.callTool({
+        name,
+        arguments: { ...args, indicatorParamList: [{ indicatorCode: "qte_clsoe", parameters: [{ paramKey: "adjustType", paramValue: "2" }] }] },
+      })
+      expect(result.isError).toBe(true)
+      // 报错必须点名是哪个 code——不点名的话调用方只知道「有个参数不对」，
+      // 而拼写错误正是最难自己看出来的那一类。
+      expect((result.content as Array<{ text: string }>)[0].text).toContain("qte_clsoe")
+      expect(client.call).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      ["gangtise_indicator_cross_section", CS_ARGS],
+      ["gangtise_indicator_time_series", TS_ARGS],
+    ] as Array<[string, Record<string, unknown>]>)("%s still accepts a bound indicatorCode", async (name, args) => {
+      const client = makeMockClient()
+      const mcp = await connect(client)
+      const result = await mcp.callTool({
+        name,
+        arguments: { ...args, indicatorParamList: [{ indicatorCode: "qte_close", parameters: [{ paramKey: "adjustType", paramValue: "2" }] }] },
+      })
+      expect(result.isError).toBeFalsy()
+      expect(client.call).toHaveBeenCalled()
+    })
   })
 
   // 时序不注入单日期参数，没有要抑制的东西，所以那里的开关是个 no-op —— 靠 .strict()
@@ -819,8 +864,10 @@ describe("gangtise_indicator_screener", () => {
 })
 
 // 自 2026-08-01 起 EDE 无数据不再返回 999999，所以此码基本只剩真故障。
-// 参数排查清单仍要保留——参数名/日期语义写错**同样不报错**（表现为 null/0 占位、
-// 或区间指标的默认区间错数；**不是**空表），那才是调用方需要的。
+// 参数排查清单仍要保留，且必须两半都在——它们是**相反**的：参数**名**写错（臆造的、
+// 或错但真实的如把 sDate 写成 startDate）现在硬报 100003 并指名；而**日期取值/口径不对、
+// 或漏掉非日期的 required 键**才不报错（表现为 null 占位、或区间指标的默认区间错数；
+// **不是**空表）。合成一句「参数写错不会报错」会与截面描述自相矛盾。
 const FETCH_CASES = [
   ["gangtise_indicator_cross_section", CS_ARGS],
   ["gangtise_indicator_time_series", TS_ARGS],
@@ -893,8 +940,8 @@ describe("EDE empty-table hint", () => {
     const result = await mcp.callTool({ name, arguments: args })
     const payload = JSON.parse((result.content as Array<{ text: string }>)[0].text)
     expect(payload.list).toEqual([])
-    // 两条路都不产生空表：能识别的 code 无数据填占位、识别不了的 code 直接报错。
-    expect(payload._hint).toContain("占位值")
+    // 两条路都不产生空表：能识别的 code 无数据填 null 占位、识别不了的 code 直接报错。
+    expect(payload._hint).toContain("`null`")
     expect(payload._hint).toContain("直接报错")
     // 通用提示以「可能该条件下确无数据」开头，对 EDE 说反了，不能落到这两个端点上。
     // （EDE 提示里也有「确无数据」四个字，但那是否定句，所以要匹配通用提示的完整开头。）
@@ -913,22 +960,172 @@ describe("EDE empty-table hint", () => {
   })
 })
 
-// 占位形态由**指标**决定，不由场景决定（2026-08-09 判别性实测：同一报告期末日期下
-// is_dnrpnp × AAPL.O/MSFT.O/TSLA.O/NVDA.O 全为 0，而同批的 600519.SH=45390247623.82、
-// 09992.HK=4574368000 是真值；同一批美股换 is_op_rev / finc_pb_mrq 则全为 null）。
-// 所以「缺数据一律补 null」是错的，而且最危险的形态是**日期完全正确**时拿到一个
-// 看着像真值的 0。这条钉住描述里不再出现那个绝对断言，且必须点名 0。
-describe("cross-section description: placeholder is indicator-bound", () => {
-  it("never promises that missing data is always null, and names the 0 case", async () => {
+// 「EDE 取不到数一律填 `null`」是一条**声明**，不是一句措辞。占位形态曾由指标决定
+// （个别指标补 0，而 0 会穿过数值比较与比率计算），现已统一为 null。
+//
+// 🔴 **护栏被跨 session 复核连打穿三轮，下面是收敛后的形态。三轮各自的漏法都记在这里，
+// 因为每一种都会再犯：**
+//
+//   一轮：只 `not.toContain` 三个旧短语 → 换一句全新措辞就绿。**钉措辞拿到的是假通行证。**
+//   二轮：改成「同一句里同时出现『缺数据』和『0/零』」的词表扫描 → 六句自然措辞绕开
+//         （「数据缺失时有些列会被写成 0」「空值会显示成零」「按 0% 处理」…）。
+//         **中文表达同一件事的说法是开放集合，词表天然会漏。**
+//   三轮：加了正向契约后仍被四种结构性绕法穿过 ——
+//         ① 契约被 `split` 整段删除，附在同一句后面的反话跟着丢掉语义锚；
+//         ② 「缺数据」和「0」被句号切到两句；
+//         ③ 「没有可用观测」不在词表；
+//         ④ 旧模型检查只作用于三个工具描述，没盖住空表与 999999 提示。
+//
+// **收敛后的两条规则都不再依赖词表：**
+//
+//   规则一（结构性）—— 摘掉契约句与**行内 code**（`` `F1 > 0` `` 这类示例里的 0 是合法的）
+//   之后，**五个客户可见面里不允许再出现任何裸的 0 / 零**。不必判断那句话在说什么：
+//   EDE 描述里一个脱离 code 的 0 几乎只可能是占位声明。要写合法的 0，就用反引号包起来
+//   或显式加进白名单——那是一个需要有意识做出的动作，正是护栏要的。
+//
+//   规则二 —— 「占位形态由指标决定」这个旧模型**本身不含 0/零**，规则一抓不到，
+//   单独钉，且**五个面全都要扫**（三轮里漏的正是这一条只盖了三个面）。
+// 🔴 **这里曾经把行内 code 整类豁免掉（`` `[^`]*` `` 全删），那是个真漏洞**：一次真实事故
+// 里，`。缺数据时响应会填 \`0\`` 被提交进 HEAD —— 那个 0 正好在反引号里，整类豁免让它
+// 一路绿灯过了 765 条测试。改成**白名单**：只豁免当前确实合法的那一个示例。
+// 将来要再加合法的 0，往这个数组里加一条，那是一次有意识的动作。
+const ALLOWED_ZERO_SPANS = ["`F1 > 0`"]
+const stripAllowed = (text: string) =>
+  ALLOWED_ZERO_SPANS.reduce((acc, span) => acc.split(span).join(""), text.split(EDE_NULL_ONLY).join(""))
+const ZERO_AS_A_VALUE = /(?<![\d.])0(?!\s*(行|条|只))|零(?!命中|行|条|只)/
+const bareZeros = (text: string) => stripAllowed(text).match(new RegExp(ZERO_AS_A_VALUE, "g")) ?? []
+const CLAIMS_INDICATOR_DEPENDENT =
+  /(占位|缺值|缺数据|填充?)[^。]{0,24}(取决于指标|由指标(各自)?决定|因指标而异|视指标而定)|(取决于指标|由指标(各自)?决定|因指标而异|视指标而定)[^。]{0,24}(占位|缺值|缺数据)/
+
+describe("EDE placeholder is a single declaration: missing data is always null", () => {
+  const liveFaces = async () => {
     const mcp = await connect(makeMockClient())
     const { tools } = await mcp.listTools()
-    const desc = tools.find((t) => t.name === "gangtise_indicator_cross_section")!.description!
-    // 被证伪的绝对断言——尤其「跨市场不覆盖…都是 null」正好是它自己的反例。
-    expect(desc).not.toContain("一律补 null")
-    expect(desc).not.toContain("跨市场不覆盖都是 null")
-    // 必须点名 0 这一档，并说明它取决于指标而不是查法。
-    expect(desc).toContain("is_dnrpnp")
-    expect(desc).toContain("取决于指标")
+    const desc = (n: string) => tools.find((t) => t.name === n)!.description!
+    return {
+      "截面描述": desc("gangtise_indicator_cross_section"),
+      "时序描述": desc("gangtise_indicator_time_series"),
+      "选股描述": desc("gangtise_indicator_screener"),
+      "空表提示": EDE_EMPTY_HINT,
+      "999999 提示": EDE_999999_HINT,
+    }
+  }
+
+  // 三条声明的字面量锚。⚠️ 只 import 常量来断言是假的——改了常量两边一起变、断言照绿，
+  // 所以字面量必须单独钉一次。改这三句要么是服务端行为变了（按 A10 / 参数行为的复现命令
+  // 重跑一遍），要么就是在把一条已经推翻的说法放回去。
+  it("pins all three declarations verbatim", () => {
+    expect(EDE_NULL_ONLY).toBe("取不到数时唯一的占位值是 `null`，不会填数值 0")
+    expect(PARAM_NAME_HARD_FAIL).toBe("参数**名**写错（臆造的键、或错但真实的键）会被接口拒绝并指名该键，照 msg 改即可")
+    expect(PARAM_VALUE_SILENT).toBe("**日期取值/口径不对、或漏掉非日期的 required 键**才不报错——那种情况下拿到的是 null 单元格，或一个来自默认值的合理错数")
+  })
+
+  // ⚠️ 循环前**先钉面数与面名**。此前直接 `for...of` 一个对象：把它改成返回空对象、或少
+  // 返回一个面，测试都会**零断言通过**（跨 session 复核实测）。绿而无效比没有更糟。
+  it("scans exactly the five faces, by name", async () => {
+    expect(Object.keys(await liveFaces())).toEqual(["截面描述", "时序描述", "选股描述", "空表提示", "999999 提示"])
+  })
+
+  it("every customer-visible face carries the contract and no bare zero", async () => {
+    const faces = Object.entries(await liveFaces())
+    expect(faces).toHaveLength(5)
+    for (const [name, text] of faces) {
+      expect(text, `${name} 必须逐字带上 EDE_NULL_ONLY`).toContain(EDE_NULL_ONLY)
+      expect(bareZeros(text), `${name} 里出现了脱离行内 code 的 0/零：${bareZeros(text).join(" ")}`).toEqual([])
+      expect(CLAIMS_INDICATOR_DEPENDENT.test(text), `${name} 写回了「占位形态取决于指标」这个旧模型`).toBe(false)
+    }
+  })
+
+  // 参数出错的两类行为**相反**，必须同时在场：只留「参数名写错会被拒」会丢掉排障的另一半，
+  // 只留静默那半又会与截面描述矛盾。两句各自被删都要红。
+  it("the 999999 hint carries BOTH opposite param behaviours", () => {
+    expect(EDE_999999_HINT).toContain(PARAM_NAME_HARD_FAIL)
+    expect(EDE_999999_HINT).toContain(PARAM_VALUE_SILENT)
+    expect(EDE_999999_HINT).not.toMatch(/参数写错不会报错/)
+  })
+
+  // 提示要真的走到调用方手里，不能只在常量里正确。
+  it("both hints actually reach the caller", async () => {
+    const client = makeMockClient(emptyMatrix())
+    const mcp = await connect(client)
+    const empty = await mcp.callTool({
+      name: "gangtise_indicator_cross_section",
+      arguments: { indicatorCodeList: ["qte_close"], securityCodeList: ["600519.SH"], date: "2026-08-07" },
+    })
+    expect(JSON.parse((empty.content as Array<{ text: string }>)[0].text)._hint).toBe(EDE_EMPTY_HINT)
+
+    const err = makeMockClient()
+    ;(err.call as ReturnType<typeof vi.fn>).mockRejectedValue(new ApiError("boom", "999999", 500))
+    const mcp2 = await connect(err)
+    const r = await mcp2.callTool({
+      name: "gangtise_indicator_cross_section",
+      arguments: { indicatorCodeList: ["qte_close"], securityCodeList: ["600519.SH"], date: "2026-08-07" },
+    })
+    expect((r.content as Array<{ text: string }>)[0].text).toContain(EDE_999999_HINT)
+  })
+
+  // 🔴 **参数说明是第六个客户可见面，而它此前完全没被扫过。** 一次真实事故证明了这一点：
+  // 复核方的一条变异（`缺数据时响应会填 \`0\``）落在 date 参数说明里，被我方一次并发
+  // amend 卷进 HEAD，765 条测试全绿。参数说明与工具描述一样原样进客户模型上下文。
+  //
+  // 这里用**逐句**判据而不是「一个裸 0 都不许有」：参数说明里合法的 0 很多
+  // （`scale` 的 `0=个`、`adjustType` 的档位），一刀切会天天误报。
+  it("parameter descriptions never claim missing data is filled with zero", async () => {
+    const mcp = await connect(makeMockClient())
+    const { tools } = await mcp.listTools()
+    const MISSING_DATA_IN_PARAM =
+      /占位|缺值|缺数据|数据缺失|缺失|取不到数?|取不到值|没有?取到|无数据|没有数据|空值|不覆盖|覆盖不到|覆盖缺口|没有这项数据|无法取得|无法取到|没有可用/
+    const offenders: string[] = []
+    const walk = (node: unknown, path: string) => {
+      if (!node || typeof node !== "object") return
+      const desc = (node as { description?: unknown }).description
+      if (typeof desc === "string") {
+        for (const sentence of desc.split(/[。！\n]/)) {
+          if (MISSING_DATA_IN_PARAM.test(sentence) && ZERO_AS_A_VALUE.test(sentence)) {
+            offenders.push(`${path}：${sentence.trim().slice(0, 60)}`)
+          }
+        }
+      }
+      for (const [k, v] of Object.entries(node)) if (v && typeof v === "object") walk(v, `${path}.${k}`)
+    }
+    for (const name of ["gangtise_indicator_cross_section", "gangtise_indicator_time_series", "gangtise_indicator_screener"]) {
+      const props = ((tools.find((t) => t.name === name)!.inputSchema as { properties?: Record<string, unknown> }).properties) ?? {}
+      expect(Object.keys(props).length, `${name} 的参数表不应为空，否则本条零断言通过`).toBeGreaterThan(3)
+      for (const [key, node] of Object.entries(props)) walk(node, `${name}.${key}`)
+    }
+    expect(offenders, `参数说明里出现「缺数据→0」的声明：\n${offenders.join("\n")}`).toEqual([])
+  })
+
+  // 正向一侧：撤掉 0 那一档之后不能滑向另一个极端——`null` 不等于「该证券没有这项数据」。
+  // 覆盖缺口（scopeList 不含该市场）是独立的成因，截面与时序都必须点名。
+  it.each([
+    ["gangtise_indicator_cross_section", /三种读法/],
+    ["gangtise_indicator_time_series", /整列都是 `null`/],
+  ] as Array<[string, RegExp]>)("%s names scopeList as an independent cause of null", async (name, phrase) => {
+    const mcp = await connect(makeMockClient())
+    const { tools } = await mcp.listTools()
+    const desc = tools.find((t) => t.name === name)!.description!
+    expect(desc).toContain("scopeList")
+    expect(desc).toMatch(phrase)
+  })
+})
+
+// 选股的零命中有**两种同形的假阴性**，载荷与真·无匹配逐字相同：日期不在报告期末，
+// 以及该指标的 scopeList 不覆盖所查市场。两者都让整列为 null、数值比较恒假。
+// ⚠️ 此前这里只写了日期那一种，还给它安了个「头号真因」的排序——跨 session 复核用
+// frcst_pe（只覆盖 A 股）筛港股/美股复现了第二种：`F1 > 0` 与 `F1 < 100000` 同时返 0 行。
+// 排序是没有证据的，两种原因必须并列。
+describe("screener zero-hit description names BOTH false-negative shapes", () => {
+  it("names the date cause, the scope cause, and a way to tell them from a real zero", async () => {
+    const mcp = await connect(makeMockClient())
+    const { tools } = await mcp.listTools()
+    const desc = tools.find((t) => t.name === "gangtise_indicator_screener")!.description!
+    expect(desc).toContain("报告期末")
+    expect(desc).toContain("scopeList")
+    // 判别方法必须给，否则调用方知道有两种原因也分不出自己撞的是哪种
+    expect(desc).toMatch(/反向再跑一次|反向也跑/)
+    // 没有证据的排序不得回来
+    expect(desc).not.toContain("头号真因")
   })
 })
 

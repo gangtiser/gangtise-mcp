@@ -176,14 +176,19 @@ const CROSS_SECTION_COLUMNS = ["security", "name"] as const
  * diff against the request is total by construction.
  *
  * What it MEANS changed on 2026-08-07: a genuine no-data answer (non-trading
- * date, uncovered market, future date) now keeps its row and column and carries a
- * PLACEHOLDER — `null` for most indicators, `0` for some (is_dnrpnp), which is a
- * property of the INDICATOR rather than of the query. Either way an all-empty
- * matrix no longer means "no data". It now
+ * date, uncovered market, future date) keeps its row and column and carries a
+ * `null` PLACEHOLDER, so an all-empty matrix no longer means "no data". It now
  * means nothing in the request RESOLVED — every security code or every indicator
- * code was unrecognised. A wrong PARAMETER name does not land here: probed
- * 2026-08-09, it yields a null/0 cell or a plausible wrong value, never an empty
- * table (see indicator.ts's probe list).
+ * code was unrecognised. A wrong PARAMETER name does not land here either — it is
+ * now rejected outright with a `100003` naming the key; a wrong date VALUE or a
+ * missing non-date required key yields a null cell or a plausible wrong value.
+ * Neither shape ever produces an empty table (see indicator.ts's probe list).
+ *
+ * Placeholders were once indicator-dependent (`0` for some, `null` for most).
+ * That closed on the server side and the `0` tier is gone from every customer-
+ * facing description — do not reintroduce it here without a probe; a 330-cell
+ * sweep across coverage gaps, non-period-end dates and company-type mismatches
+ * found zero numeric-zero placeholders.
  *
  * The check covers every STRUCTURAL array, not just the two axis lists, because
  * anything looser would let a malformed payload — `values: null`, a missing
@@ -290,11 +295,9 @@ export function checkScreenerBindings(
 /** What the caller asked for that the response does not contain.
  *
  * The server used to drop any axis it had no DATA for, which made this a coverage
- * check. Re-probed 2026-08-09: a coverage gap now keeps its row and column and is filled
- * with a placeholder — `null` for most indicators, `0` for some (is_dnrpnp), a
- * property of the INDICATOR rather than the query. It keeps
- * its row and column, down to the 1×1 case (`finc_pb_mrq` × 09992.HK — null,
- * present, alone in the request). What still disappears is a code the server
+ * check. That closed: a coverage gap now keeps its row and column and is filled
+ * with `null`, down to the 1×1 case (`finc_pb_mrq` × 09992.HK — null, present,
+ * alone in the request). What still disappears is a code the server
  * cannot RESOLVE: usually an unknown indicator code or a wrong market suffix
  * (`AAPL.US` vanishes, `AAPL.O` returns) — but "absent axis" is all this function
  * can prove; entitlement or coverage changes make the same shape. Callers must

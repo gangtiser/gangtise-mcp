@@ -19,8 +19,8 @@ const qaTimeString = z.union([dateString, dateTimeString])
 // declares its real fields. CLI v0.17.0 made the same change in source.
 const SCHED_RESEARCH_AREA_DESC = "研究方向 ID，接受两类码：行业码用 gangtise_constant_list category=citicIndustry（1008001xx，如食品饮料 100800119）；宏观/策略/固收/金工/海外/其他这类方向码用 category=gangtiseIndustry（122000xxx，该 category 只有这 6 条、不含行业）。本端点不支持申万码（104xxxxxx），传了会返 0 条而不报错"
 const SCHED_LOCATION_DESC = "地点 ID（省级），来自 gangtise_constant_list category=domesticCity"
-// 券商研报 / 外资研报共用同一 category 闭集（源：gangtise CLI insight.md）。
-// 上游对未知 category 静默 no-op 返回全量，schema 层是唯一防线，故收紧为 z.enum。
+// 券商研报 / 外资研报共用同一 category 闭集（源：gangtise CLI insight.md）。收成 z.enum
+// 是为了让模型直接读到合法取值、并在发请求前挡掉拼写错误；接口本身也会拒绝非法取值。
 const RESEARCH_CATEGORY_ENUM = z.enum(["macro", "strategy", "industry", "company", "bond", "quant", "morningNotes", "fund", "forex", "futures", "options", "warrants", "market", "wealthManagement", "other"])
 const RESEARCH_CATEGORY_DESC = "macro=宏观 | strategy=策略 | industry=行业 | company=个股 | bond=债券 | quant=量化 | morningNotes=晨报 | fund=基金 | forex=外汇 | futures=期货 | options=期权 | warrants=权证 | market=市场 | wealthManagement=财富管理 | other=其他"
 // 券商/外资研报与观点共用的评级、评级变动、LLM 标签闭集（源：gangtise CLI insight.md）。
@@ -30,13 +30,15 @@ const RATING_CHANGE_ENUM = z.enum(["upgrade", "maintain", "downgrade", "initiate
 const RATING_CHANGE_DESC = "upgrade=上调 | maintain=维持 | downgrade=下调 | initiate=首次覆盖"
 const LLM_TAG_ENUM = z.enum(["inDepth", "earningsReview", "industryStrategy"])
 const LLM_TAG_DESC = "inDepth=深度报告 | earningsReview=业绩点评 | industryStrategy=行业策略"
-// 上游对**非法枚举值**的处理和对未知字段一样 —— 静默丢弃该条件、返回未过滤的全量、
-// 不报错。最坏的一例是非法 searchType 会**连带吞掉 keyword**（CLI v0.32.0 实测：
-// summary keyword=茅台 正常 135 条，配 searchType=99 返 196988 条全库；research
-// 776 → 707847）。调用方读到的是「搜索茅台的结果」、实得全库转储，自动化流程里几乎
-// 不可能发现，所以 schema 层的闭集是唯一防线。
+// 两档是全部合法取值，收成闭集省一次会计费的往返。
 const SEARCH_TYPE = intLiteralEnum([1, 2]).optional()
 const RANK_TYPE = intLiteralEnum([1, 2]).optional()
+
+// regionCategory 码表的全部 19 个取值。⚠️ **这个闭集必须保留**：码表外的取值
+// （最常见的是把「中国香港」写成 hk、把欧洲写成 eu）在 foreign-report 上不报错，
+// 而是把筛选条件整个丢掉、返回未经筛选的全库结果 —— 按条计费，且从结果里看不出来。
+const REGION_ENUM = z.enum(["cn", "cnHk", "cnTw", "us", "jp", "sea", "gl", "uk", "fr", "de", "kr", "in", "ca", "me", "othAs", "othEur", "latAm", "oce", "af"])
+const REGION_DESC = "地区 ID，来自 gangtise_constant_list category=regionCategory：cn=中国 | cnHk=中国香港 | cnTw=中国台湾 | us=美国 | jp=日本 | sea=东南亚 | gl=全球 | uk=英国 | fr=法国 | de=德国 | kr=韩国 | in=印度 | ca=加拿大 | me=中东 | othAs=亚洲其他 | othEur=欧洲其他 | latAm=拉美 | oce=大洋洲 | af=非洲。⚠️ 取值须逐字匹配（中国香港是 cnHk 不是 hk；欧洲按国家/地区分列，没有 eu）"
 // 12 处 rankType 共用。⚠️ 默认档（1）在有 keyword 时挑的是**相关度子集**，而两档返回的
 // 结果都按时间倒序**排列** —— 所以「看着是时间倒序」不代表拿到的是最新的：实测同一查询
 // 下默认档可返回一个月前的条目（差别随关键词区分度而变，宽泛词下两档可能完全一致）。
@@ -90,7 +92,7 @@ function scheduleSpec(name: string, label: string, endpointKey: string, fields: 
 export const listSpecs: JsonToolSpec[] = [
   {
     name: "gangtise_opinion_list",
-    description: "查询国内机构首席观点列表，支持按证券、券商、研究方向、行业、时间范围、语义标签等筛选。本工具返回首席观点结论摘要，无专用下载工具。⚠️ **本端点的 total 会封顶**：达到上限时它表示「至少这么多」而不是精确计数，实际条数可能是它的数倍。**不要把 total 当成计数报给用户**；需要精确计数或完整覆盖时，请按日期区间分段查询（窄区间的 total 是真值）。fetchAll 在这种情况下只会取到上限内的部分，结果会标 `_partial` / `total_capped`。",
+    description: "查询国内机构首席观点列表，支持按证券、券商、研究方向、行业、时间范围、语义标签等筛选。本工具返回首席观点结论摘要，无专用下载工具。",
     endpointKey: "insight.opinion.list",
     paginated: true,
     inputSchema: {
@@ -227,7 +229,7 @@ export const listSpecs: JsonToolSpec[] = [
       searchType: SEARCH_TYPE.describe("1=标题搜索 | 2=全文搜索"),
       rankType: RANK_TYPE.describe(RANK_TYPE_DESC),
       securityList: z.array(z.string()).optional(),
-      regionList: z.array(z.string()).optional().describe("地区 ID，来自 gangtise_constant_list category=regionCategory"),
+      regionList: z.array(REGION_ENUM).optional().describe(REGION_DESC),
       categoryList: z.array(RESEARCH_CATEGORY_ENUM).optional().describe(RESEARCH_CATEGORY_DESC),
       industryList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx，全场景首选）"),
       brokerList: z.array(z.string()).optional().describe("外资机构 ID：用 gangtise_institution_search categoryList=['foreignInstitution'] 按名称搜"),
@@ -288,15 +290,12 @@ export const listSpecs: JsonToolSpec[] = [
   },
   {
     name: "gangtise_foreign_opinion_list",
-    // 零行的真因是已知的、且与通用文案指向的方向完全无关（通用文案说「可能确无数据」
-    // 并让人去查证券后缀 / 日期区间 / 市场）。这里给出真因，否则模型会把
-    // 「食品饮料没有外资观点」当结论——参数描述里虽然写了，但模型拿到结果后未必回头读。
+    // brokerList 传错码系的机构 ID 返 0 行且不报错（见该参数描述），是本端点唯一
+    // 仍会静默返空的入参。通用空结果文案只会指向证券后缀 / 日期区间 / 市场，
+    // 全不沾边，模型拿到 0 行后未必回头读参数描述。
     emptyHint:
-      "0 行结果：**如果传了 regionList 或 industryList，这不代表该地区/行业没有观点** —— 本端点这两个筛选当前不可用（regionList 的具体地区值返空，只有全局值 gl 返数据但不收窄）。请去掉它们重查，再用结果里的对应字段本地筛。若传的是 brokerList，该参数**可正常使用**，返空多半是 ID 用错了码系（须为 foreignOpinionInstitution）。都没传时按常规排查：证券代码后缀、时间范围、评级等条件是否过窄。",
-    // 该端点传任何 industryList 取值都返回字面 null（见 industryList 描述），
-    // 按零行处理而不是把 "null" 直接丢给调用方。
-    nullMeansEmpty: true,
-    description: "查询外资机构观点列表（高盛、摩根士丹利等），支持按关键词、证券、评级、评级变动、时间范围筛选。⚠️ **两个筛选当前不可用**：industryList（行业）传任何合法值都返回空；regionList（地区）除全局值 gl 外的具体地区也都返回空（gl 会返数据但不收窄）。要按这两个维度筛，请**不带这两个参数**取回后，用结果里的对应字段本地筛。brokerList（外资机构）**可正常使用**。本工具返回外资机构观点结论摘要，无专用下载工具。⚠️ **本端点的 total 会封顶**：达到上限时它表示「至少这么多」而不是精确计数，实际条数可能是它的数倍。**不要把 total 当成计数报给用户**；需要精确计数或完整覆盖时，请按日期区间分段查询（窄区间的 total 是真值）。fetchAll 在这种情况下只会取到上限内的部分，结果会标 `_partial` / `total_capped`。",
+      "0 行结果：**如果传了 brokerList，先核对 ID 的码系** —— 本参数只认 foreignOpinionInstitution 类别的 ID，传其他码系（如 domesticBroker 的 C1xxxxxxxx）会返 0 行且不报错。regionList / industryList 传了不接受的取值会直接报 100005，因此 0 行与它们无关。其余情况按常规排查：证券代码后缀、时间范围、评级等条件是否过窄。",
+    description: "查询外资机构观点列表（高盛、摩根士丹利等），支持按关键词、证券、地区、行业、评级、评级变动、时间范围筛选。本工具返回外资机构观点结论摘要，无专用下载工具。",
     endpointKey: "insight.foreign-opinion.list",
     paginated: true,
     inputSchema: {
@@ -305,8 +304,8 @@ export const listSpecs: JsonToolSpec[] = [
       endTime: dateTimeString.optional().describe(dateTimeDesc()),
       keyword: z.string().optional(),
       rankType: RANK_TYPE.describe(RANK_TYPE_DESC),
-      regionList: z.array(z.string()).optional().describe("地区 ID，来自 gangtise_constant_list category=regionCategory。⚠️ **本端点按具体地区筛选当前不可用**：cn / cnHk / cnTw / us / jp / uk 等具体地区值都返回空结果且不报错；只有全局值 gl 会返回数据，但它**不收窄结果**（与不传本参数逐位相同）。要按地区筛，请不带本参数取回后用结果里的地区字段本地筛"),
-      industryList: z.array(z.string()).optional().describe("行业 ID（来自 gangtise_constant_list category=citicIndustry）。⚠️ **本端点该筛选当前不可用**：传任何值（合法中信码、合法申万码、乱码一样）都返回空结果且不报错。需要按行业筛时不要传本参数，取回后按结果里的 industryList 字段本地筛"),
+      regionList: z.array(z.enum(["cn", "cnHk", "cnTw", "us", "jp", "uk"])).optional().describe("地区：cn=中国 | cnHk=中国香港 | cnTw=中国台湾 | us=美国 | jp=日本 | uk=英国。本端点只接受这 6 个，regionCategory 码表里的其余取值会被接口拒绝；要按别的地区筛，请不带本参数取回后用结果里的地区字段本地筛"),
+      industryList: z.array(z.string()).optional().describe("行业 ID。⚠️ **本端点只认申万码**（104xxxxxx，来自 gangtise_constant_list category=swIndustry），中信码会被接口拒绝。注意返回行的 industryList 字段中信码与申万码都带，只有申万那条能回查"),
       securityList: z.array(z.string()).optional(),
       brokerList: z.array(z.string()).optional().describe("外资观点机构 ID：用 gangtise_institution_search categoryList=['foreignOpinionInstitution'] 按名称搜。⚠️ 必须用该类别的 ID——传其他码系的机构 ID（如 domesticBroker 的 C1xxxxxxxx）会返回空结果且不报错"),
       ratingList: z.array(RATING_ENUM).optional().describe(RATING_DESC),
@@ -315,15 +314,7 @@ export const listSpecs: JsonToolSpec[] = [
   },
   {
     name: "gangtise_independent_opinion_list",
-    // 零行的真因是已知的、且与通用文案指向的方向完全无关（通用文案说「可能确无数据」
-    // 并让人去查证券后缀 / 日期区间 / 市场）。这里给出真因，否则模型会把
-    // 「食品饮料没有外资观点」当结论——参数描述里虽然写了，但模型拿到结果后未必回头读。
-    emptyHint:
-      "0 行结果：**如果传了 industryList，这不代表该行业没有独立观点** —— 本端点的行业筛选当前不可用，传任何值（合法 ID 或乱码）都返回空。请去掉 industryList 重查，再用结果里的 industryList 字段本地筛。没传时本条不适用，按常规排查：证券代码后缀、时间范围、评级等条件是否过窄。",
-    // 该端点传任何 industryList 取值都返回字面 null（见 industryList 描述），
-    // 按零行处理而不是把 "null" 直接丢给调用方。
-    nullMeansEmpty: true,
-    description: "查询境外独立研究员观点列表，支持按证券、评级、时间范围筛选——⚠️ **不含行业筛选**：本端点的 industryList 当前不可用，传了会返回空结果（详见该参数说明），要按行业筛请不带它取回后本地筛。⚠️ **本端点的 total 会封顶**：达到上限时它表示「至少这么多」而不是精确计数，实际条数可能是它的数倍。**不要把 total 当成计数报给用户**；需要精确计数或完整覆盖时，请按日期区间分段查询（窄区间的 total 是真值）。fetchAll 在这种情况下只会取到上限内的部分，结果会标 `_partial` / `total_capped`。",
+    description: "查询境外独立研究员观点列表，支持按证券、行业、评级、时间范围筛选。",
     endpointKey: "insight.independent-opinion.list",
     paginated: true,
     inputSchema: {
@@ -332,7 +323,7 @@ export const listSpecs: JsonToolSpec[] = [
       endTime: dateTimeString.optional().describe(dateTimeDesc()),
       keyword: z.string().optional(),
       rankType: RANK_TYPE.describe(RANK_TYPE_DESC),
-      industryList: z.array(z.string()).optional().describe("行业 ID（来自 gangtise_constant_list category=citicIndustry）。⚠️ **本端点该筛选当前不可用**：传任何值（合法中信码、合法申万码、乱码一样）都返回空结果且不报错。需要按行业筛时不要传本参数，取回后按结果里的 industryList 字段本地筛"),
+      industryList: z.array(z.string()).optional().describe("行业 ID。⚠️ **本端点只认申万码**（104xxxxxx，来自 gangtise_constant_list category=swIndustry），中信码会被接口拒绝"),
       securityList: z.array(z.string()).optional(),
       ratingList: z.array(RATING_ENUM).optional().describe(RATING_DESC),
       ratingChangeList: z.array(RATING_CHANGE_ENUM).optional().describe(RATING_CHANGE_DESC),

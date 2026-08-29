@@ -63,7 +63,7 @@ export const listSpecs: JsonToolSpec[] = [
       keyword: z.string().optional(),
       securityList: z.array(z.string()).optional().describe("证券代码列表，如 ['000001.SZ']"),
       wechatGroupIdList: z.array(z.string()).optional().describe("群 ID，来自 gangtise_wechat_chatroom_list"),
-      industryIdList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx；wechat 只认中信码，传申万码会静默返全量）"),
+      industryIdList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx）；本端点只认中信码，申万码（104xxxxxx）会被接口拒绝"),
       categoryList: z.array(z.enum(["text", "image", "documents", "url"])).optional().describe("text=文字 | image=图片 | documents=文件 | url=链接"),
       tagList: z.array(z.enum(["roadShow", "research", "strategyMeeting", "meetingSummary", "industryComment", "companyComment", "earningsReview"])).optional().describe("roadShow=路演 | research=调研 | strategyMeeting=策略会 | meetingSummary=会议纪要 | industryComment=行业点评 | companyComment=公司点评 | earningsReview=业绩点评"),
       startTime: dateTimeString.optional().describe(dateTimeDesc()),

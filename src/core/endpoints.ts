@@ -15,8 +15,8 @@ export interface EndpointDefinition {
    * publishes no price at all. Never read it as "charges per call".
    * "no-999999": EDE used to answer a no-data query with HTTP 500 + code 999999
    * (probed 2026-07-11). It stopped doing that on 2026-08-01, and since
-   * 2026-08-07 a no-data answer keeps its row and column and carries a placeholder
-   * (null for most indicators, 0 for some),
+   * 2026-08-07 a no-data answer keeps its row and column and carries a `null`
+   * placeholder (the old indicator-dependent `0` tier is gone),
    * so 999999 is now a generic server fault here — the marker stays because
    * replaying an already-billed EDE query on a fault buys nothing.
    * See transport.ts RetryPolicy. */

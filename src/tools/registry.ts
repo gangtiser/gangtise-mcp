@@ -301,8 +301,11 @@ export interface JsonToolSpec {
   /**
    * 该端点用 `null` 表示「零行」时置 true —— 只对**列表**端点开。
    * 默认关闭：null 一律原样透出，让协议异常响亮地暴露，而不是被伪装成空列表。
-   * 目前只有 insight.foreign-opinion.list / insight.independent-opinion.list
-   * 需要：它们对任何 industryList 取值都返回字面 null（2026-08-09 探测）。
+   *
+   * ⚠️ **当前没有任何 spec 开这个开关。** 两个外资观点列表曾经需要它（那时它们对任何
+   * industryList 取值都返回字面 null），服务端改为返回 {total:0,list:[]} 后已撤回。
+   * 字段保留是因为这个形状随时可能在别的端点上再出现；要开之前必须先实测确认该端点
+   * 确实以 null 表示零行——开错了会把协议异常伪装成一次正常的空查询。
    */
   nullMeansEmpty?: boolean
   /**

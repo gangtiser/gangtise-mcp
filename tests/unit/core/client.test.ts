@@ -283,6 +283,35 @@ describe("GangtiseClient pagination", () => {
     expect(result._partial_reason).toContain("failed_pages")
     expect(result._failed_pages).toHaveLength(1)
   })
+
+  // `failedPages.length === 0` 这个守卫要单独钉：只断言 `_partial` 钉不住它——
+  // failed_pages 本来就会把 `_partial` 标上，守卫删掉照样绿（已变异验证）。
+  //
+  // 要真正走到守卫上，得同时满足「行数取满 target」和「有页失败」。看着矛盾，
+  // 但服务端**会超发**（单页给的行数多于请求的 size，`bug/` 里有实测记录），
+  // 所以一页超发、另一页失败时，行数照样够。少了守卫这里就会白发一次探针，
+  // 而结果已经标了 partial，那一次请求换不来任何新结论。
+  it("does not spend a cap probe when a page failed, even if the rows still add up", async () => {
+    requestMock.mockReset()
+    requestMock.mockImplementation((_url: unknown, options?: { body?: string }) => {
+      const body = JSON.parse(options?.body ?? "{}") as { from: number; size: number }
+      if (body.from === 0) return Promise.resolve(jsonResponse({ total: 150, list: Array.from({ length: 50 }, (_, i) => ({ id: i })) }))
+      // 超发：请求 50 行、返回 100 行 —— 补上失败页丢掉的量，行数正好取满 target
+      if (body.from === 50) return Promise.resolve(jsonResponse({ total: 150, list: Array.from({ length: 100 }, (_, i) => ({ id: 50 + i })) }))
+      if (body.from === 100) return Promise.resolve(rawJsonResponse({ code: "400", msg: "boom" }, 400))
+      return Promise.resolve(jsonResponse({ total: 150, list: [{ id: 999 }] }))
+    })
+
+    const result = await tokenClient().call("insight.opinion.list", {}) as Record<string, unknown> & { list: unknown[] }
+
+    expect(result.list.length).toBeGreaterThanOrEqual(150)
+    expect(result._partial_reason).toContain("failed_pages")
+    const probed = requestMock.mock.calls.some((c) => {
+      const body = JSON.parse(((c[1] as { body?: string } | undefined)?.body) ?? "{}")
+      return body.from === 150 && body.size === 1
+    })
+    expect(probed).toBe(false)
+  })
 })
 
 describe("GangtiseClient auth replay and freshness", () => {
@@ -699,8 +728,9 @@ describe("GangtiseClient Retry-After on 200-wrapped errors", () => {
   })
 })
 
-// 部分端点（实测：三个 opinion 系列）把 `total` 钉在一个固定上限，而继续用更大的
-// `from` 仍能取到真实记录——真实条数远大于它。危害在于**静默**：requestPaginated 用
+// 这个形状曾出现在三个 opinion 系列上：`total` 被钉在一个固定上限，而继续用更大的
+// `from` 仍能取到真实记录——真实条数远大于它。⚠️ **那三个端点现已返回真实计数**，
+// 本组用例留着是防回归、也覆盖尚未验过的端点。危害在于**静默**：requestPaginated 用
 // `total - startFrom` 定翻页目标，封顶时正好取满、每页都是满页，short_page /
 // page_cap / total_drift 一个都不触发，调用方拿到一段截断数据却读起来像完整集。
 //

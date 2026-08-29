@@ -219,9 +219,11 @@ export class GangtiseClient {
 
   /** `total` 是否是**上限值**而不是真实计数。
    *
-   * 部分端点（实测：三个 opinion 系列）把 `total` 钉在一个固定上限——继续用更大的
+   * 这个形状曾出现在三个 opinion 系列上：`total` 被钉在一个固定上限，继续用更大的
    * `from` 翻页仍能取到真实记录、发布时间单调变老，说明真实条数远大于它。这是
-   * Elasticsearch `track_total_hits` 默认值的典型形态。
+   * Elasticsearch `track_total_hits` 默认值的典型形态。⚠️ **那三个端点现已返回真实
+   * 计数**，本探针留着是防回归、也覆盖尚未验过的端点——它只可能给响应加元数据、
+   * 不会拒绝查询，所以「当前没有端点命中」不是撤掉它的理由。
    *
    * 危害在于它**静默**：`requestPaginated` 用 `total - startFrom` 决定翻页目标，
    * total 封顶时正好取满、每页都是满页，`short_page` / `page_cap` / `total_drift`

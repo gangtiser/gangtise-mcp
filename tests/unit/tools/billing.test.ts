@@ -219,7 +219,8 @@ describe("tool description boundaries", () => {
   it("declares the EDE parameter-filling recipe (date routing / required params / resolved reportType)", async () => {
     const tools = await listLiveTools()
     const cs = tools.find((t) => t.name === "gangtise_indicator_cross_section")
-    // 公司类型 + 占位值形态在描述里（占位是 null 还是 0 取决于指标，不是「四档」那套旧模型）。
+    // 公司类型 + 占位值形态在描述里（占位一律是 null；「个别指标填 0」那一档已随服务端修复撤除，
+    // 语义守卫在 indicator.test.ts 的「EDE placeholder is a single declaration」那组）。
     // 整批无数据不再返回 999999，所以旧的「报 999999 时改用 time_series」兜底已作废——
     // 描述不得再教它。
     expect(cs?.description ?? "").toContain("分公司类型")
@@ -236,12 +237,14 @@ describe("tool description boundaries", () => {
     // 这条断言防止它回归——只允许作为「没有 startDate」的否定说明出现。
     expect(schema).toContain("没有 startDate")
     expect(schema).not.toContain("→startDate")
-    // reportType 悬案已关闭：服务端 2026-08-01 改正了 enum label，label 与实际取数一致
-    // （CLI v0.30.0 用中信证券 FY2024 营收四值逐一对上三大报表）。描述改为直接给映射，
-    // 并保留「别读 paramDescription」——同一响应里那段旧文字仍与 enum 相反。
+    // reportType 悬案已关闭：enum label 与实际取数一致（CLI v0.30.0 用中信证券 FY2024
+    // 营收四值逐一对上三大报表），同一响应里那段与 enum 相反的 paramDescription 也已
+    // 撤掉。描述给映射并指向 enumList；「别读 paramDescription」那句随之收回——留着它
+    // 会让调用方去防一个不存在的坑。
     expect(schema).toContain("1=合并")
     expect(schema).toContain("3=母公司")
-    expect(schema).toContain("paramDescription")
+    expect(schema).toContain("enumList")
+    expect(schema).not.toMatch(/不要读[^"]{0,20}paramDescription/)
     expect(schema).not.toContain("尚未定论")
     expect(schema).not.toContain("reportType 勿传")
     // adjustType 仍要点名（它是复权的正确键名）。但「写成 adjustmentType 会被静默忽略并

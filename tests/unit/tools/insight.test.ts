@@ -441,22 +441,24 @@ describe("gangtise_performance_calendar_list date field contract", () => {
 // industryList 值都返回字面 null（2026-08-09 实测：合法中信码、合法申万码、乱码
 // 三者一致，且 HTTP 200）。修前 MCP 把它原样渲染成字符串 "null" 且 isError=false，
 // 调用方分不清「报错 / 无数据 / 坏了」。现在按空结果处理并给出提示。
+// 两个外资观点端点曾 opt-in `nullMeansEmpty`：那时它们对任何 industryList 取值都返回
+// 字面 null。现在筛选可用、无匹配返回 {total:0,list:[]}，null 重新只可能是协议异常，
+// 于是它们与其余 JSON 工具同用一条契约——响亮失败，而不是伪装成零行。
+// ⚠️ 谁再给这两个 spec 加回 nullMeansEmpty，本组就红。
 describe("null payload rendering", () => {
-  it("renders a null payload as an empty result with a hint, not the bare text null", async () => {
-    const client = makeClient()
-    ;(client.call as ReturnType<typeof vi.fn>).mockResolvedValue(null)
-    const mcp = await connect(client)
-    const result = await mcp.callTool({
-      name: "gangtise_foreign_opinion_list",
-      arguments: { industryList: ["100800119"] },
-    })
-    expect(result.isError).toBeFalsy()
-    const text = (result.content as Array<{ text: string }>)[0].text
-    expect(text).not.toBe("null")
-    const payload = JSON.parse(text)
-    expect(payload.list).toEqual([])
-    expect(payload._hint).toBeTruthy()
-  })
+  it.each(["gangtise_foreign_opinion_list", "gangtise_independent_opinion_list"])(
+    "%s no longer disguises a null payload as an empty result",
+    async (name) => {
+      const client = makeClient()
+      ;(client.call as ReturnType<typeof vi.fn>).mockResolvedValue(null)
+      const mcp = await connect(client)
+      const result = await mcp.callTool({ name, arguments: { industryList: ["104110000"] } })
+      expect(result.isError).toBe(true)
+      const text = (result.content as Array<{ text: string }>)[0].text
+      expect(text).not.toBe("null")
+      expect(text).toContain("空响应体")
+    },
+  )
 })
 
 // 「够不够放开行数」（hasStrongBound）和「结果筛没筛过」（hasAnyEffectiveFilter）是
@@ -528,39 +530,34 @@ describe("gangtise_performance_calendar_list filter bounds", () => {
 })
 
 describe("opinion endpoints: empty-result hint names the real cause", () => {
-  // 两个工具的提示**有意不同**：foreign-opinion 坏的是 **regionList + industryList 两个**
-  // （⚠️ **brokerList 可正常使用**，本文件后面有反向断言钉住它不得被列为不可用）；
-  // independent-opinion 只声明 industryList——提示里提它根本没有的参数会把调用方引偏，
-  // 而且 strict 之下那些参数也传不进来。
-  it.each([
-    ["gangtise_foreign_opinion_list", "不代表该地区/行业没有观点", ["regionList"]],
-    ["gangtise_independent_opinion_list", "不代表该行业没有独立观点", []],
-  ] as Array<[string, string, string[]]>)(
-    "%s names its own real cause, not a shared one",
-    async (name, phrase, mustMention) => {
-      const client = makeClient()
-      ;(client.call as ReturnType<typeof vi.fn>).mockResolvedValue(null)
-      const mcp = await connect(client)
-      const result = await mcp.callTool({ name, arguments: { industryList: ["100800119"] } })
-      const payload = JSON.parse((result.content as Array<{ text: string }>)[0].text)
-      expect(payload.list).toEqual([])
-      expect(payload._hint).toContain("industryList")
-      expect(payload._hint).toContain(phrase)
-      for (const p of mustMention) expect(payload._hint).toContain(p)
-      // 独立观点没有 regionList / brokerList，提示里不能出现
-      if (mustMention.length === 0) {
-        expect(payload._hint).not.toContain("regionList")
-        expect(payload._hint).not.toContain("brokerList")
-      }
-      // brokerList 在 foreign-opinion 上**是能用的**——绝不能把它列进「不可用」。
-      // 我曾用编的 ID（"999"）和错码系 ID（domesticBroker 的 C1xxxxxxxx）测出 null
-      // 就判它坏，那是没有正向对照的结论。真实 foreignOpinionInstitution ID 下，
-      // 高盛/摩根士丹利各自返回互不相交、也与基线不相交的结果集。
-      expect(payload._hint ?? "").not.toMatch(/brokerList[^。]*不可用/)
-      // 通用文案那句说反了的开头不能出现
-      expect(payload._hint).not.toContain("可能该条件下确无数据")
-    },
-  )
+  // regionList / industryList 传不接受的取值现在会直接报错，不再静默返空——它们
+  // 不再是零行的原因。foreign-opinion 上仍会静默返空的只剩 brokerList：传错码系的
+  // 机构 ID 返 0 行且不报错，而通用文案只会指向证券后缀 / 日期区间 / 市场，全不沾边。
+  it("gangtise_foreign_opinion_list points at the brokerList code system", async () => {
+    const client = makeClient()
+    ;(client.call as ReturnType<typeof vi.fn>).mockResolvedValue({ total: 0, list: [] })
+    const mcp = await connect(client)
+    const result = await mcp.callTool({ name: "gangtise_foreign_opinion_list", arguments: { brokerList: ["C100000093"] } })
+    const payload = JSON.parse((result.content as Array<{ text: string }>)[0].text)
+    expect(payload.list).toEqual([])
+    expect(payload._hint).toContain("brokerList")
+    expect(payload._hint).toContain("foreignOpinionInstitution")
+    // 已经能用的两个筛选不得再被写成零行的原因——那会让调用方绕开一条正常的路
+    expect(payload._hint ?? "").not.toMatch(/industryList[^。]*不可用/)
+    expect(payload._hint ?? "").not.toMatch(/regionList[^。]*不可用/)
+    // 通用文案那句说反了的开头不能出现
+    expect(payload._hint).not.toContain("可能该条件下确无数据")
+  })
+
+  // independent-opinion 没有 brokerList，也没有别的静默返空路径，回到通用文案。
+  it("gangtise_independent_opinion_list is back on the generic hint", async () => {
+    const client = makeClient()
+    ;(client.call as ReturnType<typeof vi.fn>).mockResolvedValue({ total: 0, list: [] })
+    const mcp = await connect(client)
+    const result = await mcp.callTool({ name: "gangtise_independent_opinion_list", arguments: {} })
+    const payload = JSON.parse((result.content as Array<{ text: string }>)[0].text)
+    expect(payload._hint).toContain("可能该条件下确无数据")
+  })
 
   // 其余 list 工具不受影响，仍用通用文案。
   it("leaves other list tools on the generic hint", async () => {
@@ -573,22 +570,32 @@ describe("opinion endpoints: empty-result hint names the real cause", () => {
   })
 })
 
-// 模型选工具时读的是**主描述**，它排在参数说明和空结果提示之前。主描述若仍宣传
-// 「按行业筛选」，链路就是：选中 → 传 industryList → 拿到空结果 → 才读到真因。
-// 好的情况浪费一次调用（foreign_opinion 30/条、单次约 600 积分），差的情况提示被
-// 略过、得出「该行业没有外资观点」。三处文案必须同向。
+// 模型选工具时读的是**主描述**，它排在参数说明和空结果提示之前。两个筛选已经能用，
+// 主描述若还写着「不可用」，链路就是：模型直接不传 industryList → 自己拉全量再本地筛
+// → 多花几十倍积分。撤除警告与当初加上它一样，都必须有守卫。
 describe("opinion endpoints: main description matches the param reality", () => {
   it.each(["gangtise_foreign_opinion_list", "gangtise_independent_opinion_list"])(
-    "%s does not advertise industry filtering it cannot do",
+    "%s advertises the industry filter it can actually do",
     async (name) => {
       const mcp = await connect(makeClient())
       const { tools } = await mcp.listTools()
       const desc = tools.find((t) => t.name === name)!.description!
-      // 主描述不得再把坏掉的筛选列进「支持按…筛选」
-      expect(desc).not.toContain("、行业、")
-      expect(desc).not.toContain("按证券、行业、")
-      expect(desc).not.toContain("、地区、")
-      expect(desc).toContain("当前不可用")
+      expect(desc).toContain("行业")
+      expect(desc).not.toContain("不可用")
+      expect(desc).not.toContain("本地筛")
+    },
+  )
+
+  // total 现在是真值（from=total−1 有行、from=total 返 0 行），封顶警告必须一起撤：
+  // 留着它，调用方就永远不敢把 total 当计数用，而那正是它现在唯一的用途。
+  it.each(["gangtise_opinion_list", "gangtise_foreign_opinion_list", "gangtise_independent_opinion_list"])(
+    "%s no longer warns about a capped total",
+    async (name) => {
+      const mcp = await connect(makeClient())
+      const { tools } = await mcp.listTools()
+      const desc = tools.find((t) => t.name === name)!.description!
+      expect(desc).not.toContain("total 会封顶")
+      expect(desc).not.toContain("不要把 total 当成计数报给用户")
     },
   )
 })
@@ -668,25 +675,29 @@ describe("pamirs_summary_list researchAreaList names the right code system", () 
   })
 })
 
-// regionList 在 foreign_opinion 上只有 gl 一个取值有效：cn/cnHk/cnTw/us/jp/uk 全部返 null，
-// 而 gl 的结果与不传时**逐位相同**——即它并不筛选。描述必须说清「当前不可用」，
-// 否则模型传 us 拿到 null 会读成「没有美国的外资观点」。
-// 注意这条与 foreign_report 无关：同名参数在那个端点上是好的（基线 1760577 → us 561908）。
-describe("foreign_opinion regionList is documented as non-functional", () => {
-  it("pins the gl distinction, not just the word 不可用", async () => {
+// regionList 两个端点收的取值不同，且**两侧失败方式不同**，所以闭集也不同：
+//  - foreign-opinion 只接受 regionCategory 19 个里的 6 个，其余会被接口拒绝（响亮）；
+//  - foreign-report 19 个全收，但**码表外**的值（把中国香港写成 hk、把欧洲写成 eu 这类）
+//    不报错，而是把筛选条件整个丢掉、返回未经筛选的全库——按条计费，从结果里看不出来。
+//    那一侧的闭集是唯一防线，不能放开。
+describe("regionList closed sets differ per endpoint", () => {
+  const enumOf = (v: Record<string, unknown>) => ((v.items ?? v) as { enum?: string[] }).enum ?? []
+
+  it("pins both sets and the exact-spelling warning", async () => {
     const mcp = await connect(makeClient())
     const { tools } = await mcp.listTools()
     const get = (n: string) =>
-      (tools.find((t) => t.name === n)!.inputSchema as { properties: Record<string, { description?: string }> })
-        .properties
-    const desc = get("gangtise_foreign_opinion_list").regionList?.description ?? ""
-    expect(desc).toContain("当前不可用")
-    // 只钉「当前不可用」不够：退回成「包括 gl 在内所有值都返空」照样能过，
-    // 而那是错的——gl 有数据，只是不筛。三段缺一不可：
-    expect(desc).toMatch(/cn[^。]*us[^。]*返回空结果/) // 具体地区值返空
-    expect(desc).toMatch(/gl[^。]*返回数据/) // gl 有数据
-    expect(desc).toContain("不收窄") // 但它不筛
-    // 同名参数在 foreign_report 上是好的，不能被连坐
-    expect(get("gangtise_foreign_report_list").regionList?.description ?? "").not.toContain("当前不可用")
+      (tools.find((t) => t.name === n)!.inputSchema as { properties: Record<string, Record<string, unknown>> }).properties
+
+    const fo = get("gangtise_foreign_opinion_list").regionList!
+    expect(new Set(enumOf(fo))).toEqual(new Set(["cn", "cnHk", "cnTw", "us", "jp", "uk"]))
+
+    const fr = get("gangtise_foreign_report_list").regionList!
+    expect(enumOf(fr)).toHaveLength(19)
+    // 正确拼法在、错误拼法不在——两条一起才钉得住「逐字匹配」这件事
+    expect(enumOf(fr)).toContain("cnHk")
+    expect(enumOf(fr)).not.toContain("hk")
+    expect(enumOf(fr)).not.toContain("eu")
+    expect(String(fr.description)).toMatch(/cnHk[^。]*不是 hk/)
   })
 })
