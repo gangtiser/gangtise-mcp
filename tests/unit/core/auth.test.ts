@@ -171,17 +171,29 @@ describe("readTokenCacheWithMtime takes one atomic snapshot", () => {
     const token = (name: string) =>
       JSON.stringify({ accessToken: name, expiresIn: 7200, time: 1, expiresAt: Math.floor(Date.now() / 1000) + 7200 })
 
+    // 🔴 判据必须与时间戳粒度无关。用「旧文件的 mtime 是否等于 rename 后路径的 mtime」
+    // 当错配证据是错的：两个文件是连续写出来的，落在同一个时间戳刻度内就天然同值，
+    // 而这个概率完全取决于文件系统 —— macOS/APFS 上 0/200，Linux CI 上 170/200，
+    // 于是一个正确的实现在 CI 上被判成 170 次错配。
+    // 改为**显式把两个文件的 mtime 拉开一小时**：此后「内容」与「mtime」各自唯一对应
+    // 一个 inode，配错了一眼可辨，跟时钟精度再无关系。
+    const OLD_MTIME_S = Math.floor(Date.now() / 1000) - 3600
+    const NEW_MTIME_S = Math.floor(Date.now() / 1000)
+
     let mismatches = 0
     for (let i = 0; i < 200; i += 1) {
       await fs.writeFile(file, token("old-stale"))
+      await fs.utimes(file, OLD_MTIME_S, OLD_MTIME_S)
       const tmp = `${file}.tmp`
       await fs.writeFile(tmp, token(`new-sibling-${i}`))
+      await fs.utimes(tmp, NEW_MTIME_S, NEW_MTIME_S)
       // 读与 rename 交错
       const [snapshot] = await Promise.all([readTokenCacheWithMtime(file), fs.rename(tmp, file)])
       if (!snapshot.cache) continue
-      const onDisk = await fs.stat(file)
-      // 坏形态：返回旧内容，却带着新文件的 mtime
-      if (snapshot.cache.accessToken.startsWith("old") && snapshot.mtimeMs === onDisk.mtimeMs) mismatches += 1
+      // 坏形态：返回旧 inode 的内容，却带着新 inode 的 mtime
+      const isStaleContent = snapshot.cache.accessToken.startsWith("old")
+      const carriesNewMtime = Math.round(snapshot.mtimeMs / 1000) === NEW_MTIME_S
+      if (isStaleContent && carriesNewMtime) mismatches += 1
     }
 
     expect(mismatches, "出现了「旧 token + 新 mtime」的错配快照").toBe(0)
