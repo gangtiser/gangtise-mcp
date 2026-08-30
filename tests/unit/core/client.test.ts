@@ -432,6 +432,14 @@ describe("GangtiseClient auth replay and freshness", () => {
           accessToken: "sibling-fresh", expiresIn: 7200, time: 1,
           expiresAt: Math.floor(Date.now() / 1000) + 7200,
         }), "utf8")
+        // 🔴 显式把 mtime 推到「明确晚于本次请求开始」。
+        // 判据是 `mtimeMs >= authState.startedAt`，而这里的 transport 是 mock、**零延迟**：
+        // startedAt 与这次写盘落在同一个时间戳刻度内，mtime 向下取整就可能反而小于
+        // startedAt，于是采用逻辑不触发、测试在部分文件系统上假阳性（Linux CI 上必现）。
+        // 真实网络往返远大于任何文件系统刻度，生产上撞不到这条缝——所以要修的是测试的
+        // 时序假设，不是被测的新鲜度判据（放宽它会让「早已写入的陈旧缓存」也被采用）。
+        const later = Date.now() / 1000 + 5
+        await fs.utimes(tokenCachePath, later, later)
         return rawJsonResponse({ code: "0000001008", msg: "token is invalid" }, 401)
       }
       return jsonResponse({ answer: 1 })
