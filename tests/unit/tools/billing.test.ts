@@ -7,6 +7,16 @@ import type { GangtiseClient } from "../../../src/core/client.js"
 
 const stubClient = { call: async () => ({}), download: async () => ({}) } as unknown as GangtiseClient
 
+/** 服务器声明的 instructions —— 走 initialize 结果，与客户端拿到的是同一份。 */
+async function liveInstructions(): Promise<string> {
+  const server = createGangtiseMcpServer(stubClient, { version: "0.0.0-test" })
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+  await server.connect(serverTransport)
+  const client = new Client({ name: "test", version: "0.0.1" })
+  await client.connect(clientTransport)
+  return client.getInstructions() ?? ""
+}
+
 async function listLiveTools() {
   const server = createGangtiseMcpServer(stubClient, { version: "0.0.0-test" })
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
@@ -32,14 +42,14 @@ describe("billing catalog coverage", () => {
     expect(billingLabel("gangtise_report_image_download")).toBe("【积分：0.1/张】")
     expect(billingLabel("gangtise_edb_data")).toBe("【积分：30/指标】")
     expect(billingLabel("gangtise_knowledge_resource_download")).toBe("【积分：按下游资源类型】")
-    expect(billingLabel("gangtise_securities_search")).toBe("【积分：计分表未覆盖】")
+    expect(billingLabel("gangtise_securities_search")).toBe("【积分：单价以平台计费为准】")
     expect(billingLabel("gangtise_lookup")).toBe("【本地工具，不消耗 OpenAPI 积分】")
   })
 
   // 标签词表是规格 §三D 冻结的 8 种取值 —— 高放大提示绝不能混进来
   it("keeps the label vocabulary frozen: amplification never enters the label", () => {
     const FROZEN = new Set([
-      "", "【积分：按下游资源类型】", "【积分：按所选指标】", "【积分：计分表未覆盖】",
+      "", "【积分：按下游资源类型】", "【积分：按所选指标】", "【积分：单价以平台计费为准】",
       "【本地工具，不消耗 OpenAPI 积分】",
     ])
     for (const name of Object.keys(BILLING_CATALOG)) {
@@ -75,34 +85,34 @@ describe("billing catalog coverage", () => {
     ])
   })
 
+  // 尾注现在只剩放大提示：通用的分页计费声明已上收到 server.instructions，
+  // 逐工具不同的「单次约 N 积分」留在这里 —— 那一半搬不动，也正是估成本要用的。
   it("emits the amplification hint as a suffix outside the label, framed as an example not a cap", () => {
-    const PAGED = "默认最多 20 条；size 调大或 fetchAll=true 按全部实际返回条目计费"
-    expect(billingSuffix("gangtise_hot_topic", true)).toBe(`${PAGED}，单次约 1000 积分。`)
-    expect(billingSuffix("gangtise_opinion_list", true)).toBe(`${PAGED}，单次约 600 积分。`)
-    expect(billingSuffix("gangtise_foreign_opinion_list", true)).toBe(`${PAGED}，单次约 600 积分。`)
+    expect(billingSuffix("gangtise_hot_topic")).toBe("单次约 1000 积分。")
+    expect(billingSuffix("gangtise_opinion_list")).toBe("单次约 600 积分。")
+    expect(billingSuffix("gangtise_foreign_opinion_list")).toBe("单次约 600 积分。")
     for (const n of ["roadshow", "site_visit", "strategy", "forum"]) {
-      expect(billingSuffix(`gangtise_${n}_list`, true)).toBe(`${PAGED}，单次约 400 积分。`)
+      expect(billingSuffix(`gangtise_${n}_list`)).toBe("单次约 400 积分。")
     }
-    // EDE 两工具不分页，尾注只有放大提示
-    const CELL = "按单元格计价，指标数×证券数×日期数即放大倍数。"
-    expect(billingSuffix("gangtise_indicator_time_series", false)).toBe(CELL)
-    expect(billingSuffix("gangtise_indicator_cross_section", false)).toBe(CELL)
+    const CELL = "按单元格计价，指标数×证券数×日期数即放大倍数，单次上限 10 万单元格。"
+    expect(billingSuffix("gangtise_indicator_time_series")).toBe(CELL)
+    expect(billingSuffix("gangtise_indicator_cross_section")).toBe(CELL)
     // size 无 .max()、且有 fetchAll —— 这些数字是「一次调用的成本示例」，不是上限
     for (const n of ["gangtise_hot_topic", "gangtise_opinion_list", "gangtise_roadshow_list"]) {
-      expect(billingSuffix(n, true)).not.toContain("最多约")
+      expect(billingSuffix(n)).not.toContain("最多约")
     }
   })
 
   it("keeps proven-bounded and per-call-priced tools free of amplification noise", () => {
     // edb_data 有已证上界 300（30/指标 × max(10)），低于 concept_info 的 500/次
-    expect(billingSuffix("gangtise_edb_data", false)).toBe("")
-    expect(billingSuffix("gangtise_concept_info", false)).toBe("")
+    expect(billingSuffix("gangtise_edb_data")).toBe("")
+    expect(billingSuffix("gangtise_concept_info")).toBe("")
     // stock_summary 全市场展开上限未证 —— 放大警示留在 securityList 的参数描述里
-    expect(billingSuffix("gangtise_stock_summary", false)).toBe("")
-    expect(billingSuffix("gangtise_summary_download", false)).toBe("")
+    expect(billingSuffix("gangtise_stock_summary")).toBe("")
+    expect(billingSuffix("gangtise_summary_download")).toBe("")
     // 免费/本地档永不带尾注
-    expect(billingSuffix("gangtise_drive_list", true)).toBe("")
-    expect(billingSuffix("gangtise_lookup", false)).toBe("")
+    expect(billingSuffix("gangtise_drive_list")).toBe("")
+    expect(billingSuffix("gangtise_lookup")).toBe("")
   })
 
   it("throws on an unclassified tool instead of silently labelling it free", () => {
@@ -143,10 +153,8 @@ describe("listTools billing-label gate", () => {
   it("leaves no hand-written billing prose outside the generated label and suffix", async () => {
     const BILLING_WORDS = /积分|免费|扣分|扣费/
     for (const tool of await listLiveTools()) {
-      const props = (tool.inputSchema as { properties?: Record<string, unknown> })?.properties ?? {}
-      const paginated = Boolean(props.from && props.size && props.fetchAll)
       const label = billingLabel(tool.name)
-      const suffix = billingSuffix(tool.name, paginated)
+      const suffix = billingSuffix(tool.name)
       const desc = tool.description ?? ""
 
       // 顺序不能反：`【积分：50/次】`与`【本地工具，不消耗 OpenAPI 积分】`本身就含「积分」，
@@ -161,15 +169,17 @@ describe("listTools billing-label gate", () => {
     }
   })
 
-  // 数量用独立常量钉住 —— 与 Task 1 的字面名单配合，堵住「门禁与实现同源」的循环。
-  it("puts the fetchAll billing warning on exactly the 18 paid paginated tools", async () => {
-    const warned = (await listLiveTools())
-      .filter((t) => (t.description ?? "").includes("fetchAll=true 按全部实际返回条目计费"))
+  // 🔴 反向钉：分页计费警示曾逐字挂在 19 个工具描述上，已上收到 server.instructions。
+  // 每个工具的 inputSchema 是独立 JSON 文档、客户端不跨工具解析 $ref —— 写在描述里付
+  // 19 遍，写在 instructions 里付一遍。这条防的是「有人又把它抄回描述」。
+  it("keeps the per-item billing warning in instructions, not in 19 tool descriptions", async () => {
+    const leaked = (await listLiveTools())
+      .filter((t) => /按全部实际返回条目计费|默认最多 20 条/.test(t.description ?? ""))
       .map((t) => t.name)
-    expect(warned).toHaveLength(19) // 22 个分页工具 − 3 个免费
-    for (const free of ["gangtise_drive_list", "gangtise_record_list", "gangtise_wechat_message_list"]) {
-      expect(warned, `${free} 是免费分页工具，不该带计费警示`).not.toContain(free)
-    }
+    expect(leaked, "分页计费警示回流到了工具描述里").toEqual([])
+
+    const instructions = await liveInstructions()
+    expect(instructions, "instructions 里没有按条计费的声明，等于这条警示整个丢了").toMatch(/按实际返回条目计费/)
   })
 
   it("surfaces all 11 amplification hints in the live listing", async () => {

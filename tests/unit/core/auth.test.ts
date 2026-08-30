@@ -10,6 +10,7 @@ import {
   readTokenCache,
   requireAccessCredentials,
   writeTokenCache,
+  readTokenCacheWithMtime,
   type TokenCache,
 } from "../../../src/core/auth.js"
 
@@ -152,5 +153,38 @@ describe("writeTokenCache", () => {
     } finally {
       spy.mockRestore()
     }
+  })
+})
+
+// 🔴 内容与 mtime 必须来自**同一个 inode 快照**。
+// 分两步读（`readFile(path)` 再 `stat(path)`）时，兄弟进程只要在两步之间原子 rename
+// 一份新缓存，就会拿到「旧 token + 新文件的 mtime」；调用方据那个新 mtime 判定
+// 「本次请求期间刷新过」，于是采用一个早已失效的旧 token，把每次请求仅有的一次自愈
+// 额度烧掉，真正该发生的重新登录再也不会发生。
+//
+// 复核方压力实测：旧实现 1000 次里错配 265 次，fd 实现 0 次；**而恢复旧实现后
+// auth/client 共 74 个测试全绿** —— 所以这条必须单独存在，行为断言覆盖不到它。
+describe("readTokenCacheWithMtime takes one atomic snapshot", () => {
+  it("never pairs stale content with a newer file's mtime under rename interleaving", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "gt-auth-snapshot-"))
+    const file = path.join(dir, "token.json")
+    const token = (name: string) =>
+      JSON.stringify({ accessToken: name, expiresIn: 7200, time: 1, expiresAt: Math.floor(Date.now() / 1000) + 7200 })
+
+    let mismatches = 0
+    for (let i = 0; i < 200; i += 1) {
+      await fs.writeFile(file, token("old-stale"))
+      const tmp = `${file}.tmp`
+      await fs.writeFile(tmp, token(`new-sibling-${i}`))
+      // 读与 rename 交错
+      const [snapshot] = await Promise.all([readTokenCacheWithMtime(file), fs.rename(tmp, file)])
+      if (!snapshot.cache) continue
+      const onDisk = await fs.stat(file)
+      // 坏形态：返回旧内容，却带着新文件的 mtime
+      if (snapshot.cache.accessToken.startsWith("old") && snapshot.mtimeMs === onDisk.mtimeMs) mismatches += 1
+    }
+
+    expect(mismatches, "出现了「旧 token + 新 mtime」的错配快照").toBe(0)
+    await fs.rm(dir, { recursive: true, force: true })
   })
 })

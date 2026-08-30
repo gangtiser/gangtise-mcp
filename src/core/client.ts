@@ -1,18 +1,19 @@
 import { createWriteStream } from "node:fs"
 import fs from "node:fs/promises"
 import path from "node:path"
+import { Transform } from "node:stream"
 import { pipeline } from "node:stream/promises"
 import { gunzipSync } from "node:zlib"
 
 import { request } from "undici"
 
-import { PAGE_CONCURRENCY, type CliConfig } from "./config.js"
-import { isTokenCacheValid, normalizeToken, readTokenCache, requireAccessCredentials, writeTokenCache, type TokenCache } from "./auth.js"
-import { ApiError, ValidationError, errorMessage } from "./errors.js"
+import { DEFAULT_MAX_DOWNLOAD_BYTES, PAGE_CONCURRENCY, type CliConfig } from "./config.js"
+import { isTokenCacheValid, normalizeToken, readTokenCache, readTokenCacheWithMtime, requireAccessCredentials, writeTokenCache, type TokenCache } from "./auth.js"
+import { ApiError, DownloadError, ValidationError, errorMessage } from "./errors.js"
 import { ENDPOINTS, type EndpointDefinition } from "./endpoints.js"
 import { Envelope, isEnvelope, unwrapEnvelope } from "./envelope.js"
 import { getLookupData } from "./lookupData/index.js"
-import { getDispatcher, isVerbose, logTiming, markRetryable, runWithConcurrency, withRetry } from "./transport.js"
+import { getDispatcher, getDownloadDispatcher, isVerbose, logTiming, markRetryable, runWithConcurrency, withRetry } from "./transport.js"
 
 // Error codes that warrant one forced token refresh + retry:
 //   8000014 / 8000015 — access/secret key errors (arrive as HTTP 200 envelopes)
@@ -25,7 +26,38 @@ import { getDispatcher, isVerbose, logTiming, markRetryable, runWithConcurrency,
 // 999011 (AK/SK mismatch) is deliberately absent — bad credentials never heal,
 // and transport's NON_RETRYABLE_API_CODES stops it being replayed on a 5xx either.
 const AUTH_RETRY_CODES = new Set(["8000014", "8000015", "0000001008", "999002"])
+
+/** 一次「凭据被拒」的判据：带码的按 AUTH_RETRY_CODES，**没有码的裸 HTTP 401 也算**。
+ *
+ * 🔴 只认码会漏掉下载链路。信封形态的错误才有 `code`，而下载响应可能根本不是信封：
+ * 跟随 30x 之后落到对象存储域名，它拒绝过期凭据时返回的是自家的 HTML / XML；网关直接
+ * 挡下时返回的可能是空体。这些路径构造出的 `ApiError` 的 `code` 是 `undefined`，于是
+ * 自愈整个不发生 —— 缓存里那个已失效的 token 会一直用到本地时钟判定它过期为止，期间
+ * 每一次下载都失败，而 JSON 接口因为走信封反而是好的，现象上像「只有下载坏了」。
+ *
+ * 401 的语义本身就是「这个凭据不被接受」，据此刷新一次是安全的：`authState.retried`
+ * 保证每个请求只自愈一次，AK/SK 不对的情况会在第二次以同样的 401 结束、不成环。 */
+function isAuthRejection(error: ApiError): boolean {
+  if (error.code) return AUTH_RETRY_CODES.has(error.code)
+  return error.statusCode === 401
+}
+
 const MAX_PAGES = 1000
+
+/** 流式字节上限：超出即中止整条 pipeline。 */
+function capBytes(limit: number): Transform {
+  let seen = 0
+  return new Transform({
+    transform(chunk, _enc, cb) {
+      seen += chunk.length
+      if (seen > limit) {
+        cb(new DownloadError(`下载内容超过单文件上限 ${(limit / 1048576).toFixed(0)} MB，已中止以免占满临时磁盘。`))
+        return
+      }
+      cb(null, chunk)
+    },
+  })
+}
 
 export interface PageRequest {
   from: number
@@ -133,13 +165,12 @@ export class GangtiseClient {
    * the caller re-throws the original error. `authState` persists across the
    * withRetry attempts so we only refresh once per logical request.
    */
-  private async refreshAuthIfRecoverable(error: unknown, useAuth: boolean, authState: { retried: boolean }, usedAuthorization?: string): Promise<void> {
+  private async refreshAuthIfRecoverable(error: unknown, useAuth: boolean, authState: { retried: boolean; startedAt: number }, usedAuthorization?: string): Promise<void> {
     if (
       useAuth
       && !authState.retried
       && error instanceof ApiError
-      && error.code
-      && AUTH_RETRY_CODES.has(error.code)
+      && isAuthRejection(error)
       && this.config.accessKey
       && this.config.secretKey
     ) {
@@ -149,8 +180,23 @@ export class GangtiseClient {
       // while this request was in flight, adopt that token instead of logging in
       // again — a new login supersedes the sibling's session server-side and
       // would bounce its requests right back.
-      const fileCache = await readTokenCache(this.config.tokenCachePath)
-      if (isTokenCacheValid(fileCache) && usedAuthorization !== undefined && normalizeToken(fileCache!.accessToken) !== usedAuthorization) {
+      //
+      // 🔴 判据必须是「这个缓存**在本次请求期间**被写过」，不能只看「盘上的 token 与
+      // 刚失败的那个不同」。不同有两种来源，处置完全相反：
+      //   ① 兄弟进程刚刷新 → 采用它（本条优化的全部意义）。
+      //   ② 盘上本来就躺着一个**早已写入、按本地时钟还没过期、但服务端已失效**的旧
+      //      token（最典型的是配了 GANGTISE_TOKEN 时，磁盘缓存根本不是本次请求的凭据
+      //      来源）→ 采用它等于拿另一个死 token 重试一次，把每次请求仅有的一次自愈名
+      //      额白白烧掉，而真正该做的 AK/SK 登录再也不会发生。
+      // 两者的 token 都「不等于失败的那个」，只有写入时间能把它们分开。
+      const { cache: fileCache, mtimeMs } = await readTokenCacheWithMtime(this.config.tokenCachePath)
+      const refreshedDuringThisRequest = mtimeMs >= authState.startedAt
+      if (
+        isTokenCacheValid(fileCache)
+        && refreshedDuringThisRequest
+        && usedAuthorization !== undefined
+        && normalizeToken(fileCache!.accessToken) !== usedAuthorization
+      ) {
         this.memoCache = fileCache
       } else {
         try {
@@ -208,12 +254,23 @@ export class GangtiseClient {
    *
    * 判据只放宽这一格：`total === 0` 且 `list` 为 null/undefined。`total` 非 0 却没有 list，
    * 仍然是异形（那是真的丢了数据）。 */
-  private isPaginatedListResponse(value: unknown): value is Record<string, unknown> & { total: number; list: unknown[] } {
+  private isPaginatedListResponse(value: unknown): value is Record<string, unknown> & { total: number; list?: unknown } {
     if (!value || typeof value !== 'object') return false
     const { total, list } = value as { total?: unknown; list?: unknown }
     if (typeof total !== 'number') return false
     if (Array.isArray(list)) return true
     return total === 0 && (list === null || list === undefined)
+  }
+
+  /** The rows of a page that already passed `isPaginatedListResponse`.
+   *
+   * 🔴 该判据**有意**把 `{total: 0, list: null}` 收成合法空结果（见它的注释），所以
+   * 「通过判据」并不保证 `list` 是数组——归一必须在**每一页**上做，不能只做首页。
+   * 少了这一步，后续页拿到那个形状就会在合并循环里 `null.length` 抛 TypeError：
+   * 已取到的行连同 `_partial` 标记一起丢掉，换来一句读不懂的 JS 报错，而 summary /
+   * 三个公告 list / 财报日历 / 热点话题正是用这个形状编码空结果的。 */
+  private pageRows(page: Record<string, unknown> & { list?: unknown }): unknown[] {
+    return Array.isArray(page.list) ? page.list : []
   }
 
 
@@ -255,7 +312,7 @@ export class GangtiseClient {
       // 不比 total 就会把每个正在增长的分页数据集误标成封顶；只看 total 不看行数，
       // 又会把「真计数」误标成封顶。两个维度都要看。
       if (beyond.total !== total) return "drift"
-      return beyond.list.length > 0 ? "capped" : "clean"
+      return this.pageRows(beyond).length > 0 ? "capped" : "clean"
     } catch {
       // 探针失败不能反过来污染主结果：宁可不标，也不要因为一次网络抖动就把
       // 一份完整数据标成 partial。
@@ -269,16 +326,22 @@ export class GangtiseClient {
    * 拿到的只是第一页，而调用方无从分辨「这个筛选确实没命中」和「这个筛选没生效」。
    * 最隐蔽的一档是 `total` 漂成字符串这类——fetchAll 会被截断成第 1 页，结果看着却完整。
    *
-   * 只给普通对象加标记：`null` 由工具层的 `nullMeansEmpty` 契约处理（没开就响亮失败），
-   * 数组上挂属性会在序列化时消失，两种情况加了也没用。 */
+   * 三种载荷分三条路：
+   *  - 普通对象 → 原样展开再挂标记。
+   *  - **裸数组 → 包成 `{list, _partial…}`**。直接挂属性会在序列化时消失，于是一个
+   *    「端点不再包信封」的漂移会以一份看着完整的行数组交出去，静默且无从分辨。包一层
+   *    是唯一能让标记活着到达调用方的写法，`normalizeRows` 下游照常把它摊回列表。
+   *  - `null` / 标量 → 原样返回：`null` 由工具层的 `nullMeansEmpty` 契约处理（没开就
+   *    响亮失败），而标量不可能被误读成一批行。 */
   private flagUnexpectedPageShape(page: unknown): unknown {
-    if (!page || typeof page !== "object" || Array.isArray(page)) return page
-    return {
-      ...(page as Record<string, unknown>),
+    if (!page || typeof page !== "object") return page
+    const marker = {
       _partial: true,
       _partial_reason: "unexpected_page_shape",
       _unexpected_page_shape: "本接口标记为分页，但返回的首包不是 {total, list} 结构；已原样返回，未进行翻页——这份结果可能只是第一页，也可能是筛选条件未生效，不要当作完整结果使用",
     }
+    if (Array.isArray(page)) return { list: page, ...marker }
+    return { ...(page as Record<string, unknown>), ...marker }
   }
 
   private async requestPaginated(endpoint: EndpointDefinition, body?: unknown) {
@@ -305,13 +368,15 @@ export class GangtiseClient {
 
     if (!this.isPaginatedListResponse(firstPage)) return this.flagUnexpectedPageShape(firstPage)
     // 合法空结果的两种写法（`list: []` 与 `list: null`）在这里合流，后面一律按数组处理。
-    if (!Array.isArray(firstPage.list)) firstPage.list = []
+    // 写回一次，让后面每一处 `...firstPage` 展开都带着归一后的数组。
+    const firstRows = this.pageRows(firstPage)
+    firstPage.list = firstRows
 
     const total = firstPage.total
-    const collected: unknown[] = [...firstPage.list]
+    const collected: unknown[] = [...firstRows]
 
     // Last page reached on first request
-    if (firstPage.list.length < firstPageSize) {
+    if (firstRows.length < firstPageSize) {
       const shortResult: Record<string, unknown> = {
         ...firstPage,
         total,
@@ -373,7 +438,7 @@ export class GangtiseClient {
     }
 
     // Build remaining page requests
-    const nextFrom = startFrom + firstPage.list.length
+    const nextFrom = startFrom + firstRows.length
     const endFrom = startFrom + target
     const pageRequests = planRemainingPages(nextFrom, endFrom, maxPageSize, MAX_PAGES)
     const plannedEndFrom = pageRequests.length === 0
@@ -396,7 +461,7 @@ export class GangtiseClient {
           return [] as unknown[]
         }
         if (page.total !== total) totalDrift = true
-        return page.list
+        return this.pageRows(page)
       } catch (err) {
         // Collect the failure instead of fail-fasting the whole batch: return the
         // pages we did get, flagged _partial — same loud-partial contract as
@@ -478,7 +543,7 @@ export class GangtiseClient {
 
     const dispatcher = getDispatcher()
     const url = new URL(endpoint.path, this.config.baseUrl)
-    const authState = { retried: false }
+    const authState = { retried: false, startedAt: Date.now() }
     // Endpoint floor wins over the configured default, but an explicitly larger
     // GANGTISE_TIMEOUT_MS still applies (slow synchronous AI generation would
     // otherwise abort at 30s — billed, with the result thrown away).
@@ -566,12 +631,13 @@ export class GangtiseClient {
   }
 
   async download(endpoint: EndpointDefinition, query: Record<string, string | number>, options?: { streamTo?: string }): Promise<DownloadResponse> {
-    const dispatcher = getDispatcher()
+    // 下载专用 dispatcher：跟随 30x（见 getDownloadDispatcher）。
+    const dispatcher = getDownloadDispatcher()
     const url = new URL(endpoint.path, this.config.baseUrl)
     Object.entries(query).forEach(([key, value]) => {
       url.searchParams.set(key, String(value))
     })
-    const authState = { retried: false }
+    const authState = { retried: false, startedAt: Date.now() }
     const timeoutMs = Math.max(this.config.timeoutMs, endpoint.timeoutMs ?? 0)
 
     return withRetry(async () => {
@@ -591,6 +657,23 @@ export class GangtiseClient {
         : response.headers['content-disposition']
       const retryAfterMs = this.parseRetryAfterMs(response.headers['retry-after'])
 
+      /** 非信封形态的下载失败：构造错误 → **先过一次鉴权自愈** → 再抛。
+       *
+       * 🔴 自愈这一步不能只挂在信封分支上。下载响应有四种形态（JSON 信封、JSON 但解析
+       * 失败、text/html、二进制），只有第一种能解出 `code`；其余三种此前直接 throw，
+       * 401 就此穿过自愈逻辑。跟随 30x 落到对象存储域名之后，恰恰是后三种最常见。 */
+      const failDownload = async (text: string): Promise<never> => {
+        const error = new ApiError(
+          `Download failed (HTTP ${response.statusCode}): ${text.trim().slice(0, 200)}`,
+          undefined,
+          response.statusCode,
+          text,
+          retryAfterMs,
+        )
+        await this.refreshAuthIfRecoverable(error, true, authState, authorization)
+        throw error
+      }
+
       // A JSON body carrying content-disposition is a real file attachment (e.g.
       // a user-stored .json in the vault drive), not an API envelope — fall
       // through to the binary path so its bytes are returned untouched.
@@ -601,9 +684,7 @@ export class GangtiseClient {
         try {
           parsed = JSON.parse(text)
         } catch {
-          if (response.statusCode >= 400) {
-            throw new ApiError(`Download failed (HTTP ${response.statusCode}): ${text.trim().slice(0, 200)}`, undefined, response.statusCode, text, retryAfterMs)
-          }
+          if (response.statusCode >= 400) await failDownload(text)
           return { text, contentType }
         }
 
@@ -626,16 +707,11 @@ export class GangtiseClient {
       if (contentType?.includes('text/plain') || contentType?.includes('text/html')) {
         const text = await response.body.text()
         logTiming(`GET ${endpoint.path} (text)`, Date.now() - startedAt, `${response.statusCode}, ${text.length}B`)
-        if (response.statusCode >= 400) {
-          throw new ApiError(`Download failed (HTTP ${response.statusCode}): ${text.trim().slice(0, 200)}`, undefined, response.statusCode, text, retryAfterMs)
-        }
+        if (response.statusCode >= 400) await failDownload(text)
         return { text, contentType }
       }
 
-      if (response.statusCode >= 400) {
-        const text = await response.body.text()
-        throw new ApiError(`Download failed (HTTP ${response.statusCode}): ${text.trim().slice(0, 200)}`, undefined, response.statusCode, text, retryAfterMs)
-      }
+      if (response.statusCode >= 400) await failDownload(await response.body.text())
 
       const filenameMatch = contentDisposition?.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i)
       // RFC 6266: plain filename= is not percent-encoded — a literal % (common
@@ -653,8 +729,23 @@ export class GangtiseClient {
 
       // Stream directly to disk when caller already knows the destination
       if (options?.streamTo) {
+        const maxBytes = this.config.maxDownloadBytes ?? DEFAULT_MAX_DOWNLOAD_BYTES
+        // 🔴 落盘前先看 Content-Length：声明就超上限的直接拒，不浪费带宽也不碰磁盘。
+        const declared = Number(Array.isArray(response.headers['content-length']) ? response.headers['content-length'][0] : response.headers['content-length'])
+        if (Number.isFinite(declared) && declared > maxBytes) {
+          // 🔴 抛错之前必须**主动销毁响应体**。undici 的连接要么被读完、要么被 destroy
+          // 才会归还连接池；直接 throw 会把 socket 留在那儿，服务端还在推流而我们已经
+          // 不读了。连续几次超限下载就能占满 `connections: 16` 的池子，之后所有请求排队。
+          response.body.destroy()
+          throw new DownloadError(
+            `下载内容 ${(declared / 1048576).toFixed(0)} MB 超过单文件上限 ${(maxBytes / 1048576).toFixed(0)} MB，已拒绝以免占满临时磁盘。请改用返回下载直链的方式，或联系客户经理确认该资源是否应当这么大。`,
+          )
+        }
         await fs.mkdir(path.dirname(options.streamTo), { recursive: true })
-        await pipeline(response.body, createWriteStream(options.streamTo))
+        // 没有 Content-Length（chunked）时靠流式计数兜底：超限即中止，`pipeline` 会销毁
+        // 两端并把错误抛出来，上层 downloadToResult 随即删掉整个临时目录。
+        // 只做**事后清理**是不够的——那时磁盘已经被写满了。
+        await pipeline(response.body, capBytes(maxBytes), createWriteStream(options.streamTo))
         logTiming(`GET ${endpoint.path} (stream)`, Date.now() - startedAt, `${response.statusCode}`)
         return { contentType, filename, savedPath: options.streamTo }
       }

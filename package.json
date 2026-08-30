@@ -1,6 +1,6 @@
 {
   "name": "gangtise-mcp",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "MCP server for Gangtise OpenAPI",
   "license": "MIT",
   "author": "gangtiser",
@@ -30,11 +30,14 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "build": "rm -rf dist && tsc",
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc",
     "dev": "tsx src/index.ts",
     "test": "vitest run",
     "prepare": "simple-git-hooks",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "check:release": "node scripts/prerelease-check.mjs",
+    "lint": "eslint src tests scripts",
+    "coverage": "vitest run --coverage"
   },
   "simple-git-hooks": {
     "pre-commit": "npm run build"
@@ -46,9 +49,12 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "@vitest/coverage-v8": "^3.2.7",
+    "eslint": "^9.39.5",
     "simple-git-hooks": "^2.13.1",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0",
+    "typescript-eslint": "^8.68.0",
     "vitest": "^3.2.0"
   }
 }

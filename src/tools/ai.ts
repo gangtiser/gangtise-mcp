@@ -6,8 +6,8 @@ import { toolHandler, textResult, contentResult } from "./helpers.js"
 import { pollAsyncContent, isAsyncFailed, isAsyncPending } from "../core/asyncContent.js"
 import { normalizeRows } from "../core/normalize.js"
 import { AsyncTimeoutError, ValidationError, errorMessage } from "../core/errors.js"
-import { dateDesc, dateString, dateTimeDesc, dateTimeString, quarterEndDate, today, todayDate } from "../core/dateContext.js"
-import { nonEmptyString, intLiteralEnum, MARKET_KEYWORDS } from "./schemas.js"
+import { dateString, dateTimeString, quarterEndDate, today, todayDate } from "../core/dateContext.js"
+import { nonEmptyString, nonEmptyList, intLiteralEnum, MARKET_KEYWORDS, enumList } from "./schemas.js"
 import { withBilling } from "./billing.js"
 
 export interface AiToolOptions {
@@ -89,10 +89,10 @@ export const jsonSpecs: JsonToolSpec[] = [
     endpointKey: "ai.knowledge-batch",
     paginated: false,
     inputSchema: {
-      queries: z.array(z.string()).min(1).max(5).describe("搜索词列表（最多 5 个）"),
+      queries: nonEmptyList().min(1).max(5).describe("搜索词列表（最多 5 个）"),
       top: z.number().int().min(1).max(20).optional().describe("每个查询词返回的结果数（默认 10，最大 20）"),
-      resourceTypes: z.array(intLiteralEnum([10, 11, 20, 40, 50, 51, 60, 70, 80, 90])).optional().describe("10=研报 | 11=外资研报 | 20=内部 | 40=观点 | 50=公告 | 51=港股公告 | 60=纪要 | 70=调研 | 80=网络纪要 | 90=公众号"),
-      knowledgeNames: z.array(z.enum(["system_knowledge_doc", "tenant_knowledge_doc"])).optional().describe("system_knowledge_doc | tenant_knowledge_doc"),
+      resourceTypes: enumList(intLiteralEnum([10, 11, 20, 40, 50, 51, 60, 70, 80, 90])).optional().describe("10=研报 | 11=外资研报 | 20=内部 | 40=观点 | 50=公告 | 51=港股公告 | 60=纪要 | 70=调研 | 80=网络纪要 | 90=公众号"),
+      knowledgeNames: enumList(z.enum(["system_knowledge_doc", "tenant_knowledge_doc"])).optional().describe("system_knowledge_doc | tenant_knowledge_doc"),
       startTime: knowledgeTime.optional().describe("YYYY-MM-DD HH:mm:ss，或 epoch 时间戳（10 位秒 / 13 位毫秒）"),
       endTime: knowledgeTime.optional().describe("YYYY-MM-DD HH:mm:ss，或 epoch 时间戳（10 位秒 / 13 位毫秒）"),
     },
@@ -104,11 +104,11 @@ export const jsonSpecs: JsonToolSpec[] = [
     endpointKey: "ai.security-clue.list",
     paginated: true,
     inputSchema: {
-      startTime: dateTimeString.describe(dateTimeDesc() + "（必填）"),
-      endTime: dateTimeString.describe(dateTimeDesc() + "（必填）"),
+      startTime: dateTimeString,
+      endTime: dateTimeString,
       queryMode: z.enum(["bySecurity", "byIndustry"]).describe("bySecurity=按个股 | byIndustry=按行业（必填）"),
-      gtsCodeList: z.array(z.string()).optional().describe("个股代码（如 600519.SH）或申万行业代码（如 821035.SWI）列表。全量 31 个行业代码用 gangtise_sector_constituents sectorId=2000000014；单个行业可用 gangtise_securities_search（如 keyword=申万银行 category=['index']）"),
-      source: z.array(z.enum(["researchReport", "conference", "announcement", "view"])).optional().describe("researchReport=研报 | conference=会议 | announcement=公告 | view=观点"),
+      gtsCodeList: nonEmptyList().optional().describe("个股代码（如 600519.SH）或申万行业代码（801xxx.SWI，如 801780.SWI 申万银行）列表。全量 31 个行业代码用 gangtise_sector_constituents sectorId=2000000014；单个行业可用 gangtise_securities_search（如 keyword=申万银行 category=['index']）"),
+      source: enumList(z.enum(["researchReport", "conference", "announcement", "view"])).optional().describe("researchReport=研报 | conference=会议 | announcement=公告 | view=观点"),
     },
   },
   {
@@ -117,9 +117,9 @@ export const jsonSpecs: JsonToolSpec[] = [
     endpointKey: "ai.hot-topic",
     paginated: true,
     inputSchema: {
-      startDate: dateString.optional().describe(dateDesc()),
-      endDate: dateString.optional().describe(dateDesc()),
-      categoryList: z.array(z.enum(["morningBriefing", "noonBriefing", "afternoonFlash", "eveningBriefing"])).optional().describe("morningBriefing=早报 | noonBriefing=午报 | afternoonFlash=午后快讯 | eveningBriefing=晚报"),
+      startDate: dateString.optional(),
+      endDate: dateString.optional(),
+      categoryList: enumList(z.enum(["morningBriefing", "noonBriefing", "afternoonFlash", "eveningBriefing"])).optional().describe("morningBriefing=早报 | noonBriefing=午报 | afternoonFlash=午后快讯 | eveningBriefing=晚报"),
       withRelatedSecurities: z.boolean().optional().describe("是否返回话题关联证券（默认 true；只需话题清单时传 false 精简响应）"),
       withCloseReading: z.boolean().optional().describe("是否返回话题精读长文（默认 true；传 false 可大幅减小响应体积）"),
     },
@@ -196,7 +196,8 @@ function makeAsyncToolPair(
       ),
       inputSchema: {
         ...config.inputSchema,
-        waitSeconds: z.number().int().min(0).max(180).optional().describe("最长等待秒数（默认 55，最大 180）；超时返回 dataId，用对应 *_check 工具续查"),
+        // 默认值来自 GANGTISE_MCP_ASYNC_TIMEOUT_MS，写死「55」在改过该环境变量的部署上就是假的。
+        waitSeconds: z.number().int().min(0).max(180).optional().describe(`最长等待秒数（默认 ${Math.round(opts.asyncTimeoutMs / 1000)}，最大 180）；超时返回 dataId，用对应 *_check 工具续查`),
       },
       // NOT read-only: submitting creates a billed, non-idempotent task (the submit
       // endpoint carries retry: "no-replay"). Leave the hint false so agentic clients
@@ -250,7 +251,7 @@ function makeAsyncToolPair(
         config.checkName,
         config.checkDescription + `dataId 来自 ${config.name} 的超时/错误响应；pending 表示仍在生成，间隔 1-3 分钟再查。`,
       ),
-      inputSchema: { dataId: z.string() },
+      inputSchema: { dataId: nonEmptyString.describe("异步任务 ID，来自对应提交工具的超时/错误响应") },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     toolHandler(async ({ dataId }: { dataId: string }) => {
@@ -287,9 +288,9 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
     {
       description: withBilling("gangtise_theme_tracking", "获取指定主题的每日跟踪报告（早报或晚报版），需传入主题 ID 和日期。"),
       inputSchema: {
-        themeId: z.string().describe("主题 ID，来自 gangtise_concept_search（必填）"),
+        themeId: nonEmptyString.describe("主题 ID，来自 gangtise_concept_search（必填）"),
         date: dateString.describe("YYYY-MM-DD（必填）"),
-        type: z.union([z.enum(["morning", "night"]), z.array(z.enum(["morning", "night"]))]).optional().describe("morning=早报 | night=晚报；可传单个值或数组"),
+        type: z.union([z.enum(["morning", "night"]), enumList(z.enum(["morning", "night"]))]).optional().describe("morning=早报 | night=晚报；可传单个值或数组"),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
@@ -319,7 +320,17 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
     registerDownloadTool(server, client, spec)
   }
 
-  // Synchronous AI tools: fetch pre-generated content (returns it directly)
+  // Synchronous AI tools: fetch pre-generated content (returns it directly).
+  // 每个 handler 建一次，不是每次调用建一次。
+  const asHandler = (endpointKey: string) => {
+    const handler = makeAiContentHandler(client, endpointKey)
+    return async (args: unknown) => handler(args as Record<string, unknown>)
+  }
+  const onePager = asHandler("ai.one-pager")
+  const investmentLogic = asHandler("ai.investment-logic")
+  const peerComparison = asHandler("ai.peer-comparison")
+  const researchOutline = asHandler("ai.research-outline")
+
   server.registerTool(
     "gangtise_one_pager",
     {
@@ -327,7 +338,7 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
       inputSchema: { securityCode: nonEmptyString.describe("A 股或港股证券代码") },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    async (args) => makeAiContentHandler(client, "ai.one-pager")(args as Record<string, unknown>),
+    onePager,
   )
 
   server.registerTool(
@@ -337,7 +348,7 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
       inputSchema: { securityCode: nonEmptyString.describe("A 股或港股证券代码") },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    async (args) => makeAiContentHandler(client, "ai.investment-logic")(args as Record<string, unknown>),
+    investmentLogic,
   )
 
   server.registerTool(
@@ -347,7 +358,7 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
       inputSchema: { securityCode: nonEmptyString.describe("A 股或港股证券代码") },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    async (args) => makeAiContentHandler(client, "ai.peer-comparison")(args as Record<string, unknown>),
+    peerComparison,
   )
 
   server.registerTool(
@@ -357,16 +368,16 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
       inputSchema: { securityCode: nonEmptyString.describe("仅支持 A 股证券代码") },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    async (args) => makeAiContentHandler(client, "ai.research-outline")(args as Record<string, unknown>),
+    researchOutline,
   )
 
   // Async tools: earnings-review
   makeAsyncToolPair(server, client, opts, {
     name: "gangtise_earnings_review",
-    description: "生成 AI 业绩点评报告。提交任务后等待最多 waitSeconds 秒（默认 55s），超时返回 dataId 供 gangtise_earnings_review_check 续查。",
+    description: `生成 AI 业绩点评报告。提交任务后等待最多 waitSeconds 秒（默认 ${Math.round(opts.asyncTimeoutMs / 1000)}s），超时返回 dataId 供 gangtise_earnings_review_check 续查。`,
     inputSchema: {
       securityCode: nonEmptyString.describe("仅支持 A 股证券代码"),
-      period: z.string().regex(/^\d{4}(q1|interim|q3|annual)$/, "格式：<年份>q1|interim|q3|annual（小写），如 2025q3").describe("报告期，格式 <年份>q1 | <年份>interim | <年份>q3 | <年份>annual，如 2025q3；仅覆盖最近 6 期"),
+      period: nonEmptyString.regex(/^\d{4}(q1|interim|q3|annual)$/, "格式：<年份>q1|interim|q3|annual（小写），如 2025q3").describe("报告期，格式 <年份>q1 | <年份>interim | <年份>q3 | <年份>annual，如 2025q3；仅覆盖最近 6 期"),
     },
     submitEndpoint: "ai.earnings-review.get-id",
     pollEndpoint: "ai.earnings-review.get-content",
@@ -378,7 +389,7 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
   // Async tools: viewpoint-debate
   makeAsyncToolPair(server, client, opts, {
     name: "gangtise_viewpoint_debate",
-    description: "对给定投资观点生成 AI 多空辩论报告。提交任务后等待最多 waitSeconds 秒（默认 55s），超时返回 dataId 供对应 *_check 工具续查。",
+    description: `对给定投资观点生成 AI 多空辩论报告。提交任务后等待最多 waitSeconds 秒（默认 ${Math.round(opts.asyncTimeoutMs / 1000)}s），超时返回 dataId 供对应 *_check 工具续查。`,
     inputSchema: {
       viewpoint: nonEmptyString.max(1000).describe("投资观点文本（最多 1000 字）"),
     },

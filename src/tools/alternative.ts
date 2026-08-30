@@ -1,10 +1,11 @@
 import { z } from "zod"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { GangtiseClient } from "../core/client.js"
-import { registerJsonTool, buildToolContent, type JsonToolSpec } from "./registry.js"
+import { assertDateOrder, registerJsonTool, buildToolContent, type JsonToolSpec } from "./registry.js"
 import { toolHandler, contentResult } from "./helpers.js"
 import { normalizeRows } from "../core/normalize.js"
-import { dateDesc, dateString } from "../core/dateContext.js"
+import { dateString } from "../core/dateContext.js"
+import { nonEmptyString, nonEmptyList } from "./schemas.js"
 import { withBilling } from "./billing.js"
 
 export const specs: JsonToolSpec[] = [
@@ -14,7 +15,7 @@ export const specs: JsonToolSpec[] = [
     endpointKey: "alternative.edb-search",
     paginated: false,
     inputSchema: {
-      keyword: z.string().describe("搜索关键词，如 '空调'、'PMI'（必填）"),
+      keyword: nonEmptyString.describe("搜索关键词，如 '空调'、'PMI'（必填）"),
       limit: z.number().int().min(1).max(200).optional().describe("最大返回数量（默认 100，最大 200）"),
     },
   },
@@ -25,7 +26,7 @@ export const specs: JsonToolSpec[] = [
     endpointKey: "alternative.concept-info",
     paginated: false,
     inputSchema: {
-      conceptId: z.string().describe("题材指数 ID，如 '121000130'（机器人）。来自 gangtise_concept_search（必填）"),
+      conceptId: nonEmptyString.describe("题材指数 ID，如 '121000130'（机器人）。来自 gangtise_concept_search（必填）"),
     },
   },
   {
@@ -35,7 +36,7 @@ export const specs: JsonToolSpec[] = [
     endpointKey: "alternative.concept-securities",
     paginated: false,
     inputSchema: {
-      conceptId: z.string().describe("题材指数 ID，如 '121000130'（机器人）。来自 gangtise_concept_search（必填）"),
+      conceptId: nonEmptyString.describe("题材指数 ID，如 '121000130'（机器人）。来自 gangtise_concept_search（必填）"),
     },
   },
 ]
@@ -51,13 +52,14 @@ export function registerAlternativeTools(server: McpServer, client: GangtiseClie
     {
       description: withBilling("gangtise_edb_data", "按指标 ID 批量查询 EDB 行业指标时序数据（最多 10 个指标）。指标 ID 来自 gangtise_edb_search。"),
       inputSchema: {
-        indicatorIdList: z.array(z.string()).min(1).max(10).describe("指标 ID 列表（最多 10 个），来自 gangtise_edb_search"),
-        startDate: dateString.describe(dateDesc() + "（必填）"),
-        endDate: dateString.describe(dateDesc() + "（必填）"),
+        indicatorIdList: nonEmptyList().min(1).max(10).describe("指标 ID 列表（最多 10 个），来自 gangtise_edb_search"),
+        startDate: dateString,
+        endDate: dateString,
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     toolHandler(async (args: Record<string, unknown>) => {
+      assertDateOrder(args)
       const raw = await client.call("alternative.edb-data", args) as Record<string, unknown>
       let normalized: unknown = raw
       if (raw && Array.isArray(raw.fieldList) && Array.isArray(raw.dataList)) {

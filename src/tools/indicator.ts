@@ -1,7 +1,7 @@
 import { z } from "zod"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { GangtiseClient } from "../core/client.js"
-import { buildToolContent } from "./registry.js"
+import { assertDateOrder, buildToolContent } from "./registry.js"
 import { toolHandler, contentResult } from "./helpers.js"
 import { normalizeRows } from "../core/normalize.js"
 import {
@@ -14,6 +14,7 @@ import {
   flattenTimeSeries,
 } from "../core/indicatorMatrix.js"
 import { screenerExpressionFields, SCREENER_FIELD } from "../core/screenerExpression.js"
+import { nonEmptyString } from "./schemas.js"
 import { dateDesc, dateString } from "../core/dateContext.js"
 import { ApiError, ValidationError } from "../core/errors.js"
 import { withBilling } from "./billing.js"
@@ -58,18 +59,6 @@ const FETCH_KEYS = new Set(["indicator.cross-section", "indicator.time-series", 
  * 命令重跑一遍**：跨市场覆盖缺口、非报告期末日期、公司类型不匹配三种形态各一组。 */
 export const EDE_NULL_ONLY = "取不到数时唯一的占位值是 `null`，不会填数值 0"
 
-/** 999999 的补充提示，只挂在取数端点（`callMatrix`）上。
- *
- * 此前它是两份逐字重复的字面量，另一份在 `callIndicator` 里、且**按构造不可达**
- * （那里唯一的调用方是 indicator.search，而 search 不在 FETCH_KEYS 里）——没有测试
- * 覆盖，可以单独漂走。那个分支已删；search 走通用提示，由
- * `indicator.search keeps the generic 999999 hint` 反向钉住。
- *
- * ⚠️ **「参数写错」要分两类说，它们的行为相反**：参数**名**写错（臆造键、或错但真实的
- * 键如把 sDate 写成 startDate）现在会被接口硬拒并指名该键；而**日期取值/口径不对、
- * 或漏掉非日期的 required 键**才可能静默返回 `null` 或一个来自默认值的合理错数。
- * 早先这里把两类合成一句「参数写错不会报错」，与截面描述里「参数名写错会被接口拒绝
- * 并指名」直接矛盾——同一个包里发出去两句相反的话。 */
 /** 参数出错的**两类相反行为**。两句都是声明，都逐字钉住——只钉其中一句，另一句可以被
  * 静默删掉或被一句反话盖过去（两种漏法都实测过）。
  *
@@ -80,6 +69,18 @@ export const PARAM_NAME_HARD_FAIL =
 export const PARAM_VALUE_SILENT =
   "**日期取值/口径不对、或漏掉非日期的 required 键**才不报错——那种情况下拿到的是 null 单元格，或一个来自默认值的合理错数"
 
+/** 999999 的补充提示，只挂在取数端点（`callMatrix`）上。
+ *
+ * 此前它是两份逐字重复的字面量，另一份在 `callIndicator` 里、且**按构造不可达**
+ * （那里唯一的调用方是 indicator.search，而 search 不在 FETCH_KEYS 里）——没有测试
+ * 覆盖，可以单独漂走。那个分支已删；search 走通用提示，由
+ * `indicator.search keeps the generic 999999 hint` 反向钉住。
+ *
+ * ⚠️ **「参数写错」要分两类说，它们的行为相反**，两句都在下面逐字拼进来：参数**名**
+ * 写错现在会被接口硬拒并指名该键；而日期取值/口径不对、或漏掉非日期的 required 键
+ * 才可能静默返回 `null` 或一个来自默认值的合理错数。早先这里把两类合成一句「参数写错
+ * 不会报错」，与截面描述里「参数名写错会被接口拒绝并指名」直接矛盾——同一个包里发出去
+ * 两句相反的话。 */
 export const EDE_999999_HINT =
   "EDE 的 999999 现在基本只剩真故障——此码不表示无数据（有效 code 无数据时会保留行列，" +
   EDE_NULL_ONLY +
@@ -226,7 +227,46 @@ function mergeParamGroups(groups: ParamGroup[] | undefined): ParamGroup[] {
       })
     }
   }
+  for (const group of merged.values()) group.parameters = dedupeParameters(group.indicatorCode, group.parameters)
   return [...merged.values()]
+}
+
+/** 同一指标下同名 `paramKey` 的处置：值相同→去重，值**冲突**→拒绝。
+ *
+ * 🔴 合并把两条参数组拼成一条 `parameters` 数组，于是
+ * `[{adjustType:'2'}, {adjustType:'3'}]` 这样的写法能一路发出去。服务端只会认其中一个
+ * （哪一个未定义），而两个取值分别是**前复权价和后复权价**——同一只票能差出几倍。返回
+ * 200、行列齐全、数字看着完全正常，从结果里分不出用的是哪一档。这类「口径歧义」正是
+ * 本仓一贯要求**响亮失败**的形态：调用方只要说清要哪一个就能继续。
+ *
+ * 值相同的重复无歧义（把同一个 scale 写了两遍），静默去重即可——去重同时也省掉
+ * 按单元格计费时可能多算的一份。 */
+function dedupeParameters(
+  indicatorCode: string,
+  parameters: { paramKey: string; paramValue: string }[],
+): { paramKey: string; paramValue: string }[] {
+  const seen = new Map<string, string>()
+  const out: { paramKey: string; paramValue: string }[] = []
+  for (const param of parameters) {
+    const prior = seen.get(param.paramKey)
+    if (prior === undefined) {
+      seen.set(param.paramKey, param.paramValue)
+      out.push(param)
+      continue
+    }
+    if (prior !== param.paramValue) {
+      throw new ValidationError(
+        `指标 "${indicatorCode}" 的参数 ${param.paramKey} 被赋了两个不同的值（"${prior}" 与 "${param.paramValue}"）：接口只会采用其中一个且不声明是哪一个，口径因此不确定（如 adjustType 2/3 分别是前复权与后复权，数值可能差出数倍）。请只保留一个取值；确实要比较两种口径就分两次查询。`,
+      )
+    }
+  }
+  return out
+}
+
+/** 去重后仍保持原顺序。重复的证券/指标码会让服务端多算一份单元格（EDE 按单元格计费），
+ * 也会在宽表里生成重复的行/列，而 `droppedFromMatrix` 的请求-响应对比也会因此失真。 */
+function dedupeCodes(codes: string[]): string[] {
+  return [...new Set(codes)]
 }
 
 /** 每条 `indicatorParamList` 的 `indicatorCode` 都必须出现在 `indicatorCodeList` 里。
@@ -262,13 +302,60 @@ function withQueryDate(groups: ParamGroup[] | undefined, codes: string[], date: 
   return [...merged.values()]
 }
 
+/** EDE 单次请求的单元格上限。
+ *
+ * 🔴 这是一条**成本策略**，不是数据事实 —— 与财报日历那条不同：那里「这个区间筛没筛掉
+ * 东西」有唯一正确答案、可以实测（拍的阈值因此是错的）；这里「多少单元格算太多」没有
+ * 可测的真值，只能明写成一条策略，所以要把算术摊开、并留出改的余地。
+ *
+ * 算术：单价 A股 0.05 / 港股 0.1 / 美股 0.2 每 100 单元格（见 billing.ts）。
+ * 10 万单元格 = 美股档 200 积分、A股档 50 积分。一次正常的批量（50 指标 × 300 证券
+ * = 1.5 万单元格 ≈ 30 积分）离它还有 6 倍余量，所以它挡的是**明显失控的笛卡尔积**，
+ * 不会碰到真实用法。
+ *
+ * ⚠️ **它看不见板块展开**：`securityCodeList` 里传一个 sectorId，服务端会展开成 N 只
+ * 成分股，本地数到的是 1。所以这条守卫覆盖的是「显式列表铺太大」这一种，不是全部。
+ * 板块的放大倍数在 billing 的 amplify 提示里单独讲。 */
+const MAX_EDE_CELLS = 100_000
+
+/** 区间天数（含两端）。任一端缺失或不可解析则按 1 天算 —— 宁可低估也不要凭空拒绝一个
+ * 本地解析不了的日期，那种入参在 schema 层已经先被拒了。 */
+function spanDays(startDate: unknown, endDate: unknown): number {
+  if (typeof startDate !== "string" || typeof endDate !== "string") return 1
+  const a = Date.parse(`${startDate.slice(0, 10)}T00:00:00Z`)
+  const b = Date.parse(`${endDate.slice(0, 10)}T00:00:00Z`)
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return 1
+  return Math.max(1, Math.floor((b - a) / 86_400_000) + 1)
+}
+
+/** 🔴 **日期数是计费的第三个因子，不能漏。**
+ *
+ * 前一版只算「指标数 × 证券数」，而 billing.ts 写得清清楚楚是「指标数 × 证券数 × 日期数」
+ * ——同一个文件里我自己引的那句话。于是时序上「1 指标 × 6000 证券 × 六年区间」
+ * = 约 1315 万单元格，一路穿过 10 万的闸门，`isError` 是 false。
+ * **守卫的算术必须和它声称守护的计费模型逐字对齐**，差一个因子就等于没有。
+ *
+ * `days` 用自然日，是**上界**：calendarType=TD/WD 实际返回的行更少（交易日约为自然日的
+ * 0.68）。宁可高估——高估只会让一个接近上限的请求被要求拆分，低估则是放行一次失控计费。 */
+function assertCellBudget(indicators: string[], securities: string[], tool: string, days = 1): void {
+  const cells = indicators.length * securities.length * days
+  if (cells > MAX_EDE_CELLS) {
+    const dim = days > 1 ? `${indicators.length} 指标 × ${securities.length} 证券 × ${days} 天` : `${indicators.length} 指标 × ${securities.length} 证券`
+    throw new ValidationError(
+      `${tool} 单次请求 ${dim} = ${cells.toLocaleString()} 个单元格，超过单次上限 ${MAX_EDE_CELLS.toLocaleString()}（本端点按单元格计价）。请拆成多次查询——${days > 1 ? "缩短日期区间或按证券分批" : "按指标分批"}通常最简单。`,
+    )
+  }
+}
+
 const indicatorCodeList = z
-  .array(z.string())
+  .array(nonEmptyString)
   .min(1, "indicatorCodeList 至少 1 个")
+  .max(200, "indicatorCodeList 单次最多 200 个（本端点按单元格计价，请拆成多次查询）")
   .describe("指标代码列表（至少 1 个），如 ['qte_close']，来自 gangtise_indicator_search 的 indicatorCode")
 const securityCodeList = z
-  .array(z.string())
+  .array(nonEmptyString)
   .min(1, "securityCodeList 至少 1 个")
+  .max(6000, "securityCodeList 单次最多 6000 个（与 gangtise_stock_summary 同一量级；本端点按单元格计价）")
   .describe(
     "证券代码列表（至少 1 个），支持 A 股/港股/美股，如 ['600519.SH','00700.HK','AAPL.O']；美股用交易所后缀 .O(NASDAQ) / .N(NYSE)，不是 .US（.US 查不到数据）。也接受 gangtise_sector_search 返回的 10 位 sectorId（板块，服务端展开为全部成分股，可与证券代码混传取并集）；中信行业码那类 9 位 ID 不是 sectorId，传了返 0 只",
   )
@@ -288,7 +375,10 @@ const scale = z
 // .strict()：嵌套对象也必须拒未知键。根级 strict（server.ts 的 enforceStrictInput）只管
 // 最外层——`parameters` 里多写一个键仍会被静默剥掉。这里的后果和 A1 同级：写错键名不报错，
 // 该参数整个消失，客户拿到的是**默认口径**的数（如没有 adjustType 就是不复权价）。
-const paramPair = z.object({ paramKey: z.string().min(1), paramValue: z.string() }).strict()
+// paramValue 与 paramKey 同样收紧：空白值不构成一个取值，下发只会换来一次按单元格
+// 计价的无效请求，或者被当成「没传这个参数」而静默用默认口径（没传 adjustType 就是
+// 不复权价）—— 后者不报错，拿到的是一份读起来完全正常的错数。
+const paramPair = z.object({ paramKey: nonEmptyString, paramValue: nonEmptyString }).strict()
 
 // 非日期类的参数说明，三个取数工具共用。日期类的说明**必须分开**：截面/选股是单日快照
 // （工具有 date，会注入 tradeDate），时序是区间（服务端明确禁止 parameters 里出现单日期
@@ -311,7 +401,7 @@ const NO_QUERY_DATE_DESC =
 
 /** 选股的 noQueryDate 补充说明：它比截面多一层用处——能拿静态属性当筛选条件。
  * ⚠️ 这段进 tools/list，只写当前行为：历史沿革（这类绑定曾被静默丢弃）留在
- * CHANGELOG 与 bug/closed.md A22，写进描述会让模型不敢用一个现在正常的开关。 */
+ * CHANGELOG，写进描述会让模型不敢用一个现在正常的开关。 */
 const SCREENER_NO_QUERY_DATE_NOTE =
   " 📌 本端点上这个开关**同时解锁了按静态属性筛股**——`contains` / `notcontains` 正是 pty_*/scr_* 这类字符串指标最自然的用法（筛上市板块、筛经营范围、筛注册地）。"
 
@@ -324,7 +414,7 @@ const indicatorParamListWith = (guidance: string, noDateOptOut = false) => {
   // .strict()：把 `parameters` 误写成 `parameterList` / `paramList` 这类是很常见的，
   // 非 strict 时它会被静默剥掉、请求照发，结果是「参数没生效」而不是报错。
   const shape = {
-    indicatorCode: z.string().min(1).describe("指标代码，如 qte_close"),
+    indicatorCode: nonEmptyString.describe("指标代码，如 qte_close"),
     parameters: noDateOptOut
       ? z.array(paramPair).optional().describe("参数键值对，如 [{ paramKey: 'adjustType', paramValue: '2' }]；只声明 noQueryDate 时可以不传")
       : z.array(paramPair).min(1).describe("参数键值对，如 [{ paramKey: 'adjustType', paramValue: '2' }]"),
@@ -376,9 +466,10 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     toolHandler(async (args: Record<string, unknown>) => {
-      const indicators = args.indicatorCodeList as string[]
-      const securities = args.securityCodeList as string[]
+      const indicators = dedupeCodes(args.indicatorCodeList as string[])
+      const securities = dedupeCodes(args.securityCodeList as string[])
       assertParamCodesBound(args.indicatorParamList as ParamGroup[] | undefined, indicators)
+      assertCellBudget(indicators, securities, "gangtise_indicator_cross_section")
       const body = {
         indicatorCodeList: indicators,
         // The 2026-08-01 revision renamed this field; the old securityCodeList is
@@ -406,8 +497,8 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
       inputSchema: {
         indicatorCodeList,
         securityCodeList,
-        startDate: dateString.describe(dateDesc() + "（必填）"),
-        endDate: dateString.describe(dateDesc() + "（必填）"),
+        startDate: dateString,
+        endDate: dateString,
         calendarType: z.enum(["ND", "TD", "WD"]).optional().describe("日历类型：ND=自然日 | TD=交易日（默认）| WD=工作日"),
         currency,
         scale,
@@ -420,8 +511,9 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
       // the [series][date] matrix is ambiguous and one of the two identities
       // would be silently dropped — reject before hitting the API (the server
       // rejects it too, with 100003, but only after a billed round trip).
-      const indicators = args.indicatorCodeList as string[]
-      const securities = args.securityCodeList as string[]
+      assertDateOrder(args)
+      const indicators = dedupeCodes(args.indicatorCodeList as string[])
+      const securities = dedupeCodes(args.securityCodeList as string[])
       if (indicators.length > 1 && securities.length > 1) {
         throw new ValidationError(
           "时间序列仅支持「多指标 × 单证券」或「单指标 × 多证券」，indicatorCodeList 与 securityCodeList 不能同时多于 1 个；请拆分为多次查询，或改用 gangtise_indicator_cross_section（单日多指标 × 多证券）。",
@@ -436,6 +528,7 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
           "securityCodeList 里含板块 ID（sectorId）时只能配单个指标：板块由服务端展开成全部成分股，即「多证券」，与多指标同时使用不被支持。请改为单指标，或把板块换成具体证券代码。",
         )
       }
+      assertCellBudget(indicators, securities, "gangtise_indicator_time_series", spanDays(args.startDate, args.endDate))
       const body = {
         indicatorCodeList: indicators,
         universe: securities,
@@ -475,7 +568,7 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
                 .string()
                 .regex(SCREENER_FIELD, "变量名须是 F 加正整数，如 F1")
                 .describe("变量名，F 加正整数（F1/F2/...），在 expression 里引用"),
-              indicatorCode: z.string().min(1).describe("该变量绑定的指标代码，如 qte_mkt_cptl"),
+              indicatorCode: nonEmptyString.describe("该变量绑定的指标代码，如 qte_mkt_cptl"),
               parameters: z
                 .array(paramPair)
                 .optional()
@@ -487,6 +580,7 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
             }).strict(),
           )
           .min(1, "indicatorList 至少 1 个")
+          .max(50, "indicatorList 单次最多 50 个变量（表达式本身也不该引用这么多；本端点按单元格计价）")
           .describe("变量到指标的绑定（至少 1 个）。每个变量绑定恰好一个指标，变量名不可重复；同一指标可以绑到多个变量以比较不同参数（如同一收盘价取两个日期），此时列名带 (F1)/(F2) 区分"),
         expression: z
           .string()
@@ -509,7 +603,7 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
     toolHandler(async (args: Record<string, unknown>) => {
       const bindings = args.indicatorList as { field: string; indicatorCode: string; parameters?: { paramKey: string; paramValue: string }[]; noQueryDate?: boolean }[]
       const expression = args.expression as string
-      const securities = args.securityCodeList as string[]
+      const securities = dedupeCodes(args.securityCodeList as string[])
 
       const seen = new Set<string>()
       for (const binding of bindings) {
@@ -534,6 +628,7 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
       // warned. Re-probed 2026-08-08 and it is FIXED: F1@08-07 + F2@08-06 return
       // 1309.22 / 1308.55, each on its own date, stable across repeat runs. The
       // local block is gone; keeping it would refuse a working query.
+      assertCellBudget(bindings.map((b) => b.indicatorCode), securities, "gangtise_indicator_screener")
       const body = {
         universe: securities,
         expression,
@@ -551,7 +646,8 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
         // condition applies — `scr_exchg_sctr contains '创业板'` picks 300750.SZ
         // out of a four-stock universe while `contains '不存在的板'` returns none.
         indicatorList: bindings.map((binding) => {
-          const parameters = binding.parameters ?? []
+          // 变量绑定不走 mergeParamGroups，同名 paramKey 的口径歧义要在这里各自拦一次。
+          const parameters = dedupeParameters(binding.indicatorCode, binding.parameters ?? [])
           return binding.noQueryDate || parameters.some((param) => DATE_PARAM_KEYS.has(param.paramKey))
             ? { field: binding.field, indicatorCode: binding.indicatorCode, parameters }
             : {

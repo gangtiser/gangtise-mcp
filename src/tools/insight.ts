@@ -1,12 +1,12 @@
 import { z } from "zod"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { GangtiseClient } from "../core/client.js"
-import { registerJsonTool, registerDownloadTool, buildToolContent, sanitizeArgs, type JsonToolSpec, type DownloadToolSpec } from "./registry.js"
+import { assertDateOrder, registerJsonTool, registerDownloadTool, buildToolContent, sanitizeArgs, type JsonToolSpec, type DownloadToolSpec } from "./registry.js"
 import { toolHandler, contentResult } from "./helpers.js"
 import { normalizeRows } from "../core/normalize.js"
 import { ValidationError } from "../core/errors.js"
-import { dateString, dateTimeDesc, dateTimeString } from "../core/dateContext.js"
-import { nonEmptyString, intLiteralEnum } from "./schemas.js"
+import { dateString, dateTimeString } from "../core/dateContext.js"
+import { nonEmptyString, nonEmptyList, intLiteralEnum, enumList } from "./schemas.js"
 import { withBilling } from "./billing.js"
 
 // insight.qa.list accepts either a plain date or a full datetime; the string is
@@ -32,6 +32,8 @@ const LLM_TAG_ENUM = z.enum(["inDepth", "earningsReview", "industryStrategy"])
 const LLM_TAG_DESC = "inDepth=深度报告 | earningsReview=业绩点评 | industryStrategy=行业策略"
 // 两档是全部合法取值，收成闭集省一次会计费的往返。
 const SEARCH_TYPE = intLiteralEnum([1, 2]).optional()
+// 无 .describe()：取值表与「要「最新 N 条」必须显式传 2」都在 server.instructions 的
+// 「通用参数」行里。11 处共用，写在这里要付 11 遍。别加回来。
 const RANK_TYPE = intLiteralEnum([1, 2]).optional()
 
 // regionCategory 码表的全部 19 个取值。⚠️ **这个闭集必须保留**：码表外的取值
@@ -39,11 +41,6 @@ const RANK_TYPE = intLiteralEnum([1, 2]).optional()
 // 而是把筛选条件整个丢掉、返回未经筛选的全库结果 —— 按条计费，且从结果里看不出来。
 const REGION_ENUM = z.enum(["cn", "cnHk", "cnTw", "us", "jp", "sea", "gl", "uk", "fr", "de", "kr", "in", "ca", "me", "othAs", "othEur", "latAm", "oce", "af"])
 const REGION_DESC = "地区 ID，来自 gangtise_constant_list category=regionCategory：cn=中国 | cnHk=中国香港 | cnTw=中国台湾 | us=美国 | jp=日本 | sea=东南亚 | gl=全球 | uk=英国 | fr=法国 | de=德国 | kr=韩国 | in=印度 | ca=加拿大 | me=中东 | othAs=亚洲其他 | othEur=欧洲其他 | latAm=拉美 | oce=大洋洲 | af=非洲。⚠️ 取值须逐字匹配（中国香港是 cnHk 不是 hk；欧洲按国家/地区分列，没有 eu）"
-// 12 处 rankType 共用。⚠️ 默认档（1）在有 keyword 时挑的是**相关度子集**，而两档返回的
-// 结果都按时间倒序**排列** —— 所以「看着是时间倒序」不代表拿到的是最新的：实测同一查询
-// 下默认档可返回一个月前的条目（差别随关键词区分度而变，宽泛词下两档可能完全一致）。
-const RANK_TYPE_DESC =
-  "1=综合排序（默认，有 keyword 时按相关度挑条目，取到的子集可能不含最新的）| 2=时间倒序（严格按发布时间取最新）。⚠️ 两档结果都按时间倒序**排列**，不能据此判断本参数是否生效；两档差别随关键词区分度而变（宽泛词下可能完全一致）。**要「最新的 N 条」必须显式传 2**。"
 
 type ScheduleFields = {
   researchArea?: boolean
@@ -62,20 +59,20 @@ type ScheduleFields = {
 function scheduleInputSchema(fields: ScheduleFields): Record<string, z.ZodTypeAny> {
   const schema: Record<string, z.ZodTypeAny> = {
     from: z.number().int().min(0).optional(),
-    startTime: dateTimeString.optional().describe(dateTimeDesc()),
-    endTime: dateTimeString.optional().describe(dateTimeDesc()),
-    keyword: z.string().optional(),
+    startTime: dateTimeString.optional(),
+    endTime: dateTimeString.optional(),
+    keyword: nonEmptyString.optional(),
   }
-  if (fields.researchArea) schema.researchAreaList = z.array(z.string()).optional().describe(SCHED_RESEARCH_AREA_DESC)
-  if (fields.institution) schema.institutionList = z.array(z.string()).optional().describe("机构 ID（牵头机构）：用 gangtise_institution_search categoryList=['leadInstitution'] 按名称搜；需全量枚举用 gangtise_lookup type=meeting-orgs")
-  if (fields.security) schema.securityList = z.array(z.string()).optional()
-  if (fields.object) schema.objectList = z.array(z.enum(["company", "industry"])).optional().describe("company=公司 | industry=行业")
-  if (fields.category) schema.categoryList = z.array(z.enum(fields.category[0] as [string, ...string[]])).optional().describe(fields.category[1])
-  if (fields.market) schema.marketList = z.array(z.enum(fields.market[0] as [string, ...string[]])).optional().describe(fields.market[1])
-  if (fields.participantRole) schema.participantRoleList = z.array(z.enum(["management", "expert"])).optional().describe("management=管理层 | expert=专家")
-  if (fields.brokerType) schema.brokerTypeList = z.array(z.enum(["cnBroker", "otherBroker"])).optional().describe("cnBroker=内资 | otherBroker=外资")
-  if (fields.permission) schema.permission = z.array(intLiteralEnum([1, 2])).optional().describe("1=公开 | 2=私密")
-  if (fields.location) schema.locationList = z.array(z.string()).optional().describe(SCHED_LOCATION_DESC)
+  if (fields.researchArea) schema.researchAreaList = nonEmptyList().optional().describe(SCHED_RESEARCH_AREA_DESC)
+  if (fields.institution) schema.institutionList = nonEmptyList().optional().describe("机构 ID（牵头机构）：用 gangtise_institution_search categoryList=['leadInstitution'] 按名称搜；需全量枚举用 gangtise_lookup type=meeting-orgs")
+  if (fields.security) schema.securityList = nonEmptyList().optional()
+  if (fields.object) schema.objectList = enumList(z.enum(["company", "industry"])).optional().describe("company=公司 | industry=行业")
+  if (fields.category) schema.categoryList = enumList(z.enum(fields.category[0] as [string, ...string[]])).optional().describe(fields.category[1])
+  if (fields.market) schema.marketList = enumList(z.enum(fields.market[0] as [string, ...string[]])).optional().describe(fields.market[1])
+  if (fields.participantRole) schema.participantRoleList = enumList(z.enum(["management", "expert"])).optional().describe("management=管理层 | expert=专家")
+  if (fields.brokerType) schema.brokerTypeList = enumList(z.enum(["cnBroker", "otherBroker"])).optional().describe("cnBroker=内资 | otherBroker=外资")
+  if (fields.permission) schema.permission = enumList(intLiteralEnum([1, 2])).optional().describe("1=公开 | 2=私密")
+  if (fields.location) schema.locationList = nonEmptyList().optional().describe(SCHED_LOCATION_DESC)
   return schema
 }
 
@@ -97,18 +94,18 @@ export const listSpecs: JsonToolSpec[] = [
     paginated: true,
     inputSchema: {
       from: z.number().int().min(0).optional(),
-      startTime: dateTimeString.optional().describe(dateTimeDesc()),
-      endTime: dateTimeString.optional().describe(dateTimeDesc()),
-      keyword: z.string().optional(),
-      rankType: RANK_TYPE.describe(RANK_TYPE_DESC),
-      researchAreaList: z.array(z.string()).optional().describe("研究方向 ID，接受两类码：行业码用 gangtise_constant_list category=citicIndustry（1008001xx，如食品饮料 100800119）；宏观/策略/固收/金工/海外/其他这类方向码用 category=gangtiseIndustry（122000xxx，该 category 只有这 6 条、不含行业）。本端点不支持申万码（104xxxxxx），传了会返 0 条而不报错"),
-      chiefList: z.array(z.string()).optional().describe("首席分析师 ID 列表"),
-      securityList: z.array(z.string()).optional().describe("证券代码列表，如 ['600519.SH']"),
-      brokerList: z.array(z.string()).optional().describe("机构 ID（内资观点机构）：用 gangtise_institution_search categoryList=['opinionInstitution'] 按名称搜；需全量枚举用 gangtise_lookup type=broker-orgs"),
-      industryList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx，全场景首选）"),
-      conceptList: z.array(z.string()).optional().describe("题材/概念 ID，来自 gangtise_concept_search，如 '121000130'（机器人）"),
-      llmTagList: z.array(z.enum(["strongRcmd", "earningsReview", "topBroker", "newFortune"])).optional().describe("strongRcmd=强推 | earningsReview=业绩点评 | topBroker=头部券商 | newFortune=新财富"),
-      sourceList: z.array(z.enum(["realTime", "openSource"])).optional().describe("realTime=实时 | openSource=公开"),
+      startTime: dateTimeString.optional(),
+      endTime: dateTimeString.optional(),
+      keyword: nonEmptyString.optional(),
+      rankType: RANK_TYPE,
+      researchAreaList: nonEmptyList().optional().describe("研究方向 ID，接受两类码：行业码用 gangtise_constant_list category=citicIndustry（1008001xx，如食品饮料 100800119）；宏观/策略/固收/金工/海外/其他这类方向码用 category=gangtiseIndustry（122000xxx，该 category 只有这 6 条、不含行业）。本端点不支持申万码（104xxxxxx），传了会返 0 条而不报错"),
+      chiefList: nonEmptyList().optional().describe("首席分析师 ID 列表"),
+      securityList: nonEmptyList().optional().describe("证券代码列表，如 ['600519.SH']"),
+      brokerList: nonEmptyList().optional().describe("机构 ID（内资观点机构）：用 gangtise_institution_search categoryList=['opinionInstitution'] 按名称搜；需全量枚举用 gangtise_lookup type=broker-orgs"),
+      industryList: nonEmptyList().optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx，全场景首选）"),
+      conceptList: nonEmptyList().optional().describe("题材/概念 ID，来自 gangtise_concept_search，如 '121000130'（机器人）"),
+      llmTagList: enumList(z.enum(["strongRcmd", "earningsReview", "topBroker", "newFortune"])).optional().describe("strongRcmd=强推 | earningsReview=业绩点评 | topBroker=头部券商 | newFortune=新财富"),
+      sourceList: enumList(z.enum(["realTime", "openSource"])).optional().describe("realTime=实时 | openSource=公开"),
     },
   },
   {
@@ -118,18 +115,18 @@ export const listSpecs: JsonToolSpec[] = [
     paginated: true,
     inputSchema: {
       from: z.number().int().min(0).optional(),
-      startTime: dateTimeString.optional().describe(dateTimeDesc()),
-      endTime: dateTimeString.optional().describe(dateTimeDesc()),
-      keyword: z.string().optional(),
+      startTime: dateTimeString.optional(),
+      endTime: dateTimeString.optional(),
+      keyword: nonEmptyString.optional(),
       searchType: SEARCH_TYPE.describe("1=标题搜索（快）| 2=全文搜索"),
-      rankType: RANK_TYPE.describe(RANK_TYPE_DESC),
-      researchAreaList: z.array(z.string()).optional().describe("研究方向 ID，接受三类码：行业码用 gangtise_constant_list category=citicIndustry（1008001xx，如食品饮料 100800119）或 category=swIndustry（104xxxxxx，本端点是少数同时支持申万码的之一）；宏观/策略/固收/金工/海外/其他这类方向码用 category=gangtiseIndustry（122000xxx，该 category 只有这 6 条、不含行业）"),
-      securityList: z.array(z.string()).optional(),
-      institutionList: z.array(z.string()).optional().describe("机构 ID（牵头机构）：用 gangtise_institution_search categoryList=['leadInstitution'] 按名称搜；需全量枚举用 gangtise_lookup type=meeting-orgs"),
-      categoryList: z.array(z.enum(["earningsCall", "strategyMeeting", "fundRoadshow", "shareholdersMeeting", "maMeeting", "specialMeeting", "companyAnalysis", "industryAnalysis", "other"])).optional().describe("earningsCall=业绩会 | strategyMeeting=策略会 | fundRoadshow=基金路演 | shareholdersMeeting=股东大会 | maMeeting=并购会议 | specialMeeting=特别会议 | companyAnalysis=公司分析 | industryAnalysis=行业分析 | other=其他"),
-      marketList: z.array(z.enum(["aShares", "hkStocks", "usChinaConcept", "usStocks"])).optional().describe("aShares=A股 | hkStocks=港股 | usChinaConcept=中概 | usStocks=美股"),
-      participantRoleList: z.array(z.enum(["management", "expert"])).optional().describe("management=管理层 | expert=专家"),
-      sourceList: z.array(intLiteralEnum([1, 2])).optional().describe("1=实时 | 2=公开"),
+      rankType: RANK_TYPE,
+      researchAreaList: nonEmptyList().optional().describe("研究方向 ID，接受三类码：行业码用 gangtise_constant_list category=citicIndustry（1008001xx，如食品饮料 100800119）或 category=swIndustry（104xxxxxx，本端点是少数同时支持申万码的之一）；宏观/策略/固收/金工/海外/其他这类方向码用 category=gangtiseIndustry（122000xxx，该 category 只有这 6 条、不含行业）"),
+      securityList: nonEmptyList().optional(),
+      institutionList: nonEmptyList().optional().describe("机构 ID（牵头机构）：用 gangtise_institution_search categoryList=['leadInstitution'] 按名称搜；需全量枚举用 gangtise_lookup type=meeting-orgs"),
+      categoryList: enumList(z.enum(["earningsCall", "strategyMeeting", "fundRoadshow", "shareholdersMeeting", "maMeeting", "specialMeeting", "companyAnalysis", "industryAnalysis", "other"])).optional().describe("earningsCall=业绩会 | strategyMeeting=策略会 | fundRoadshow=基金路演 | shareholdersMeeting=股东大会 | maMeeting=并购会议 | specialMeeting=特别会议 | companyAnalysis=公司分析 | industryAnalysis=行业分析 | other=其他"),
+      marketList: enumList(z.enum(["aShares", "hkStocks", "usChinaConcept", "usStocks"])).optional().describe("aShares=A股 | hkStocks=港股 | usChinaConcept=中概 | usStocks=美股"),
+      participantRoleList: enumList(z.enum(["management", "expert"])).optional().describe("management=管理层 | expert=专家"),
+      sourceList: enumList(intLiteralEnum([1, 2])).optional().describe("1=实时 | 2=公开"),
     },
   },
   {
@@ -154,21 +151,20 @@ export const listSpecs: JsonToolSpec[] = [
     paginated: true,
     inputSchema: {
       from: z.number().int().min(0).optional(),
-      startTime: dateTimeString.optional().describe(dateTimeDesc()),
-      endTime: dateTimeString.optional().describe(dateTimeDesc()),
-      keyword: z.string().optional(),
+      startTime: dateTimeString.optional(),
+      endTime: dateTimeString.optional(),
+      keyword: nonEmptyString.optional(),
       searchType: SEARCH_TYPE.describe("1=标题搜索（默认）| 2=全文搜索"),
-      rankType: RANK_TYPE.describe(RANK_TYPE_DESC),
+      rankType: RANK_TYPE,
       // ⚠️ 「方向码返 0」这条来自 gangtise-openapi-cli v0.32.0 的实测记录，**本仓未独立复现**
       // ——账号自 2026-08-09 起对帕米尔库返 999004，验不了。行业码那半是本仓实测过的
-      // （中信 143 / 申万 145）。权限恢复后补一次方向码探针，见 bug/server-open.md B2。
-      researchAreaList: z
-        .array(z.string())
+      // （中信 143 / 申万 145）。
+      researchAreaList: nonEmptyList()
         .optional()
         .describe("**行业 ID**（不是研究方向）。本端点中信码（gangtise_constant_list category=citicIndustry，1008001xx）与申万码（category=swIndustry，104xx0000）都生效——这点与多数 insight list 不同。⚠️ **不要传 122000xxx 方向码**（宏观/策略/固收/金工/海外/其他）：本端点不支持，传了返回 0 条且不报错"),
-      securityList: z.array(z.string()).optional().describe("证券代码列表，如 ['000001.SZ']"),
-      categoryList: z.array(z.enum(["companyAnalysis", "industryAnalysis"])).optional().describe("companyAnalysis=公司分析 | industryAnalysis=行业分析（本端点只有这两类）"),
-      marketList: z.array(z.enum(["aShares", "hkStocks", "usChinaConcept", "usStocks"])).optional().describe("aShares=A股 | hkStocks=港股 | usChinaConcept=中概 | usStocks=美股"),
+      securityList: nonEmptyList().optional().describe("证券代码列表，如 ['000001.SZ']"),
+      categoryList: enumList(z.enum(["companyAnalysis", "industryAnalysis"])).optional().describe("companyAnalysis=公司分析 | industryAnalysis=行业分析（本端点只有这两类）"),
+      marketList: enumList(z.enum(["aShares", "hkStocks", "usChinaConcept", "usStocks"])).optional().describe("aShares=A股 | hkStocks=港股 | usChinaConcept=中概 | usStocks=美股"),
     },
   },
   scheduleSpec("gangtise_roadshow_list", "路演", "insight.roadshow.list", {
@@ -196,24 +192,24 @@ export const listSpecs: JsonToolSpec[] = [
     paginated: true,
     inputSchema: {
       from: z.number().int().min(0).optional(),
-      startTime: dateTimeString.optional().describe(dateTimeDesc()),
-      endTime: dateTimeString.optional().describe(dateTimeDesc()),
-      keyword: z.string().optional(),
+      startTime: dateTimeString.optional(),
+      endTime: dateTimeString.optional(),
+      keyword: nonEmptyString.optional(),
       searchType: SEARCH_TYPE.describe("1=标题搜索 | 2=全文搜索"),
-      rankType: RANK_TYPE.describe(RANK_TYPE_DESC),
-      brokerList: z.array(z.string()).optional().describe("券商机构 ID（内资券商）：用 gangtise_institution_search categoryList=['domesticBroker'] 按名称搜；需全量枚举用 gangtise_lookup type=broker-orgs"),
-      securityList: z.array(z.string()).optional(),
-      industryList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx，全场景首选）"),
-      categoryList: z.array(RESEARCH_CATEGORY_ENUM).optional().describe(RESEARCH_CATEGORY_DESC),
-      llmTagList: z.array(z.enum(["inDepth", "earningsReview", "industryStrategy"])).optional().describe("inDepth=深度报告 | earningsReview=业绩点评 | industryStrategy=行业策略"),
-      ratingList: z.array(z.enum(["buy", "overweight", "neutral", "underweight", "sell"])).optional().describe("buy=买入 | overweight=增持 | neutral=中性 | underweight=减持 | sell=卖出"),
-      ratingChangeList: z.array(z.enum(["upgrade", "maintain", "downgrade", "initiate"])).optional().describe("upgrade=上调 | maintain=维持 | downgrade=下调 | initiate=首次覆盖"),
+      rankType: RANK_TYPE,
+      brokerList: nonEmptyList().optional().describe("券商机构 ID（内资券商）：用 gangtise_institution_search categoryList=['domesticBroker'] 按名称搜；需全量枚举用 gangtise_lookup type=broker-orgs"),
+      securityList: nonEmptyList().optional(),
+      industryList: nonEmptyList().optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx，全场景首选）"),
+      categoryList: enumList(RESEARCH_CATEGORY_ENUM).optional().describe(RESEARCH_CATEGORY_DESC),
+      llmTagList: enumList(z.enum(["inDepth", "earningsReview", "industryStrategy"])).optional().describe("inDepth=深度报告 | earningsReview=业绩点评 | industryStrategy=行业策略"),
+      ratingList: enumList(z.enum(["buy", "overweight", "neutral", "underweight", "sell"])).optional().describe("buy=买入 | overweight=增持 | neutral=中性 | underweight=减持 | sell=卖出"),
+      ratingChangeList: enumList(z.enum(["upgrade", "maintain", "downgrade", "initiate"])).optional().describe("upgrade=上调 | maintain=维持 | downgrade=下调 | initiate=首次覆盖"),
       // .min(0)：负数不会报错，而是静默错数——minReportPages=-1 返回与无筛选逐位相同的
       // 全量（筛选被忽略），maxReportPages=-1 返回 **0 条**（读起来像「没有符合的研报」）。
       // 相邻的 foreign-report 本来就有这个约束，这里是漏了。
       minReportPages: z.number().int().min(0).optional(),
       maxReportPages: z.number().int().min(0).optional(),
-      sourceList: z.array(z.enum(["1", "2"])).optional().describe("数字字符串，1=PDF研报 | 2=公众号"),
+      sourceList: enumList(z.enum(["1", "2"])).optional().describe("数字字符串，1=PDF研报 | 2=公众号"),
     },
   },
   {
@@ -223,19 +219,19 @@ export const listSpecs: JsonToolSpec[] = [
     paginated: true,
     inputSchema: {
       from: z.number().int().min(0).optional(),
-      startTime: dateTimeString.optional().describe(dateTimeDesc()),
-      endTime: dateTimeString.optional().describe(dateTimeDesc()),
-      keyword: z.string().optional(),
+      startTime: dateTimeString.optional(),
+      endTime: dateTimeString.optional(),
+      keyword: nonEmptyString.optional(),
       searchType: SEARCH_TYPE.describe("1=标题搜索 | 2=全文搜索"),
-      rankType: RANK_TYPE.describe(RANK_TYPE_DESC),
-      securityList: z.array(z.string()).optional(),
-      regionList: z.array(REGION_ENUM).optional().describe(REGION_DESC),
-      categoryList: z.array(RESEARCH_CATEGORY_ENUM).optional().describe(RESEARCH_CATEGORY_DESC),
-      industryList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx，全场景首选）"),
-      brokerList: z.array(z.string()).optional().describe("外资机构 ID：用 gangtise_institution_search categoryList=['foreignInstitution'] 按名称搜"),
-      llmTagList: z.array(LLM_TAG_ENUM).optional().describe(LLM_TAG_DESC),
-      ratingList: z.array(RATING_ENUM).optional().describe(RATING_DESC),
-      ratingChangeList: z.array(RATING_CHANGE_ENUM).optional().describe(RATING_CHANGE_DESC),
+      rankType: RANK_TYPE,
+      securityList: nonEmptyList().optional(),
+      regionList: enumList(REGION_ENUM).optional().describe(REGION_DESC),
+      categoryList: enumList(RESEARCH_CATEGORY_ENUM).optional().describe(RESEARCH_CATEGORY_DESC),
+      industryList: nonEmptyList().optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx，全场景首选）"),
+      brokerList: nonEmptyList().optional().describe("外资机构 ID：用 gangtise_institution_search categoryList=['foreignInstitution'] 按名称搜"),
+      llmTagList: enumList(LLM_TAG_ENUM).optional().describe(LLM_TAG_DESC),
+      ratingList: enumList(RATING_ENUM).optional().describe(RATING_DESC),
+      ratingChangeList: enumList(RATING_CHANGE_ENUM).optional().describe(RATING_CHANGE_DESC),
       minReportPages: z.number().int().min(0).optional(),
       maxReportPages: z.number().int().min(0).optional(),
     },
@@ -247,13 +243,13 @@ export const listSpecs: JsonToolSpec[] = [
     paginated: true,
     inputSchema: {
       from: z.number().int().min(0).optional(),
-      startTime: dateTimeString.optional().describe(dateTimeDesc()),
-      endTime: dateTimeString.optional().describe(dateTimeDesc()),
-      keyword: z.string().optional(),
+      startTime: dateTimeString.optional(),
+      endTime: dateTimeString.optional(),
+      keyword: nonEmptyString.optional(),
       searchType: SEARCH_TYPE.describe("1=标题搜索 | 2=全文搜索"),
-      rankType: RANK_TYPE.describe(RANK_TYPE_DESC),
-      securityList: z.array(z.string()).optional(),
-      categoryList: z.array(z.string()).optional().describe("公告分类 ID，来自 gangtise_constant_list category=aShareAnnouncementCategory"),
+      rankType: RANK_TYPE,
+      securityList: nonEmptyList().optional(),
+      categoryList: nonEmptyList().optional().describe("公告分类 ID，来自 gangtise_constant_list category=aShareAnnouncementCategory"),
     },
   },
   {
@@ -263,13 +259,13 @@ export const listSpecs: JsonToolSpec[] = [
     paginated: true,
     inputSchema: {
       from: z.number().int().min(0).optional(),
-      startTime: dateTimeString.optional().describe(dateTimeDesc()),
-      endTime: dateTimeString.optional().describe(dateTimeDesc()),
-      keyword: z.string().optional(),
+      startTime: dateTimeString.optional(),
+      endTime: dateTimeString.optional(),
+      keyword: nonEmptyString.optional(),
       searchType: SEARCH_TYPE.describe("1=标题搜索 | 2=全文搜索"),
-      rankType: RANK_TYPE.describe(RANK_TYPE_DESC),
-      securityList: z.array(z.string()).optional(),
-      categoryList: z.array(z.string()).optional().describe("公告类别 ID，来自 gangtise_constant_list category=hkShareAnnouncementCategory"),
+      rankType: RANK_TYPE,
+      securityList: nonEmptyList().optional(),
+      categoryList: nonEmptyList().optional().describe("公告类别 ID，来自 gangtise_constant_list category=hkShareAnnouncementCategory"),
     },
   },
   {
@@ -279,13 +275,13 @@ export const listSpecs: JsonToolSpec[] = [
     paginated: true,
     inputSchema: {
       from: z.number().int().min(0).optional(),
-      startTime: dateTimeString.optional().describe(dateTimeDesc()),
-      endTime: dateTimeString.optional().describe(dateTimeDesc()),
-      keyword: z.string().optional(),
+      startTime: dateTimeString.optional(),
+      endTime: dateTimeString.optional(),
+      keyword: nonEmptyString.optional(),
       searchType: SEARCH_TYPE.describe("1=标题搜索 | 2=全文搜索"),
-      rankType: RANK_TYPE.describe(RANK_TYPE_DESC),
-      securityList: z.array(z.string()).optional().describe("证券代码列表，如 ['TSLA.O']"),
-      categoryList: z.array(z.string()).optional().describe("公告类别 ID，来自 gangtise_constant_list category=usShareAnnouncementCategory"),
+      rankType: RANK_TYPE,
+      securityList: nonEmptyList().optional().describe("证券代码列表，如 ['TSLA.O']"),
+      categoryList: nonEmptyList().optional().describe("公告类别 ID，来自 gangtise_constant_list category=usShareAnnouncementCategory"),
     },
   },
   {
@@ -300,16 +296,16 @@ export const listSpecs: JsonToolSpec[] = [
     paginated: true,
     inputSchema: {
       from: z.number().int().min(0).optional(),
-      startTime: dateTimeString.optional().describe(dateTimeDesc()),
-      endTime: dateTimeString.optional().describe(dateTimeDesc()),
-      keyword: z.string().optional(),
-      rankType: RANK_TYPE.describe(RANK_TYPE_DESC),
-      regionList: z.array(z.enum(["cn", "cnHk", "cnTw", "us", "jp", "uk"])).optional().describe("地区：cn=中国 | cnHk=中国香港 | cnTw=中国台湾 | us=美国 | jp=日本 | uk=英国。本端点只接受这 6 个，regionCategory 码表里的其余取值会被接口拒绝；要按别的地区筛，请不带本参数取回后用结果里的地区字段本地筛"),
-      industryList: z.array(z.string()).optional().describe("行业 ID。⚠️ **本端点只认申万码**（104xxxxxx，来自 gangtise_constant_list category=swIndustry），中信码会被接口拒绝。注意返回行的 industryList 字段中信码与申万码都带，只有申万那条能回查"),
-      securityList: z.array(z.string()).optional(),
-      brokerList: z.array(z.string()).optional().describe("外资观点机构 ID：用 gangtise_institution_search categoryList=['foreignOpinionInstitution'] 按名称搜。⚠️ 必须用该类别的 ID——传其他码系的机构 ID（如 domesticBroker 的 C1xxxxxxxx）会返回空结果且不报错"),
-      ratingList: z.array(RATING_ENUM).optional().describe(RATING_DESC),
-      ratingChangeList: z.array(RATING_CHANGE_ENUM).optional().describe(RATING_CHANGE_DESC),
+      startTime: dateTimeString.optional(),
+      endTime: dateTimeString.optional(),
+      keyword: nonEmptyString.optional(),
+      rankType: RANK_TYPE,
+      regionList: enumList(z.enum(["cn", "cnHk", "cnTw", "us", "jp", "uk"])).optional().describe("地区：cn=中国 | cnHk=中国香港 | cnTw=中国台湾 | us=美国 | jp=日本 | uk=英国。本端点只接受这 6 个，regionCategory 码表里的其余取值会被接口拒绝；要按别的地区筛，请不带本参数取回后用结果里的地区字段本地筛"),
+      industryList: nonEmptyList().optional().describe("行业 ID。⚠️ **本端点只认申万码**（104xxxxxx，来自 gangtise_constant_list category=swIndustry），中信码会被接口拒绝。注意返回行的 industryList 字段中信码与申万码都带，只有申万那条能回查"),
+      securityList: nonEmptyList().optional(),
+      brokerList: nonEmptyList().optional().describe("外资观点机构 ID：用 gangtise_institution_search categoryList=['foreignOpinionInstitution'] 按名称搜。⚠️ 必须用该类别的 ID——传其他码系的机构 ID（如 domesticBroker 的 C1xxxxxxxx）会返回空结果且不报错"),
+      ratingList: enumList(RATING_ENUM).optional().describe(RATING_DESC),
+      ratingChangeList: enumList(RATING_CHANGE_ENUM).optional().describe(RATING_CHANGE_DESC),
     },
   },
   {
@@ -319,14 +315,14 @@ export const listSpecs: JsonToolSpec[] = [
     paginated: true,
     inputSchema: {
       from: z.number().int().min(0).optional(),
-      startTime: dateTimeString.optional().describe(dateTimeDesc()),
-      endTime: dateTimeString.optional().describe(dateTimeDesc()),
-      keyword: z.string().optional(),
-      rankType: RANK_TYPE.describe(RANK_TYPE_DESC),
-      industryList: z.array(z.string()).optional().describe("行业 ID。⚠️ **本端点只认申万码**（104xxxxxx，来自 gangtise_constant_list category=swIndustry），中信码会被接口拒绝"),
-      securityList: z.array(z.string()).optional(),
-      ratingList: z.array(RATING_ENUM).optional().describe(RATING_DESC),
-      ratingChangeList: z.array(RATING_CHANGE_ENUM).optional().describe(RATING_CHANGE_DESC),
+      startTime: dateTimeString.optional(),
+      endTime: dateTimeString.optional(),
+      keyword: nonEmptyString.optional(),
+      rankType: RANK_TYPE,
+      industryList: nonEmptyList().optional().describe("行业 ID。⚠️ **本端点只认申万码**（104xxxxxx，来自 gangtise_constant_list category=swIndustry），中信码会被接口拒绝"),
+      securityList: nonEmptyList().optional(),
+      ratingList: enumList(RATING_ENUM).optional().describe(RATING_DESC),
+      ratingChangeList: enumList(RATING_CHANGE_ENUM).optional().describe(RATING_CHANGE_DESC),
     },
   },
   {
@@ -336,15 +332,15 @@ export const listSpecs: JsonToolSpec[] = [
     paginated: true,
     inputSchema: {
       from: z.number().int().min(0).optional(),
-      startTime: dateTimeString.optional().describe(dateTimeDesc()),
-      endTime: dateTimeString.optional().describe(dateTimeDesc()),
-      keyword: z.string().optional().describe("需用数据中的具体词（如 泡泡玛特），不要用整句白话"),
+      startTime: dateTimeString.optional(),
+      endTime: dateTimeString.optional(),
+      keyword: nonEmptyString.optional().describe("需用数据中的具体词（如 泡泡玛特），不要用整句白话"),
       searchType: SEARCH_TYPE.describe("1=标题搜索（默认）| 2=全文搜索"),
-      rankType: RANK_TYPE.describe(RANK_TYPE_DESC),
-      accountIdList: z.array(z.string()).optional().describe("公众号 ID，来自 gangtise_official_account_search（或本工具此前返回的 accountId）"),
-      securityList: z.array(z.string()).optional().describe("证券代码列表，如 ['000001.SZ']"),
-      categoryList: z.array(z.enum(["news", "law", "report", "view", "data", "event", "meeting", "notice", "recruit", "investEdu", "brand", "notes", "other"])).optional().describe("文章类型：news=新闻资讯 | law=法律法规 | report=报告类 | view=个人观点 | data=产业数据 | event=日程活动 | meeting=会议纪要 | notice=通知 | recruit=招聘 | investEdu=投资科普 | brand=品牌宣传 | notes=个人随笔 | other=其他"),
-      industryList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx，全场景首选）"),
+      rankType: RANK_TYPE,
+      accountIdList: nonEmptyList().optional().describe("公众号 ID，来自 gangtise_official_account_search（或本工具此前返回的 accountId）"),
+      securityList: nonEmptyList().optional().describe("证券代码列表，如 ['000001.SZ']"),
+      categoryList: enumList(z.enum(["news", "law", "report", "view", "data", "event", "meeting", "notice", "recruit", "investEdu", "brand", "notes", "other"])).optional().describe("文章类型：news=新闻资讯 | law=法律法规 | report=报告类 | view=个人观点 | data=产业数据 | event=日程活动 | meeting=会议纪要 | notice=通知 | recruit=招聘 | investEdu=投资科普 | brand=品牌宣传 | notes=个人随笔 | other=其他"),
+      industryList: nonEmptyList().optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx，全场景首选）"),
     },
   },
   {
@@ -357,18 +353,15 @@ export const listSpecs: JsonToolSpec[] = [
       securityCode: nonEmptyString.describe("证券代码（必填），如 '601012.SH'，按单只证券提取"),
       startTime: qaTimeString.optional().describe("YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss"),
       endTime: qaTimeString.optional().describe("YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss"),
-      source: z
-        .array(z.string())
+      source: nonEmptyList()
         .optional()
         .describe("问题来源（可多选）：conference=电话会议 | interactive=互动平台 | survey=调研纪要；不传查全部（拼写错误服务端报 100003，不做本地白名单）"),
-      questionCategory: z
-        .array(z.string())
+      questionCategory: nonEmptyList()
         .optional()
         .describe(
           "问题分类（可多选）：productAndBusiness=产品技术与业务布局 | capacityAndProjects=产能与项目进展 | ordersAndCustomers=订单与客户 | financialData=财务与经营数据 | materialEvents=重大事项 | capitalOperations=资本运作 | shareholdersAndDividends=股东户数与常规分红 | corporateGovernance=治理与管理 | marketAndValuation=市场与估值 | macroAndIndustry=宏观与行业看法 | risksAndOthers=风险质疑其他（拼写错误服务端报 100003，不做本地白名单）",
         ),
-      answerImportant: z
-        .array(intLiteralEnum([0, 1]))
+      answerImportant: enumList(intLiteralEnum([0, 1]))
         .optional()
         .describe("答案是否涉及重要信息：[1]=只取重要 | [0]=只取不重要；省略或 [0,1]=不按此维度筛选"),
     },
@@ -383,8 +376,8 @@ export const listSpecs: JsonToolSpec[] = [
       keyword: nonEmptyString.describe("搜索关键词（必填），如 'AI' '新能源汽车'"),
       top: z.number().int().min(1).max(20).optional().describe("最大返回条数（默认 10，上限 20）"),
       sourceId: nonEmptyString.optional().describe("研报 ID，限定到某篇研报（来自研报列表或知识库结果）"),
-      startTime: dateTimeString.optional().describe(dateTimeDesc()),
-      endTime: dateTimeString.optional().describe(dateTimeDesc()),
+      startTime: dateTimeString.optional(),
+      endTime: dateTimeString.optional(),
     },
   },
 ]
@@ -511,6 +504,29 @@ const DEFAULT_ROWS = 20
 // 不逼调用方为一个按天的日程接口补 00:00:00。
 const calendarTimeString = z.union([dateString, dateTimeString])
 
+/** 这个日期区间**实际**筛掉东西了吗——用一次 `size: 1` 探针问服务端，不靠猜。
+ *
+ * 🔴 前一版在这里放了一个「跨度不超过 25 年就算强约束」的常数。那个判据是**假的**：
+ * 本库真实跨度只有约 1052 天（2.88 年），25 年是它的 8.7 倍，于是传一个覆盖全库的
+ * 完整区间照样被判成强约束，行数闸门整个放开、可拉满 5 万行 ≈ 5000 积分。
+ * **拍一个「远大于任何真实查询」的阈值，恰恰保证了它拦不住任何东西。**
+ *
+ * 现在改成问真数据：探针一行的成本是 0.1 积分，而它挡住的是 5000 积分量级的误查；
+ * 且只在调用方**已经要求超过 UNFILTERED_MAX_ROWS 行**时才发，正常查询一次都不多花。
+ * 这也不再硬编码任何取数窗口（与 server.instructions 的口径一致）——判据完全由服务端
+ * 当下返回的 total 决定。 */
+async function probeFilteredTotal(client: GangtiseClient, body: Record<string, unknown>): Promise<number | undefined> {
+  try {
+    const probe = await client.call("insight.performance-calendar.list", { ...body, from: 0, size: 1 })
+    const total = (probe as { total?: unknown })?.total
+    return typeof total === "number" ? total : undefined
+  } catch {
+    // 探针失败不能反过来卡住主查询：拿不到 total 就退回「按未加强约束处理」，
+    // 调用方看到的是那条要求补筛选的提示，而不是一个探针的网络错误。
+    return undefined
+  }
+}
+
 export function registerInsightTools(server: McpServer, client: GangtiseClient): void {
   for (const spec of listSpecs) {
     registerJsonTool(server, client, spec)
@@ -527,22 +543,31 @@ export function registerInsightTools(server: McpServer, client: GangtiseClient):
       description: withBilling(
         "gangtise_performance_calendar_list",
         "查询财报日历：业绩预告 / 业绩快报 / 业绩公告三类事件的发布日程（含未来已排期）。按 publishDate 过滤，返回 performanceReportId（下载用）、securityCodeList（A+H 同时上市会有多个码）、securityName、category、publishDate、title、hasAttachment。查「某公司何时披露财报」用 securityList，查「某段时间谁要出业绩」用 startDate+endDate。本工具只给排期与标题，公告全文请用 gangtise_announcement_list / _download 系列。",
-        true,
       ),
       inputSchema: {
-        from: z.number().int().min(0).optional().describe("0-based 起始偏移，默认 0"),
-        size: z.number().int().min(1).optional().describe(`总行数上限，默认 20。无筛选时最多 ${UNFILTERED_MAX_ROWS} 行（超出本地拒绝）；仅用 securityList 筛选时封顶 ${SECURITY_ONLY_ROW_CAP} 行`),
+        from: z.number().int().min(0).optional(),
+        // 通用语义（默认 20）在 server.instructions；这里只留本端点独有的两档行数封顶。
+        size: z.number().int().min(1).optional().describe(`无筛选时最多 ${UNFILTERED_MAX_ROWS} 行（超出本地拒绝）；仅用 securityList 筛选时封顶 ${SECURITY_ONLY_ROW_CAP} 行`),
         fetchAll: z.boolean().optional().describe("拉取全部页并忽略 size（等价于不限行数）。要求同时给出 startDate+endDate 或 securityList，否则拒绝执行"),
         startDate: calendarTimeString.optional().describe("YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss，过滤 publishDate（含端点）"),
         endDate: calendarTimeString.optional().describe("YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss，过滤 publishDate（含端点）"),
-        securityList: z.array(z.string()).optional().describe("证券代码，需含交易所后缀（600519.SH / 00700.HK）"),
-        marketList: z.array(PERFORMANCE_MARKET_ENUM).optional().describe("aShares=A股 | hkStocks=港股 | usChinaConcept=美股中概 | usStocks=美股"),
-        categoryList: z.array(PERFORMANCE_CATEGORY_ENUM).optional().describe("performanceForecast=业绩预告 | performanceExpress=业绩快报 | performanceAnnouncement=业绩公告"),
+        securityList: nonEmptyList().optional().describe("证券代码，需含交易所后缀（600519.SH / 00700.HK）"),
+        marketList: enumList(PERFORMANCE_MARKET_ENUM).optional().describe("aShares=A股 | hkStocks=港股 | usChinaConcept=美股中概 | usStocks=美股"),
+        categoryList: enumList(PERFORMANCE_CATEGORY_ENUM).optional().describe("performanceForecast=业绩预告 | performanceExpress=业绩快报 | performanceAnnouncement=业绩公告"),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     toolHandler(async (args: Record<string, unknown>) => {
       const { fetchAll, ...rest } = args
+      assertDateOrder(rest)
+      // 🔴 「给了一对日期」不等于「加了约束」。`1900-01-01 → 2099-12-31` 在形式上是一个
+      // 完整区间，实际上一条记录都没排除掉，却足以把行数上限整个放开 —— 与 `securityList:
+      // [""]` 是同一种洞：**名义上的约束，实际不约束任何东西**。
+      //
+      // 判据落在「这个区间还筛不筛得掉东西」上，不是「你只能查 N 天」：本库含未来排期，
+      // 跨度超过它的全部时间范围的区间等于没筛。**这不是把取数窗口写死**（那与
+      // server.instructions 的「取数窗口随账号权限变化，MCP 不硬编码拦截」冲突）——
+      // 超界不拒绝查询，只是不把它当成放开行数上限的理由，调用方补个真区间即可。
       const hasDateRange = Boolean(rest.startDate && rest.endDate)
       const hasSecurity = Array.isArray(rest.securityList) && rest.securityList.length > 0
       // 两个概念必须分开，混用会两头出错（2026-08-09 修正）：
@@ -572,6 +597,17 @@ export function registerInsightTools(server: McpServer, client: GangtiseClient):
         throw new ValidationError(
           `缺少强约束时最多只能取 ${UNFILTERED_MAX_ROWS} 行（本接口十万量级、按 0.1/条计费）：请同时给出 startDate 与 endDate，或给出 securityList，或把 size 降到 ${UNFILTERED_MAX_ROWS} 以内（fetchAll 视为不限行数）。marketList / categoryList 确实会过滤，但筛完仍是万级，不足以放开行数上限。`,
         )
+      }
+      // 🔴 只靠日期区间放开闸门时，先确认这个区间**真的筛掉了东西**。
+      // 「给了一对日期」不等于「加了约束」：一个覆盖全库的完整区间在形式上无可挑剔，
+      // 实际一条都没排除。判据不猜跨度，直接问服务端要 total（见 probeFilteredTotal）。
+      if (hasDateRange && !hasSecurity && requestedRows > UNFILTERED_MAX_ROWS) {
+        const filteredTotal = await probeFilteredTotal(client, rest)
+        if (filteredTotal === undefined || filteredTotal > UNFILTERED_MAX_ROWS) {
+          throw new ValidationError(
+            `该日期区间没有把结果收窄到 ${UNFILTERED_MAX_ROWS} 行以内（${filteredTotal === undefined ? "探测失败" : `实际 ${filteredTotal} 行`}，按 0.1/条计费）：区间覆盖了本库的大部分排期，等于没筛。请缩小日期区间、补上 securityList，或把 size 降到 ${UNFILTERED_MAX_ROWS} 以内（fetchAll 视为不限行数）。`,
+          )
+        }
       }
       const body = sanitizeArgs(rest, { paginated: true, fetchAll: Boolean(fetchAll) })
       // securityList 单约束（无日期区间）时封顶。走到这里 requestedRows > 上限就意味着

@@ -57,11 +57,29 @@ jobs:
         # and skipping them keeps a poisoned transitive dep from executing.
         run: npm ci --ignore-scripts
 
+      # 发布流水线独立跑一遍质量门禁，不依赖「main 上的 CI 绿过」：
+      # 给一个 CI 失败的提交直接打 tag 是完全可能的，那时只有这里能拦住。
+      # 与 ci.yml 对齐：发布流水线要是**完整**的独立门禁，缺一项就不是。
+      - name: Audit
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Lint
+        run: npm run lint
+
       - name: Test
         run: npm test
 
+      # 覆盖率阈值见 vitest.config.ts，作用是不许倒退。
+      - name: Coverage
+        run: npm run coverage
+
       - name: Build
         run: npm run build
+
+      # 对外面自查（措辞 / 包内文档 / dist 注释 / tools/list 字节预算）。必须在 Pack
+      # **之前**：它校验的正是即将被打进 tarball 的那份 dist/ 与 README/CHANGELOG。
+      - name: Release gate
+        run: npm run check:release
 
       - name: Pack the exact tarball to be published
         # Build already produced dist/; --ignore-scripts skips prepublishOnly's

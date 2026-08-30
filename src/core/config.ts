@@ -48,6 +48,17 @@ export function resolvePageConcurrency(raw: string | undefined): number {
 // Read once at load, same static-const pattern as INLINE_MAX_BYTES above.
 export const PAGE_CONCURRENCY = resolvePageConcurrency(process.env.GANGTISE_PAGE_CONCURRENCY)
 
+// 单个下载文件的字节上限。总配额（tempCleanup 的 2 GiB）管「多份加起来」，这一条管
+// 「一份自己就把盘写满」——后者是总配额的 LRU 淘汰救不了的，因为淘汰只能删**别的**目录。
+// 1 GiB：研报 PDF / 原始音频再大也很少接近它；/tmp 很小的部署可以调低。
+export const DEFAULT_MAX_DOWNLOAD_BYTES = 1024 * 1024 * 1024
+
+export function resolveMaxDownloadBytes(raw: string | undefined): number {
+  const n = raw ? Number(raw) : DEFAULT_MAX_DOWNLOAD_BYTES
+  // 下限 1MB：调到比一份普通 PDF 还小没有意义，多半是单位写错了。
+  return Number.isFinite(n) && n >= 1024 * 1024 ? Math.floor(n) : DEFAULT_MAX_DOWNLOAD_BYTES
+}
+
 export interface CliConfig {
   baseUrl: string
   timeoutMs: number
@@ -56,6 +67,8 @@ export interface CliConfig {
   token?: string
   tokenCachePath: string
   asyncTimeoutMs: number
+  /** 单个下载文件的字节上限；测试注入小值以免每次跑测试都真写 1 GiB。 */
+  maxDownloadBytes: number
 }
 
 export function loadConfig(): CliConfig {
@@ -73,5 +86,6 @@ export function loadConfig(): CliConfig {
     token: process.env.GANGTISE_TOKEN,
     tokenCachePath: process.env.GANGTISE_TOKEN_CACHE_PATH ?? DEFAULT_TOKEN_CACHE_PATH,
     asyncTimeoutMs: Number.isFinite(asyncTimeoutMs) && asyncTimeoutMs > 0 ? asyncTimeoutMs : DEFAULT_ASYNC_TIMEOUT_MS,
+    maxDownloadBytes: resolveMaxDownloadBytes(process.env.GANGTISE_MAX_DOWNLOAD_BYTES),
   }
 }

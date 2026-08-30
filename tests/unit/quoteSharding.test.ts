@@ -294,3 +294,58 @@ describe("weekend skip on the single-request fast path", () => {
     expect(call).toHaveBeenCalledTimes(1)
   })
 })
+
+// 🔴 分片形状漂移此前是**静默丢数据**：没有数组 `list` 的分片被 `continue` 掉，
+// 既不进 merged 也不标 _partial —— 一天的全市场行情凭空消失而结果读起来完整。
+describe("callKlineWithSharding: malformed shard shapes", () => {
+  const range = { securityList: ["all"], startDate: "2026-04-06", endDate: "2026-04-09" }
+
+  it("flags a shard whose payload carries no list, instead of dropping it silently", async () => {
+    let n = 0
+    const call = vi.fn().mockImplementation(async () => {
+      n += 1
+      // 第二个分片形状漂移（有回包、没 list）
+      return n === 2 ? { note: "upstream-shape-changed" } : { list: [{ securityCode: `s${n}` }] }
+    })
+
+    const out = await callKlineWithSharding({ call }, "quote.day-kline", range, { shardDays: 1 }) as Record<string, unknown>
+
+    expect(out._partial).toBe(true)
+    expect(String(out._partial_reason)).toContain("malformed_shards")
+    expect(out._malformed_shards).toEqual([{ startDate: "2026-04-07", endDate: "2026-04-07" }])
+    // 好分片的行仍然合并返回 —— 标记是附加信号，不是把结果丢掉
+    expect((out.list as unknown[]).length).toBe(3)
+  })
+
+  it("throws when EVERY shard is malformed rather than returning a clean empty table", async () => {
+    const call = vi.fn().mockResolvedValue({ note: "upstream-shape-changed" })
+    await expect(
+      callKlineWithSharding({ call }, "quote.day-kline", range, { shardDays: 1 }),
+    ).rejects.toThrow(/没有可合并的 list/)
+  })
+
+  it("treats {total:0, list:null} as a legitimately empty shard, not a malformed one", async () => {
+    let n = 0
+    const call = vi.fn().mockImplementation(async () => {
+      n += 1
+      return n === 2 ? { total: 0, list: null } : { total: 1, list: [{ securityCode: `s${n}` }] }
+    })
+
+    const out = await callKlineWithSharding({ call }, "quote.day-kline", range, { shardDays: 1 }) as Record<string, unknown>
+
+    expect(out._partial).toBeUndefined()
+    expect(out._malformed_shards).toBeUndefined()
+    expect((out.list as unknown[]).length).toBe(3)
+  })
+
+  it("still merges a non-object shard as malformed rather than crashing", async () => {
+    let n = 0
+    const call = vi.fn().mockImplementation(async () => {
+      n += 1
+      return n === 2 ? [{ rogue: true }] : { list: [{ securityCode: `s${n}` }] }
+    })
+
+    const out = await callKlineWithSharding({ call }, "quote.day-kline", range, { shardDays: 1 }) as Record<string, unknown>
+    expect(String(out._partial_reason)).toContain("malformed_shards")
+  })
+})

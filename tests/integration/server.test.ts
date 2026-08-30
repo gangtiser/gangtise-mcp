@@ -135,6 +135,140 @@ describe("MCP server integration", () => {
     expect(copies).toBe(0)
   })
 
+  // tools/list 是**每次请求都进客户模型上下文**的一段字节，且没有任何协议机制去重：
+  // 每个工具的 inputSchema 是独立 JSON 文档，客户端不会跨工具解析 $ref。所以一句话写在
+  // N 个参数描述上就付 N 遍，而 instructions 是唯一只付一遍的通道。
+  //
+  // 下面三条守的是这个结构，不是审美：
+  //   ① 搬进 instructions 的话不得在工具侧复现（复现 = 白付 N-1 遍）
+  //   ② $schema 方言声明必须被剥掉（97 × 47B，客户端不读它）
+  //   ③ 总量有天花板，撞了要有人**主动**决定抬，而不是悄悄涨
+  // 🔴 发布出去的每个 inputSchema 必须自包含：不带 $ref，客户端无需解引用就能读全。
+  // zod-to-json-schema 按**实例同一性**去重，schemas.ts 的 nonEmptyString 是共享单例，
+  // 于是同一工具里后续用到它的参数被折成指向「它第一次出现的位置」的指针 —— 落点由属性
+  // 声明顺序决定，语义完全不相干（securityCodeList.items 曾指向 paramKey）。
+  // 🔴 生成式：遍历**发布出去的** schema，断言「允许空数组的位置」恰好是下面这四条，
+  // 不多不少。
+  //
+  // 为什么不能靠人工扫描：上一轮改 `minItems` 时靠人工扫源码，跨行写法（`z\n  .array(...)`）
+  // 整批漏网，`qa_list` 的 `source: []` 因此照样下发。判据必须落在 tools/list 的实际产物上。
+  //
+  // 为什么按**完整路径**而不是属性名：按名字放行会顺带放过将来任何工具里的同名数组 ——
+  // 而且 `time_series` 的 `parameters` 其实是有 `minItems: 1` 的（它走 `.min(1)` 那个分支），
+  // 按名字白名单会把它一起豁免，那一天它丢了下限也没人知道。
+  //
+  // 为什么判据是 `minItems >= 1` 而不是 `!== undefined`：`minItems: 0` 同样接受空数组。
+  //
+  // 这四条都是 EDE 的**嵌套**参数数组：那里 `[]` 与省略同为「没有分指标参数」，而调用方
+  // 常是程序化拼出来的。顶层筛选不一样，`[]` 会静默放开筛选并按条计费。
+  const EMPTY_ARRAY_ALLOWED = [
+    "gangtise_indicator_cross_section.properties.indicatorParamList",
+    "gangtise_indicator_cross_section.properties.indicatorParamList.items.properties.parameters",
+    "gangtise_indicator_time_series.properties.indicatorParamList",
+    "gangtise_indicator_screener.properties.indicatorList.items.properties.parameters",
+  ]
+
+  it("allows empty arrays at exactly the four declared nested-parameter paths", async () => {
+    const { tools } = await mcpClient.listTools()
+    const unbounded: string[] = []
+
+    const walk = (node: unknown, tool: string, path: string) => {
+      if (node === null || typeof node !== "object") return
+      if (Array.isArray(node)) return node.forEach((n, i) => walk(n, tool, `${path}[${i}]`))
+      const obj = node as Record<string, unknown>
+      if (obj.type === "array" && !(typeof obj.minItems === "number" && obj.minItems >= 1)) {
+        unbounded.push(`${tool}${path}`)
+      }
+      for (const [k, v] of Object.entries(obj)) walk(v, tool, `${path}.${k}`)
+    }
+    for (const t of tools) walk(t.inputSchema, t.name, "")
+
+    // 集合相等，两个方向都钉：多出来的是「新增了一个接受 [] 的筛选数组」（空列表下发
+    // 等于没加该筛选，返回未经筛选的全量并按条计费）；少掉的是「某条例外被收紧了」，
+    // 那多半是好事，但要求同步改这份名单，免得它慢慢变成一张没人看的过期白名单。
+    expect(unbounded.sort()).toEqual([...EMPTY_ARRAY_ALLOWED].sort())
+  })
+
+  it("publishes self-contained schemas: no $ref, no $schema dialect", async () => {
+    const { tools } = await mcpClient.listTools()
+    const wire = JSON.stringify(tools)
+    expect(wire.split('"$ref"').length - 1, "inputSchema 里残留了 $ref").toBe(0)
+    expect(wire.split('"$schema"').length - 1).toBe(0)
+
+    // 展开后的落点必须是真正的类型，而不是原来那个语义无关的指针目标。
+    const byName = new Map(tools.map((t) => [t.name, t.inputSchema as Record<string, any>]))
+    expect(byName.get("gangtise_indicator_screener")!.properties.securityCodeList.items)
+      .toEqual({ type: "string", minLength: 1 })
+    expect(byName.get("gangtise_day_kline")!.properties.security.anyOf[0])
+      .toEqual({ type: "string", minLength: 1 })
+    // 展开不能吃掉同级的 description（$ref 旁边的兄弟键优先）
+    expect(byName.get("gangtise_opinion_list")!.properties.endTime.pattern).toMatch(/^\^\(/)
+  })
+
+  // 识别指引挂在**路由推荐的**工具上，而不是标着「建议改用」的两个 legacy 工具。
+  it("puts the code-identity warning on the tools routing actually recommends", async () => {
+    const byName = new Map((await mcpClient.listTools()).tools.map((t) => [t.name, t.description ?? ""]))
+    for (const n of ["gangtise_day_kline", "gangtise_realtime"]) {
+      expect(byName.get(n), `${n} 缺少 A+H 同名识别指引`).toContain("A+H")
+    }
+    for (const n of ["gangtise_day_kline_hk", "gangtise_day_kline_us"]) {
+      expect(byName.get(n)!.length, `${n} 是 legacy 工具，不该再背长警示`).toBeLessThan(200)
+    }
+  })
+
+  it("keeps instruction-level guidance out of per-tool metadata", async () => {
+    const instructions = mcpClient.getInstructions() ?? ""
+    const { tools } = await mcpClient.listTools()
+    const metadata = JSON.stringify(tools)
+
+    // 每条：[曾经逐工具重复的原文, instructions 里现在承载它的锚点]
+    const moved: [string, string][] = [
+      ["0-based 起始偏移，默认 0", "from=0-based 偏移"],
+      ["总行数上限，默认 20", "size=总行数上限"],
+      ["拉取全部页并忽略 size，可能较慢或产生大响应", "fetchAll=true 拉全部页"],
+      ["1=综合排序", "rankType=1 综合排序"],
+      ["consolidated=合并 |", "reportType(三表口径,数组)=consolidated 合并"],
+      // 分页付费列表的按条计费声明：曾逐字挂在 19 个工具描述上。
+      ["按全部实际返回条目计费", "按实际返回条目计费"],
+    ]
+    for (const [perTool, inInstructions] of moved) {
+      expect(instructions).toContain(inInstructions)
+      expect(metadata.split(perTool).length - 1).toBe(0)
+    }
+
+    // 日期格式：instructions 按 *Date / *Time 命名统一声明，参数上不再复述。
+    // 只钉「整条描述就是格式串」的那种；indicator 的 date 参数把格式当前缀、后面还接
+    // 端点独有的下发规则，那是单端点细节，本就该留在参数上。
+    expect(instructions).toContain("*Date=YYYY-MM-DD")
+    expect(metadata.split(`"description":"YYYY-MM-DD"`).length - 1).toBe(0)
+    expect(metadata.split(`"description":"YYYY-MM-DD HH:mm:ss"`).length - 1).toBe(0)
+  })
+
+  it("strips the $schema dialect declaration from every published inputSchema", async () => {
+    const { tools } = await mcpClient.listTools()
+
+    // 剥的是方言声明，不是 schema 本身 —— properties/type/additionalProperties 必须都还在，
+    // 否则就不是省字节而是发了个空契约。
+    for (const tool of tools) {
+      expect(tool.inputSchema).toBeDefined()
+      expect(tool.inputSchema).not.toHaveProperty("$schema")
+      expect(tool.inputSchema.type).toBe("object")
+    }
+    const withParams = tools.filter(t => Object.keys(t.inputSchema.properties ?? {}).length > 0)
+    expect(withParams.length).toBeGreaterThan(80)
+    expect(withParams.every(t => t.inputSchema.additionalProperties === false)).toBe(true)
+  })
+
+  it("keeps the tools/list payload under its context budget", async () => {
+    const { tools } = await mcpClient.listTools()
+    const bytes = Buffer.byteLength(JSON.stringify(tools), "utf8")
+
+    // 天花板不是「当前值 + 1」——留了增长余量，新增工具不该动它。撞上了说明该先看
+    // 重复度（scripts/prerelease-check.mjs 的 ⑤ 会列出最大的几个工具），确认省无可省之后
+    // 再**主动**抬这个数字并说明为什么。悄悄涨回去才是要拦的事。
+    expect(bytes).toBeLessThan(150_000)
+  })
+
   it("gangtise_current_date returns runtime Asia/Shanghai date context", async () => {
     const result = await mcpClient.callTool({ name: "gangtise_current_date", arguments: {} })
     expect(result.isError).toBeFalsy()
@@ -594,9 +728,25 @@ describe("MCP server integration", () => {
     expect((result.content as Array<{ text: string }>)[0].text).toContain("暂无")
   })
 
-  it("keeps server instructions within the 1800-byte budget", () => {
+  // 🔴 预算钉的是 **instructions + tools/list 的合计**，不是单钉 instructions。
+  //
+  // 单钉 instructions 会奖励一个错误的动作：把一句话从 instructions 挪回 22 个工具的参数
+  // 描述里，instructions 的数字变好看了，而模型实际读到的字节**多了 21 倍**。
+  // 2026-08-30 的那次调整正是反方向：instructions +587B，换来 tools/list −11,668B，
+  // 净省 11,081B —— 合计预算能如实反映这笔交易，单项预算会把它误判成回退。
+  //
+  // 两个数字都记下来，便于下次判断增量落在哪一侧；合计是硬闸门。
+  it("keeps the model-facing context within budget (instructions + tools/list)", async () => {
     const instructions = mcpClient.getInstructions() ?? ""
-    expect(Buffer.byteLength(instructions, "utf8")).toBeLessThanOrEqual(1_800)
+    const { tools } = await mcpClient.listTools()
+    const instrBytes = Buffer.byteLength(instructions, "utf8")
+    const listBytes = Buffer.byteLength(JSON.stringify(tools), "utf8")
+
+    // instructions 单项仍有上界：它是**每次会话都全量注入**的，不该无限长。
+    expect(instrBytes, "instructions 超出单项上界").toBeLessThanOrEqual(2_600)
+    // 合计才是模型真正付的钱。当前 147,142B，留约 3% 余量。
+    expect(instrBytes + listBytes, `合计上下文 ${instrBytes + listBytes}B（instructions ${instrBytes} + tools/list ${listBytes}）超出预算`)
+      .toBeLessThanOrEqual(152_000)
   })
 
   it("routes with real tool prefixes, not src filenames", async () => {
@@ -975,5 +1125,192 @@ describe("closed-set params reject illegal values before calling upstream", () =
       now.filter((x) => !CLOSED_SET_SNAPSHOT.includes(x)),
       "新增了闭集参数（已自动测到），补进 CLOSED_SET_SNAPSHOT 即可",
     ).toEqual([])
+  })
+})
+
+
+// 🔴 **从 tools/list 自动枚举**，不手选样本。
+//
+// 手选样本只能证明它自己：上一版手写了 10 个空白串用例，跨 session 复核当场找出 6 个漏网
+// （`sector_search.keyword`、`sector_constituents.sectorId`、`qa.source` /
+// `qa.questionCategory`、`pamirs.researchAreaList`、EDE 的 `paramKey` / 选股
+// `indicatorCode`）。要钉住「全部收紧了」这条**声明**，判据必须自己去枚举。
+//
+// ⚠️ 枚举必须**递归进嵌套对象**：`paramKey` 住在 `indicatorParamList[].parameters[]` 里，
+// 只扫顶层的版本对它是瞎的（实测：把 paramKey 退回 `z.string().min(1)`，只扫顶层的判据
+// 照样全绿）。
+describe("no blank string reaches upstream (enumerated from tools/list)", () => {
+  type Node = Record<string, any>
+  const deref = (schema: Node, root: Node): Node => {
+    if (!schema?.$ref) return schema ?? {}
+    const path = String(schema.$ref).replace(/^#\//, "").split("/")
+    let cur: any = root
+    for (const seg of path) cur = cur?.[seg]
+    return cur ?? {}
+  }
+
+  /** 造一份最小合法值；把 `blankAt` 指向的那个叶子换成纯空白。 */
+  const build = (schema: Node, root: Node, path: string, blankAt: string | null): any => {
+    const s = deref(schema, root)
+    for (const key of ["anyOf", "oneOf", "allOf"]) {
+      // union 取第一个分支造样本；空白负例由 blankAt 命中叶子时替换
+      if (Array.isArray(s[key]) && s[key].length > 0) return build(s[key][0] as Node, root, path, blankAt)
+    }
+    if (s.type === "array") return [build(s.items ?? {}, root, path, blankAt)]
+    if (s.type === "object" || s.properties) {
+      const out: Record<string, unknown> = {}
+      for (const [k, v] of Object.entries(s.properties ?? {})) {
+        const child = `${path}.${k}`
+        if ((s.required ?? []).includes(k) || blankAt?.startsWith(child)) {
+          out[k] = build(v as Node, root, child, blankAt)
+        }
+      }
+      return out
+    }
+    if (s.type === "number" || s.type === "integer") return s.minimum ?? 1
+    if (s.type === "boolean") return false
+    if (s.enum) return s.enum[0]
+    if (path === blankAt) return "   "
+    if (s.pattern) return "2026-08-07"
+    return "x"
+  }
+
+  /** 递归收集所有「自由字符串」叶子路径（排除 enum / pattern / 有意开放的 paramValue）。 */
+  const leaves = (schema: Node, root: Node, path: string, acc: string[]): void => {
+    const s = deref(schema, root)
+    // 🔴 union（`anyOf`/`oneOf`）必须递归进去。第一版没进，于是 `security` 这种
+    // 「字符串或字符串数组」的参数完全没被扫到 —— 复核方把它两个分支都退回普通
+    // `z.string()`，判据照样全绿，而 `{security:["   "]}` 真的把空白发到了上游。
+    for (const key of ["anyOf", "oneOf", "allOf"]) {
+      if (Array.isArray(s[key])) {
+        for (const branch of s[key]) leaves(branch as Node, root, path, acc)
+        return
+      }
+    }
+    if (s.type === "array") return leaves(s.items ?? {}, root, path, acc)
+    if (s.type === "object" || s.properties) {
+      for (const [k, v] of Object.entries(s.properties ?? {})) leaves(v as Node, root, `${path}.${k}`, acc)
+      return
+    }
+    if (s.type === "string" && !s.enum && !s.pattern && !path.endsWith(".paramValue")) acc.push(path)
+  }
+
+  it("rejects a whitespace-only value in every free-string parameter, nested ones included", async () => {
+    const probe = await makeTestClient(makeMockClient())
+    const { tools } = await probe.listTools()
+    const leaked: string[] = []
+    let checked = 0
+
+    for (const tool of tools) {
+      const root = tool.inputSchema as Node
+      const props: Record<string, Node> = root?.properties ?? {}
+      const required: string[] = root?.required ?? []
+      const paths: string[] = []
+      for (const [k, v] of Object.entries(props)) leaves(v, root, k, paths)
+
+      for (const target of paths) {
+        checked += 1
+        const client = makeMockClient()
+        const mcp = await makeTestClient(client)
+        const args: Record<string, unknown> = {}
+        const top = target.split(".")[0]
+        for (const r of new Set([...required, top])) args[r] = build(props[r], root, r, target)
+
+        const r = await mcp.callTool({ name: tool.name, arguments: args })
+        const reached = (client.call as any).mock.calls.length > 0 || (client.download as any).mock.calls.length > 0
+        if (reached && !r.isError) leaked.push(`${tool.name}.${target}`)
+      }
+    }
+
+    expect(checked, "没有枚举到足够的自由字符串入参，判据自身失效了").toBeGreaterThan(70)
+    expect(leaked, `这些入参把纯空白原样下发了：\n  ${leaked.join("\n  ")}`).toEqual([])
+  })
+
+  // fieldList 重名会在按位置拍平时相互覆盖：长度校验对得上，结果里静默少一列。
+  it("rejects a duplicated fieldList entry", async () => {
+    const client = await makeTestClient(makeMockClient())
+    const r = await client.callTool({
+      name: "gangtise_day_kline",
+      arguments: { security: "600519.SH", fieldList: ["close", "close"] },
+    })
+    expect(r.isError).toBe(true)
+    expect((r.content as Array<{ text: string }>)[0].text).toMatch(/fieldList 不能重复/)
+  })
+})
+
+// 起始晚于结束此前只有 knowledge_batch 一处校验，其余带区间的工具直接下发。服务端有
+// 110002，但不是每个端点都用它——有的把倒置区间当成空条件返回未筛结果，按条计费。
+//
+// ⚠️ 同样**枚举**而不是手写名单：上一版手写了 4 个，其中 `gangtise_research_list` 收的是
+// `startTime/endTime` 而我传的是 `startDate/endDate`，被 strict schema 挡下 —— 测试因为
+// **错误的原因**变绿，把日期校验整个删掉都不红。
+describe("inverted date ranges are rejected before the request goes out", () => {
+  const PAIRS = [["startDate", "endDate", "2026-08-10", "2026-08-01"], ["startTime", "endTime", "2026-08-10 00:00:00", "2026-08-01 00:00:00"]] as const
+
+  it("covers every tool exposing a start/end pair", async () => {
+    const probe = await makeTestClient(makeMockClient())
+    const { tools } = await probe.listTools()
+    const missed: string[] = []
+    let checked = 0
+
+    for (const tool of tools) {
+      const root = tool.inputSchema as Record<string, any>
+      const props: Record<string, any> = root?.properties ?? {}
+      const required: string[] = root?.required ?? []
+      for (const [sk, ek, sv, ev] of PAIRS) {
+        if (!props[sk] || !props[ek]) continue
+        checked += 1
+        const client = makeMockClient()
+        const mcp = await makeTestClient(client)
+        const args: Record<string, unknown> = { [sk]: sv, [ek]: ev }
+        for (const r of required) {
+          if (r === sk || r === ek) continue
+          const p = props[r]
+          args[r] = p.type === "array" ? ["600519.SH"] : p.enum ? p.enum[0] : p.type === "number" || p.type === "integer" ? 1 : p.pattern ? "2026-08-07" : "600519.SH"
+        }
+        const r = await mcp.callTool({ name: tool.name, arguments: args })
+        if (!r.isError || (client.call as any).mock.calls.length > 0) missed.push(`${tool.name}[${sk}/${ek}]`)
+      }
+    }
+
+    expect(checked, "没有枚举到带区间的工具，判据自身失效了").toBeGreaterThan(40)
+    expect(missed, `这些工具接受了倒置区间：\n  ${missed.join("\n  ")}`).toEqual([])
+  })
+})
+
+// 🔴 **示例即断言。** 申万代码全 31 个都是 801xxx.SWI（sectorId=2000000014 实测 2026-08-30），
+// 821xxx 是**中信**(.CI) 的前缀。此前四处文案把 SWI 讲成 821xxx，两处给的例子
+// `821035.SWI` 在 securities-search 里根本查不到——照抄它拿到的是 total:0 的**静默空表**，
+// 比本地拒绝隐蔽得多（day-kline 与 index-day-kline 都返 0 行且不报错）。
+//
+// ⚠️ 这条必须放在**注册了全部工具**的 integration 层。第一版写在 quote.test.ts 里，那里
+// 只注册行情工具，于是把 ai.ts 的同款错误示例写回去，判据照样全绿（实测）。
+// 判据扫哪些工具，取决于那个 describe 连的是哪个 server —— 别想当然。
+describe("SWI example codes are real", () => {
+  // 🔴 **`README.md` / `CHANGELOG.md` 也在 npm tarball 里**（`package.json#files` 列了它们），
+  // 客户会从功能覆盖表里直接复制代码。复核方就是在这两个文件里又找出两处 `821xxx.SWI`
+  // ——我只扫了工具元数据。守卫的覆盖面要跟着「客户能读到哪些字」走，不是「我改了哪些文件」。
+  //
+  // ⚠️ 例外：**对照说明**（同一行里既写 801 又写 821，在讲「821 是错的」）必须放行，
+  // 否则修复记录本身会把守卫打红。判据是「这一行有没有同时出现 801xxx」，是个启发式：
+  // 若将来有人写出一行既对照又发码的文案，它会漏。真要发码请另起一行。
+  it.each(["README.md", "CHANGELOG.md"])("%s hands out no non-801 申万 code", async (file) => {
+    const text = fs.readFileSync(path.join(process.cwd(), file), "utf8")
+    const offenders = text.split("\n")
+      .map((line, i) => ({ line, no: i + 1 }))
+      .filter(({ line }) => !line.includes("801xxx"))
+      .flatMap(({ line, no }) => (line.match(/\b(?!801)\d{6}\.SWI|\b(?!801)\d{3}xxx\.SWI/g) ?? []).map((m) => `${file}:${no} ${m}`))
+    expect(offenders, `文档里给出了不存在的申万代码：\n  ${offenders.join("\n  ")}`).toEqual([])
+  })
+
+  it("never hands out a non-801 申万 code (821xxx belongs to .CI)", async () => {
+    const client = await makeTestClient(makeMockClient())
+    const { tools } = await client.listTools()
+    expect(tools.length).toBeGreaterThan(90)
+    for (const tool of tools) {
+      const blob = `${tool.description ?? ""}${JSON.stringify(tool.inputSchema)}`
+      const bad = blob.match(/\b(?!801)\d{6}\.SWI|\b(?!801)\d{3}xxx\.SWI/g) ?? []
+      expect(bad, `${tool.name} 给出了不存在的申万代码：${bad.join(" ")}`).toEqual([])
+    }
   })
 })

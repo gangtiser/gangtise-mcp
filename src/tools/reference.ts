@@ -5,6 +5,7 @@ import { normalizeRows } from "../core/normalize.js"
 import { buildToolContent, registerJsonTool, type JsonToolSpec } from "./registry.js"
 import { toolHandler, contentResult } from "./helpers.js"
 import { withBilling } from "./billing.js"
+import { nonEmptyString, enumList } from "./schemas.js"
 
 export const referenceSpecs: JsonToolSpec[] = [
   {
@@ -24,8 +25,7 @@ export const referenceSpecs: JsonToolSpec[] = [
     endpointKey: "reference.institution-search",
     inputSchema: {
       keyword: z.string().trim().min(1, "搜索词不能为空").describe("搜索词：机构名称或简称"),
-      categoryList: z
-        .array(
+      categoryList: enumList(
           z.enum([
             "domesticBroker",
             "foreignInstitution",
@@ -48,8 +48,7 @@ export const referenceSpecs: JsonToolSpec[] = [
     endpointKey: "reference.official-account-search",
     inputSchema: {
       keyword: z.string().trim().min(1, "搜索词不能为空").describe("公众号名称/所属机构/关键字，如 '中信证券' '人民日报'"),
-      category: z
-        .array(z.enum(["listedCompany", "broker", "government", "media"]))
+      category: enumList(z.enum(["listedCompany", "broker", "government", "media"]))
         .optional()
         .describe("分类过滤（可多选）：listedCompany=上市公司 | broker=券商团队 | government=政府官方 | media=媒体；不传=全部（含未分类）"),
       top: z.number().int().min(1).max(10).optional().describe("最大返回条数（默认 10，上限 10），按 matchScore 降序"),
@@ -104,8 +103,7 @@ export const referenceSpecs: JsonToolSpec[] = [
       "按关键词搜索板块 ID（行业/概念/指数成份等分类树节点），返回 sectorId / sectorName / hierarchy（层级路径）/ matchScore。同名板块可能出现在多个层级，用 hierarchy 区分。sectorId 供 gangtise_sector_constituents 使用，与题材 conceptId 是两套 ID，不通用。",
     endpointKey: "reference.sector-search",
     inputSchema: {
-      keyword: z
-        .string()
+      keyword: nonEmptyString
         .optional()
         .describe(
           "搜索词（缺省时返回分类树顶层节点，用于浏览）：板块中文名/简称；拼音首字母仅对概念类板块有效（如 bj=白酒），申万行业/沪深300 等指数类节点请用中文",
@@ -116,10 +114,10 @@ export const referenceSpecs: JsonToolSpec[] = [
   {
     name: "gangtise_sector_constituents",
     description:
-      "查询板块的全量成分股名单（gtsCode / gtsName）。sectorId 必须来自 gangtise_sector_search；返回 0 条通常是误用了题材 conceptId。题材成分股（含分组/重点标记）用 gangtise_concept_securities。申万行业代码全量列表（821xxx.SWI，共 31 个）：sectorId=2000000014（申万一级行业指数，取「指数数据板块」层级的节点；「指数成份类」层级的同名节点返回 0 条）。",
+      "查询板块的全量成分股名单（gtsCode / gtsName）。sectorId 必须来自 gangtise_sector_search；返回 0 条通常是误用了题材 conceptId。题材成分股（含分组/重点标记）用 gangtise_concept_securities。申万行业代码全量列表（801xxx.SWI，共 31 个）：sectorId=2000000014（申万一级行业指数，取「指数数据板块」层级的节点；「指数成份类」层级的同名节点返回 0 条）。",
     endpointKey: "reference.sector-constituents",
     inputSchema: {
-      sectorId: z.string().min(1, "sectorId 不能为空").describe("板块 ID，来自 gangtise_sector_search（必填）"),
+      sectorId: nonEmptyString.describe("板块 ID，来自 gangtise_sector_search（必填）"),
     },
   },
 ]
@@ -131,7 +129,7 @@ export function registerReferenceTools(server: McpServer, client: GangtiseClient
       description: withBilling("gangtise_securities_search", "按关键词搜索证券，支持股票名称、代码（如 600519）、拼音或英文名。返回匹配证券及其 GTS 代码。"),
       inputSchema: {
         keyword: z.string().trim().min(1, "搜索词不能为空").describe("搜索词：股票名称、代码（如 600519）、拼音或英文名"),
-        category: z.array(z.enum(["stock", "dr", "index", "fund"])).optional().describe("按类别筛选：stock=股票 | dr=存托凭证 | index=指数 | fund=基金（不传查所有）"),
+        category: enumList(z.enum(["stock", "dr", "index", "fund"])).optional().describe("按类别筛选：stock=股票 | dr=存托凭证 | index=指数 | fund=基金（不传查所有）"),
         top: z.number().int().min(1).max(10).optional().describe("最大返回条数（默认 10，上限 10）"),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },

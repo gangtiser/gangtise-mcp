@@ -255,113 +255,80 @@ describe("quote market keywords", () => {
   })
 })
 
-// 🔴 The unified day K-line and realtime endpoints answer a 中信行业指数 (.CI) code with
-// 120001「证券代码无效」 even though the code is valid and gangtise_securities_search hands
-// it out as category:"index". Only gangtise_index_day_kline serves .CI. Descriptions that
-// list .CI alongside .SWI as "supported" send the caller to an error whose text blames the
-// code — the exact failure mode the keyword guards exist to prevent.
-describe("industry index routing (.CI vs .SWI)", () => {
+// 🔴 **这一组曾经把一条假事实钉了四版正则。**
+//
+// 旧断言要求三个客户可见面都声明「.CI 本接口不支持，传了会报证券代码无效」，并用越来越
+// 精巧的正则防止有人把它改回「支持」。前提从头到尾没人复验过——2026-08-30 打真接口：
+//   quote.day-kline  821026.CI / 821001.CI / 821011.CI  → 各 total=2，有完整 OHLC
+//   quote.realtime   821026.CI / 821001.CI              → total=2，latestPrice 正常
+//   .CI 与个股混传、与 .SWI 混传                          → 都正常返回
+// 三个端点全都支持 .CI。**护栏越硬，越没人回头问那句话对不对**——这是本组留下的教训。
+//
+// 现在钉的是反向声明：**任何一个面都不许再说 .CI 不受支持**。写法与旧版对称——钉声明
+// 不钉措辞：要把那句话放回去，必须写出一个「.CI + 否定」的断言，一写就红。
+describe("industry index routing (.CI / .SWI)", () => {
   // 按**面**取，不要把 description 和 inputSchema 拼成一个串再断言：拼串只要求「两个面
-  // 里至少一个还带着这句声明」，于是「只翻转主描述、参数描述不动」这种局部编辑照样全绿，
-  // 留下一份自相矛盾的描述（主描述说可传、参数描述说不支持）。
+  // 里至少一个干净」，于是「只改主描述、参数描述不动」这种局部编辑照样全绿。
   const surfaces = async (name: string) => {
     const mcp = await connect(makeMockClient())
     const tool = (await mcp.listTools()).tools.find((t) => t.name === name)!
     const schema = tool.inputSchema as { properties?: Record<string, { description?: string }> }
     return { description: tool.description ?? "", security: schema.properties?.security?.description ?? "" }
   }
-  // 🔴 钉的是**绝对否定**，不是「.CI 附近出现『不支持』」。这条断言被绕过两次，每次都更窄：
-  //   v1 共现（40 字内有「不支持」）→ 「支持 .CI，不支持 B 股」全绿
-  //   v2 紧邻（.CI 后面就是「不支持」）→ 「.CI 不支持**与个股混传**」全绿
-  // 两次的整句都在告诉模型「.CI 可以传」，而它无条件返 120001。
-  //
-  // 抓形态而不是抓关键词（不去猜「混传」「与个股」这类词）：
-  //   **绝对否定后面是句读，部分否定后面是宾语。**
-  // 所以要求那个「不支持」处在小句末尾——允许 markdown 标记与右括号，后面必须是标点或行尾。
-  // 否定词做成**小闭集**（不支持 / 暂不支持 / 尚不支持），而不是放宽 .CI 与否定之间的间隙——
-  // 放宽间隙会把「此前不支持」这类时间状语一起放进来，一条真回退就此漏网：那是**用一次假红
-  // 换一个真洞**，亏的。「不再支持」有意不进闭集：它字面意思是「曾经支持过」，与「从来不支持」
-  // 是两件事，红一下让人回来看一眼反而是对的。
-  const SAYS_UNSUPPORTED = /\.CI(?:[）)]|[（(][^）)]{0,12}[）)])?\*{0,2}\s*(?:本接口)?\s*(?:暂|尚)?不支持\*{0,2}\s*(?=[，。；、]|$)|不支持[^，。；]{0,12}\.CI\s*[）)]?\s*(?=[，。；、]|$)/m
-  // 否定后顾不可少：「不支持中信行业指数 .CI」里的「支持」不是肯定式，
-  // 漏了它会把合法的改写（把否定提到句首）误判成回退。
-  const SAYS_SUPPORTED = /(?<!不)支持[^，。；不]{0,12}\.CI/
 
-  // 🔴 这两条正则改到第四版了，每一版都是在「假绿」和「假红」之间挪，而挪的方向对不对
-  // **只能靠一张对照表判**——下面就是那张表。没有它的时候，一次「泛化以修掉误判」的改动
-  // 当场就把一条真回退放了进来，而全套测试照样绿。
-  // 改这两条正则时先跑这一段：**回退必红 + 合法改写必绿**，两个方向缺一不可。
-  const says = (text: string) => SAYS_UNSUPPORTED.test(text) && !SAYS_SUPPORTED.test(text)
+  // 🔴 **只钉否定闭集是不够的** —— 复核方用「本接口无法查询中信行业指数 .CI」一句就穿过去了，
+  // 11 条路由测试全绿。任何否定词表都是开放集合，这是第二次在同一处栽同一个跟头
+  // （上一版是钉「必须说不支持」，这一版是钉「不许说不支持」，方向反了、性质一样）。
+  //
+  // 所以判据做成**两条并列**，缺一不可：
+  //   ① 否定闭集扩到「不支持 / 不受支持 / 无法查询 / 不能传 / 会拒绝」，捞明显的回退；
+  //   ② **正向声明必须在场** —— 每个面都得把 `.CI` 列进可传集合。要把它改回"不支持"，
+  //      就必须先把这句正向声明删掉，一删 ② 就红。②才是真正钉住"声明"的那一条，
+  //      ① 只是让常见回退早点红。
+  const DENIES_CI =
+    /\.CI(?:[）)]|[（(][^）)]{0,12}[）)])?\*{0,2}\s*(?:本接口)?\s*(?:暂|尚)?(?:不(?:支持|受支持|能传)|无法(?:查询|支持)|会被?拒绝)|(?:不(?:支持|受支持)|无法查询)[^，。；]{0,12}\.CI/
+  /** 正向声明：`.CI` 出现在「可传/支持」的语境里。当前文案把它列进后缀集合。 */
+  // 三种在用的正向写法各一条；新增写法要显式加进来（那是一次有意识的动作，正是判据要的）。
+  const LISTS_CI_AS_USABLE = /\.CI（821xxx\.CI）|中信行业指数（\.CI）|支持[^。；]{0,20}\.CI\/\.SWI/
+
   it.each([
-    // —— 合法改写：意思不变、说法不同，必须放行 ——
-    // （「现行」那两条不写在这张表里，见下面单独一条——手打的样本会与线上文案脱节）
-    ["否定提到句首", "⚠️ 本接口不支持中信行业指数 .CI，传了会报「证券代码无效」", true],
-    ["暂不支持", "⚠️ 中信行业指数（.CI）本接口暂不支持，传了会报…", true],
-    ["尚不支持", "⚠️ 中信行业指数（.CI）本接口尚不支持，传了会报…", true],
-    ["括注放在代码后", "⚠️ **.CI（中信行业指数）**本接口不支持，传了会报…", true],
-    ["括注 + 暂不支持", "⚠️ **.CI（中信行业指数）**本接口暂不支持，传了会报…", true],
-    // —— 语义回退：整句在告诉模型「.CI 可以传」，必须拦下 ——
-    ["回退：说成支持", "⚠️ 本接口支持中信行业指数 .CI，不支持 B 股（如 900938.SH）——请用…", false],
-    ["回退：只否定某种用法", "⚠️ 中信行业指数 .CI 不支持与个股混传，单独一批查询即可；", false],
-    ["回退：时间状语翻转", "⚠️ 中信行业指数 .CI 此前不支持，现已可以直接传。", false],
-    ["回退：限制已取消", "⚠️ 中信行业指数 .CI 的限制已取消，可直接传。", false],
-    ["回退：整句删掉", "⚠️ 查全部沪深京交易所指数请用 gangtise_index_day_kline。", false],
-  ])("regex verdict — %s", (_label, text, expected) => {
-    expect(says(text as string)).toBe(expected)
+    ["gangtise_day_kline", "description"],
+    ["gangtise_day_kline", "security"],
+    ["gangtise_realtime", "security"],
+    ["gangtise_index_day_kline", "description"],
+  ] as Array<[string, "description" | "security"]>)(
+    "%s.%s states .CI is usable and never denies it",
+    async (name, face) => {
+      const text = (await surfaces(name))[face]
+      expect(DENIES_CI.test(text), `该面又把 .CI 说成不可用：${text.slice(0, 140)}`).toBe(false)
+      expect(LISTS_CI_AS_USABLE.test(text), `该面没有把 .CI 列进可传集合（正向声明被删了？）：${text.slice(0, 140)}`).toBe(true)
+    },
+  )
+
+  // 正则的对照表：回退必红 + 合法改写必绿，两个方向缺一不可（沿用旧组的方法，换了方向）。
+  it.each([
+    ["回退：绝对否定", "⚠️ **中信行业指数（.CI）本接口不支持**，传了会报「证券代码无效」", true],
+    ["回退：否定提到句首", "⚠️ 本接口不支持中信行业指数 .CI，请改用 gangtise_index_day_kline", true],
+    ["回退：暂不支持", "⚠️ 中信行业指数（.CI）本接口暂不支持", true],
+    ["回退：不受支持", "⚠️ 中信行业指数 .CI 不受支持", true],
+    // 复核方实测穿透的那句，必须红
+    ["回退：无法查询", "⚠️ 本接口无法查询中信行业指数 .CI，请改用 gangtise_index_day_kline", true],
+    ["回退：不能传", "⚠️ 中信行业指数 .CI 不能传", true],
+    ["回退：会拒绝", "⚠️ 中信行业指数 .CI 会被拒绝", true],
+    ["合法：说明字段差异", "本接口查指数只返代码、不返 securityName；.CI 与 .SWI 都可直接传", false],
+    ["合法：列进支持集合", "交易所指数 .SH/.SZ/.BJ、概念指数 .GT、申万 .SWI、中信 .CI，可混传", false],
+  ])("regex verdict — %s", (_l, text, expected) => {
+    expect(DENIES_CI.test(text as string)).toBe(expected)
   })
 
-  // 🔴 规则在上面那张表的注释里：**手打的近似真串不进这张表。**
-  // 2026-08-16 就是这么栽的——表里混进一条去掉了粗体的「现行文案」
-  // （`.CI（中信行业指数）本接口不支持`，而线上那句是 `**.CI（…）**本接口不支持`），
-  // 于是在简化过的串上验出「全部符合预期」，真串仍然被误判。
-  //
-  // ⚠️ 这条用例本身**不提供额外覆盖**：它是下面 `BOTH surfaces` / realtime 两条的严格子集
-  // （那两条一直就是运行时读真实 description / inputSchema 的，还多断言了替代路由）。
-  // 实测：删掉本条再做语义回退变异，`BOTH surfaces` 照样红。留着它只是让「现行文案自己
-  // 必须判 GREEN」这个意图独立可见，**别把「运行时取真串」这个保证记在它头上**——那个
-  // 保证在它之前就有了，真正修掉问题的是把手打样本从表里删除。
-  it("the live wording itself is judged GREEN on both surfaces", async () => {
-    const { description, security } = await surfaces("gangtise_day_kline")
-    expect(says(description)).toBe(true)
-    expect(says(security)).toBe(true)
-    const rt = await surfaces("gangtise_realtime")
-    expect(says(rt.security)).toBe(true)
-  })
-
-  // known-gap：绝对否定小句完整保留、下一小句翻转，能穿过去。挡它要看整句而不是小句，
-  // 代价远大于收益，而这种写法本身很别扭。记在这里，别当成没发现。
-  it("known gap: a following clause can reverse it", () => {
-    expect(says("⚠️ 中信行业指数 .CI 不支持，这条限制已解除，现在可以直接传。")).toBe(true)
-  })
-
-  // 🔴 断言必须是**正向**的（「说了 .CI 不支持」），不能写成否定当前措辞
-  // （`not.toContain(".CI/.SWI")` 之类）。否定措辞只挡得住「把旧字符串抄回来」，挡不住
-  // 有人换个自然说法把 .CI 说回支持——实测那样改动全套测试照样绿。正向断言反过来：
-  // 要重新声明支持，就必须先删掉这句话，一删就红。钉的是**声明**，不是措辞。
-  // day-kline 两个面都带着这句声明，所以两个面各钉一条：翻转任意一个都必红。
-  it("gangtise_day_kline states .CI is unsupported on BOTH surfaces", async () => {
-    const { description, security } = await surfaces("gangtise_day_kline")
-    expect(description).toMatch(SAYS_UNSUPPORTED)
-    expect(security).toMatch(SAYS_UNSUPPORTED)
-    expect(description).not.toMatch(SAYS_SUPPORTED)
-    expect(security).not.toMatch(SAYS_SUPPORTED)
-    // 光说「不支持」不够——必须点名替代路由，否则模型只知道此路不通、不知道去哪查。
-    expect(description).toContain("gangtise_index_day_kline")
-  })
-
-  // realtime 的声明只住在 security 参数描述里（模型正是在那里读该传什么代码），
-  // 所以只钉那一个面——对着 description 断言会要求它重复一遍同样的话。
-  it("gangtise_realtime states .CI is unsupported on its security param", async () => {
-    const { security } = await surfaces("gangtise_realtime")
-    expect(security).toMatch(SAYS_UNSUPPORTED)
-    expect(security).not.toMatch(SAYS_SUPPORTED)
-    expect(security).toContain("gangtise_index_day_kline")
-  })
-
-  it("gangtise_index_day_kline claims .CI as a reason it is kept", async () => {
+  // 指数工具的**真实**独有理由（实测：day-kline 查 821026.CI 不返 securityName）。
+  // 撤掉一条假理由后，剩下的真理由必须还在，否则模型会以为这个工具没用了。
+  it("index_day_kline still states its real reasons to exist", async () => {
     const { description } = await surfaces("gangtise_index_day_kline")
-    expect(description).toContain(".CI")
+    expect(description).toContain("securityName")
+    expect(description).toContain("全部交易所指数")
   })
+
 })
 
 // Shard sizes are a numeric choice with no other guard: revert one and every other

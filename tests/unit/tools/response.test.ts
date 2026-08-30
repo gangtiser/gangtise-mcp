@@ -6,9 +6,9 @@ import { describe, it, expect } from "vitest"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
-import { registerResponseTools, TEXT_CHUNK_CHARS, pageNote } from "../../../src/tools/response.js"
+import { registerResponseTools, TEXT_CHUNK_CHARS, pageNote, fitByBytes, spillReadCount, resetSpillReadCount } from "../../../src/tools/response.js"
 import { buildToolContent } from "../../../src/tools/registry.js"
-import { createManagedTempDir } from "../../../src/core/tempCleanup.js"
+import { createManagedTempDir, resetOwnedTempDirs, MAX_OWNED_TEMP_DIRS } from "../../../src/core/tempCleanup.js"
 import { INLINE_MAX_BYTES } from "../../../src/core/config.js"
 import type { GangtiseClient } from "../../../src/core/client.js"
 
@@ -628,5 +628,303 @@ describe("gangtise_read_response fields projection", () => {
     expect(parsed.next_offset).toBe(15)
     expect(parsed._fields).toBeUndefined()
     await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
+  })
+})
+
+
+// 🔴 `TEXT_CHUNK_CHARS` 按「每个 UTF-16 单元最多 3 字节 UTF-8」推出来，漏了一档：
+// `JSON.stringify` 把控制字符转义成 6 字符的 \uXXXX —— 是那个上界的两倍。默认 64KB
+// 预算下，一段控制字符密集的正文能把单个分片序列化到 10 万字节以上，而 next_offset
+// 仍按字符长度算，客户端按字节截断后续读就错位。
+const ESCAPE_HEAVY = String.fromCharCode(1).repeat(TEXT_CHUNK_CHARS * 3)
+
+describe("read_response chunk stays inside the byte budget for escape-heavy text", () => {
+  it("shrinks a control-character-dense text chunk to fit", async () => {
+    const savedTo = await writeTmpText(ESCAPE_HEAVY)
+    const client = await makeConnectedPair()
+
+    const result = await client.callTool({ name: "gangtise_read_response", arguments: { saved_to: savedTo } })
+    const rawText = (result.content as Array<{ text: string }>)[0].text
+    expect(Buffer.byteLength(rawText, "utf8")).toBeLessThanOrEqual(INLINE_MAX_BYTES)
+
+    const parsed = JSON.parse(rawText)
+    // 收敛后 next_offset 必须与实际返回的字符数一致，否则续读错位
+    expect(parsed._returned).toBe((parsed._text as string).length)
+    expect(parsed.next_offset).toBe(parsed._offset + parsed._returned)
+    expect(parsed._returned).toBeLessThan(TEXT_CHUNK_CHARS)
+
+    // 续读能接上
+    const tail = await client.callTool({
+      name: "gangtise_read_response",
+      arguments: { saved_to: savedTo, offset: parsed.next_offset as number },
+    })
+    const tailText = (tail.content as Array<{ text: string }>)[0].text
+    expect(JSON.parse(tailText)._offset).toBe(parsed.next_offset)
+    expect(Buffer.byteLength(tailText, "utf8")).toBeLessThanOrEqual(INLINE_MAX_BYTES)
+
+    await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
+  })
+
+  it("shrinks an escape-heavy large-object chunk too", async () => {
+    const savedTo = await writeTmpJson({ blob: ESCAPE_HEAVY })
+    const client = await makeConnectedPair()
+    const result = await client.callTool({ name: "gangtise_read_response", arguments: { saved_to: savedTo } })
+    const rawText = (result.content as Array<{ text: string }>)[0].text
+    expect(Buffer.byteLength(rawText, "utf8")).toBeLessThanOrEqual(INLINE_MAX_BYTES)
+    const parsed = JSON.parse(rawText)
+    expect(parsed._returned).toBe((parsed._json_chunk as string).length)
+    expect(parsed.next_offset).toBe(parsed._offset + parsed._returned)
+    await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
+  })
+})
+
+// 溢出指针里的 has_more 是调用方决定要不要回读的唯一依据。非列表大对象此前写
+// `has_more: false`，与同一条里的 `_truncated: true` / `_read_with` 直接矛盾 ——
+// 调用方就此停手，整份载荷丢在盘上。
+describe("non-list spill pointer advertises that there IS more to read", () => {
+  it("sets has_more true and next_offset 0 on a metadata-only pointer", async () => {
+    const content = await buildToolContent({ report: "数".repeat(200_000), meta: { ok: true } })
+    const pointer = JSON.parse(content[0].text)
+
+    expect(pointer._truncated).toBe(true)
+    expect(pointer._read_with).toBe("gangtise_read_response")
+    expect(pointer.has_more).toBe(true)
+    expect(pointer.next_offset).toBe(0)
+
+    // 而且照着这个 next_offset 回读确实拿得到内容
+    const client = await makeConnectedPair()
+    const result = await client.callTool({
+      name: "gangtise_read_response",
+      arguments: { saved_to: pointer._saved_to as string, offset: pointer.next_offset as number },
+    })
+    expect(result.isError).toBeFalsy()
+    expect(typeof JSON.parse((result.content as Array<{ text: string }>)[0].text)._json_chunk).toBe("string")
+
+    await fs.rm(path.dirname(pointer._saved_to as string), { recursive: true, force: true })
+  })
+})
+
+// 翻页每次都整份读盘 + 整份 JSON.parse，是 O(文件大小 × 页数)。加了单条解析缓存后，
+// 正确性必须不变：同一文件连续翻页要拿到正确的分页，文件被改写后要重新解析。
+describe("read_response parse cache preserves correctness", () => {
+  it("returns correct pages across repeated reads of the same file", async () => {
+    const savedTo = await writeTmpJson({ list: Array.from({ length: 300 }, (_, i) => ({ i })) })
+    const client = await makeConnectedPair()
+
+    const page = async (offset: number) =>
+      parseText(await client.callTool({ name: "gangtise_read_response", arguments: { saved_to: savedTo, offset, limit: 50 } }))
+
+    const p0 = await page(0)
+    const p1 = await page(50)
+    const p0again = await page(0)
+
+    expect((p0.list as Array<{ i: number }>)[0].i).toBe(0)
+    expect((p1.list as Array<{ i: number }>)[0].i).toBe(50)
+    expect(p0again).toEqual(p0)
+    expect(p0.next_offset).toBe(50)
+
+    await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
+  })
+
+  it("re-parses after the file is rewritten instead of serving stale content", async () => {
+    const savedTo = await writeTmpJson({ list: [{ v: "before" }] })
+    const client = await makeConnectedPair()
+    const read = async () => parseText(await client.callTool({ name: "gangtise_read_response", arguments: { saved_to: savedTo } }))
+
+    expect((await read()).list).toEqual([{ v: "before" }])
+    // 改写并确保 mtime/size 变化
+    await new Promise((r) => setTimeout(r, 10))
+    await fs.writeFile(savedTo, JSON.stringify({ list: [{ v: "after-rewrite-longer" }] }), "utf8")
+    expect((await read()).list).toEqual([{ v: "after-rewrite-longer" }])
+
+    await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
+  })
+})
+
+
+// 🔴 折半收敛的**下界**：分片必须严格前进。`alignSliceEnd` 会把落在代理对中间的 end
+// 往回拨一格；折到只剩一两个字符、而切点处正好是代理对前半时，它会把 end 拨回 start ——
+// 分片为空、next_offset 原地不动，调用方在同一个 offset 上无限翻页。
+//
+// ⚠️ 这一组**必须直接驱动 fitByBytes**。第一版是通过工具喂特制正文写的，跑起来全绿，
+// 但把下界钳制去掉之后**照样全绿**——64KB 预算下折半根本压不到下界，那组用例连一次
+// 收敛都没触发。绿而无效比没有更糟。这里用一个恒定超预算的 build 回调把循环逼到底。
+describe("fitByBytes always advances past `start`", () => {
+  const alwaysTooBig = (text: string, start: number) => (end: number) => ({
+    _text: text.slice(start, end),
+    _returned: end - start,
+    next_offset: end,
+    _pad: "x".repeat(INLINE_MAX_BYTES * 2), // 恒定超预算 → 一路折到下界
+  })
+
+  it("returns a non-empty slice even when every candidate blows the budget", () => {
+    for (const text of ["\u{1F600}".repeat(40), "abc".repeat(40), "\u{1F600}a\u{1F600}b"]) {
+      for (const start of [0, 1, 2, 3]) {
+        if (start >= text.length) continue
+        const out = fitByBytes(text, start, 16, alwaysTooBig(text, start))
+        expect(out._returned as number, `text=${JSON.stringify(text.slice(0, 6))} start=${start} 返回了空分片`).toBeGreaterThan(0)
+        expect(out.next_offset as number, `start=${start} next_offset 没有前进`).toBeGreaterThan(start)
+      }
+    }
+  })
+
+  it("never splits a surrogate pair while advancing", () => {
+    const text = "\u{1F600}".repeat(40)
+    const out = fitByBytes(text, 0, 16, alwaysTooBig(text, 0))
+    // 代理对是 2 个 UTF-16 单元：要么整对取走，要么不取
+    expect((out._returned as number) % 2).toBe(0)
+    expect(JSON.stringify(out._text)).not.toContain("\\ud83d\"")
+  })
+
+  it("stays within budget when a normal-sized chunk fits", () => {
+    const text = "数".repeat(1000)
+    const out = fitByBytes(text, 0, 100, (end) => ({ _text: text.slice(0, end), _returned: end, next_offset: end }))
+    expect(out._returned).toBe(100)
+  })
+})
+
+
+
+// 🔴 端到端：**回读本身**必须把溢出目录移到 LRU 的 MRU 端。
+// tempCleanup 那边测的是 `touchOwnedTempDir` 这个函数；这里测的是 read_response 有没有
+// 真的调它 —— 少了这一条，把 response.ts 里那行删掉，函数级测试照样全绿（实测）。
+//
+// ⚠️ 场景要排对：「先读一次、再产生 200 份新溢出」**并不能**让它活下来 —— LRU 下它照样
+// 是最久未用的那个。真正区分 LRU 与 FIFO 的是：**它和另一份同期创建、但从没被读过的目录，
+// 谁先被淘汰。** 第一版没排对，两种实现都绿。
+describe("reading a spill keeps it alive against the in-session cap", () => {
+  it("evicts a never-read sibling before the one that was paged", async () => {
+    resetOwnedTempDirs()
+    const savedTo = await writeTmpJson({ list: Array.from({ length: 300 }, (_, i) => ({ i })) })
+    const neverRead = await createManagedTempDir()      // 同期创建、从不回读
+    const client = await makeConnectedPair()
+
+    // 回读第一页 —— 这一步应当把 savedTo 的目录移到 MRU 端
+    const first = await client.callTool({
+      name: "gangtise_read_response",
+      arguments: { saved_to: savedTo, offset: 0, limit: 50 },
+    })
+    expect(first.isError).toBeFalsy()
+
+    // 补到刚好超出上限 1 个：只淘汰一份，才看得出淘汰的是哪一份
+    // 🔴 收集起来，最后逐个删——不然每跑一次就在系统临时目录留下 199 个 gangtise-mcp-*
+    const spills: string[] = []
+    for (let i = 0; i < MAX_OWNED_TEMP_DIRS - 1; i += 1) spills.push(await createManagedTempDir())
+
+    // 没被读过的那份先走
+    await expect(fs.stat(neverRead)).rejects.toThrow()
+    // 翻过页的那份还能续读
+    const second = await client.callTool({
+      name: "gangtise_read_response",
+      arguments: { saved_to: savedTo, offset: 50, limit: 50 },
+    })
+    expect(second.isError, `续读失败了：${(second.content as Array<{ text: string }>)[0]?.text}`).toBeFalsy()
+    expect((parseText(second).list as Array<{ i: number }>)[0].i).toBe(50)
+
+    for (const d of spills) await fs.rm(d, { recursive: true, force: true })
+    await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
+  })
+})
+
+// 🔴 缓存必须断言 **I/O 次数**，不能只断言输出相同。
+// 只验输出的话，把 cache-hit 那行删掉输出完全一致，全套测试照样绿（实测 45/45）——
+// 一次重构就能把优化静默撤掉。JSON 与纯文本两条路都要覆盖：纯文本此前没进缓存，
+// 而 CHANGELOG 却宣称「不再每页重读整个文件」，说法与实现对不上。
+describe("spill reads are actually deduplicated (I/O, not just output)", () => {
+  it.each([
+    ["JSON", async () => writeTmpJson({ list: Array.from({ length: 300 }, (_, i) => ({ i })) })],
+    ["纯文本", async () => writeTmpText("上下文".repeat(60_000))],
+  ])("%s: paging the same file reads it from disk exactly once", async (_label, make) => {
+    const savedTo = await make()
+    const client = await makeConnectedPair()
+    resetSpillReadCount()
+
+    await client.callTool({ name: "gangtise_read_response", arguments: { saved_to: savedTo, offset: 0 } })
+    const afterFirst = spillReadCount
+    await client.callTool({ name: "gangtise_read_response", arguments: { saved_to: savedTo, offset: 1 } })
+    await client.callTool({ name: "gangtise_read_response", arguments: { saved_to: savedTo, offset: 2 } })
+
+    expect(afterFirst, "第一次读必须真的读盘").toBe(1)
+    expect(spillReadCount, "同一个文件的后续页不应再读盘").toBe(1)
+
+    await fs.rm(path.dirname(savedTo), { recursive: true, force: true })
+  })
+})
+
+// 🔴 回读页会带上源响应的顶层元数据。诊断数组（每失败一页一条）多时，光元数据就能把
+// 单页顶过字节预算 —— 而这些键没有分页语义，直接截断是静默丢数据。所以走采样：留下
+// `_..._sampled: {shown, total}` 让读者看得出清单不全，完整版在溢出文件里。
+describe("回读页对诊断元数据采样而不是静默截断", () => {
+  it("samples _failed_pages on every page and says how many were dropped", async () => {
+    const dir = await createManagedTempDir()
+    try {
+      const saved = path.join(dir, "response.json")
+      await fs.writeFile(saved, JSON.stringify({
+        list: Array.from({ length: 40 }, (_, i) => ({ id: i, v: "x".repeat(200) })),
+        _partial: true,
+        _failed_pages: Array.from({ length: 900 }, (_, i) => ({ from: i * 50, size: 50, reason: "y".repeat(120) })),
+      }))
+
+      const client = await makeConnectedPair()
+      const result = await client.callTool({ name: "gangtise_read_response", arguments: { saved_to: saved, limit: 5 } })
+      const page = JSON.parse((result.content as { text: string }[])[0].text)
+
+      expect(Buffer.byteLength(JSON.stringify(page), "utf8"), "回读页超出字节预算").toBeLessThanOrEqual(65536)
+      expect(page._failed_pages.length, "诊断数组没有被采样").toBeLessThan(900)
+      expect(page._failed_pages_sampled, "采样了却没标注，读者看不出清单不全").toMatchObject({ total: 900 })
+      expect(page._partial, "采样不该动其他元数据").toBe(true)
+      expect(page._saved_to).toBe(saved)
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+// 🔴 采样与预算必须同源。两条各自会错的边：
+describe("回读页：采样与行预算用同一份 rest", () => {
+  it("fills the requested rows instead of budgeting against a rest it never sends", async () => {
+    const dir = await createManagedTempDir()
+    try {
+      const saved = path.join(dir, "response.json")
+      await fs.writeFile(saved, JSON.stringify({
+        list: Array.from({ length: 40 }, (_, i) => ({ id: i, v: "x".repeat(200) })),
+        _failed_pages: Array.from({ length: 900 }, (_, i) => ({ from: i * 50, size: 50, reason: "y".repeat(120) })),
+      }))
+      const client = await makeConnectedPair()
+      const result = await client.callTool({ name: "gangtise_read_response", arguments: { saved_to: saved, limit: 5 } })
+      const page = JSON.parse((result.content as { text: string }[])[0].text)
+
+      // 拿未采样的胖 rest 算预算时，这里只装得下 1 行 —— 而实到载荷才 1.4KB。
+      expect(page._returned, "行预算被一份根本不会发出去的 rest 吃掉了").toBe(5)
+      expect(Buffer.byteLength(JSON.stringify(page), "utf8")).toBeLessThanOrEqual(65536)
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("samples when rest alone fits but rest + envelope does not", async () => {
+    const dir = await createManagedTempDir()
+    try {
+      const saved = path.join(dir, "response.json")
+      // 让 _failed_pages 把 rest 顶到「自己没超、加上信封就超」那条缝里。
+      const entry = (i: number) => ({ from: i, reason: "z".repeat(60) })
+      let n = 1
+      while (Buffer.byteLength(JSON.stringify({ _failed_pages: Array.from({ length: n }, (_, i) => entry(i)) }), "utf8") < 65000) n += 1
+      await fs.writeFile(saved, JSON.stringify({
+        list: [{ id: 1 }],
+        _failed_pages: Array.from({ length: n }, (_, i) => entry(i)),
+      }))
+      const client = await makeConnectedPair()
+      const result = await client.callTool({ name: "gangtise_read_response", arguments: { saved_to: saved, limit: 1 } })
+      const page = JSON.parse((result.content as { text: string }[])[0].text)
+
+      expect(page._failed_pages_sampled, "rest 自己没超就不采样，于是只落一个 _oversized").toBeDefined()
+      expect(page._failed_pages_sampled.total).toBe(n)
+      expect(page._oversized, "采样生效后不该还标 _oversized").toBeUndefined()
+      expect(Buffer.byteLength(JSON.stringify(page), "utf8")).toBeLessThanOrEqual(65536)
+      expect(page._returned).toBe(1)
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true })
+    }
   })
 })

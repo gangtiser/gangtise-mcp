@@ -1,8 +1,26 @@
-import { Agent, type Dispatcher } from "undici"
+import { Agent, interceptors, type Dispatcher } from "undici"
 
 import { ApiError } from "./errors.js"
 
 let cachedDispatcher: Dispatcher | null = null
+
+let cachedDownloadDispatcher: Dispatcher | null = null
+
+/** 下载族专用：在共享的连接池上叠一层 redirect 拦截器。
+ *
+ * 🔴 只给下载开，不给 JSON 开：JSON 端点不应该重定向，那里出现 30x 是异常信号，
+ * 静默跟随会把它藏起来。下载则相反 —— 对象存储的签名 URL 常用 30x，不跟随时客户端会把
+ * redirect body 当成正常文本结果交出去：既拿不到文件，报错也不指向真因。
+ *
+ * ✅ 令牌安全性已实测（2026-08-30）：undici 在**跨源**跳转时会剥掉 `Authorization`，
+ * 所以令牌不会跟到对象存储的域名上；同源跳转才保留。不需要自己拆头。
+ * 跳数 3，与 gangtise CLI 一致。 */
+export function getDownloadDispatcher(): Dispatcher {
+  if (!cachedDownloadDispatcher) {
+    cachedDownloadDispatcher = getDispatcher().compose(interceptors.redirect({ maxRedirections: 3 }))
+  }
+  return cachedDownloadDispatcher
+}
 
 export function getDispatcher(): Dispatcher {
   if (!cachedDispatcher) {
@@ -181,11 +199,7 @@ export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions =
   }
 }
 
-let verboseEnabled = process.env.GANGTISE_VERBOSE === "1" || process.env.GANGTISE_VERBOSE === "true"
-
-export function setVerbose(value: boolean): void {
-  verboseEnabled = value
-}
+const verboseEnabled = process.env.GANGTISE_VERBOSE === "1" || process.env.GANGTISE_VERBOSE === "true"
 
 export function isVerbose(): boolean {
   return verboseEnabled

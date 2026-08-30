@@ -4,8 +4,8 @@ import type { GangtiseClient } from "../core/client.js"
 import { registerJsonTool, registerDownloadTool, buildToolContent, type JsonToolSpec, type DownloadToolSpec } from "./registry.js"
 import { toolHandler, contentResult } from "./helpers.js"
 import { normalizeRows } from "../core/normalize.js"
-import { intLiteralEnum } from "./schemas.js"
-import { dateTimeDesc, dateTimeString } from "../core/dateContext.js"
+import { intLiteralEnum, nonEmptyString, nonEmptyList, enumList } from "./schemas.js"
+import { dateTimeString } from "../core/dateContext.js"
 
 export const listSpecs: JsonToolSpec[] = [
   {
@@ -15,11 +15,11 @@ export const listSpecs: JsonToolSpec[] = [
     paginated: true,
     inputSchema: {
       from: z.number().int().min(0).optional(),
-      keyword: z.string().optional(),
-      fileTypeList: z.array(intLiteralEnum([1, 2, 3, 4, 5])).optional().describe("1=文档 | 2=图片 | 3=视频 | 4=公众号 | 5=其他"),
-      spaceTypeList: z.array(intLiteralEnum([1, 2])).optional().describe("1=个人空间 | 2=企业空间"),
-      startTime: dateTimeString.optional().describe(dateTimeDesc()),
-      endTime: dateTimeString.optional().describe(dateTimeDesc()),
+      keyword: nonEmptyString.optional(),
+      fileTypeList: enumList(intLiteralEnum([1, 2, 3, 4, 5])).optional().describe("1=文档 | 2=图片 | 3=视频 | 4=公众号 | 5=其他"),
+      spaceTypeList: enumList(intLiteralEnum([1, 2])).optional().describe("1=个人空间 | 2=企业空间"),
+      startTime: dateTimeString.optional(),
+      endTime: dateTimeString.optional(),
     },
   },
   {
@@ -29,11 +29,11 @@ export const listSpecs: JsonToolSpec[] = [
     paginated: true,
     inputSchema: {
       from: z.number().int().min(0).optional(),
-      keyword: z.string().optional(),
-      categoryList: z.array(z.enum(["upload", "link", "mobile", "gtNote", "pc", "share"])).optional().describe("upload=上传 | link=链接 | mobile=移动端 | gtNote=GT笔记 | pc=PC端 | share=分享"),
-      spaceTypeList: z.array(intLiteralEnum([1, 2])).optional().describe("1=个人录音 | 2=企业录音"),
-      startTime: dateTimeString.optional().describe(dateTimeDesc()),
-      endTime: dateTimeString.optional().describe(dateTimeDesc()),
+      keyword: nonEmptyString.optional(),
+      categoryList: enumList(z.enum(["upload", "link", "mobile", "gtNote", "pc", "share"])).optional().describe("upload=上传 | link=链接 | mobile=移动端 | gtNote=GT笔记 | pc=PC端 | share=分享"),
+      spaceTypeList: enumList(intLiteralEnum([1, 2])).optional().describe("1=个人录音 | 2=企业录音"),
+      startTime: dateTimeString.optional(),
+      endTime: dateTimeString.optional(),
     },
   },
   {
@@ -43,14 +43,14 @@ export const listSpecs: JsonToolSpec[] = [
     paginated: true,
     inputSchema: {
       from: z.number().int().min(0).optional(),
-      keyword: z.string().optional(),
-      researchAreaList: z.array(z.string()).optional().describe("研究方向 ID，接受两类码：行业码用 gangtise_constant_list category=citicIndustry（1008001xx，如食品饮料 100800119）；宏观/策略/固收/金工/海外/其他这类方向码用 category=gangtiseIndustry（122000xxx，该 category 只有这 6 条、不含行业）。本端点不支持申万码（104xxxxxx），传了会返 0 条而不报错"),
-      securityList: z.array(z.string()).optional(),
-      institutionList: z.array(z.string()).optional().describe("机构 ID（牵头机构）：用 gangtise_institution_search categoryList=['leadInstitution'] 按名称搜；需全量枚举用 gangtise_lookup type=meeting-orgs"),
-      categoryList: z.array(z.enum(["earningsCall", "strategyMeeting", "fundRoadshow", "shareholdersMeeting", "maMeeting", "specialMeeting", "companyAnalysis", "industryAnalysis", "other"])).optional().describe("earningsCall=业绩会 | strategyMeeting=策略会 | fundRoadshow=路演 | shareholdersMeeting=股东大会 | maMeeting=并购 | specialMeeting=专题会 | companyAnalysis=公司分析 | industryAnalysis=行业分析 | other=其他"),
-      sourceList: z.array(intLiteralEnum([1, 2])).optional().describe("录制来源：1=企微会议助理 | 2=会议服务微信群（可多选，不传返回全部）"),
-      startTime: dateTimeString.optional().describe(dateTimeDesc()),
-      endTime: dateTimeString.optional().describe(dateTimeDesc()),
+      keyword: nonEmptyString.optional(),
+      researchAreaList: nonEmptyList().optional().describe("研究方向 ID，接受两类码：行业码用 gangtise_constant_list category=citicIndustry（1008001xx，如食品饮料 100800119）；宏观/策略/固收/金工/海外/其他这类方向码用 category=gangtiseIndustry（122000xxx，该 category 只有这 6 条、不含行业）。本端点不支持申万码（104xxxxxx），传了会返 0 条而不报错"),
+      securityList: nonEmptyList().optional(),
+      institutionList: nonEmptyList().optional().describe("机构 ID（牵头机构）：用 gangtise_institution_search categoryList=['leadInstitution'] 按名称搜；需全量枚举用 gangtise_lookup type=meeting-orgs"),
+      categoryList: enumList(z.enum(["earningsCall", "strategyMeeting", "fundRoadshow", "shareholdersMeeting", "maMeeting", "specialMeeting", "companyAnalysis", "industryAnalysis", "other"])).optional().describe("earningsCall=业绩会 | strategyMeeting=策略会 | fundRoadshow=路演 | shareholdersMeeting=股东大会 | maMeeting=并购 | specialMeeting=专题会 | companyAnalysis=公司分析 | industryAnalysis=行业分析 | other=其他"),
+      sourceList: enumList(intLiteralEnum([1, 2])).optional().describe("录制来源：1=企微会议助理 | 2=会议服务微信群（可多选，不传返回全部）"),
+      startTime: dateTimeString.optional(),
+      endTime: dateTimeString.optional(),
     },
   },
   {
@@ -60,14 +60,14 @@ export const listSpecs: JsonToolSpec[] = [
     paginated: true,
     inputSchema: {
       from: z.number().int().min(0).optional(),
-      keyword: z.string().optional(),
-      securityList: z.array(z.string()).optional().describe("证券代码列表，如 ['000001.SZ']"),
-      wechatGroupIdList: z.array(z.string()).optional().describe("群 ID，来自 gangtise_wechat_chatroom_list"),
-      industryIdList: z.array(z.string()).optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx）；本端点只认中信码，申万码（104xxxxxx）会被接口拒绝"),
-      categoryList: z.array(z.enum(["text", "image", "documents", "url"])).optional().describe("text=文字 | image=图片 | documents=文件 | url=链接"),
-      tagList: z.array(z.enum(["roadShow", "research", "strategyMeeting", "meetingSummary", "industryComment", "companyComment", "earningsReview"])).optional().describe("roadShow=路演 | research=调研 | strategyMeeting=策略会 | meetingSummary=会议纪要 | industryComment=行业点评 | companyComment=公司点评 | earningsReview=业绩点评"),
-      startTime: dateTimeString.optional().describe(dateTimeDesc()),
-      endTime: dateTimeString.optional().describe(dateTimeDesc()),
+      keyword: nonEmptyString.optional(),
+      securityList: nonEmptyList().optional().describe("证券代码列表，如 ['000001.SZ']"),
+      wechatGroupIdList: nonEmptyList().optional().describe("群 ID，来自 gangtise_wechat_chatroom_list"),
+      industryIdList: nonEmptyList().optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx）；本端点只认中信码，申万码（104xxxxxx）会被接口拒绝"),
+      categoryList: enumList(z.enum(["text", "image", "documents", "url"])).optional().describe("text=文字 | image=图片 | documents=文件 | url=链接"),
+      tagList: enumList(z.enum(["roadShow", "research", "strategyMeeting", "meetingSummary", "industryComment", "companyComment", "earningsReview"])).optional().describe("roadShow=路演 | research=调研 | strategyMeeting=策略会 | meetingSummary=会议纪要 | industryComment=行业点评 | companyComment=公司点评 | earningsReview=业绩点评"),
+      startTime: dateTimeString.optional(),
+      endTime: dateTimeString.optional(),
     },
   },
   {
@@ -85,7 +85,7 @@ export const downloadSpecs: DownloadToolSpec[] = [
     description: "按 fileId 从 Gangtise 云盘下载文件。",
     endpointKey: "vault.drive.download",
     inputSchema: {
-      fileId: z.string().describe("文件 ID，来自 gangtise_drive_list"),
+      fileId: nonEmptyString.describe("文件 ID，来自 gangtise_drive_list"),
     },
   },
   {
@@ -93,7 +93,7 @@ export const downloadSpecs: DownloadToolSpec[] = [
     description: "下载语音录音转写内容，可选原始音频、ASR 文字或 AI 摘要。",
     endpointKey: "vault.record.download",
     inputSchema: {
-      recordId: z.string().describe("录音 ID，来自 gangtise_record_list"),
+      recordId: nonEmptyString.describe("录音 ID，来自 gangtise_record_list"),
       contentType: z.enum(["original", "asr", "summary"]).describe("original=原始音频 | asr=语音转文字 | summary=AI摘要（必填）"),
     },
   },
@@ -102,7 +102,7 @@ export const downloadSpecs: DownloadToolSpec[] = [
     description: "下载会议录音资源，返回 ASR 转写或 AI 摘要。",
     endpointKey: "vault.my-conference.download",
     inputSchema: {
-      conferenceId: z.string().describe("会议 ID，来自 gangtise_my_conference_list"),
+      conferenceId: nonEmptyString.describe("会议 ID，来自 gangtise_my_conference_list"),
       contentType: z.enum(["asr", "summary"]).describe("asr=语音转文字 | summary=AI摘要（必填，不支持原始音频）"),
     },
   },
@@ -123,7 +123,7 @@ export function registerVaultTools(server: McpServer, client: GangtiseClient): v
       inputSchema: {
         from: z.number().int().min(0).optional().describe("起始行偏移（0-based），默认 0"),
         size: z.number().int().min(1).optional().describe("返回总行数上限；省略则拉取全部群"),
-        roomName: z.array(z.string()).optional().describe("按群名称筛选；多个会以逗号拼接发送"),
+        roomName: nonEmptyList().optional().describe("按群名称筛选；多个会以逗号拼接发送"),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
@@ -148,7 +148,7 @@ export function registerVaultTools(server: McpServer, client: GangtiseClient): v
       inputSchema: {
         // Live-tested: upstream returns [] for an empty list instead of the
         // "all pools" default — reject it locally so the model omits the param.
-        poolIdList: z.array(z.string()).min(1, "poolIdList 不能为空数组——查询所有池请省略该参数").optional().describe("池 ID 列表，来自 gangtise_stock_pool_list；不传默认 ['all'] 即所有池"),
+        poolIdList: nonEmptyList().min(1, "poolIdList 不能为空数组——查询所有池请省略该参数").optional().describe("池 ID 列表，来自 gangtise_stock_pool_list；不传默认 ['all'] 即所有池"),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },

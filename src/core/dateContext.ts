@@ -78,9 +78,6 @@ export function dateDesc(): string {
   return "YYYY-MM-DD"
 }
 
-export function dateTimeDesc(): string {
-  return "YYYY-MM-DD HH:mm:ss"
-}
 
 // 三种「年在前」写法，发请求前统一归一成 YYYY-MM-DD。反向引用保证分隔符一致，
 // 所以 "2026-07/01" 这种手误不是日期。

@@ -1155,3 +1155,270 @@ describe("interval-indicator parameter guidance", () => {
     },
   )
 })
+
+
+// 🔴 合并把同一指标的两条参数组拼成一个 `parameters` 数组，于是
+// `[{adjustType:'2'}, {adjustType:'3'}]` 能一路发出去。服务端只认其中一个且不声明是哪
+// 一个 —— 两个取值分别是前复权价和后复权价，同一只票能差出几倍，而返回 200、行列齐全、
+// 数字看着完全正常。口径歧义必须响亮失败。
+describe("EDE duplicate parameter keys", () => {
+  const base = { indicatorCodeList: ["qte_close"], securityCodeList: ["600519.SH"], date: "2026-08-07" }
+
+  it("rejects two different values for the same paramKey on the cross-section", async () => {
+    const mcp = await connect(makeMockClient())
+    const r = await mcp.callTool({
+      name: "gangtise_indicator_cross_section",
+      arguments: {
+        ...base,
+        indicatorParamList: [
+          { indicatorCode: "qte_close", parameters: [{ paramKey: "adjustType", paramValue: "2" }] },
+          { indicatorCode: "qte_close", parameters: [{ paramKey: "adjustType", paramValue: "3" }] },
+        ],
+      },
+    })
+    expect(r.isError).toBe(true)
+    expect((r.content as Array<{ text: string }>)[0].text).toMatch(/adjustType 被赋了两个不同的值/)
+  })
+
+  it("rejects it on the time series too", async () => {
+    const mcp = await connect(makeMockClient())
+    const r = await mcp.callTool({
+      name: "gangtise_indicator_time_series",
+      arguments: {
+        indicatorCodeList: ["qte_close"],
+        securityCodeList: ["600519.SH"],
+        startDate: "2026-08-01",
+        endDate: "2026-08-07",
+        indicatorParamList: [
+          { indicatorCode: "qte_close", parameters: [{ paramKey: "adjustType", paramValue: "2" }] },
+          { indicatorCode: "qte_close", parameters: [{ paramKey: "adjustType", paramValue: "3" }] },
+        ],
+      },
+    })
+    expect(r.isError).toBe(true)
+    expect((r.content as Array<{ text: string }>)[0].text).toMatch(/adjustType 被赋了两个不同的值/)
+  })
+
+  it("rejects it on a screener binding (its own code path, not mergeParamGroups)", async () => {
+    const mcp = await connect(makeMockClient())
+    const r = await mcp.callTool({
+      name: "gangtise_indicator_screener",
+      arguments: {
+        indicatorList: [{
+          field: "F1",
+          indicatorCode: "qte_mkt_cptl",
+          parameters: [{ paramKey: "scale", paramValue: "8" }, { paramKey: "scale", paramValue: "4" }],
+        }],
+        expression: "F1 >= 500",
+        securityCodeList: ["600519.SH"],
+        date: "2026-08-07",
+      },
+    })
+    expect(r.isError).toBe(true)
+    expect((r.content as Array<{ text: string }>)[0].text).toMatch(/scale 被赋了两个不同的值/)
+  })
+
+  it("silently dedupes an IDENTICAL repeat — no ambiguity, and one fewer billed cell", async () => {
+    const client = makeMockClient()
+    const mcp = await connect(client)
+    await mcp.callTool({
+      name: "gangtise_indicator_cross_section",
+      arguments: {
+        ...base,
+        indicatorParamList: [
+          { indicatorCode: "qte_close", parameters: [{ paramKey: "adjustType", paramValue: "2" }] },
+          { indicatorCode: "qte_close", parameters: [{ paramKey: "adjustType", paramValue: "2" }] },
+        ],
+      },
+    })
+    const groups = bodyOf(client).indicatorParamList as Array<{ parameters: Array<{ paramKey: string }> }>
+    expect(groups).toHaveLength(1)
+    expect(groups[0].parameters.filter((p) => p.paramKey === "adjustType")).toHaveLength(1)
+  })
+})
+
+// 重复的证券/指标码让服务端多算一份单元格（EDE 按单元格计费），在宽表里生成重复行/列，
+// 也让 droppedFromMatrix 的请求-响应对比失真。
+describe("EDE code lists are de-duplicated before the request", () => {
+  it("sends each security and indicator once", async () => {
+    const client = makeMockClient()
+    const mcp = await connect(client)
+    await mcp.callTool({
+      name: "gangtise_indicator_cross_section",
+      arguments: {
+        indicatorCodeList: ["qte_close", "qte_close", "finc_pe_ttm"],
+        securityCodeList: ["600519.SH", "600519.SH", "00700.HK"],
+        date: "2026-08-07",
+      },
+    })
+    const body = bodyOf(client)
+    expect(body.indicatorCodeList).toEqual(["qte_close", "finc_pe_ttm"])
+    expect(body.universe).toEqual(["600519.SH", "00700.HK"])
+  })
+
+  it("rejects a blank entry in either code list", async () => {
+    const mcp = await connect(makeMockClient())
+    const r = await mcp.callTool({
+      name: "gangtise_indicator_cross_section",
+      arguments: { indicatorCodeList: ["qte_close"], securityCodeList: ["600519.SH", "  "], date: "2026-08-07" },
+    })
+    expect(r.isError).toBe(true)
+  })
+})
+
+
+// 🔴 顺序有语义：**先去重、再判「多指标 × 多证券」**。
+// 去重后 `2 指标 × ["600519.SH","600519.SH"]` 是「多指标 × 单证券」，本来就合法；
+// 顺序反过来它会被本地拒掉一个能正常出数的查询（真接口实测该请求返回正常宽表）。
+// 跨 session 复核确认行为对，但**把去重挪到判定之后，79/79 照样全绿** —— 补上定向守护。
+describe("dedupe happens BEFORE the multi×multi dimension check", () => {
+  it("accepts 2 indicators × the same security twice, sending one universe entry", async () => {
+    const client = makeMockClient(matrix({
+      dates: ["2026-08-28"],
+      securityCodeList: ["600519.SH"], securityNameList: ["贵州茅台"],
+      indicatorList: [meta("qte_close", "收盘价"), meta("finc_pe_ttm", "市盈率")],
+      values: [[1], [2]],
+    }))
+    const mcp = await connect(client)
+    const r = await mcp.callTool({
+      name: "gangtise_indicator_time_series",
+      arguments: {
+        indicatorCodeList: ["qte_close", "finc_pe_ttm"],
+        securityCodeList: ["600519.SH", "600519.SH"],
+        startDate: "2026-08-28", endDate: "2026-08-28",
+      },
+    })
+    expect(r.isError, "去重后是「多指标 × 单证券」，不该被本地拒绝").toBeFalsy()
+    expect(bodyOf(client).universe).toEqual(["600519.SH"])
+  })
+
+  it("still rejects 2 indicators × two DISTINCT securities", async () => {
+    const mcp = await connect(makeMockClient())
+    const r = await mcp.callTool({
+      name: "gangtise_indicator_time_series",
+      arguments: {
+        indicatorCodeList: ["qte_close", "finc_pe_ttm"],
+        securityCodeList: ["600519.SH", "00700.HK"],
+        startDate: "2026-08-28", endDate: "2026-08-28",
+      },
+    })
+    expect(r.isError).toBe(true)
+    expect((r.content as Array<{ text: string }>)[0].text).toMatch(/不能同时多于 1 个/)
+  })
+})
+
+// EDE 按单元格计价，去重只防重复、防不住笛卡尔积。这是一条**成本策略**（不是数据事实），
+// 算术摊在 MAX_EDE_CELLS 的注释里；⚠️ 它看不见板块展开（sectorId 本地只数 1 个）。
+describe("EDE request-size ceilings", () => {
+  it("rejects a cartesian request past the per-request cell budget", async () => {
+    const mcp = await connect(makeMockClient())
+    const r = await mcp.callTool({
+      name: "gangtise_indicator_cross_section",
+      arguments: {
+        indicatorCodeList: Array.from({ length: 200 }, (_, i) => `ind_${i}`),
+        securityCodeList: Array.from({ length: 600 }, (_, i) => `${600000 + i}.SH`),
+        date: "2026-08-07",
+      },
+    })
+    expect(r.isError).toBe(true)
+    expect((r.content as Array<{ text: string }>)[0].text).toMatch(/单元格，超过单次上限/)
+  })
+
+  it("leaves a normal batch alone (50 指标 × 300 证券 = 1.5 万单元格)", async () => {
+    const client = makeMockClient(matrix({
+      securityCodeList: ["600519.SH"], securityNameList: ["贵州茅台"],
+      indicatorList: [meta("ind_0", "指标")], values: [[1]],
+    }))
+    const mcp = await connect(client)
+    const r = await mcp.callTool({
+      name: "gangtise_indicator_cross_section",
+      arguments: {
+        indicatorCodeList: Array.from({ length: 50 }, (_, i) => `ind_${i}`),
+        securityCodeList: Array.from({ length: 300 }, (_, i) => `${600000 + i}.SH`),
+        date: "2026-08-07",
+      },
+    })
+    expect(r.isError, "正常批量不该被上限碰到").toBeFalsy()
+  })
+
+  it.each([
+    ["indicatorCodeList", { indicatorCodeList: Array.from({ length: 201 }, (_, i) => `i${i}`), securityCodeList: ["600519.SH"], date: "2026-08-07" }],
+    ["securityCodeList", { indicatorCodeList: ["qte_close"], securityCodeList: Array.from({ length: 6001 }, (_, i) => `s${i}.SH`), date: "2026-08-07" }],
+  ])("rejects an oversized %s at the schema boundary", async (_l, args) => {
+    const client = makeMockClient()
+    const mcp = await connect(client)
+    const r = await mcp.callTool({ name: "gangtise_indicator_cross_section", arguments: args })
+    expect(r.isError).toBe(true)
+    expect((client.call as ReturnType<typeof vi.fn>).mock.calls, "超限请求不该发出去").toHaveLength(0)
+  })
+})
+
+// 🔴 时序的计费因子是**三个**：指标数 × 证券数 × 日期数。
+// 前一版闸门只乘前两个，于是「1 指标 × 6000 证券 × 六年」= 1315 万单元格一路放行。
+// 守卫的算术必须和 billing.ts 声称的计费模型逐字对齐 —— 差一个因子就等于没有。
+describe("EDE time-series budget counts the DATE factor", () => {
+  it("rejects 1 indicator x 6000 securities x ~6 years without calling upstream", async () => {
+    const client = makeMockClient()
+    const mcp = await connect(client)
+    const r = await mcp.callTool({
+      name: "gangtise_indicator_time_series",
+      arguments: {
+        indicatorCodeList: ["qte_close"],
+        securityCodeList: Array.from({ length: 6000 }, (_, i) => `${600000 + i}.SH`),
+        startDate: "2020-01-01",
+        endDate: "2026-01-01",
+      },
+    })
+    expect(r.isError, "漏算日期因子 → 1315 万单元格被放行").toBe(true)
+    expect((r.content as Array<{ text: string }>)[0].text).toMatch(/× 2193 天/)
+    expect((client.call as ReturnType<typeof vi.fn>).mock.calls, "超限请求不该发出去").toHaveLength(0)
+  })
+
+  it("allows a realistic series (1 x 50 securities x 1 year)", async () => {
+    const client = makeMockClient(matrix({
+      dates: ["2026-01-02"], securityCodeList: ["600519.SH"], securityNameList: ["贵州茅台"],
+      indicatorList: [meta("qte_close", "收盘价")], values: [[1]],
+    }))
+    const mcp = await connect(client)
+    const r = await mcp.callTool({
+      name: "gangtise_indicator_time_series",
+      arguments: {
+        indicatorCodeList: ["qte_close"],
+        securityCodeList: Array.from({ length: 50 }, (_, i) => `${600000 + i}.SH`),
+        startDate: "2026-01-01", endDate: "2026-12-31",
+      },
+    })
+    expect(r.isError, "50 证券 × 365 天 = 1.8 万单元格，远在上限内").toBeFalsy()
+  })
+
+  it("a long range alone can exceed the budget even with one security", async () => {
+    const mcp = await connect(makeMockClient())
+    const r = await mcp.callTool({
+      name: "gangtise_indicator_time_series",
+      arguments: {
+        indicatorCodeList: Array.from({ length: 150 }, (_, i) => `ind_${i}`),
+        securityCodeList: ["600519.SH"],
+        startDate: "2020-01-01", endDate: "2026-01-01",
+      },
+    })
+    expect(r.isError).toBe(true)
+  })
+})
+
+// 🔴 单次单元格上限是 handler 里的硬拒绝，schema 表达不了（它是三个数组长度的乘积）。
+// 所以只能写进描述让模型提前算 —— 而描述里的数字与常量分居两个文件，改了常量忘改文案
+// 就是对外说了个不成立的上限。这条把两边钉在一起。
+describe("EDE 单次单元格上限对外可见", () => {
+  it("publishes the same cap the handler enforces", async () => {
+    const { readFileSync } = await import("node:fs")
+    const src = readFileSync("src/tools/indicator.ts", "utf8")
+    const cap = Number(src.match(/const MAX_EDE_CELLS = ([\d_]+)/)![1].replace(/_/g, ""))
+    expect(cap).toBe(100_000)
+
+    const { billingSuffix } = await import("../../../src/tools/billing.js")
+    const shown = `单次上限 ${cap / 10_000} 万单元格`
+    for (const t of ["gangtise_indicator_cross_section", "gangtise_indicator_time_series", "gangtise_indicator_screener"]) {
+      expect(billingSuffix(t), `${t} 的描述没有公布 handler 实际执行的单元格上限`).toContain(shown)
+    }
+  })
+})

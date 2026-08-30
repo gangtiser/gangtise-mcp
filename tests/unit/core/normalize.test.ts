@@ -87,3 +87,30 @@ describe("normalizeRows", () => {
     expect(normalizeRows({ constants: null })).toEqual([])
   })
 })
+
+describe("normalizeRows: caller-controlled field names and shape drift", () => {
+  // `fieldList` 是调用方可控的。普通对象字面量上 `acc["__proto__"] = v` 走原型 setter：
+  // 值是非对象时整格**静默消失**（该列在输出里根本不存在）。用无原型对象后它只是普通属性。
+  it("keeps a __proto__ column as ordinary data instead of silently dropping it", () => {
+    const out = normalizeRows({
+      fieldList: ["securityCode", "__proto__"],
+      list: [["600519.SH", "value-not-lost"]],
+    }) as unknown[]
+    const row = out[0] as Record<string, unknown>
+    expect(Object.hasOwn(row, "__proto__")).toBe(true)
+    expect(row["__proto__"]).toBe("value-not-lost")
+    expect(Object.getPrototypeOf(row)).toBeNull()
+  })
+
+  it("treats constants: null as a legitimate empty list", () => {
+    expect(normalizeRows({ constants: null, category: "citicIndustry" }))
+      .toEqual({ category: "citicIndustry", list: [] })
+  })
+
+  // 🔴 其他非数组是形状漂移，不是「这个分类下没有常量」。旧写法一律折成 []，
+  // 于是一次返回结构变更会伪装成空码表，调用方拿它去解析行业 ID 只会得出「查不到」。
+  it("fails loudly when constants is a non-array, non-null shape", () => {
+    expect(() => normalizeRows({ constants: { a: 1 } })).toThrow(/constants 不是数组/)
+    expect(() => normalizeRows({ constants: "oops" })).toThrow(/constants 不是数组/)
+  })
+})

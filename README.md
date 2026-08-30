@@ -4,16 +4,17 @@
 
 ## Changelog
 
-README 仅列最近 5 个版本摘要：
+README 仅列最近 5 个版本的一行摘要，完整明细见 [CHANGELOG.md](CHANGELOG.md)：
 
-- **0.2.3 — 2026-08-30**：同步 CLI v0.37.0，并撤除四类已不再成立的参数警示——外资观点/独立观点的 `industryList`（只认申万码）与 `gangtise_foreign_opinion_list` 的 `regionList`（收 6 个取值）恢复可用；三个观点端点的 `total` 变回真实计数，封顶警告撤除；EDE 取不到数时的占位值统一为 `null`（「个别指标填 0」那一档撤除，时序占位行数不变与选股空集两条陷阱保留并改写，后者补齐了两种同形原因与判别方法）。🔴 新增两处防错数：`gangtise_foreign_report_list` 的 `regionList` 收成闭集（码表外取值如 `hk` / `eu` 不报错、返回未经筛选的全库并按条计费），`gangtise_indicator_cross_section` / `_time_series` 的 `indicatorParamList` 引用未查询的指标代码改为发请求前报错（此前在时序上全程无声）。
-- **0.2.2 — 2026-08-18**：同步 CLI v0.36.0。日期入参新增接受 `YYYY/MM/DD` 与 `YYYYMMDD`，归一成 `YYYY-MM-DD` 后下发——🔴「年在后」写法（`01-07-2026`）仍在本地拒绝，接口对它按美式「月在前」解析，按国际习惯写会静默取到差半年的数据；`gangtise_indicator_screener` 新增 `noQueryDate` 开关，`pty_*` / `scr_*` 静态属性指标现在可直接当筛选条件（`contains` 筛上市板块 / 经营范围 / 注册地），**订正 0.2.1 里「条件选股不提供该开关」的说法**；`999006` 限流提示对端点的称呼由「按次计费」改为「重放会重复扣分」，重试行为不变。
-- **0.2.1 — 2026-08-16**：同步 CLI v0.35.0。`gangtise_indicator_cross_section` 新增 `noQueryDate` 开关，让 `parameterList` 里没有日期参数的指标（`pty_*` / `scr_*` 两族静态属性、`div_cash_paid_ratio` / `div_cash_yr`）可经截面取数——⚠️ 开关会同时关掉服务端对其余必填键的硬拦，漏传 `fiscalYear` 这类键将静默返 `null`；EDE 日期参数报错按报文形态分派提示，多指标批量报错不再只对其中一个成立；`rankType` 说明统一到 11 个工具并写明默认档取的是相关度子集（两档结果都按时间倒序排列，要最新的必须显式传 2）。
-- **0.2.0 — 2026-08-16**：同步 CLI v0.33.0–v0.34.1。🔴 破坏性：`gangtise_day_kline` 的全市场关键字由 `all` 改为 `aShares`/`hkStocks`/`usStocks`（须单独传），该工具同时覆盖港股/美股/指数并可混传；`gangtise_stock_summary` 只接受具体代码。EDE 报告期类指标改为明确报错并给出该补的 `reportDate`；全市场指数分片改为 15 天/片（旧粒度会撞行数上限）；三大报表时点对齐改用 `earliestAnncDate`；新增四类**取错标的**的识别指引（港股人民币柜台、A+H 同名、美股多股份类别、搜得到≠查得到）。
-- **0.1.52 — 2026-08-09**：打包与文案表述统一，无取数逻辑或参数契约变更——`dist/` 不再输出源码注释（体积约 −24%）；参数说明与错误提示统一为接口视角。
+- **0.2.4 — 2026-08-30**：健壮性修复，无字段增删。🔴 三处静默丢数据（分页途中的空页、首包裸数组、全市场分片缺 `list`）改为归一或显式标记；两处工具元数据订正（`.CI` 实际支持日 K/实时；申万前缀是 `801xxx.SWI`）。发布的 `inputSchema` 改为自包含（不再含 `$ref`，客户端无需解引用）。**输入校验收紧**：空白值、空列表、重复 `fieldList`、同一指标的冲突参数、倒置日期区间改为本地拒绝——升级前请确认调用方不依赖旧的宽松行为。
+- **0.2.3 — 2026-08-30**：同步 CLI v0.37.0。撤除四类已不成立的参数警示（外资/独立观点的 `industryList`、`regionList`、`total` 封顶）；🔴 新增两处防错数：`foreign_report_list` 的 `regionList` 收成闭集，EDE `indicatorParamList` 引用未查询的指标改为发请求前报错。
+- **0.2.2 — 2026-08-18**：同步 CLI v0.36.0。日期入参新增接受 `YYYY/MM/DD` 与 `YYYYMMDD`；🔴「年在后」写法仍本地拒绝（按美式月在前解析，会静默差半年）。`indicator_screener` 新增 `noQueryDate` 开关。
+- **0.2.1 — 2026-08-16**：同步 CLI v0.35.0。`indicator_cross_section` 新增 `noQueryDate` 开关（⚠️ 会同时关掉服务端对其余必填键的硬拦）；`rankType` 说明统一到 11 个工具。
+- **0.2.0 — 2026-08-16**：同步 CLI v0.33.0–v0.34.1。🔴 破坏性：日 K 全市场关键字由 `all` 改为 `aShares`/`hkStocks`/`usStocks`。三大报表时点对齐改用 `earliestAnncDate`；新增四类**取错标的**的识别指引。
 
 ### 历史里程碑
 
+- **0.1.52**：打包与文案表述统一，无取数逻辑或参数契约变更——`dist/` 不再输出源码注释（体积约 −24%）。
 - **0.1.51**：修复财报日历日期筛选完全失效（发错字段名，静默返回全库切片而非排期且按条计费）；同步 CLI v0.32.0，新增帕米尔专家纪要工具；`searchType` / `rankType` 收成闭集。
 - **0.1.50**：同步 CLI v0.30.0–v0.31.0，适配 EDE 取数契约重构（`universe` 改名、截面矩阵转置、日期下沉到每个指标），修正复权参数名 `adjustType`，新增条件选股工具，整行/整列丢数据标成 `_partial`。
 - **0.1.49**：新增财报日历工具，取数护栏改按实际请求行数判定，`fieldList` 收成闭集以拦截静默错列。
@@ -33,23 +34,21 @@ README 仅列最近 5 个版本摘要：
 
 ## 功能覆盖
 
-<table>
-<thead><tr><th width="100">类别</th><th>工具</th></tr></thead>
-<tbody>
-<tr><td>上下文</td><td><code>gangtise_current_date</code> — 查询运行时当前日期、年份、时间和时区</td></tr>
-<tr><td>参考数据</td><td><code>gangtise_constant_category</code> / <code>gangtise_constant_list</code> — 行业、城市、公告分类、区域等常量；<code>gangtise_concept_search</code> — 题材 ID 搜索；<code>gangtise_sector_search</code> / <code>gangtise_sector_constituents</code> — 板块及成分股（含申万行业代码 <code>821xxx.SWI</code>）；<code>gangtise_chiefs_search</code> — 首席分析师 ID 搜索；<code>gangtise_institution_search</code> — 机构 ID 搜索（内资券商/外资/牵头/观点机构）；<code>gangtise_official_account_search</code> — 公众号 ID 搜索；<code>gangtise_lookup</code> — 券商机构、会议机构（本地表）</td></tr>
-<tr><td>证券检索</td><td><code>gangtise_securities_search</code></td></tr>
-<tr><td>观点/研报</td><td>国内首席观点、纪要、帕米尔专家纪要（独立库，需单独购买）、券商研报、外资研报、外资独立观点、公告（A股/港股/美股）、产业公众号资讯、投资者问答 QA、研报图表搜索与下载</td></tr>
-<tr><td>路演/调研</td><td>路演、调研、策略会、论坛</td></tr>
-<tr><td>财报日历</td><td><code>gangtise_performance_calendar_list</code> / <code>_download</code> — 业绩预告/快报/公告的发布排期（含未来已排期）与原文 PDF 下载</td></tr>
-<tr><td>行情</td><td>A 股/港股/美股日 K（仅历史）、A 股分钟 K、指数日 K、实时行情快照（A/港/美）、A 股个股资金流向（日频）</td></tr>
-<tr><td>基本面</td><td>A股/港股/美股利润表、资产负债表、现金流量表（累计/单季）、主营业务、估值、股东、盈利预测</td></tr>
-<tr><td>AI 能力</td><td>知识库检索、个股看点、一页通、投资逻辑、同业对比、线索、主题跟踪、业绩点评、观点辩证、管理层讨论</td></tr>
-<tr><td>云盘/语音</td><td>网盘文件、录音转写、我的会议、群消息、自选股池</td></tr>
-<tr><td>另类数据</td><td>EDB 行业经济指标搜索与时序数据查询、题材指数基本信息与成分股</td></tr>
-<tr><td>数据指标</td><td><code>gangtise_indicator_search</code> — 证券级数据指标（EDE）搜索；<code>gangtise_indicator_cross_section</code> / <code>gangtise_indicator_time_series</code> — 指标截面/时序（A/港/美股；支持复权等分指标参数，二维矩阵展平为宽表；美股代码用 <code>.O</code>/<code>.N</code> 后缀）；<code>gangtise_indicator_screener</code> — 条件选股（变量绑指标 + 表达式筛选，支持板块范围与文本匹配）</td></tr>
-</tbody>
-</table>
+97 个工具，分十一类。完整清单与每个参数的语义由 `tools/list` 提供，此处只列范围。
+
+| 类别 | 覆盖 |
+|---|---|
+| 上下文 | 运行时当前日期、年份、时间与时区（用于换算「今天 / 最近 / 今年」） |
+| 检索与 ID 解析 | 证券搜索；行业 / 城市 / 公告分类 / 区域常量；题材与板块成分股；首席分析师、机构、公众号 ID |
+| 观点与研报 | 国内首席观点、会议纪要、帕米尔专家纪要（独立库，需单独购买）、券商研报、外资研报与独立观点、A/港/美股公告、产业公众号资讯、投资者问答、研报图表 |
+| 会议日程 | 路演、调研、策略会、论坛（日程；正文走会议纪要） |
+| 财报日历 | 业绩预告 / 快报 / 公告的发布排期（含未来已排期）与原文 PDF |
+| 行情 | A/港/美股日 K 与实时快照、A 股分钟 K、指数日 K、A 股个股资金流向 |
+| 基本面 | A/港/美股三大报表（累计 / 单季）、主营业务、估值、股东、盈利预测 |
+| 数据指标（EDE） | 证券级指标搜索；截面与时序（二维矩阵展平为宽表）；条件选股（变量绑指标 + 表达式筛选） |
+| 另类数据 | EDB 宏观与行业经济指标；题材指数基本信息与成分股 |
+| AI 能力 | 知识库检索、个股看点、一页通、投资逻辑、同业对比、投研线索、主题跟踪、业绩点评、观点辩证、管理层讨论 |
+| 云盘与语音 | 网盘文件、录音转写、我的会议、微信群消息、自选股池 |
 
 ## 前置要求
 
@@ -172,10 +171,11 @@ claude mcp add gangtise \
 **方法 2：清 npx 缓存**
 
 ```bash
-# macOS / Linux
-rm -rf ~/.npm/_npx
+# macOS / Linux —— 只删本包的缓存条目，不动其他工具的
+grep -rl '"gangtise-mcp"' ~/.npm/_npx/*/package.json 2>/dev/null | xargs -r dirname | xargs -r rm -rf
 # Windows (PowerShell)
-Remove-Item -Recurse -Force $env:LOCALAPPDATA\npm-cache\_npx
+Get-ChildItem "$env:LOCALAPPDATA\npm-cache\_npx" -Recurse -Filter package.json |
+  Select-String -Pattern 'gangtise-mcp' | ForEach-Object { Remove-Item -Recurse -Force $_.Path.Substring(0, $_.Path.LastIndexOf('\')) }
 ```
 
 清完缓存后，在 MCP 客户端里关掉再打开 gangtise 服务（或重启客户端），npx 会重新下载最新版。
@@ -195,6 +195,7 @@ Remove-Item -Recurse -Force $env:LOCALAPPDATA\npm-cache\_npx
 | `GANGTISE_TOKEN_CACHE_PATH` | `~/.config/gangtise/token.json` | Token 缓存文件路径 |
 | `GANGTISE_PAGE_CONCURRENCY` | `5` | 分页并发数 |
 | `GANGTISE_INLINE_MAX_BYTES` | `65536` | 工具结果内联字节上限；超过则落盘为临时文件并返回可翻页的预览指针。默认 64KB（约 1.5–2 万 token）控制单次响应体积；批量导出可调大（最低 8192） |
+| `GANGTISE_MAX_DOWNLOAD_BYTES` | `1073741824` | 单个下载文件的字节上限（默认 1 GiB）。超出时在落盘前拒绝（有 `Content-Length`）或流式中止（无该头），避免一次超大下载占满临时磁盘。`/tmp` 较小的部署可调低（最低 1 MB） |
 | `GANGTISE_VERBOSE` | — | 设为 `1` 开启请求耗时日志（输出到 stderr） |
 
 认证优先级：`GANGTISE_TOKEN` > Token 缓存文件 > `GANGTISE_ACCESS_KEY` + `GANGTISE_SECRET_KEY`（自动换取并缓存 Token）。
@@ -250,8 +251,8 @@ npm run build
 git add .
 git commit -m "fix: <message>"
 git push origin main
-git tag v0.1.x
-git push origin v0.1.x
+git tag v0.2.x
+git push origin v0.2.x
 ```
 
 发布完成后确认：
@@ -263,6 +264,27 @@ npm view gangtise-mcp version
 
 如果 GitHub Actions 的 publish 步骤提示 OIDC/trusted publisher 失败，应先检查 npm 包的 Publishing access 设置是否绑定到 `gangtiser/gangtise-mcp` 和 `.github/workflows/npm-publish.yml`，不要改回本地 token 发布。
 
+## 数据、凭据与授权
+
+**MIT 只覆盖本连接器的代码。** Gangtise OpenAPI 本身、经由它取得的行情/研报/纪要/公告等数据与内容，均按你与 Gangtise 的服务协议授权，不随本包一并授予。是否可再分发、可否用于对外产品，以该协议为准。
+
+**取到的数据会进入你配置的 AI 客户端。** 本服务是一条管道：云盘文件、语音转写、我的会议、微信群消息、研报全文等**私域内容**，一旦被工具取回，就会进入你所连接的模型上下文，并按该客户端自己的策略被处理或留存。把这些工具接给第三方客户端前，请先确认对方的数据处理条款。
+
+**凭据不要外传。** `GANGTISE_ACCESS_KEY` / `GANGTISE_SECRET_KEY` / `GANGTISE_TOKEN` 与 token 缓存文件（默认 `~/.config/gangtise/token.json`）等同于账号本身。提 issue、贴日志前先把它们去掉；`GANGTISE_VERBOSE=1` 的 stderr 输出不含凭据，但请求 URL 里可能带有你的查询内容。
+
+**计费口径。** 工具描述里的【积分】标签是发布时的单价快照，用于让模型在调用前估算成本；**实际扣费以你的账户权限与平台当时的计费规则为准**。标注为免费的工具同样受账户数据权限约束。
+
+## 客户端兼容性
+
+已实际联调：Claude Code、Claude Desktop、Cursor、Cherry Studio。
+
+其余任何支持 stdio 传输的 MCP 客户端理论上都可接入——本服务只用标准的 `tools/list` + `tools/call`，不依赖 MCP 的可选能力。但未联调过的客户端可能在两处有差异：一是是否把 server `instructions` 注入模型上下文（不注入时，跨工具的通用参数语义会缺失），二是超大响应的处理方式。遇到问题请提 issue 并附上客户端名称与版本。
+
+## 支持与反馈
+
+- 用法与缺陷：在 [GitHub Issues](https://github.com/gangtiser/gangtise-mcp/issues) 提，附上工具名、入参（去掉凭据）与返回中的 `traceId`。
+- 数据权限、计费额度、账号问题：联系你的 Gangtise 客户经理，本连接器不参与这些环节。
+
 ## License
 
-MIT
+MIT（仅本连接器代码，见上方「数据、凭据与授权」）

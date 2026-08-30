@@ -8,6 +8,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { registerJsonTool, registerDownloadTool, sanitizeArgs, buildToolContent, buildTextResult } from "../../../src/tools/registry.js"
 import { INLINE_MAX_BYTES } from "../../../src/core/config.js"
+import { createGangtiseMcpServer } from "../../../src/server.js"
 import type { GangtiseClient } from "../../../src/core/client.js"
 
 function makeMockClient(responseData: unknown = { list: [{ id: "1" }], total: 1 }) {
@@ -400,19 +401,30 @@ describe("paginated param text", () => {
     }
   }
 
-  it("keeps the three pagination param descriptions within 120 bytes per tool", async () => {
+  // 分页三参的说明**已搬进 `server.instructions` 的「通用参数」行**：22 个分页工具各写
+  // 一遍要付 22 遍，写在 instructions 只付一遍。所以这里钉两件事：
+  //   ① schema 侧确实不再重复（省下的字节是真省了）；
+  //   ② 语义**没有丢**，只是换了地方——instructions 里三个都得在。
+  // 只钉 ① 会让「把语义整个删掉」也变绿，那才是真正的回退。
+  it("does not repeat the pagination params per tool", async () => {
     const { props } = await paginatedProps("gangtise_drive_list", "vault.drive.list")
     const bytes = ["from", "size", "fetchAll"].reduce((a, k) => a + Buffer.byteLength(props[k].description ?? "", "utf8"), 0)
-    expect(bytes).toBeLessThanOrEqual(120)
-    // 缩短但不能丢语义：0-based、默认 20、fetchAll 覆盖 size
-    expect(props.from.description).toContain("0-based")
-    expect(props.size.description).toContain("20")
-    expect(props.fetchAll.description).toContain("size")
+    expect(bytes, "分页三参的说明又被写回每个工具的 schema 了").toBe(0)
   })
 
-  it("still puts the fetchAll billing warning on paid paginated tools, label last", async () => {
+  it("declares the pagination param semantics once, in server instructions", async () => {
+    const server = createGangtiseMcpServer(makeMockClient(), { version: "0.0.0-test" })
+    const instructions = (server as unknown as { server: { _instructions?: string } }).server._instructions ?? ""
+    expect(instructions).toContain("from=0-based")
+    expect(instructions).toContain("size=总行数上限")
+    expect(instructions).toContain("fetchAll=true")
+  })
+
+  // 分页计费声明已上收到 instructions；描述里只剩逐工具不同的放大提示 + 标签，标签在最后。
+  it("keeps only the per-tool amplification hint and the label on a paid paginated tool", async () => {
     const { description } = await paginatedProps("gangtise_opinion_list", "insight.opinion.list")
-    expect(description).toContain("fetchAll=true 按全部实际返回条目计费")
+    expect(description).not.toContain("按全部实际返回条目计费")
+    expect(description).toContain("单次约 600 积分")
     expect(description.endsWith("【积分：30/条】")).toBe(true)
   })
 
@@ -485,5 +497,93 @@ describe("_available_fields on spill pointers", () => {
     expect((result._available_fields as string[]).length).toBe(50)
     expect(result._available_fields_truncated).toBe(true)
     await fs.rm(path.dirname(result._saved_to as string), { recursive: true, force: true })
+  })
+})
+
+// 🔴 溢出指针必须是**硬上限**，不是尽力而为。
+// 收缩逻辑此前只动 `list`，而分页/分片层的诊断元数据是原样 `...rest` 展开的：一份 900 条
+// `_failed_pages` 的响应，行削光了指针仍有 25 万字节。加了采样之后仍有两种形态超限
+// （每条错误很长、以及超大的非数组元数据），当时只补了个 `_oversized: true` —— 那不叫
+// 收敛：调用方的上下文已经被撑爆，标记来不及起作用。
+describe("spill pointer is a HARD byte cap", () => {
+  const wideRow = () => {
+    const row: Record<string, number> = {}
+    for (let i = 0; i < 50; i += 1) row[`字段名称非常长的一个列名_${i}`] = i
+    return row
+  }
+  const cases: Array<[string, Record<string, unknown>]> = [
+    ["900 条短诊断", { total: 45000, list: Array.from({ length: 3000 }, (_, i) => ({ id: i, name: "某某科技" })), _partial: true, _failed_pages: Array.from({ length: 900 }, (_, i) => ({ from: i, size: 50, error: "HTTP 503" })) }],
+    ["900 条长诊断", { total: 45000, list: Array.from({ length: 3000 }, (_, i) => ({ id: i })), _partial: true, _failed_pages: Array.from({ length: 900 }, (_, i) => ({ from: i, size: 50, error: "x".repeat(300) })) }],
+    ["超大非数组元数据", { total: 5, list: Array.from({ length: 3000 }, wideRow), _partial: true, _note_blob: "报错原文".repeat(20000) }],
+    ["180 个坏分片", { total: 9, list: Array.from({ length: 3000 }, (_, i) => ({ i })), _partial: true, _malformed_shards: Array.from({ length: 180 }, (_, i) => ({ startDate: `2026-0${(i % 9) + 1}-01`, endDate: `2026-0${(i % 9) + 1}-02`, error: "y".repeat(400) })) }],
+  ]
+
+  // 每个用例都会落一份溢出文件——测试自己创建的临时资源要清掉，否则每跑一次留 10 个。
+  const spilled = async (payload: Record<string, unknown>) => {
+    const parsed = JSON.parse((await buildToolContent(payload))[0].text)
+    return { parsed, cleanup: () => fs.rm(path.dirname(String(parsed._saved_to)), { recursive: true, force: true }) }
+  }
+
+  // 🔴 复核方两次在这里找到漏网形态：第一次是「只削 list」，第二次是「兜底层原样保留
+  // POINTER_KEYS、返回前不再量一次」。两次我都写了「保证回到预算内」，两次都不成立。
+  // **一个自己没验证过的保证就是假话**，所以这张表要覆盖到「指针字段自己就超长」那一档。
+  const pathological: Array<[string, Record<string, unknown>]> = [
+    ["超长 _partial_reason", { total: 5, list: Array.from({ length: 3000 }, (_, i) => ({ id: i })), _partial: true, _partial_reason: "failed_pages,".repeat(9000) }],
+    ["超长字段名", (() => {
+      const wide: Record<string, number> = {}
+      for (let i = 0; i < 50; i += 1) wide[`超长字段名`.repeat(200) + i] = i
+      return { total: 5, list: Array.from({ length: 3000 }, () => ({ ...wide })), _partial: true }
+    })()],
+  ]
+
+  it.each(pathological)("%s still stays within the budget and stays readable back", async (_label, payload) => {
+    const [content] = await buildToolContent(payload)
+    const size = Buffer.byteLength(content.text, "utf8")
+    expect(size, `指针 ${size} 字节，超过 ${INLINE_MAX_BYTES}`).toBeLessThanOrEqual(INLINE_MAX_BYTES)
+    const parsed = JSON.parse(content.text)
+    // 收缩到极限也必须留下能回读的指针，否则这份数据就永久取不回来了
+    expect(typeof parsed._saved_to, "兜底层把 _saved_to 也丢了，数据取不回来").toBe("string")
+    expect((parsed._saved_to as string).length).toBeGreaterThan(0)
+    expect(parsed._read_with).toBe("gangtise_read_response")
+    await fs.rm(path.dirname(String(parsed._saved_to)), { recursive: true, force: true })
+  })
+
+  it.each(cases)("%s stays within the inline budget", async (_label, payload) => {
+    const [content] = await buildToolContent(payload)
+    const size = Buffer.byteLength(content.text, "utf8")
+    expect(size, `指针 ${size} 字节，超过 ${INLINE_MAX_BYTES}`).toBeLessThanOrEqual(INLINE_MAX_BYTES)
+    await fs.rm(path.dirname(String(JSON.parse(content.text)._saved_to)), { recursive: true, force: true })
+  })
+
+  it.each(cases)("%s keeps the pointer usable and the partial flag intact", async (_label, payload) => {
+    const { parsed, cleanup } = await spilled(payload)
+    expect(parsed._truncated).toBe(true)
+    expect(typeof parsed._saved_to).toBe("string")
+    expect(parsed._read_with).toBe("gangtise_read_response")
+    expect(parsed._partial, "收缩不能把 _partial 丢掉——那会让一份残缺数据读起来完整").toBe(true)
+    await cleanup()
+  })
+
+  // 🔴 收缩只许动**白名单里的诊断字段**。按 `_` 前缀扫会顺手采样 `_available_fields`，
+  // 并把 `_available_fields_sampled` 从**数字**（采样行数）覆盖成 `{shown,total}` 对象，
+  // 破坏一个已有契约：读者靠 `_available_fields_sampled < _total_items` 判断字段清单是否完整。
+  it("never rewrites _available_fields_sampled, which is a number by contract", async () => {
+    const wide = Array.from({ length: 3000 }, wideRow)
+    const { parsed, cleanup } = await spilled({ total: 5, list: wide, _partial: true, _note_blob: "报错原文".repeat(20000) })
+    if (parsed._available_fields_sampled !== undefined) {
+      expect(typeof parsed._available_fields_sampled, "_available_fields_sampled 被收缩逻辑改写成了对象").toBe("number")
+    }
+    await cleanup()
+  })
+
+  // 采样必须**如实标注**：只留几条而不说总数，读者会以为只失败了这几页。
+  it("reports how many diagnostic entries were withheld", async () => {
+    const { parsed, cleanup } = await spilled({
+      total: 45000, list: Array.from({ length: 3000 }, (_, i) => ({ id: i })), _partial: true,
+      _failed_pages: Array.from({ length: 900 }, (_, i) => ({ from: i, size: 50, error: "x".repeat(300) })),
+    })
+    expect(parsed._failed_pages_sampled).toMatchObject({ total: 900 })
+    expect((parsed._failed_pages as unknown[]).length).toBeLessThan(900)
+    await cleanup()
   })
 })

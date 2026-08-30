@@ -4,10 +4,10 @@ import type { GangtiseClient } from "../core/client.js"
 import { normalizeRows } from "../core/normalize.js"
 import { ValidationError } from "../core/errors.js"
 import { callKlineWithSharding, flagLimitTruncated, type KlineBody } from "../core/quoteSharding.js"
-import { dateDesc, dateString, dateTimeDesc, dateTimeString } from "../core/dateContext.js"
-import { buildToolContent } from "./registry.js"
+import { dateString, dateTimeString } from "../core/dateContext.js"
+import { assertDateOrder, buildToolContent } from "./registry.js"
 import { toolHandler, contentResult } from "./helpers.js"
-import { MARKET_KEYWORDS, matchesKeyword } from "./schemas.js"
+import { MARKET_KEYWORDS, matchesKeyword, nonEmptyString, nonEmptyList, uniqueFieldList } from "./schemas.js"
 
 
 /** Upstream default per-request row cap on the limit-capped quote endpoints
@@ -21,16 +21,16 @@ const securityDesc = (codeHelp: string, keywordHelp: string) =>
 /** 市场专用工具各自的 security 说明。示例必须用**本工具真正收的代码**——它们带市场校验，
  * 共用一套 A 股示例时，照着参数说明写会被本地直接拒掉。 */
 const marketSecurity = (codeHelp: string) =>
-  z.union([z.string(), z.array(z.string())]).optional().describe(securityDesc(codeHelp, "传 'all' "))
+  z.union([nonEmptyString, nonEmptyList()]).optional().describe(securityDesc(codeHelp, "传 'all' "))
 
 /** 🔴 有意**不含** `security`——每个 K 线工具必须自己声明，用本市场真正收的代码做示例。
  * 放一个通用的进来就等于给下一个市场工具准备好了一个别的市场的示例，而那是静默错误
  * （港股/美股工具本地拒收、指数工具静默返空）。少了它，忘写的人第一次调用就会发现。 */
 const commonKlineSchema = {
-  startDate: dateString.optional().describe(dateDesc()),
-  endDate: dateString.optional().describe(dateDesc()),
+  startDate: dateString.optional(),
+  endDate: dateString.optional(),
   limit: z.number().int().min(1).max(10_000).optional().describe("单次请求最大返回行数（默认 6000，最大 10000）。截取从查询窗口开头开始——取「最近 N 条」须传日期区间而非只传 limit；全市场分片查询时该值作用于每个分片"),
-  fieldList: z.array(z.string()).optional().describe("指定返回字段，如 ['open','close','pctChange']"),
+  fieldList: uniqueFieldList("指定返回字段，如 ['open','close','pctChange']"),
 }
 
 /** Reject a whole-market keyword this tool does not take, or one sent alongside other
@@ -131,6 +131,7 @@ function klineHandler(
   market?: "cn" | "hk" | "us",
 ) {
   return toolHandler(async (args: Record<string, unknown>) => {
+    assertDateOrder(args)
     const body = buildKlineBody(args)
     const accepted = Object.keys(markets)
     assertMarketKeywords(body.securityList, accepted, tool)
@@ -155,6 +156,20 @@ function klineHandler(
   })
 }
 
+/** 「拿到的是不是你要的那只票」——四条会直接导致错数据的识别指引。
+ *
+ * 挂在 `gangtise_day_kline` 与 `gangtise_realtime` 上，因为这两个是路由推荐的入口。
+ * 🔴 别再搬回 `_hk` / `_us`：那两个工具的描述里写着「建议改用 day_kline」，警示留在
+ * 那里等于只讲给不会被调用的工具听。也别搬进 server.instructions —— 只有 2 处用到，
+ * 而贴着参数写模型更可能真的读到。 */
+const CODE_IDENTITY_WARNING =
+  "⚠️ **确认拿到的是你要的那只票**：后缀合法但标的不存在时返空列表而不报错（空 ≠ 没数据）；" +
+  "核对请用 gangtise_securities_search **按公司名查**，再核对返回的 gtsName 与 gtsCode 后缀。" +
+  "三类会拿到「合理但错误」的数：① A+H 两地上市名字**逐字相同**（中国移动 600941.SH / 00941.HK，招商银行 600036.SH / 03968.HK），" +
+  "返回里没有市场字段、只有后缀能区分，拿错一边就是错币种错价格（招行两地价差方向还相反）；" +
+  "② 美股写错代码可能命中另一只名字相近的**真实**证券（BRK.N 实为 RBRK.N，另一家公司）；" +
+  "③ 搜得到 ≠ 查得到（B 股 900938.SH 搜索有、行情报「证券代码无效」），判据是行情接口返不返数据。"
+
 /** Shard granularity per whole-market keyword on the unified day K-line endpoint.
  * Sized from the per-trading-day row counts (A股 ~5.5K, 美股 ~5.9K, 港股 ~2.8K) so a
  * single shard stays under the 10000-row API cap: A/US one day each, HK two. */
@@ -172,13 +187,13 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
   server.registerTool(
     "gangtise_day_kline",
     {
-      description: "查询历史日 K 线数据，单接口覆盖 A股/港股/美股个股 + 交易所指数（沪深京）+ 概念指数（.GT）+ 申万行业指数（.SWI），可在一次请求里混着传（仅历史；盘中实时请用 gangtise_realtime）。security 传市场关键字 'aShares' / 'hkStocks' / 'usStocks' 配合 startDate/endDate 可拉取该市场全部个股（自动分片）。⚠️ **港股部分标的有人民币柜台**：代码首位换成 8、名字带 -R 或 -WR（中国移动港币 00941.HK / 人民币 80941.HK；阿里 09988.HK / 89988.HK）。两者**后缀相同、exchange 字段也相同、返回里没有币种字段**，价差约等于汇率、看着完全正常——要港币报价就别用 8 开头的那只（不是每只港股都有柜台）。⚠️ **中信行业指数（.CI）本接口不支持**，传了会报「证券代码无效」（代码本身没错）——查 .CI 与「一次取全部沪深京交易所指数」都请用 gangtise_index_day_kline。返回字段含 adjustFactor 复权因子（指数为 null）。",
+      description: "查询历史日 K 线数据，单接口覆盖 A股/港股/美股个股 + 交易所指数（沪深京）+ 概念指数（.GT）+ 申万行业指数（.SWI）+ 中信行业指数（.CI），可在一次请求里混着传（仅历史；盘中实时请用 gangtise_realtime）。security 传市场关键字 'aShares' / 'hkStocks' / 'usStocks' 配合 startDate/endDate 可拉取该市场全部个股（自动分片）。⚠️ **港股部分标的有人民币柜台**：代码首位换成 8、名字带 -R 或 -WR（中国移动港币 00941.HK / 人民币 80941.HK；阿里 09988.HK / 89988.HK）。两者**后缀相同、exchange 字段也相同、返回里没有币种字段**，价差约等于汇率、看着完全正常——要港币报价就别用 8 开头的那只（不是每只港股都有柜台）。⚠️ **本接口查指数只返代码、不返 securityName**；要指数名称、或要一次取回全部沪深京交易所指数，请用 gangtise_index_day_kline。返回字段含 adjustFactor 复权因子（指数为 null）。" + CODE_IDENTITY_WARNING,
       inputSchema: {
         ...commonKlineSchema,
         // 统一工具的全市场关键字是三个市场名，不是 `all`，所以走 securityDesc 的双参形式
         // 而不是 marketSecurity（后者固定给「传 'all'」）。
-        security: z.union([z.string(), z.array(z.string())]).optional().describe(securityDesc(
-          "证券代码 — A股 .SH/.SZ/.BJ、港股 .HK、美股 .O/.N/.A、交易所指数 .SH/.SZ/.BJ、概念指数 .GT、申万行业指数 .SWI，可混传，如 ['600519.SH','00700.HK','AAPL.O','000001.SH']；中信行业指数 .CI 不支持，请用 gangtise_index_day_kline",
+        security: z.union([nonEmptyString, nonEmptyList()]).optional().describe(securityDesc(
+          "证券代码 — A股 .SH/.SZ/.BJ、港股 .HK、美股 .O/.N/.A、交易所指数 .SH/.SZ/.BJ、概念指数 .GT、申万行业指数 .SWI（801xxx.SWI）、中信行业指数 .CI（821xxx.CI），可混传，如 ['600519.SH','00700.HK','AAPL.O','000001.SH']；查指数若需要名称请用 gangtise_index_day_kline",
           "或传市场关键字 'aShares'（A股全市场）/ 'hkStocks'（港股全市场）/ 'usStocks'（美股全市场）",
         )),
       },
@@ -190,7 +205,7 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
   server.registerTool(
     "gangtise_day_kline_hk",
     {
-      description: "【建议改用 gangtise_day_kline】查询港股历史日 K 线数据（港股代码如 00700.HK，5 位数字前补零）。security='all' 配合 startDate/endDate 可拉取全市场（自动分片）。gangtise_day_kline 已覆盖本工具的能力（'hkStocks' 关键字等价于本工具的 'all'，返回的行数、字段与代码集合完全相同），且能与其他市场混查——没有必须用本工具的场景。⚠️ 本工具对无效代码返回空列表而不报错。gangtise_day_kline 只对**后缀不合法或与代码体不匹配**的代码明确报「证券代码无效」（如 AAPL.US、00700.SH）；**后缀合法而标的不存在时（拼错的 ticker）两者一样返空**——空结果不等于「这只票没数据」。核对代码请用 gangtise_securities_search **按公司名/简称查**——按代码反查多数能命中自身，但**两种情况会误导**：个别有效代码（如 BRK_B.N 这类下划线类别码）查不到，而写错的代码可能返回另一只名字相近的**真实**证券（如 BRK.N 返 RBRK.N，是另一家公司）。**核对返回的 gtsName 是不是你要的公司，同时核对 gtsCode 的后缀是不是你要的市场**：A+H 两地上市的名字**逐字相同**（中国移动 = 600941.SH 与 00941.HK，招商银行 = 600036.SH 与 03968.HK），而返回里没有市场字段，只有后缀能区分——拿错一边就是错币种、错价格（招行两地价差方向还相反）。⚠️ 还要注意**搜得到 ≠ 查得到**：搜索的覆盖面比行情接口宽（B 股如 900938.SH 搜得到、日 K 线报「证券代码无效」），真正的判据是行情接口返不返数据。",
+      description: "【已被 gangtise_day_kline 覆盖，改用它】港股历史日 K 线。gangtise_day_kline 的 'hkStocks' 等价于本工具的 'all'，行数、字段与代码集合完全相同，且能与其他市场混查并对不合法后缀明确报错——没有必须用本工具的场景。",
       inputSchema: { ...commonKlineSchema, security: marketSecurity("港股代码，如 '00700.HK' 或 ['00700.HK','09988.HK']（5 位数字前补零）") },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
@@ -200,7 +215,7 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
   server.registerTool(
     "gangtise_day_kline_us",
     {
-      description: "【建议改用 gangtise_day_kline】查询美股历史日 K 线数据（NYSE/NASDAQ/AMEX）。security='all' 配合 startDate/endDate 可拉取全市场（自动按 1 天/片分片）。gangtise_day_kline 已覆盖本工具的能力（'usStocks' 关键字等价于本工具的 'all'，返回的行数、字段与代码集合完全相同），且能与其他市场混查——没有必须用本工具的场景。⚠️ 本工具对无效代码返回空列表而不报错。gangtise_day_kline 只对**后缀不合法或与代码体不匹配**的代码明确报「证券代码无效」（如 AAPL.US、00700.SH）；**后缀合法而标的不存在时（拼错的 ticker）两者一样返空**——空结果不等于「这只票没数据」。核对代码请用 gangtise_securities_search **按公司名/简称查**——按代码反查多数能命中自身，但**两种情况会误导**：个别有效代码（如 BRK_B.N 这类下划线类别码）查不到，而写错的代码可能返回另一只名字相近的**真实**证券（如 BRK.N 返 RBRK.N，是另一家公司）。**核对返回的 gtsName 是不是你要的公司，同时核对 gtsCode 的后缀是不是你要的市场**：A+H 两地上市的名字**逐字相同**（中国移动 = 600941.SH 与 00941.HK，招商银行 = 600036.SH 与 03968.HK），而返回里没有市场字段，只有后缀能区分——拿错一边就是错币种、错价格（招行两地价差方向还相反）。⚠️ 还要注意**搜得到 ≠ 查得到**：搜索的覆盖面比行情接口宽（B 股如 900938.SH 搜得到、日 K 线报「证券代码无效」），真正的判据是行情接口返不返数据。",
+      description: "【已被 gangtise_day_kline 覆盖，改用它】美股历史日 K 线（NYSE/NASDAQ/AMEX）。gangtise_day_kline 的 'usStocks' 等价于本工具的 'all'，行数、字段与代码集合完全相同，且能与其他市场混查并对不合法后缀明确报错——没有必须用本工具的场景。",
       inputSchema: { ...commonKlineSchema, security: marketSecurity("美股代码，如 'AAPL.O' 或 ['AAPL.O','BRK_B.N']（.O=NASDAQ / .N=NYSE / .A=AMEX）。⚠️ **多股份类别的写法不统一，别自己拼**：有的把类别字母并进 ticker（福克斯 = FOXA.O / FOX.O），有的用下划线（伯克希尔 = BRK_A.N / BRK_B.N），**还有的 A 类根本不带标记**（Bio-Rad A = BIO.N、B = BIO_B.N）。拼错**不一定返空**——也可能命中同一家公司的另一个类别（哈弗蒂 HVT.N 与 HVT_A.N 都真实存在、价格不同），拿到一个完全合理的错数。按公司名查确切代码见下") },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
@@ -210,8 +225,8 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
   server.registerTool(
     "gangtise_index_day_kline",
     {
-      description: "查询指数日 K 线数据（沪深京交易所指数如 000001.SH 上证指数、399001.SZ 深成指，也支持概念指数 .GT 与行业指数 .CI/.SWI）。个股日 K 线请用 gangtise_day_kline；下面三种情况用本工具：**查中信行业指数 .CI**（gangtise_day_kline 对 .CI 报「证券代码无效」）、**一次取回全部交易所指数**（security='all'，自动分片）、**需要指数名称 securityName**（gangtise_day_kline 查指数只返代码）。⚠️ 本工具只收指数代码：传个股代码（哪怕是有效的，如 600519.SH）返回空列表而不报错，别把它读成「这只票没数据」；无效代码同样返空。核对代码请用 gangtise_securities_search 按公司名/简称查，并同时核对返回的 gtsName 与 gtsCode 后缀（A+H 两地上市名字逐字相同，只有后缀能区分）。",
-      inputSchema: { ...commonKlineSchema, security: marketSecurity("指数代码，如 '000001.SH'（上证指数）/ '399001.SZ'（深成指）/ '821026.CI'（中信行业）/ '821035.SWI'（申万行业）") },
+      description: "查询指数日 K 线数据（沪深京交易所指数如 000001.SH 上证指数、399001.SZ 深成指，也支持概念指数 .GT 与行业指数 .CI/.SWI）。个股日 K 线请用 gangtise_day_kline；下面两种情况用本工具：**一次取回全部交易所指数**（security='all'，自动分片）、**需要指数名称 securityName**（gangtise_day_kline 查指数只返代码，其余字段两个工具一致）。⚠️ 本工具只收指数代码：传个股代码（哪怕是有效的，如 600519.SH）返回空列表而不报错，别把它读成「这只票没数据」；无效代码同样返空。核对代码请用 gangtise_securities_search 按公司名/简称查，并同时核对返回的 gtsName 与 gtsCode 后缀（A+H 两地上市名字逐字相同，只有后缀能区分）。",
+      inputSchema: { ...commonKlineSchema, security: marketSecurity("指数代码，如 '000001.SH'（上证指数）/ '399001.SZ'（深成指）/ '821026.CI'（中信行业）/ '801780.SWI'（申万银行）") },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     // 15 天/片，不是 30：全部交易所指数每个交易日约 531 行，30 天窗口约 22 个交易日
@@ -225,15 +240,16 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
     {
       description: "查询 A 股分钟级 K 线数据，需指定单只证券代码。",
       inputSchema: {
-        security: z.string().describe("单只证券代码，如 '600519.SH'"),
-        startTime: dateTimeString.optional().describe(dateTimeDesc()),
-        endTime: dateTimeString.optional().describe(dateTimeDesc()),
+        security: nonEmptyString.describe("单只证券代码，如 '600519.SH'"),
+        startTime: dateTimeString.optional(),
+        endTime: dateTimeString.optional(),
         limit: z.number().int().min(1).max(10_000).optional().describe("最大返回行数（默认 6000，最大 10000）。返回行数撞上限时结果标 _partial（可能被截断）"),
         fieldList: commonKlineSchema.fieldList,
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     toolHandler(async ({ security, startTime, endTime, limit, fieldList }: Record<string, unknown>) => {
+      assertDateOrder({ startTime, endTime })
       const body: Record<string, unknown> = { securityCode: security }
       if (startTime) body.startTime = startTime
       if (endTime) body.endTime = endTime
@@ -250,10 +266,10 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
   server.registerTool(
     "gangtise_realtime",
     {
-      description: "查询实时行情快照，单接口覆盖 A 股 / 港股 / 美股，可代码混合传入。非交易时间返回最近一个交易日的收盘快照；停牌证券返回停牌前最后一个有效快照。日 K 线接口（day-kline*）不含盘中数据，问\"现在/此刻\"请走本工具。**全部字段仅：securityCode/exchange/tradeDate/tradeTime/open/high/low/latestPrice(最新价)/preClose(昨收)/change/pctChange/volume/amount/turnoverRate/amplitude/volumeRatio——没有 close，也没有市值**；总市值请用 gangtise_indicator_cross_section 的 qte_mkt_cptl（A/港/美股均有数，默认返「元」，用 scale 缩放）。",
+      description: "查询实时行情快照，单接口覆盖 A 股 / 港股 / 美股，可代码混合传入。非交易时间返回最近一个交易日的收盘快照；停牌证券返回停牌前最后一个有效快照。日 K 线接口（day-kline*）不含盘中数据，问\"现在/此刻\"请走本工具。**全部字段仅：securityCode/exchange/tradeDate/tradeTime/open/high/low/latestPrice(最新价)/preClose(昨收)/change/pctChange/volume/amount/turnoverRate/amplitude/volumeRatio——没有 close，也没有市值**；总市值请用 gangtise_indicator_cross_section 的 qte_mkt_cptl（A/港/美股均有数，默认返「元」，用 scale 缩放）。" + CODE_IDENTITY_WARNING,
       inputSchema: {
-        security: z.union([z.string(), z.array(z.string())]).optional().describe("证券代码或全市场关键字：单/多只代码（'600519.SH' / ['600519.SH','00700.HK','AAPL.O']，交易所指数 .SH/.SZ/.BJ、概念指数 .GT、申万行业指数 .SWI 也可传；⚠️ 中信行业指数 .CI 本接口不支持，传了会报「证券代码无效」而代码本身没错；它的历史日 K 请用 gangtise_index_day_kline），或市场关键字 'aShares' / 'hkStocks' / 'usStocks' 拉取全市场（关键字须单独传，不能与证券代码或另一个关键字混传；指数没有全市场关键字）。"),
-        fieldList: z.array(z.string()).optional().describe("【默认不传 = 返回全量字段，最稳】仅当用户明确要精简、或查全市场（aShares/hkStocks/usStocks）想省 token 时才传。一旦传入必须显式包含识别字段 securityCode/tradeDate/tradeTime（exchange 可省略），否则多只查询无法对齐行与代码。示例：['securityCode','tradeDate','tradeTime','latestPrice','pctChange','volume']。**只传本工具真实存在的字段名**（见上方字段清单；注意没有 close）：传了不存在的字段，接口只返回有效字段的值、字段名却按请求原样回显，按位置拍平就会**整行错位**（如传 ['securityCode','close','turnoverRate'] 会把换手率的值贴到 close 上）——本工具已在拍平时检测长度不匹配并直接报错拒绝，但仍应从源头避免。"),
+        security: z.union([nonEmptyString, nonEmptyList()]).optional().describe("证券代码或全市场关键字：单/多只代码（'600519.SH' / ['600519.SH','00700.HK','AAPL.O']，交易所指数 .SH/.SZ/.BJ、概念指数 .GT、申万行业指数 .SWI（801xxx.SWI）、中信行业指数 .CI（821xxx.CI）也可传），或市场关键字 'aShares' / 'hkStocks' / 'usStocks' 拉取全市场（关键字须单独传，不能与证券代码或另一个关键字混传；指数没有全市场关键字）。"),
+        fieldList: uniqueFieldList("【默认不传 = 返回全量字段，最稳】仅当用户明确要精简、或查全市场（aShares/hkStocks/usStocks）想省 token 时才传。一旦传入必须显式包含识别字段 securityCode/tradeDate/tradeTime（exchange 可省略），否则多只查询无法对齐行与代码。示例：['securityCode','tradeDate','tradeTime','latestPrice','pctChange','volume']。**只传本工具真实存在的字段名**（见上方字段清单；注意没有 close）：传了不存在的字段，接口只返回有效字段的值、字段名却按请求原样回显，按位置拍平就会**整行错位**（如传 ['securityCode','close','turnoverRate'] 会把换手率的值贴到 close 上）——本工具已在拍平时检测长度不匹配并直接报错拒绝，但仍应从源头避免。"),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
@@ -277,15 +293,16 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
     {
       description: "查询 A 股个股日资金流向（沪深北），含小/中/大/特大单流入流出金额及占比、主力净流入等字段。security='aShares' 配合 startDate/endDate 拉取全市场（自动按 1 天/片分片）。",
       inputSchema: {
-        security: z.union([z.string(), z.array(z.string())]).optional().describe("A 股证券代码（沪深北），如 '600519.SH' 或 ['600519.SH','000858.SZ']；传 'aShares' 拉取全市场（关键字须单独传，不能与证券代码混传——混传时本接口会丢掉关键字只返那几只，不报错；须同时提供 startDate 和 endDate，自动按日分片）"),
-        startDate: dateString.optional().describe(dateDesc()),
-        endDate: dateString.optional().describe(dateDesc()),
+        security: z.union([nonEmptyString, nonEmptyList()]).optional().describe("A 股证券代码（沪深北），如 '600519.SH' 或 ['600519.SH','000858.SZ']；传 'aShares' 拉取全市场（关键字须单独传，不能与证券代码混传——混传时本接口会丢掉关键字只返那几只，不报错；须同时提供 startDate 和 endDate，自动按日分片）"),
+        startDate: dateString.optional(),
+        endDate: dateString.optional(),
         limit: z.number().int().min(1).max(10_000).optional().describe("单次请求最大返回行数（默认 6000，最大 10000）。截取从查询窗口开头开始——取「最近 N 条」须传日期区间；返回行数撞上限时结果标 _partial（可能被截断）；全市场分片时该值作用于每个分片"),
-        fieldList: z.array(z.string()).optional().describe("指定返回字段，如 ['mainNetInflow','largeInflow','xlargeOutflow']；省略返回全部"),
+        fieldList: uniqueFieldList("指定返回字段，如 ['mainNetInflow','largeInflow','xlargeOutflow']；省略返回全部"),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     toolHandler(async (args: Record<string, unknown>) => {
+      assertDateOrder(args)
       const body = buildKlineBody(args)
       // This guard matters MORE here than on the K-line tools, not less: mixing the
       // keyword with codes does not even fail upstream — the keyword is silently

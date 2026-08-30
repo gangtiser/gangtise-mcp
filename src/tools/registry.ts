@@ -7,8 +7,8 @@ import type { GangtiseClient } from "../core/client.js"
 import { ENDPOINTS } from "../core/endpoints.js"
 import { normalizeRows } from "../core/normalize.js"
 import { downloadToResult, type DownloadResult } from "../core/download.js"
-import { errorMessage } from "../core/errors.js"
-import { createManagedTempDir } from "../core/tempCleanup.js"
+import { errorMessage, ValidationError } from "../core/errors.js"
+import { createManagedTempDir, enforceOwnedTempQuota } from "../core/tempCleanup.js"
 import { INLINE_MAX_BYTES } from "../core/config.js"
 import { withBilling } from "./billing.js"
 
@@ -112,6 +112,136 @@ export interface BuildOptions {
   nullMeansEmpty?: boolean
 }
 
+/** 兜底：把预览压回字节预算。
+ *
+ * 🔴 上面的收缩只动 `list`。分页/分片层写进来的**诊断元数据**是原样 `...rest` 展开的，
+ * 而它们本身可以很大：`_failed_pages` 每页一条（上限 1000 页）、`_failed_shards` /
+ * `_malformed_shards` / `_truncated_shards` 每片一条（上限 180 片），每条都带一段错误
+ * 原文。实测一份 900 条 `_failed_pages` 的响应：`list` 已经被削成 0 条，指针仍有 257,748
+ * 字节，是 64KB 预算的 3.9 倍。**「把行删光」不等于「回到预算内」。**
+ *
+ * 处置是**采样并如实标注**，不是静默截断：每个超长的 `_` 诊断数组只留前几条，并写清
+ * 一共有多少条、这里显示了几条——诊断信息的用途是「哪几页/哪几天没取到」，前几条 + 总数
+ * 已经足够定位，而完整清单本来也在溢出文件里。 */
+const DIAGNOSTIC_SAMPLE = 5
+/** 单条诊断的字节上限。900 条 × 300 字节的错误原文就能把采样后的载荷再顶到 10 万字节，
+ * 所以只限条数不够，每条也要截。 */
+const DIAGNOSTIC_ENTRY_MAX = 400
+
+/** 可收缩的诊断字段**白名单**。
+ *
+ * 🔴 **必须是白名单，不能是「所有 `_` 开头的数组」。** 前一版按前缀扫，于是
+ * `_available_fields`（最多 50 个字段名）也会被采样，顺手把 `_available_fields_sampled`
+ * 从**数字**（采样行数）覆盖成 `{shown,total}` 对象 —— 那是一个已有契约：读者靠
+ * `_available_fields_sampled < _total_items` 判断字段清单可能不全。收缩逻辑不该有权
+ * 改写它不认识的字段。 */
+const SHRINKABLE = new Set(["_failed_pages", "_failed_shards", "_malformed_shards", "_truncated_shards"])
+
+/** 指针必须保留的最小信息：没有它们，这条回复就没法回读了。 */
+const POINTER_KEYS = new Set([
+  "_truncated", "_saved_to", "_local_hint", "_read_with", "_total_bytes", "_total_items",
+  "_preview_count", "has_more", "next_offset", "_partial", "_partial_reason",
+  // `_available_fields` 三件套是既有契约（读者靠 sampled < _total_items 判断字段清单
+  // 是否完整），收缩不能把它们丢掉——它们本身也很小（字段名上限 50 个）。
+  "_available_fields", "_available_fields_sampled", "_available_fields_truncated",
+])
+
+function clampEntry(entry: unknown): unknown {
+  if (typeof entry === "string") return entry.length > DIAGNOSTIC_ENTRY_MAX ? `${entry.slice(0, DIAGNOSTIC_ENTRY_MAX)}…` : entry
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return entry
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(entry as Record<string, unknown>)) out[k] = clampEntry(v)
+  return out
+}
+
+const bytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value), "utf8")
+
+/** 把预览压回字节预算 —— **硬上限，不是尽力而为**。
+ *
+ * 🔴 收缩只动 `list` 是不够的：分页/分片层写进来的诊断元数据是原样 `...rest` 展开的，
+ * 而它们可以很大（`_failed_pages` 每页一条、上限 1000 页；分片诊断每片一条、上限 180 片，
+ * 每条都带一段错误原文）。实测一份 900 条 `_failed_pages` 的响应，`list` 已经削成 0 条，
+ * 指针仍有 257,748 字节，是 64KB 预算的 3.9 倍。
+ *
+ * 三层，逐层收紧，**最后一层保证一定回到预算内**：
+ *  ① 白名单诊断数组采样到前几条 + 每条截断，并如实标注总数；
+ *  ② 仍超预算 → 丢掉非指针的自定义元数据（它们完整地在溢出文件里）；
+ *  ③ 仍超预算 → 只留指针本身。
+ * 「返回 24 万字节 + 一个 `_oversized: true`」不叫收敛：调用方的上下文已经被撑爆了，
+ * 那个标记来不及起作用。 */
+/** 只做收缩的第一层：把白名单里的诊断数组采样到前几条，并如实标注总数。
+ *
+ * 单独导出是因为 `gangtise_read_response` 的回读页也需要它。回读页会带上源响应的顶层
+ * 元数据（`_failed_pages` 每页一条这类），失败页多时单页就能超字节预算 —— 而那些字段
+ * **没有分页语义**，直接截断就是静默丢数据。采样不一样：它留下 `_..._sampled:
+ * {shown, total}`，读者一眼看得出清单不全、完整版在溢出文件里。
+ *
+ * 与 `shrinkDiagnostics` 的分工：那个函数在采样之后还会**丢字段**（②③ 两层），只适用于
+ * 初始指针（丢掉的东西完整地在溢出文件里、且指针刚生成）。回读页只用这一层。
+ *
+ * 🔴 `budget` 必须由调用方按**它最终要发出去的那个载荷**给，不能默认整份预算：回读页在
+ * 这些元数据之外还要装信封和行，`rest` 自己 65,358B「没超」而拼上信封 65,570B 已经超了 ——
+ * 采样按 65,536 判就一次都不会触发。 */
+export function sampleDiagnostics(preview: Record<string, unknown>, budget = INLINE_MAX_BYTES): Record<string, unknown> {
+  const out = { ...preview }
+  const shrinkable = Object.entries(out)
+    .filter((e): e is [string, unknown[]] => SHRINKABLE.has(e[0]) && Array.isArray(e[1]))
+    .sort((a, b) => bytes(b[1]) - bytes(a[1]))
+  for (const [key, value] of shrinkable) {
+    if (bytes(out) <= budget) break
+    out[key] = value.slice(0, DIAGNOSTIC_SAMPLE).map(clampEntry)
+    out[`${key}_sampled`] = { shown: Math.min(DIAGNOSTIC_SAMPLE, value.length), total: value.length, note: "完整清单见 _saved_to 指向的溢出文件" }
+  }
+  return out
+}
+
+function shrinkDiagnostics(preview: Record<string, unknown>): Record<string, unknown> {
+  if (bytes(preview) <= INLINE_MAX_BYTES) return preview
+  let out = { ...preview }
+
+  // ① 白名单诊断：从最大的开始削
+  out = sampleDiagnostics(out)
+  if (bytes(out) <= INLINE_MAX_BYTES) return out
+
+  // ② 丢掉非指针的自定义元数据（服务端回显的大字段、超大非数组诊断等）
+  const kept: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(out)) {
+    if (POINTER_KEYS.has(k) || k === "list" || k.endsWith("_sampled") || SHRINKABLE.has(k)) kept[k] = v
+  }
+  kept._metadata_dropped = "响应元数据超出字节预算，已省略；完整内容见 _saved_to 指向的溢出文件"
+  out = kept
+  if (bytes(out) <= INLINE_MAX_BYTES) return out
+
+  // ③ 最后兜底：只留指针，且**每个留下来的值都要有界**。
+  //
+  // 🔴 前一版这里把 POINTER_KEYS 原样搬过来就返回了，没有再量一次 —— 于是一个超长的
+  // `_partial_reason`（多原因逗号拼接）或一批超长字段名照样把载荷顶到 10 万字节以上，
+  // 而 CHANGELOG 里写着「保证回到预算内」。**一个自己没有验证过的保证就是假话。**
+  // 现在：丢掉 `_available_fields`（它只是提示，完整清单在溢出文件里）、把剩下的字符串
+  // 值截断，最后**无条件复核一次**，仍超就退到一个由常量拼出的骨架。
+  const minimal: Record<string, unknown> = {}
+  for (const k of POINTER_KEYS) {
+    if (!(k in out)) continue
+    if (k.startsWith("_available_fields")) continue
+    minimal[k] = clampEntry(out[k])
+  }
+  minimal.list = []
+  minimal._metadata_dropped = "响应元数据与预览行均超出字节预算，已全部省略；完整内容见 _saved_to 指向的溢出文件"
+  if (bytes(minimal) <= INLINE_MAX_BYTES) return minimal
+
+  // ④ 绝对兜底：只有回读所必需的三项 + 一句说明。这几项的长度都由本进程决定
+  //（临时目录路径 ~90 字符），不可能再超。走到这里说明上面某个假设不成立，
+  // 但**返回一个超预算的载荷永远不是可接受的结果**。
+  return {
+    _truncated: true,
+    _saved_to: typeof out._saved_to === "string" ? out._saved_to : "",
+    _read_with: "gangtise_read_response",
+    _partial: out._partial === true ? true : undefined,
+    list: [],
+    _metadata_dropped: "响应元数据超出字节预算，仅保留回读指针；完整内容见 _saved_to",
+  }
+}
+
 export async function buildToolContent(normalized: unknown, options?: BuildOptions): Promise<Array<{ type: "text"; text: string }>> {
   // 没开 nullMeansEmpty 的端点收到 null/undefined = 协议异常，必须**响亮失败**。
   // 此前它会被 JSON.stringify 成字面量 "null" 原样返回、且 isError=false，调用方分不清
@@ -136,6 +266,8 @@ export async function buildToolContent(normalized: unknown, options?: BuildOptio
   const tempDir = await createManagedTempDir()
   const savedPath = path.join(tempDir, "response.json")
   await fs.writeFile(savedPath, json, "utf8")
+  // 写完才知道真实体积——配额必须在这里再执行一次（创建时目录还是空的）。
+  await enforceOwnedTempQuota(tempDir)
 
   let preview: Record<string, unknown>
 
@@ -172,6 +304,11 @@ export async function buildToolContent(normalized: unknown, options?: BuildOptio
       next_offset: normalized.length > PREVIEW_ITEMS ? previewList.length : null,
     }
   } else {
+    // 非列表大对象：本条只是**指针**，一行内容都没带。
+    // 🔴 `has_more` 必须是 true、`next_offset` 必须是 0 —— read_response 对这种形状按
+    // 字符分片、从 offset 0 开始回读（见 response.ts 的 `_json_chunk` 分支）。写
+    // `has_more: false` 与同一条里的 `_truncated: true` / `_read_with` 直接矛盾，而
+    // 「还有没有」这一格才是调用方决定要不要回读的依据：它会就此停手，整份载荷丢在盘上。
     preview = {
       _truncated: true,
       _saved_to: savedPath,
@@ -179,7 +316,8 @@ export async function buildToolContent(normalized: unknown, options?: BuildOptio
       _read_with: "gangtise_read_response",
       _total_bytes: byteLength,
       _preview_count: 0,
-      has_more: false,
+      has_more: true,
+      next_offset: 0,
     }
   }
 
@@ -215,7 +353,7 @@ export async function buildToolContent(normalized: unknown, options?: BuildOptio
     }
   }
 
-  return [{ type: "text" as const, text: JSON.stringify(preview) }]
+  return [{ type: "text" as const, text: JSON.stringify(shrinkDiagnostics(preview)) }]
 }
 
 /**
@@ -248,6 +386,7 @@ async function spillTextMeta(text: string): Promise<Record<string, unknown>> {
   const tempDir = await createManagedTempDir()
   const savedPath = path.join(tempDir, "response.md")
   await fs.writeFile(savedPath, text, "utf8")
+  await enforceOwnedTempQuota(tempDir)
 
   const preview = text.slice(0, alignSliceEnd(text, TEXT_PREVIEW_CHARS))
   return {
@@ -328,6 +467,28 @@ interface SanitizeOptions {
   fetchAll?: boolean
 }
 
+/** 通用的「起止先后」校验。
+ *
+ * 🔴 起始晚于结束此前只有 `gangtise_knowledge_batch` 一处校验，其余带日期区间的工具全都
+ * 直接下发。服务端有 `110002`「起始晚于结束」这个码，但**不是每个端点都用它**——有的
+ * 端点把倒置区间当成空条件、返回未经筛选的结果，按条计费且从结果里看不出来。本地拒绝
+ * 零成本、报错还能指名是哪一对。
+ *
+ * 只比较**同名前缀**的一对（startDate/endDate、startTime/endTime），按字符串比较即可：
+ * 两个值到这里都已被 `dateString` / `dateTimeString` 归一成零填充的 `YYYY-MM-DD[ HH:mm:ss]`，
+ * 字典序与时间序一致。混用 date 与 datetime 时按各自的日期部分比。 */
+export function assertDateOrder(body: Record<string, unknown>): void {
+  for (const [startKey, endKey] of [["startDate", "endDate"], ["startTime", "endTime"]] as const) {
+    const start = body[startKey]
+    const end = body[endKey]
+    if (typeof start !== "string" || typeof end !== "string") continue
+    const n = Math.min(start.length, end.length)
+    if (start.slice(0, n) > end.slice(0, n)) {
+      throw new ValidationError(`${startKey} (${start}) 晚于 ${endKey} (${end})：请检查区间的先后顺序。`)
+    }
+  }
+}
+
 export function sanitizeArgs(
   args: Record<string, unknown>,
   opts: SanitizeOptions = {},
@@ -365,19 +526,22 @@ export function registerJsonTool(server: McpServer, client: GangtiseClient, spec
   const schema: ZodShape = spec.paginated
     ? {
         ...spec.inputSchema,
-        from: z.number().int().min(0).optional().describe("0-based 起始偏移，默认 0"),
-        size: z.number().int().min(1).optional().describe("总行数上限，默认 20"),
-        fetchAll: z.boolean().optional().describe("拉取全部页并忽略 size，可能较慢或产生大响应"),
+        // 三者的语义由 server.instructions 的「通用参数」行统一声明 —— 22 个分页工具
+        // 各写一遍要付 22 遍，写在 instructions 只付一遍。别在这里加回描述。
+        from: z.number().int().min(0).optional(),
+        size: z.number().int().min(1).optional(),
+        fetchAll: z.boolean().optional(),
       }
     : spec.inputSchema
 
   server.registerTool(
     spec.name,
-    { description: withBilling(spec.name, spec.description, Boolean(spec.paginated)), inputSchema: strictSchema(schema), annotations: { readOnlyHint: true, openWorldHint: false } },
+    { description: withBilling(spec.name, spec.description), inputSchema: strictSchema(schema), annotations: { readOnlyHint: true, openWorldHint: false } },
     async (args) => {
       try {
         const { fetchAll, ...rest } = args as Record<string, unknown>
         const sanitized = sanitizeArgs(rest, { paginated: spec.paginated, fetchAll: Boolean(fetchAll) })
+        assertDateOrder(sanitized)
         const body = spec.transformBody ? spec.transformBody(sanitized) : sanitized
         const result = await client.call(spec.endpointKey, body)
         return { content: await buildToolContent(normalizeRows(result), { nullMeansEmpty: spec.nullMeansEmpty, emptyHint: spec.emptyHint }) }

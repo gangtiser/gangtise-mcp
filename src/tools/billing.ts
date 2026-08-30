@@ -176,12 +176,12 @@ export const BILLING_CATALOG: Record<string, BillingSpec> = {
   gangtise_indicator_cross_section: {
     kind: "variable",
     note: "按单元格计价，单价见 gangtise CLI indicator.md（A股 0.05 / 港股 0.1 / 美股 0.2 每 100 单元格）",
-    amplify: "按单元格计价，指标数×证券数×日期数即放大倍数",
+    amplify: "按单元格计价，指标数×证券数×日期数即放大倍数，单次上限 10 万单元格",
   },
   gangtise_indicator_time_series: {
     kind: "variable",
     note: "按单元格计价，单价见 gangtise CLI indicator.md（A股 0.05 / 港股 0.1 / 美股 0.2 每 100 单元格）",
-    amplify: "按单元格计价，指标数×证券数×日期数即放大倍数",
+    amplify: "按单元格计价，指标数×证券数×日期数即放大倍数，单次上限 10 万单元格",
   },
   // 同族同口径：条件选股按 universe 展开后的单元格计价，而 universe 可以是一个板块 ID
   // （服务端展开成 N 只成分股），所以放大倍数由「展开后的证券数」决定、请求里看不出来 ——
@@ -189,7 +189,7 @@ export const BILLING_CATALOG: Record<string, BillingSpec> = {
   gangtise_indicator_screener: {
     kind: "variable",
     note: "按单元格计价，单价见 gangtise CLI indicator.md（A股 0.05 / 港股 0.1 / 美股 0.2 每 100 单元格）",
-    amplify: "按单元格计价，指标数×证券数即放大倍数；板块 ID 由服务端展开成全部成分股，实际证券数可远大于传入条数",
+    amplify: "按单元格计价，指标数×证券数即放大倍数，单次上限 10 万单元格；板块 ID 由服务端展开成全部成分股，实际证券数可远大于传入条数",
   },
 
   // ───────── unconfirmed（9） ─────────
@@ -204,8 +204,14 @@ export const BILLING_CATALOG: Record<string, BillingSpec> = {
   gangtise_viewpoint_debate_check: UNCONFIRMED_CHECK,
 }
 
-/** 付费分页工具的 fetchAll 成本警示。不改默认 size、不自动开 fetchAll —— 只做告知。 */
-const PAGINATED_BILLING_WARNING = "默认最多 20 条；size 调大或 fetchAll=true 按全部实际返回条目计费"
+/** 付费分页工具的 fetchAll 成本警示，**已上收到 server.instructions 的「通用参数」行**。
+ *
+ * 判据是杠杆：这句话曾逐字挂在 19 个工具上，而每个工具的 inputSchema 是独立 JSON 文档、
+ * 客户端不跨工具解析 $ref —— 写在描述里付 19 遍，写在 instructions 里付一遍。仓库定的
+ * 门槛是「≥10 次搬进 instructions」，这条 19 次，远过线。
+ *
+ * 保留 `amplify`（「单次约 N 积分」）在这里：它逐工具不同，搬不动，也正是模型估成本时
+ * 真正需要的那一半。 */
 
 /**
  * 紧凑积分标签，是描述的**最后一段**。免费档返回空串 ——
@@ -230,29 +236,25 @@ export function billingLabel(toolName: string): string {
     case "variable":
       return "【积分：按所选指标】"
     case "unconfirmed":
-      return "【积分：计分表未覆盖】"
+      return "【积分：单价以平台计费为准】"
   }
 }
 
 /**
- * 标签**之外**的生成式计费尾注：付费分页的 fetchAll 警示 + 高放大提示。
- * 与标签一样由目录生成、非手写，但排在标签之前 —— 因此 listTools 门禁的顺序是
- * 「先剥标签 → 再剥本尾注 → 最后扫残留」。免费/本地档永远返回空串。
+ * 标签**之外**的生成式计费尾注：目前只剩高放大提示（分页 fetchAll 警示已上收到
+ * server.instructions）。与标签一样由目录生成、非手写，但排在标签之前 —— 因此
+ * listTools 门禁的顺序是「先剥标签 → 再剥本尾注 → 最后扫残留」。免费/本地档返回空串。
  */
-export function billingSuffix(toolName: string, paginated: boolean): string {
+export function billingSuffix(toolName: string): string {
   const spec = BILLING_CATALOG[toolName]
   if (!spec) throw new Error(`billing catalog missing an entry for tool: ${toolName}`)
   if (spec.kind === "free" || spec.kind === "local") return ""
   const parts: string[] = []
-  // 按条计费的分页警示只对 fixed 档成立（每条明码单价）。unconfirmed/downstream/variable
-  // 的计费方式未确认或非「按返回条数」，不能替它们断言这句——今天 18 个分页付费工具恰好
-  // 全是 fixed，此守卫零当前影响，纯为防未来新增非 fixed 分页工具时误挂计费断言。
-  if (paginated && spec.kind === "fixed") parts.push(PAGINATED_BILLING_WARNING)
   if ("amplify" in spec && spec.amplify) parts.push(spec.amplify)
   return parts.length > 0 ? `${parts.join("，")}。` : ""
 }
 
 /** 描述 + 生成式尾注 + 积分标签。标签必须留在最后 —— 门禁按尾部逐段剥离。 */
-export function withBilling(toolName: string, description: string, paginated = false): string {
-  return description + billingSuffix(toolName, paginated) + billingLabel(toolName)
+export function withBilling(toolName: string, description: string): string {
+  return description + billingSuffix(toolName) + billingLabel(toolName)
 }

@@ -1,5 +1,5 @@
 import { runWithConcurrency, isVerbose } from "./transport.js"
-import { errorMessage, ValidationError } from "./errors.js"
+import { ApiError, errorMessage, ValidationError } from "./errors.js"
 import { PAGE_CONCURRENCY } from "./config.js"
 
 export interface KlineBody {
@@ -180,22 +180,53 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   let header: Record<string, unknown> | null = null
   const merged: unknown[] = []
   const truncatedShards: Array<{ startDate: string; endDate: string }> = []
+  // 形状对不上的分片：HTTP 没报错，但载荷里没有可合并的 `list`。
+  //
+  // 🔴 这一档以前是**静默丢弃**的：`continue` 掉、不进 merged、也不标 _partial，于是
+  // 一天的全市场行情凭空消失而结果读起来完整。极端情形下每个分片都是这个形状，返回的
+  // 是 `{ ...第一个坏分片, list: [] }` —— 一份带着上游字段、零行、无任何标记的「正常空
+  // 结果」。与 `_failed_shards` 对称地记名，坏形状才有信号。
+  const malformedShards: Array<{ startDate: string; endDate: string }> = []
   for (let i = 0; i < results.length; i++) {
     const r = results[i]
-    if (!r.ok || !(r.value && typeof r.value === "object")) continue
-    const rec = r.value as Record<string, unknown>
+    if (!r.ok) continue
+    const rec = r.value && typeof r.value === "object" && !Array.isArray(r.value)
+      ? (r.value as Record<string, unknown>)
+      : undefined
+    // `{total: 0, list: null}` 是部分端点编码空结果的写法（见 client.isPaginatedListResponse），
+    // 是合法的零行、不是坏形状；除此之外没有数组 `list` 就是形状漂移。
+    const rows = rec && Array.isArray(rec.list)
+      ? (rec.list as unknown[])
+      : rec && rec.total === 0 && (rec.list === null || rec.list === undefined)
+        ? []
+        : undefined
+    if (!rec || rows === undefined) {
+      malformedShards.push({ startDate: shards[i].startDate, endDate: shards[i].endDate })
+      continue
+    }
     if (!header) header = rec
     if (!fieldList && Array.isArray(rec.fieldList)) fieldList = rec.fieldList
     // A shard whose row count reaches the per-request limit was itself capped, so
     // its slice of that day's market is incomplete — record its date window so a
     // consumer can re-pull exactly those days with a narrower range.
-    if (Array.isArray(rec.list) && (rec.list as unknown[]).length >= perShardLimit) {
+    if (rows.length >= perShardLimit) {
       truncatedShards.push({ startDate: shards[i].startDate, endDate: shards[i].endDate })
     }
-    if (Array.isArray(rec.list)) merged.push(...(rec.list as unknown[]))
+    merged.push(...rows)
   }
 
-  if (!header) return { list: [] }
+  // 没有任何一个分片给出可用形状（全失败已在上面抛过，这里是「全部坏形状」以及
+  // 「失败 + 坏形状」的混合）——没有 header 就没有可信的载体，标 _partial 也只是把一份
+  // 无中生有的空表递出去。响亮失败。
+  if (!header) {
+    if (malformedShards.length > 0) {
+      const alsoFailed = failed.length > 0 ? `，另有 ${failed.length} 个分片请求失败（${failed[0].error}）` : ""
+      throw new ApiError(
+        `全市场分片查询：${malformedShards.length} 个分片返回的载荷里没有可合并的 list（形状可能已变更）${alsoFailed}，没有任何分片给出可用数据——请重试；持续出现请带上工具名与日期区间报障。`,
+      )
+    }
+    return { list: [] }
+  }
   const out: Record<string, unknown> = { ...header, list: merged }
   if (fieldList) out.fieldList = fieldList
   // The header's `total` describes the first shard only — recompute it for the
@@ -211,6 +242,10 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   if (truncatedShards.length > 0) {
     reasons.push("limit_truncated")
     out._truncated_shards = truncatedShards
+  }
+  if (malformedShards.length > 0) {
+    reasons.push("malformed_shards")
+    out._malformed_shards = malformedShards
   }
   if (reasons.length > 0) {
     out._partial = true

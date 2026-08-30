@@ -149,8 +149,11 @@ describe("gangtise_performance_calendar_list fetchAll guardrail", () => {
     } as unknown as GangtiseClient
   }
 
+  // 🔴 读**最后一次**调用，不是第一次：只靠日期区间放开行数闸门时，本工具会先发一次
+  // `size: 1` 的 total 探针（见 probeFilteredTotal），真正的请求排在它后面。
   function bodyOf(client: GangtiseClient) {
-    return (client.call as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][1] as Record<string, unknown>
+    const calls = (client.call as unknown as { mock: { calls: unknown[][] } }).mock.calls
+    return calls[calls.length - 1][1] as Record<string, unknown>
   }
 
   it("rejects fetchAll with no real bound, without calling the API", async () => {
@@ -251,7 +254,11 @@ describe("gangtise_performance_calendar_list oversized-size bypass", () => {
       download: vi.fn(),
     } as unknown as GangtiseClient
   }
-  const bodyOf = (c: GangtiseClient) => (c.call as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][1] as Record<string, unknown>
+  // 同上：日期区间放开闸门时第一次调用是 total 探针，真请求在最后一次。
+  const bodyOf = (c: GangtiseClient) => {
+    const calls = (c.call as unknown as { mock: { calls: unknown[][] } }).mock.calls
+    return calls[calls.length - 1][1] as Record<string, unknown>
+  }
 
   it("rejects an oversized size with no bound, without calling the API", async () => {
     const client = rows(0, 0)
@@ -418,7 +425,8 @@ describe("gangtise_performance_calendar_list date field contract", () => {
       arguments: { size: 50000, startDate: "2026-07-20", endDate: "2026-07-25" },
     })
     expect(result.isError).toBeFalsy()
-    expect((client.call as ReturnType<typeof vi.fn>).mock.calls[0][1].size).toBe(50000)
+    const calls = (client.call as ReturnType<typeof vi.fn>).mock.calls
+    expect(calls[calls.length - 1][1].size).toBe(50000)
   })
 
   // ⚠️ 本用例写于加**根级 strict** 之前。加了 strict 之后，旧名在这条路径之前就被
@@ -699,5 +707,55 @@ describe("regionList closed sets differ per endpoint", () => {
     expect(enumOf(fr)).not.toContain("hk")
     expect(enumOf(fr)).not.toContain("eu")
     expect(String(fr.description)).toMatch(/cnHk[^。]*不是 hk/)
+  })
+})
+
+// 🔴 「给了一对日期」不等于「加了约束」。
+// 上一版在这里放了「跨度 ≤ 25 年就算强约束」的常数，那个判据是**假的**：本库真实跨度
+// 只有约 1052 天，25 年是它的 8.7 倍，于是一个覆盖全库的完整区间照样被判成强约束，
+// 行数闸门整个放开、可拉满 5 万行 ≈ 5000 积分。**拍一个「远大于任何真实查询」的阈值，
+// 恰恰保证了它拦不住任何东西。** 现在改成用一次 size:1 探针问服务端要 total。
+describe("performance calendar: a date range must actually narrow the result", () => {
+  const clientWith = (total: number) => ({
+    call: vi.fn(async () => ({ total, list: Array.from({ length: Math.min(total, 3) }, (_, i) => ({ performanceReportId: String(i) })) })),
+    download: vi.fn(),
+  } as unknown as GangtiseClient)
+
+  it("rejects a wide-open range whose total is still library-sized", async () => {
+    const client = clientWith(126722)
+    const mcp = await connect(client)
+    const result = await mcp.callTool({
+      name: "gangtise_performance_calendar_list",
+      arguments: { fetchAll: true, startDate: "2023-11-15", endDate: "2026-10-01" },
+    })
+    expect(result.isError, "覆盖全库的区间不该放开行数闸门").toBe(true)
+    expect((result.content as Array<{ text: string }>)[0].text).toMatch(/没有把结果收窄/)
+    // 只发了探针，没有发那个会拉满 5 万行的真请求
+    const calls = (client.call as ReturnType<typeof vi.fn>).mock.calls
+    expect(calls).toHaveLength(1)
+    expect(calls[0][1].size).toBe(1)
+  })
+
+  it("allows a range that genuinely narrows", async () => {
+    const client = clientWith(42)
+    const mcp = await connect(client)
+    const result = await mcp.callTool({
+      name: "gangtise_performance_calendar_list",
+      arguments: { fetchAll: true, startDate: "2026-07-20", endDate: "2026-07-25" },
+    })
+    expect(result.isError).toBeFalsy()
+    const calls = (client.call as ReturnType<typeof vi.fn>).mock.calls
+    expect(calls.length).toBeGreaterThan(1)   // 探针 + 真请求
+  })
+
+  it("does not probe at all for a normal-sized request", async () => {
+    const client = clientWith(42)
+    const mcp = await connect(client)
+    await mcp.callTool({
+      name: "gangtise_performance_calendar_list",
+      arguments: { size: 20, startDate: "2026-07-20", endDate: "2026-07-25" },
+    })
+    // 没超过 UNFILTERED_MAX_ROWS 就不该多花这一行
+    expect((client.call as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1)
   })
 })

@@ -3,23 +3,26 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { GangtiseClient } from "../core/client.js"
 import { registerJsonTool, buildToolContent, type JsonToolSpec } from "./registry.js"
 import { toolHandler, contentResult } from "./helpers.js"
+import { assertDateOrder } from "./registry.js"
 import { normalizeRows } from "../core/normalize.js"
-import { dateDesc, dateString } from "../core/dateContext.js"
+import { dateString } from "../core/dateContext.js"
+import { nonEmptyString, uniqueFieldList, enumList } from "./schemas.js"
 
-const periodEnum = z.array(z.enum(["q1", "interim", "q3", "annual", "latest"])).optional().describe("q1=一季报 | interim=中报 | q3=三季报 | annual=年报 | latest=最新")
-const quarterlyPeriodEnum = z.array(z.enum(["q1", "q2", "q3", "q4", "latest"])).optional().describe("q1 | q2 | q3 | q4 | latest")
-const hkPeriodEnum = z.array(z.enum(["q1", "h1", "q3", "h2", "nsd", "annual", "latest"])).optional().describe("q1 | h1=中报 | q3 | h2=下半年报 | nsd=不规则跨度 | annual=年报 | latest")
-const usPeriodEnum = z.array(z.enum(["q1", "h1", "q3", "nsd", "annual", "latest"])).optional().describe("q1 | h1=中报 | q3 | nsd=不规则跨度 | annual=年报 | latest")
-const reportTypeEnum = z.array(z.enum(["consolidated", "consolidatedRestated", "standalone", "standaloneRestated"])).optional().describe("consolidated=合并 | consolidatedRestated=合并调整 | standalone=母公司 | standaloneRestated=母公司调整")
-const securityCode = z.string().describe("证券代码，如 '600519.SH'")
-const securityCodeHk = z.string().describe("证券代码，如 '00700.HK'（5 位数字前补零）")
-const securityCodeUs = z.string().describe("证券代码，如 'TSLA.O'（.O=NASDAQ / .N=NYSE / .A=AMEX）")
+const periodEnum = enumList(z.enum(["q1", "interim", "q3", "annual", "latest"])).optional().describe("q1=一季报 | interim=中报 | q3=三季报 | annual=年报 | latest=最新")
+const quarterlyPeriodEnum = enumList(z.enum(["q1", "q2", "q3", "q4", "latest"])).optional().describe("q1 | q2 | q3 | q4 | latest")
+const hkPeriodEnum = enumList(z.enum(["q1", "h1", "q3", "h2", "nsd", "annual", "latest"])).optional().describe("q1 | h1=中报 | q3 | h2=下半年报 | nsd=不规则跨度 | annual=年报 | latest")
+const usPeriodEnum = enumList(z.enum(["q1", "h1", "q3", "nsd", "annual", "latest"])).optional().describe("q1 | h1=中报 | q3 | nsd=不规则跨度 | annual=年报 | latest")
+// 口径表由 server.instructions 的「通用参数」行统一声明（11 处共用）。别在这里加回描述。
+const reportTypeEnum = enumList(z.enum(["consolidated", "consolidatedRestated", "standalone", "standaloneRestated"])).optional()
+const securityCode = nonEmptyString.describe("证券代码，如 '600519.SH'")
+const securityCodeHk = nonEmptyString.describe("证券代码，如 '00700.HK'（5 位数字前补零）")
+const securityCodeUs = nonEmptyString.describe("证券代码，如 'TSLA.O'（.O=NASDAQ / .N=NYSE / .A=AMEX）")
 const dateRange = {
-  startDate: dateString.optional().describe(dateDesc()),
-  endDate: dateString.optional().describe(dateDesc()),
+  startDate: dateString.optional(),
+  endDate: dateString.optional(),
 }
-const fiscalYear = z.array(z.number().int()).optional().describe("财年列表，如 [2023, 2024]")
-const fieldList = z.array(z.string()).optional().describe("指定返回字段")
+const fiscalYear = enumList(z.number().int()).optional().describe("财年列表，如 [2023, 2024]")
+const fieldList = uniqueFieldList("指定返回字段")
 // 实测 2026-07-26：valuation-analysis 全表就 7 列，且**没有 securityCode**。
 // 两个坑，都只能在 schema 层挡：
 //  1. 传不存在的字段名（如 securityCode），上游把相邻列的值复制进该槽位、**字段数与
@@ -34,6 +37,8 @@ const fieldList = z.array(z.string()).optional().describe("指定返回字段")
 const VALUATION_FIELD_NAMES = ["value", "percentileRank", "average", "median", "upper1Std", "lower1Std"] as const
 const valuationFieldList = z
   .array(z.enum(VALUATION_FIELD_NAMES))
+  .min(1, "fieldList 不能为空数组：要投影字段就至少给一个，要全量就省略该参数")
+  .refine((v) => new Set(v).size === v.length, "fieldList 不能重复：同名字段在按位置拍平时会相互覆盖，导致静默少一列")
   .optional()
   .describe(`指定返回字段，只认这 6 个：${VALUATION_FIELD_NAMES.join(" / ")}。tradeDate 总是自动返回、**不要传**（传了会让响应长度对不上而报错）；本接口也没有 securityCode。不确定就不传（=返回全部 7 列，最稳）`)
 // 实测 2026-07-26：主营接口固定前置 periodName/periodEndDate，传错字段名会导致
@@ -48,6 +53,8 @@ const MAIN_BUSINESS_FIELD_NAMES = [
 ] as const
 const mainBusinessFieldList = z
   .array(z.enum(MAIN_BUSINESS_FIELD_NAMES))
+  .min(1, "fieldList 不能为空数组：要投影字段就至少给一个，要全量就省略该参数")
+  .refine((v) => new Set(v).size === v.length, "fieldList 不能重复：同名字段在按位置拍平时会相互覆盖，导致静默少一列")
   .optional()
   .describe(`指定返回字段，只认这 15 个主营字段：${MAIN_BUSINESS_FIELD_NAMES.join(" / ")}。不确定就不传`)
 // 报表里有两个披露日字段，取值可能不同，而选错的后果是 point-in-time 校验得出相反结论
@@ -136,7 +143,7 @@ export const specs: JsonToolSpec[] = [
       securityCode,
       breakdown: z.enum(["product", "industry", "region"]).describe("product=产品 | industry=行业 | region=地区（必填）"),
       ...dateRange,
-      periodList: z.array(z.enum(["interim", "annual"])).optional().describe("interim=中报 | annual=年报"),
+      periodList: enumList(z.enum(["interim", "annual"])).optional().describe("interim=中报 | annual=年报"),
       fieldList: mainBusinessFieldList,
     },
   },
@@ -161,7 +168,7 @@ export const specs: JsonToolSpec[] = [
     inputSchema: {
       securityCode,
       ...dateRange,
-      consensusList: z.array(z.enum(["netIncome", "netIncomeYoy", "eps", "pe", "bps", "pb", "peg", "roe", "ps"])).optional().describe("netIncome=净利润 | netIncomeYoy=净利润增速 | eps | pe | bps | pb | peg | roe | ps"),
+      consensusList: enumList(z.enum(["netIncome", "netIncomeYoy", "eps", "pe", "bps", "pb", "peg", "roe", "ps"])).optional().describe("netIncome=净利润 | netIncomeYoy=净利润增速 | eps | pe | bps | pb | peg | roe | ps"),
     },
   },
   {
@@ -270,6 +277,7 @@ export function registerFundamentalTools(server: McpServer, client: GangtiseClie
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     toolHandler(async (args: Record<string, unknown>) => {
+      assertDateOrder(args)
       const { skipNull, ...body } = args
       const raw = await client.call("fundamental.valuation-analysis", body)
       const normalized = normalizeRows(raw)

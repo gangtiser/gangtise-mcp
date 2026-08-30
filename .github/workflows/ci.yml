@@ -28,5 +28,11 @@ jobs:
       - run: npm ci --ignore-scripts
       # Runs against the official registry (local npmmirror config can't audit).
       - run: npm audit --omit=dev --audit-level=high
+      - run: npm run lint
       - run: npm run build
+      # 对外面自查：工具描述/错误提示的措辞、包内文档、dist 残留注释、tools/list 字节预算。
+      # 它需要 dist/，所以排在 build 之后。
+      - run: npm run check:release
       - run: npm test
+      # 覆盖率阈值按当前实测值设（vitest.config.ts），作用是不许倒退。
+      - run: npm run coverage

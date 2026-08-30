@@ -49,6 +49,7 @@ function keyClient() {
     secretKey: "sk",
     tokenCachePath,
     asyncTimeoutMs: 60_000,
+    maxDownloadBytes: 1024 * 1024 * 1024,
   })
 }
 
@@ -59,6 +60,7 @@ function tokenClient() {
     token: "test-token",
     tokenCachePath,
     asyncTimeoutMs: 60_000,
+    maxDownloadBytes: 1024 * 1024 * 1024,
   })
 }
 
@@ -76,6 +78,7 @@ describe("GangtiseClient.requestJson", () => {
       token: "test-token",
       tokenCachePath,
       asyncTimeoutMs: 60_000,
+    maxDownloadBytes: 1024 * 1024 * 1024,
     })
     expect(await client.call("ai.one-pager", { securityCode: "600519.SH" })).toEqual({ answer: 42 })
   })
@@ -110,6 +113,7 @@ describe("GangtiseClient.requestJson", () => {
       secretKey: "sk",
       tokenCachePath: "/dev/null/nope/token.json", // mkdir under a file → ENOTDIR, so the cache write throws
       asyncTimeoutMs: 60_000,
+    maxDownloadBytes: 1024 * 1024 * 1024,
     })
     expect(await client.call("ai.one-pager", { securityCode: "600519.SH" })).toEqual({ answer: 7 })
   })
@@ -165,6 +169,79 @@ describe("GangtiseClient auth recovery", () => {
     expect(downloadCalls).toBe(2)
   })
 
+  // 🔴 下载响应不一定是信封：跟随 30x 之后落到对象存储域名，它拒绝过期凭据时返回自家的
+  // HTML/XML，网关直接挡下时可能是空体。这些 ApiError 的 code 是 undefined —— 只按码判
+  // 「是不是鉴权失败」就会整条漏掉自愈，现象上像「只有下载坏了」。
+  it("recovers a download from a non-JSON HTTP 401 (no envelope, no code)", async () => {
+    const bytes = new Uint8Array([1, 2, 3])
+    let downloadCalls = 0
+    requestMock.mockImplementation((url: unknown) => {
+      if (String(url).includes("/loginV2")) {
+        return Promise.resolve(rawJsonResponse({ code: "000000", data: { accessToken: "fresh", expiresIn: 7200, time: 1 } }))
+      }
+      downloadCalls += 1
+      if (downloadCalls === 1) {
+        return Promise.resolve({
+          statusCode: 401,
+          headers: { "content-type": "text/html" },
+          body: { text: vi.fn().mockResolvedValue("<html><body>401 Unauthorized</body></html>") },
+        })
+      }
+      return Promise.resolve(binaryResponse(bytes))
+    })
+
+    const result = await keyClient().call("insight.research.download", undefined, { reportId: "123" }) as { data?: Uint8Array }
+    expect(result.data, "非 JSON 的 401 没有触发一次 token 续期").toEqual(bytes)
+    expect(downloadCalls).toBe(2)
+  })
+
+  // 同一条路径的另一种形态：content-type 声明 JSON 但正文根本解析不出来（网关的错误页）。
+  it("recovers a download from a 401 whose JSON body fails to parse", async () => {
+    const bytes = new Uint8Array([4, 5, 6])
+    let downloadCalls = 0
+    requestMock.mockImplementation((url: unknown) => {
+      if (String(url).includes("/loginV2")) {
+        return Promise.resolve(rawJsonResponse({ code: "000000", data: { accessToken: "fresh", expiresIn: 7200, time: 1 } }))
+      }
+      downloadCalls += 1
+      if (downloadCalls === 1) {
+        return Promise.resolve({
+          statusCode: 401,
+          headers: { "content-type": "application/json" },
+          body: { text: vi.fn().mockResolvedValue("upstream gateway: unauthorized") },
+        })
+      }
+      return Promise.resolve(binaryResponse(bytes))
+    })
+
+    const result = await keyClient().call("insight.research.download", undefined, { reportId: "123" }) as { data?: Uint8Array }
+    expect(result.data).toEqual(bytes)
+    expect(downloadCalls).toBe(2)
+  })
+
+  // 反向：403 不是「凭据被拒」，不该烧掉那一次自愈名额，也不该重发一次计费下载。
+  // 判据是**登录次数**：初次取 token 那一次是必然的，自愈会带来第二次。
+  it("does not refresh on a non-401 download failure", async () => {
+    let downloadCalls = 0
+    let loginCalls = 0
+    requestMock.mockImplementation((url: unknown) => {
+      if (String(url).includes("/loginV2")) {
+        loginCalls += 1
+        return Promise.resolve(rawJsonResponse({ code: "000000", data: { accessToken: "fresh", expiresIn: 7200, time: 1 } }))
+      }
+      downloadCalls += 1
+      return Promise.resolve({
+        statusCode: 403,
+        headers: { "content-type": "text/html" },
+        body: { text: vi.fn().mockResolvedValue("forbidden") },
+      })
+    })
+
+    await expect(keyClient().call("insight.research.download", undefined, { reportId: "123" })).rejects.toThrow(/HTTP 403/)
+    expect(downloadCalls, "403 触发了不该发生的重试").toBe(1)
+    expect(loginCalls, "403 烧掉了那一次自愈名额").toBe(1)
+  })
+
   it("does not retry a download auth error when credentials are absent", async () => {
     let downloadCalls = 0
     requestMock.mockImplementation(() => {
@@ -178,6 +255,7 @@ describe("GangtiseClient auth recovery", () => {
       token: "test-token",
       tokenCachePath,
       asyncTimeoutMs: 60_000,
+    maxDownloadBytes: 1024 * 1024 * 1024,
     })
     await expect(client.call("insight.research.download", undefined, { reportId: "123" })).rejects.toMatchObject({ code: "8000015" })
     expect(downloadCalls).toBe(1)
@@ -204,6 +282,7 @@ describe("GangtiseClient auth recovery", () => {
       secretKey: "sk",
       tokenCachePath,
       asyncTimeoutMs: 60_000,
+    maxDownloadBytes: 1024 * 1024 * 1024,
     })
 
     expect(await client.call("ai.one-pager", { securityCode: "600519.SH" })).toEqual({ answer: 42 })
@@ -227,6 +306,7 @@ describe("GangtiseClient pagination", () => {
       token: "test-token",
       tokenCachePath,
       asyncTimeoutMs: 60_000,
+    maxDownloadBytes: 1024 * 1024 * 1024,
     })
 
     const result = await client.call("insight.opinion.list", {}) as Record<string, unknown> & { list: unknown[] }
@@ -288,7 +368,7 @@ describe("GangtiseClient pagination", () => {
   // failed_pages 本来就会把 `_partial` 标上，守卫删掉照样绿（已变异验证）。
   //
   // 要真正走到守卫上，得同时满足「行数取满 target」和「有页失败」。看着矛盾，
-  // 但服务端**会超发**（单页给的行数多于请求的 size，`bug/` 里有实测记录），
+  // 但服务端**会超发**（单页给的行数多于请求的 size），
   // 所以一页超发、另一页失败时，行数照样够。少了守卫这里就会白发一次探针，
   // 而结果已经标了 partial，那一次请求换不来任何新结论。
   it("does not spend a cap probe when a page failed, even if the rows still add up", async () => {
@@ -365,6 +445,7 @@ describe("GangtiseClient auth replay and freshness", () => {
       secretKey: "sk",
       tokenCachePath,
       asyncTimeoutMs: 60_000,
+    maxDownloadBytes: 1024 * 1024 * 1024,
     })
 
     expect(await client.call("ai.one-pager", { securityCode: "600519.SH" })).toEqual({ answer: 1 })
@@ -604,6 +685,7 @@ describe("GangtiseClient per-endpoint timeout floor", () => {
       token: "test-token",
       tokenCachePath,
       asyncTimeoutMs: 60_000,
+    maxDownloadBytes: 1024 * 1024 * 1024,
     })
     await client.call("ai.one-pager", { securityCode: "600519.SH" })
     const options = requestMock.mock.calls[0][1] as { headersTimeout: number }
@@ -971,5 +1053,89 @@ describe("empty-result encodings that are NOT malformed", () => {
     const result = await tokenClient().call("insight.summary.list", { size: 1 }) as Record<string, unknown>
     expect(result._partial).toBe(true)
     expect(result._partial_reason).toBe("unexpected_page_shape")
+  })
+})
+
+// 🔴 `isPaginatedListResponse` 有意把 `{total:0, list:null}` 收成合法空结果，而归一
+// 此前**只做了首页**。后续页拿到那个形状就会在合并循环里 `null.length` 抛 TypeError：
+// 已取到的行连同 _partial 标记一起丢掉，换来一句读不懂的 JS 报错。
+// summary / 三个公告 list / 财报日历 / 热点话题正是用这个形状编码空结果的。
+describe("GangtiseClient pagination: empty pages encoded as list:null", () => {
+  it("does not crash when a LATER page answers {total:0, list:null}", async () => {
+    requestMock.mockImplementation((_url: unknown, options?: { body?: string }) => {
+      const body = JSON.parse(options?.body ?? "{}") as { from: number; size: number }
+      if (body.from === 0) {
+        return Promise.resolve(jsonResponse({ total: 120, list: Array.from({ length: 50 }, (_, i) => ({ id: i })) }))
+      }
+      // 翻页途中数据集缩空
+      return Promise.resolve(jsonResponse({ total: 0, list: null }))
+    })
+
+    const result = await tokenClient().call("insight.summary.list", { fetchAll: true }) as Record<string, unknown>
+    expect(Array.isArray(result.list)).toBe(true)
+    expect((result.list as unknown[]).length).toBe(50)
+    // total 从 120 掉到 0 = 数据集在翻页期间动过，必须标出来而不是崩掉
+    expect(result._partial).toBe(true)
+    expect(String(result._partial_reason)).toContain("total_drift")
+  })
+
+  it("treats a first page of {total:0, list:null} as a legitimate empty result", async () => {
+    requestMock.mockImplementation(() => Promise.resolve(jsonResponse({ total: 0, list: null })))
+    const result = await tokenClient().call("insight.summary.list", {}) as Record<string, unknown>
+    expect(result.list).toEqual([])
+    expect(result._partial).toBeUndefined()
+  })
+
+  it("wraps a bare-array first page so the loud-partial marker survives serialization", async () => {
+    requestMock.mockImplementation(() => Promise.resolve(jsonResponse([{ id: 1 }, { id: 2 }])))
+    const result = await tokenClient().call("insight.summary.list", {}) as Record<string, unknown>
+    // 直接往数组上挂属性会在 JSON.stringify 时消失 —— 必须包一层
+    expect(result.list).toEqual([{ id: 1 }, { id: 2 }])
+    expect(result._partial).toBe(true)
+    expect(result._partial_reason).toBe("unexpected_page_shape")
+    expect(JSON.parse(JSON.stringify(result))._partial).toBe(true)
+  })
+})
+
+// 🔴 「盘上的 token 与刚失败的那个不同」曾被单独当作「兄弟进程刚刷新过」的判据。
+// 不同有两种来源，处置相反：兄弟刚写（采用）vs 盘上本来就躺着一个早已失效的旧 token
+// （必须走真登录）。后者被误采时，每次请求仅有的一次自愈名额就白烧了。
+describe("GangtiseClient auth recovery: only adopts a cache refreshed DURING the request", () => {
+  it("ignores a pre-existing stale cache and performs a real login instead", async () => {
+    // 请求开始前就躺在盘上的旧缓存：本地时钟看没过期，服务端已失效
+    await fs.writeFile(tokenCachePath, JSON.stringify({
+      accessToken: "stale-on-disk", expiresIn: 7200, time: 1,
+      expiresAt: Math.floor(Date.now() / 1000) + 7200,
+    }), "utf8")
+    // 保证 mtime 严格早于请求开始时刻
+    await new Promise((r) => setTimeout(r, 5))
+
+    let loginCalls = 0
+    const seenAuth: string[] = []
+    requestMock.mockImplementation(async (url: unknown, options?: { headers?: Record<string, string> }) => {
+      if (String(url).includes("/loginV2")) {
+        loginCalls += 1
+        return rawJsonResponse({ code: "000000", data: { accessToken: "fresh", expiresIn: 7200, time: 1 } })
+      }
+      seenAuth.push(options?.headers?.Authorization ?? "")
+      if (seenAuth.length === 1) return rawJsonResponse({ code: "0000001008", msg: "token is invalid" }, 401)
+      return jsonResponse({ answer: 7 })
+    })
+
+    const client = new GangtiseClient({
+      baseUrl: "https://open.gangtise.com",
+      timeoutMs: 30_000,
+      token: "explicit",
+      accessKey: "ak",
+      secretKey: "sk",
+      tokenCachePath,
+      asyncTimeoutMs: 60_000,
+    maxDownloadBytes: 1024 * 1024 * 1024,
+    })
+
+    expect(await client.call("ai.one-pager", { securityCode: "600519.SH" })).toEqual({ answer: 7 })
+    expect(loginCalls).toBe(1)
+    // 关键：重试用的是真登录拿到的 fresh，不是盘上那个 stale-on-disk
+    expect(seenAuth).toEqual(["Bearer explicit", "Bearer fresh"])
   })
 })
