@@ -31,14 +31,20 @@ describe("error hints", () => {
     const err = new ApiError("超出时间范围限制", "110003", 400)
     const msg = errorMessage(err)
     expect(msg).toContain("110003")
-    expect(msg).toContain("可查范围")
-    // 旧文案「请缩小日期范围」被证伪：单个日期也会报此码（screener 传较早的 date），
+    expect(msg).toContain("数据权限")
+    // 「请缩小日期范围」被证伪：单个日期也会报此码（screener 传较早的 date），
     // 此时没有窗口可缩，照做会陷进一个永远返回同一个码的循环。
     expect(msg).not.toContain("请缩小日期范围")
-    // 归因只到「接口」，不到「账号权限」——原始报文只有「超出时间范围限制」，
-    // 除 theme-tracking 外没有端点证过权限归因。这条守卫自 v0.1.44 round-3 起有效，
-    // v0.1.51 一度被放开又改回，别再放开。
-    expect(msg).not.toContain("账号权限")
+  })
+
+  // 🔴 反向断言：这条边界按账号配、不按接口配 —— 同一天同指标同证券，EDE 截面 /
+  // 时序 / 条件选股与 quote 日 K 在同一条界上同时通过、同时报此码。提示里一旦再出现
+  // 「改用范围更宽的同族工具」，调用方就会照做，白发一次注定同样失败的请求。
+  it("does not tell 110003 callers to retry on a sibling endpoint", () => {
+    const msg = errorMessage(new ApiError("超出时间范围限制", "110003", 400))
+    expect(msg).not.toContain("同族工具")
+    expect(msg).not.toContain("随接口而异")
+    expect(msg).toContain("不按接口配")
   })
 })
 
