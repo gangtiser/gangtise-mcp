@@ -4,7 +4,7 @@ import { today, year, dateTime, dateString, dateTimeString, quarterEndDate } fro
 
 // These pin the Asia/Shanghai (UTC+8) conversion. If anyone drops the timezone
 // (falling back to the host/UTC), "today" shifts by up to a day and silently
-// breaks every relative-date query plus the theme-tracking 30-day guard.
+// breaks every relative-date query plus the theme-tracking future-date guard.
 describe("dateContext Asia/Shanghai", () => {
   it("rolls 'today' to the next day once past Shanghai midnight", () => {
     // 2026-06-29T16:30:00Z == 2026-06-30 00:30 in Shanghai

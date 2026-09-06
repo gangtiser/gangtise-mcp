@@ -46,7 +46,7 @@ const UNCONFIRMED_REFERENCE: BillingSpec = { kind: "unconfirmed", note: "计分�
 // 不要新增 "included" kind ——「含在 submit 费里」与「本来免费」对模型行为完全等价。
 const UNCONFIRMED_CHECK: BillingSpec = { kind: "unconfirmed", note: "续查是否另计费未确认" }
 
-export const BILLING_CATALOG: Record<string, BillingSpec> = {
+const CATALOG: Record<string, BillingSpec> = {
   // ───────── local（3）：永不打 OpenAPI ─────────
   // lookup 走 getLookupData() 读 core/lookupData/，计分表没列它是因为它压根不是
   // OpenAPI 接口，不属于「未覆盖」—— 所以是 local，不是 unconfirmed。
@@ -203,6 +203,9 @@ export const BILLING_CATALOG: Record<string, BillingSpec> = {
   gangtise_earnings_review_check: UNCONFIRMED_CHECK,
   gangtise_viewpoint_debate_check: UNCONFIRMED_CHECK,
 }
+
+/** 冻结：目录是模型看到的唯一价签，运行期被改掉不会有任何报错，只会静默按错的价签展示。 */
+export const BILLING_CATALOG: Record<string, BillingSpec> = Object.freeze(CATALOG)
 
 /** 付费分页工具的 fetchAll 成本警示，**已上收到 server.instructions 的「通用参数」行**。
  *
