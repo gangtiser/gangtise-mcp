@@ -220,11 +220,13 @@ describe("quote market keywords", () => {
     expect(client.call).not.toHaveBeenCalled()
   })
 
-  // 🔴 Canonicalisation is load-bearing on fund-flow specifically: that endpoint takes
-  // only the literal `aShares` and answers `ashares` with 120001, so folding the case is
-  // the difference between a working query and a hard error. Deleting
-  // canonicalizeKeywords must turn this red.
-  it("canonicalises a lower-cased keyword before sending it (fund-flow is case-sensitive upstream)", async () => {
+  // 🔴 归一是必需的，但理由在**本地**：`resolveFullMarket` 按精确字符串查分片粒度表，
+  // 没归一的 `ashares` 根本不会被认成全市场关键字——全市场资金流会因此走成一次不分片的
+  // 请求（本工具直接报错，日 K 那边是静默按 6000 行封顶）。删掉 canonicalizeKeywords
+  // 必须让本条变红。
+  // ⚠️ 不是为了迁就服务端：该端点与同族一样折叠大小写，四种写法返回逐位相同的行；
+  // `120001 非有效A股` 是**拼错**关键字（如 aSharez）才有的，不是大小写变体。
+  it("canonicalises a lower-cased keyword so the local shard lookup still recognises it", async () => {
     const client = {
       call: vi.fn().mockResolvedValue({ list: [{ x: 1 }], total: 1 }),
       download: vi.fn(),

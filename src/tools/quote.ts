@@ -56,12 +56,18 @@ const commonKlineSchema = {
  * data". On fund flow the mixed case is worse than a rejection: the keyword is silently
  * dropped and only the explicit codes come back.
  *
- * 🔴 Comparing lower-cased (via `matchesKeyword`) is load-bearing, not tidiness: the
- * endpoints disagree on case. `gangtise_fund_flow` accepts only the literal `aShares`
- * (`ashares` → `120001 非有效A股`) while the others fold case, so canonicalising is the
- * only reason a lower-cased keyword works there at all — and on the others it keeps the
- * shard lookup in step with the server, without which a case variant silently degrades
- * to one unsharded 6000-row request. Both halves are pinned in quote.test.ts. */
+ * 🔴 Comparing lower-cased (via `matchesKeyword`) is load-bearing, not tidiness — but
+ * the reason is **local**, not server-side. `resolveFullMarket` matches the keyword by
+ * EXACT string against the shard-size table, so an un-canonicalised `ashares` is not
+ * recognised as whole-market at all: the request degrades to one unsharded call
+ * (silently capped for day K-line, a hard error for fund flow) instead of a day-by-day
+ * fan-out. Canonicalising keeps that lookup in step with what the caller typed.
+ *
+ * ⚠️ It is NOT needed to satisfy the server: fund flow folds case like its siblings —
+ * `aShares` / `ashares` / `ASHARES` / `AShares` return byte-identical rows, while a
+ * keyword that is merely misspelt (`aSharez`) is rejected with `120001 非有效A股`. Do
+ * not restate the old claim that this endpoint takes only the literal `aShares`; that
+ * error code belongs to a wrong keyword, not to a case variant. Pinned in quote.test.ts. */
 function assertMarketKeywords(securityList: readonly unknown[] | undefined, accepted: readonly string[], tool: string): void {
   if (!securityList) return
   const codes = securityList.filter((s): s is string => typeof s === "string")
