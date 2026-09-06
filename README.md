@@ -203,16 +203,16 @@ Get-ChildItem "$env:LOCALAPPDATA\npm-cache\_npx" -Recurse -Filter package.json |
 
 ## 结果不完整时的标记
 
-一次调用只要有任何一部分没拿全，结果里会带 `_partial: true` 与 `_partial_reason`（逗号分隔的多个原因），**而不是静默交出一份读起来完整的数据**。看到它就说明这份结果不能当全集用。
+客户端检测到请求结果可能不完整时，会带 `_partial: true` 与 `_partial_reason`（逗号分隔的多个原因）。看到它就说明这份结果不能当全集用；没有该标记也不保证服务端数据完整，例如接口可能保留行列但返回 `null`。
 
-| 原因 | 含义 | 同时出现的字段 |
+| 原因 | 含义 | 按情况附带的详情字段 |
 |---|---|---|
 | `missing_fields` | 请求的某几列没回来（字段名写错或已下线）。行情类接口对不认识的字段名是名和值一起丢，不报错 | `missingFields` |
 | `dropped_columns` | 合并多份响应时，后一份多出来的列放不下——合并结果的列集合取自第一份 | `_dropped_columns` |
-| `limit_truncated` | 返回行数撞上单次请求上限，窗口尾部被截断 | `_truncated_shards` / `_truncated_securities` |
-| `failed_shards` / `failed_securities` / `failed_pages` | 分片、逐只或分页请求中有一部分失败 | 同名字段，逐条记出区间 / 证券 / 页与错误 |
-| `malformed_shards` / `malformed_securities` | 某一份响应里没有可合并的行，或列结构对不上 | 同名字段 |
-| `short_page` / `page_cap` / `total_drift` / `total_capped` | 翻页没取满、撞到页数上限、翻页期间数据集变了、`total` 是上限值而非真实计数 | `_page_cap` / `_total_capped` |
+| `limit_truncated` | 返回行数达到单次请求上限，结果可能在窗口内被截断 | 分片 / 逐只合并时为 `_truncated_shards` / `_truncated_securities`；单次请求可能只有原因标记 |
+| `failed_shards` / `failed_securities` / `failed_pages` | 分片、逐只或分页请求中有一部分失败 | `_failed_shards` / `_failed_securities` / `_failed_pages`，逐条记出区间 / 证券 / 页与错误 |
+| `malformed_shards` / `malformed_securities` | 某一份响应里没有可合并的行，或列结构对不上 | `_malformed_shards` / `_malformed_securities` |
+| `short_page` / `page_cap` / `total_drift` / `total_capped` | 翻页没取满、撞到页数上限、翻页期间数据集变了、`total` 是上限值而非真实计数 | `page_cap` / `total_capped` 分别附带 `_page_cap` / `_total_capped`；其他原因不保证有独立详情字段 |
 | `unexpected_page_shape` | 分页端点的首个响应不是 `{total, list}` 结构，翻页没有发生 | `_unexpected_page_shape` |
 | `omitted_indicators` / `omitted_securities` | 证券级指标（EDE）请求里的某些代码没有出现在返回矩阵中 | `omittedIndicators` / `omittedSecurities` |
 
