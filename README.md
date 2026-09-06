@@ -44,7 +44,7 @@ README 仅列最近 5 个版本的一行摘要，完整明细见 [CHANGELOG.md](
 | 观点与研报 | 国内首席观点、会议纪要、帕米尔专家纪要（独立库，需单独购买）、券商研报、外资研报与独立观点、A/港/美股公告、产业公众号资讯、投资者问答、研报图表 |
 | 会议日程 | 路演、调研、策略会、论坛（日程；正文走会议纪要） |
 | 财报日历 | 业绩预告 / 快报 / 公告的发布排期（含未来已排期）与原文 PDF |
-| 行情 | A/港/美股日 K 与实时快照、A 股分钟 K、指数日 K、A 股个股资金流向 |
+| 行情 | A/港/美股日 K 与实时快照、分钟 K、指数日 K、A 股个股资金流向；日 K / 实时 / 分钟 K 另覆盖沪深 ETF 与 20 个全球指数 |
 | 基本面 | A/港/美股三大报表（累计 / 单季）、主营业务、估值、股东、盈利预测 |
 | 数据指标（EDE） | 证券级指标搜索；截面与时序（二维矩阵展平为宽表）；条件选股（变量绑指标 + 表达式筛选） |
 | 另类数据 | EDB 宏观与行业经济指标；题材指数基本信息与成分股 |
@@ -200,6 +200,23 @@ Get-ChildItem "$env:LOCALAPPDATA\npm-cache\_npx" -Recurse -Filter package.json |
 | `GANGTISE_VERBOSE` | — | 设为 `1` 开启请求耗时日志（输出到 stderr） |
 
 认证优先级：`GANGTISE_TOKEN` > Token 缓存文件 > `GANGTISE_ACCESS_KEY` + `GANGTISE_SECRET_KEY`（自动换取并缓存 Token）。
+
+## 结果不完整时的标记
+
+一次调用只要有任何一部分没拿全，结果里会带 `_partial: true` 与 `_partial_reason`（逗号分隔的多个原因），**而不是静默交出一份读起来完整的数据**。看到它就说明这份结果不能当全集用。
+
+| 原因 | 含义 | 同时出现的字段 |
+|---|---|---|
+| `missing_fields` | 请求的某几列没回来（字段名写错或已下线）。行情类接口对不认识的字段名是名和值一起丢，不报错 | `missingFields` |
+| `dropped_columns` | 合并多份响应时，后一份多出来的列放不下——合并结果的列集合取自第一份 | `_dropped_columns` |
+| `limit_truncated` | 返回行数撞上单次请求上限，窗口尾部被截断 | `_truncated_shards` / `_truncated_securities` |
+| `failed_shards` / `failed_securities` / `failed_pages` | 分片、逐只或分页请求中有一部分失败 | 同名字段，逐条记出区间 / 证券 / 页与错误 |
+| `malformed_shards` / `malformed_securities` | 某一份响应里没有可合并的行，或列结构对不上 | 同名字段 |
+| `short_page` / `page_cap` / `total_drift` / `total_capped` | 翻页没取满、撞到页数上限、翻页期间数据集变了、`total` 是上限值而非真实计数 | `_page_cap` / `_total_capped` |
+| `unexpected_page_shape` | 分页端点的首个响应不是 `{total, list}` 结构，翻页没有发生 | `_unexpected_page_shape` |
+| `omitted_indicators` / `omitted_securities` | 证券级指标（EDE）请求里的某些代码没有出现在返回矩阵中 | `omittedIndicators` / `omittedSecurities` |
+
+拿到 `_partial` 后的常规处置：按标记指出的那几天 / 那几只 / 那几列缩小范围重拉，而不是把结果当完整集继续算。
 
 ## 大响应处理
 
