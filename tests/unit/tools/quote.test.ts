@@ -707,6 +707,9 @@ describe("volume unit is stated on every tool that returns it", () => {
       expect(description, `${name} 未声明 volume 单位`).toContain("volume 的单位是「股」")
       expect(description, `${name} 未点出按手换算的后果`).toMatch(/100 倍/)
     }
-    expect(byName.get("gangtise_day_kline"), "ETF 的份额口径也要留着").toContain("份")
+    // 三个工具都覆盖 ETF，「份」这条例外要跟着一起出现，缺一个就是留了个 100 倍的坑。
+    for (const name of ["gangtise_day_kline", "gangtise_realtime", "gangtise_minute_kline"]) {
+      expect(byName.get(name), `${name} 缺 ETF 的「份」例外`).toContain("ETF 为「份」")
+    }
   })
 })

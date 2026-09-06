@@ -4,7 +4,7 @@ import os from "node:os"
 import path from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
-import { selectStaleTempDirs, createManagedTempDir, isOwnedTempPath, resetOwnedTempDirs, releaseOwnedTempDir, touchOwnedTempDir, enforceOwnedTempQuota, beginSpillRead, endSpillRead, MAX_OWNED_TEMP_DIRS, MAX_OWNED_TEMP_BYTES } from "../../../src/core/tempCleanup.js"
+import { selectStaleTempDirs, createManagedTempDir, isOwnedTempPath, resetOwnedTempDirs, releaseOwnedTempDir, touchOwnedTempDir, enforceOwnedTempQuota, beginSpillRead, endSpillRead, ownedTempDirCount, MAX_OWNED_TEMP_DIRS, MAX_OWNED_TEMP_BYTES } from "../../../src/core/tempCleanup.js"
 
 const DAY = 86_400_000
 const now = 1_700_000_000_000
@@ -429,6 +429,231 @@ describe("byte quota is not fooled by a size measured mid-write", () => {
       // 补跑同样要认 protect：c 是刚写完的那一份，不能被当成淘汰对象。
       expect(await sizeOf(c), "补跑时把刚写完的目录删了").toBe(0.75 * GiB)
     } finally {
+      for (const dir of dirs) { await fs.rm(dir, { recursive: true, force: true }); releaseOwnedTempDir(dir) }
+      resetOwnedTempDirs()
+    }
+  })
+})
+
+// 入口查一次读者计数是不够的：入口到 fs.rm 之间隔着若干次异步 I/O，新回读能在这中间
+// 登记完毕。下面三条把「检查」与「删除」之间的那个窗口逐段钉住。
+//
+// 🔴 挂钩子必须用 **realpath**：`ownedTempDirs` 里登记的是 realpath 解析后的路径
+// （macOS 的 /var 是 /private/var 的符号链接），而 `createManagedTempDir` 返回的是
+// mkdtemp 原路径。按后者匹配，钩子永远不触发，竞态根本没造出来而测试照样绿。
+const GiB = 1024 * 1024 * 1024
+const partOf = (dir: string) => path.join(dir, "part.bin")
+const bytesOf = async (dir: string) => {
+  try { return (await fsSync.stat(partOf(dir))).size } catch { return 0 }
+}
+async function fill(dir: string, bytes: number): Promise<void> {
+  await fs.writeFile(partOf(dir), "x")
+  await fs.truncate(partOf(dir), bytes)
+}
+
+describe("eviction yields to a reader that registers mid-scan", () => {
+  it("stops deleting once a new reader appears after the entry check", async () => {
+    resetOwnedTempDirs()
+    const dirs: string[] = []
+    try {
+      // A、B 各 0.75 GiB 并结算：合计 1.5 GiB **在配额之内**，此前不会有任何淘汰。
+      // （`createManagedTempDir` 自己也跑一轮配额，先把总量压在线下，才能保证后面
+      // 观察到的删除只可能来自那次与读者赛跑的扫描。）
+      for (let i = 0; i < 2; i += 1) {
+        const dir = await createManagedTempDir(); dirs.push(dir)
+        await fill(dir, 0.75 * GiB)
+        await enforceOwnedTempQuota(dir)
+      }
+      const c = await createManagedTempDir(); dirs.push(c)
+      await fill(c, 0.75 * GiB)   // 总量 2.25 GiB：C 的这次检查一定要淘汰点什么
+
+      // 读者在**检查已经开始之后**登记：同步前缀先跑完（入口看到 0 个读者），
+      // 扫描随后在 dirBytes 的 await 上让出，这时读者才登记上。
+      const racing = enforceOwnedTempQuota(c)
+      beginSpillRead()
+      await racing
+
+      for (const dir of dirs) {
+        expect(await bytesOf(dir), `${dir} 在有读者时被删了`).toBe(0.75 * GiB)
+      }
+
+      await endSpillRead()
+      const sizes = await Promise.all(dirs.map(bytesOf))
+      expect(sizes.reduce((sum, n) => sum + n, 0)).toBeLessThanOrEqual(MAX_OWNED_TEMP_BYTES)
+    } finally {
+      for (const dir of dirs) { await fs.rm(dir, { recursive: true, force: true }); releaseOwnedTempDir(dir) }
+      resetOwnedTempDirs()
+    }
+  })
+
+  // 让路时必须把当时要保护的目录记下来，否则补跑那一轮 keeps 为空——刚写完的那一份
+  // 若恰好是**最久未用**的，就会被当成头号淘汰对象删掉，调用方前一刻拿到的 _saved_to
+  // 当场作废。所以这条特意让受保护的目录排在最前面。
+  it("carries the protected dir into the deferred pass after yielding", async () => {
+    resetOwnedTempDirs()
+    const dirs: string[] = []
+    try {
+      const a = await createManagedTempDir(); dirs.push(a)   // 最久未用的那一个
+      for (let i = 0; i < 2; i += 1) {
+        const dir = await createManagedTempDir(); dirs.push(dir)
+        await fill(dir, 0.75 * GiB)
+        await enforceOwnedTempQuota(dir)
+      }
+      await fill(a, 0.75 * GiB)   // A 最后才写完，但在插入序里最老
+
+      const racing = enforceOwnedTempQuota(a)
+      beginSpillRead()
+      await racing
+      await endSpillRead()
+
+      expect(await bytesOf(a), "补跑丢了 protect，把刚写完的那一份删了").toBe(0.75 * GiB)
+      const sizes = await Promise.all(dirs.map(bytesOf))
+      expect(sizes.reduce((sum, n) => sum + n, 0)).toBeLessThanOrEqual(MAX_OWNED_TEMP_BYTES)
+    } finally {
+      for (const dir of dirs) { await fs.rm(dir, { recursive: true, force: true }); releaseOwnedTempDir(dir) }
+      resetOwnedTempDirs()
+    }
+  })
+
+  // 数量淘汰是一串 `await fs.rm`，读者能在两次删除之间登记。要一次删掉多份，只有
+  // 「回读期间目录攒过了上限、补跑时批量清」这一种路径——逐个创建时每轮最多削一个，
+  // 那样第一次删除前的入口检查就够了，测不到循环里这一处。
+  it("stops the count-cap sweep when a reader appears between two deletions", async () => {
+    resetOwnedTempDirs()
+    const dirs: string[] = []
+    const realRm = fs.rm
+    try {
+      for (let i = 0; i < MAX_OWNED_TEMP_DIRS; i += 1) dirs.push(await createManagedTempDir())
+      // 回读期间再造 3 个：淘汰全被推迟，登记表因此超出上限 3 个。
+      beginSpillRead()
+      for (let i = 0; i < 3; i += 1) dirs.push(await createManagedTempDir())
+      expect(ownedTempDirCount()).toBe(MAX_OWNED_TEMP_DIRS + 3)
+
+      let removed = 0
+      ;(fs as { rm: typeof fs.rm }).rm = (async (target: string, options?: object) => {
+        removed += 1
+        if (removed === 1) beginSpillRead()   // 第一次删除之后，新读者才登记
+        return realRm(target, options as never)
+      }) as typeof fs.rm
+      await endSpillRead()                     // 补跑：本该一次削掉 3 个
+      ;(fs as { rm: typeof fs.rm }).rm = realRm
+
+      expect(removed, "补跑一次都没删，用例前提不成立").toBeGreaterThan(0)
+      expect(removed, "新读者登记后仍在继续删").toBe(1)
+      expect(ownedTempDirCount(), "只应削掉让路前的那一个").toBe(MAX_OWNED_TEMP_DIRS + 2)
+    } finally {
+      ;(fs as { rm: typeof fs.rm }).rm = realRm
+      endSpillRead()
+      for (const dir of dirs) { await realRm(dir, { recursive: true, force: true }); releaseOwnedTempDir(dir) }
+      resetOwnedTempDirs()
+    }
+  })
+})
+
+// 🔴 「结算时 delete 缓存」挡不住**在途的旧扫描**：它在 await 之前就取到了旧尺寸，
+// 恢复时才去看是否已结算——于是把一个测量期间已被作废的读数重新写回去。
+describe("an in-flight scan cannot resurrect a size it measured before a settle", () => {
+  it("discards a measurement taken before the dir settled", async () => {
+    resetOwnedTempDirs()
+    const dirs: string[] = []
+    const realStat = fs.stat
+    let resume: () => void = () => {}
+    let reached: () => void = () => {}
+    const gate = new Promise<void>((r) => { resume = r })
+    const observed = new Promise<void>((r) => { reached = r })
+    let paused = false
+    try {
+      const a = await createManagedTempDir(); dirs.push(a)
+      await fs.writeFile(partOf(a), "x")                       // A 先只有 1 字节
+      const realPart = path.join(await fs.realpath(a), "part.bin")
+
+      // 返回真实 stat 结果，但把**这一次**扫描卡住，直到 A 写完并结算完毕。
+      ;(fs as { stat: typeof fs.stat }).stat = (async (target: string, ...rest: never[]) => {
+        const result = await (realStat as (...args: never[]) => Promise<unknown>)(target as never, ...rest)
+        if (String(target) === realPart && !paused) { paused = true; reached(); await gate }
+        return result
+      }) as typeof fs.stat
+
+      const creatingB = createManagedTempDir()                 // 这次创建会顺带扫描并量到 A
+      await observed
+      await fs.truncate(partOf(a), 0.75 * GiB)
+      await enforceOwnedTempQuota(a)                           // A 结算：作废旧读数
+      resume()
+      const b = await creatingB; dirs.push(b)
+      ;(fs as { stat: typeof fs.stat }).stat = realStat
+      expect(paused, "钩子没触发，竞态根本没造出来").toBe(true)
+
+      await fill(b, 0.75 * GiB)
+      await enforceOwnedTempQuota(b)
+      const c = await createManagedTempDir(); dirs.push(c)
+      await fill(c, 0.75 * GiB)
+      await enforceOwnedTempQuota(c)
+
+      const sizes = await Promise.all(dirs.map(async (d) => {
+        try { return (await realStat(partOf(d))).size } catch { return 0 }
+      }))
+      expect(sizes.reduce((sum, n) => sum + n, 0), "旧扫描把 1 字节写回缓存，总量因此少算了 A")
+        .toBeLessThanOrEqual(MAX_OWNED_TEMP_BYTES)
+    } finally {
+      resume()
+      ;(fs as { stat: typeof fs.stat }).stat = realStat
+      for (const dir of dirs) { await fs.rm(dir, { recursive: true, force: true }); releaseOwnedTempDir(dir) }
+      resetOwnedTempDirs()
+    }
+  })
+})
+
+// `settledBefore` 只挡得住「量的时候压根没结算过」。**已经结算过、量到一半又结算了一次**
+// 是另一档：那时 `settledBefore` 为真，没有世代号就会把上一轮的旧读数当成有效结果写回，
+// 把刚做的作废覆盖掉。本仓的契约允许同一目录多次结算（见上面的二次结算用例），
+// 所以这一档是够得着的。
+describe("a measurement is void if the dir settled again while it was being taken", () => {
+  it("discards a reading taken between two settles of the same dir", async () => {
+    resetOwnedTempDirs()
+    const dirs: string[] = []
+    const realStat = fs.stat
+    let resume: () => void = () => {}
+    let reached: () => void = () => {}
+    const gate = new Promise<void>((r) => { resume = r })
+    const observed = new Promise<void>((r) => { reached = r })
+    let paused = false
+    try {
+      const a = await createManagedTempDir(); dirs.push(a)
+      await fs.writeFile(partOf(a), "x")
+      await enforceOwnedTempQuota(a)                    // 结算 ①：A 以 1 字节进缓存
+      const realPart = path.join(await fs.realpath(a), "part.bin")
+
+      ;(fs as { stat: typeof fs.stat }).stat = (async (target: string, ...rest: never[]) => {
+        const result = await (realStat as (...args: never[]) => Promise<unknown>)(target as never, ...rest)
+        if (String(target) === realPart && !paused) { paused = true; reached(); await gate }
+        return result
+      }) as typeof fs.stat
+
+      // 结算 ②：作废缓存后重新量——此刻 A 还是 1 字节，这次读数就此卡住。
+      const staleSettle = enforceOwnedTempQuota(a)
+      await observed
+      // A 真正写满并结算 ③：缓存被作废并写入 0.75 GiB 的新读数。
+      await fs.truncate(partOf(a), 0.75 * GiB)
+      await enforceOwnedTempQuota(a)
+      resume()
+      await staleSettle                                  // 结算 ② 的旧读数不得回填
+      ;(fs as { stat: typeof fs.stat }).stat = realStat
+      expect(paused, "钩子没触发，竞态根本没造出来").toBe(true)
+
+      for (let i = 0; i < 2; i += 1) {
+        const dir = await createManagedTempDir(); dirs.push(dir)
+        await fill(dir, 0.75 * GiB)
+        await enforceOwnedTempQuota(dir)
+      }
+
+      const sizes = await Promise.all(dirs.map(async (d) => {
+        try { return (await realStat(partOf(d))).size } catch { return 0 }
+      }))
+      expect(sizes.reduce((sum, n) => sum + n, 0), "旧读数被写回，总量少算了 A")
+        .toBeLessThanOrEqual(MAX_OWNED_TEMP_BYTES)
+    } finally {
+      resume()
+      ;(fs as { stat: typeof fs.stat }).stat = realStat
       for (const dir of dirs) { await fs.rm(dir, { recursive: true, force: true }); releaseOwnedTempDir(dir) }
       resetOwnedTempDirs()
     }

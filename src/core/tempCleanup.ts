@@ -70,6 +70,14 @@ const dirSizeCache = new Map<string, number>()
  * 了缓存的收益，又不会把一个半成品的读数固化下来。 */
 const settledDirs = new Set<string>()
 
+/** 每个目录的**结算世代号**，每结算一次 +1。
+ *
+ * 🔴 只靠「结算时 delete 缓存」挡不住**在途的旧扫描**：一次扫描在 `await dirBytes(dir)`
+ * 之前就取到了旧尺寸，等它恢复时才去看 `settledDirs`——而这中间那个目录可能刚写完并结算过。
+ * 于是「量的时候还没结算、写回时已经结算」的旧读数会被当成新结果塞回缓存，把刚作废的
+ * 那一次覆盖掉。判据必须是「测量期间世代号没变」，不是「写回时是否已结算」。 */
+const settleEpoch = new Map<string, number>()
+
 /** 有回读在飞时配额检查会整个跳过。跳过的那一次必须补上，否则「等下一次创建溢出再清」
  * 只是个承诺——真的没有下一次时，超额就一直留在盘上。
  *
@@ -183,9 +191,23 @@ export async function enforceOwnedTempQuota(protect?: string): Promise<void> {
     // 这一次调用是「这份写完了」的唯一信号，而它带来的旧读数一定过期（多半是别人趁它
     // 还在写时顺带量的半成品）。放在提前返回之后，回读一撞上，那个半成品就永久留下了。
     settledDirs.add(keep)
+    settleEpoch.set(keep, (settleEpoch.get(keep) ?? 0) + 1)
     dirSizeCache.delete(keep)
   }
   await evictOldestOwned(keep ? new Set([keep]) : NO_KEEPS)
+}
+
+/** 真的动手删之前**再查一遍**读者计数。
+ *
+ * 🔴 只在扫描入口查一次是不够的：入口到 `fs.rm` 之间隔着若干次异步 I/O（逐目录 stat、
+ * 前面几次删除），一个新回读完全可以在这中间登记完毕。此前那种写法会把它正在读的文件
+ * 删掉，回读以 ENOENT 结束——而「读期间挂起淘汰」这条策略本来就是为了防这个。
+ * 撞上新读者就整轮让路：记账、把要保护的目录留住，等最后一个读者离开时再来。 */
+function yieldToReaders(keeps: ReadonlySet<string>): boolean {
+  if (activeSpillReads === 0) return false
+  quotaPending = true
+  for (const dir of keeps) quotaPendingKeeps.add(dir)
+  return true
 }
 
 async function evictOldestOwned(keeps: ReadonlySet<string> = NO_KEEPS): Promise<void> {
@@ -202,6 +224,7 @@ async function evictOldestOwned(keeps: ReadonlySet<string> = NO_KEEPS): Promise<
     ? [...ownedTempDirs].filter((d) => !keeps.has(d)).slice(0, ownedTempDirs.size - MAX_OWNED_TEMP_DIRS)
     : []
   for (const old of excess) {
+    if (yieldToReaders(keeps)) return
     ownedTempDirs.delete(old)
     dirSizeCache.delete(old)
     settledDirs.delete(old)
@@ -215,9 +238,19 @@ async function evictOldestOwned(keeps: ReadonlySet<string> = NO_KEEPS): Promise<
   let total = 0
   for (const dir of ownedTempDirs) {
     // 已结算的目录写完即不变，沿用缓存；未结算的（正在写、或刚建还空着）每次重新量。
-    // 只有结算过的才写回缓存 —— 否则会把一个写到一半的读数固化下来。
-    const size = dirSizeCache.has(dir) ? dirSizeCache.get(dir)! : await dirBytes(dir)
-    if (settledDirs.has(dir)) dirSizeCache.set(dir, size)
+    const cached = dirSizeCache.get(dir)
+    let size: number
+    if (cached !== undefined) {
+      size = cached
+    } else {
+      // 🔴 两个判据都要在 **await 之前**取：量的那一刻是否已结算、当时的世代号是多少。
+      // 等 await 回来再看 `settledDirs`，就会把一个「量的时候还没结算完」的旧读数
+      // 当成有效结果写回，覆盖掉这中间那次结算刚做的作废。
+      const settledBefore = settledDirs.has(dir)
+      const epochBefore = settleEpoch.get(dir) ?? 0
+      size = await dirBytes(dir)
+      if (settledBefore && (settleEpoch.get(dir) ?? 0) === epochBefore) dirSizeCache.set(dir, size)
+    }
     sizes.set(dir, size)
     total += size
   }
@@ -233,6 +266,7 @@ async function evictOldestOwned(keeps: ReadonlySet<string> = NO_KEEPS): Promise<
     const evictable = [...ownedTempDirs].filter((d) => !keeps.has(d) && d !== fallback)
     for (const dir of evictable) {
       if (total <= MAX_OWNED_TEMP_BYTES) break
+      if (yieldToReaders(keeps)) return
       ownedTempDirs.delete(dir)
       dirSizeCache.delete(dir)
       settledDirs.delete(dir)
