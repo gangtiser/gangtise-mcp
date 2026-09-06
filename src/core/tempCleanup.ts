@@ -78,6 +78,23 @@ const settledDirs = new Set<string>()
  * 那一次覆盖掉。判据必须是「测量期间世代号没变」，不是「写回时是否已结算」。 */
 const settleEpoch = new Map<string, number>()
 
+/** 把一个目录从**全部**登记结构里摘掉。
+ *
+ * 🔴 三份结构必须同生共死，任何一处漏掉都是缺陷，而且方向不同：
+ *  - 漏 `ownedTempDirs` → 墓碑挤占活目录的名额；
+ *  - 漏 `dirSizeCache` → 总量里长期算着一个已经不存在的目录；
+ *  - 漏 `settleEpoch` → 表只增不减（实跑 510 个目录全部释放后仍残留 510 条），
+ *    且**在途的旧扫描恢复时，世代号没变、会把一个已释放目录的缓存重新写回来**。
+ *
+ * 所以摘除只留这一个入口。`touchOwnedTempDir` 的 delete + add 是**重排**、不是摘除，
+ * 不能走这里。 */
+function forgetOwnedTempDir(dir: string): void {
+  ownedTempDirs.delete(dir)
+  dirSizeCache.delete(dir)
+  settledDirs.delete(dir)
+  settleEpoch.delete(dir)
+}
+
 /** 有回读在飞时配额检查会整个跳过。跳过的那一次必须补上，否则「等下一次创建溢出再清」
  * 只是个承诺——真的没有下一次时，超额就一直留在盘上。
  *
@@ -154,11 +171,7 @@ export function endSpillRead(): Promise<void> | void {
  * 幂等：不在集合里就是 no-op。 */
 export function releaseOwnedTempDir(dir: string): void {
   const owned = resolveOwned(dir)
-  if (owned) {
-    ownedTempDirs.delete(owned)
-    dirSizeCache.delete(owned)
-    settledDirs.delete(owned)
-  }
+  if (owned) forgetOwnedTempDir(owned)
 }
 
 /** 把调用方手上的路径对回集合里登记的那一条。
@@ -225,9 +238,7 @@ async function evictOldestOwned(keeps: ReadonlySet<string> = NO_KEEPS): Promise<
     : []
   for (const old of excess) {
     if (yieldToReaders(keeps)) return
-    ownedTempDirs.delete(old)
-    dirSizeCache.delete(old)
-    settledDirs.delete(old)
+    forgetOwnedTempDir(old)
     await fs.rm(old, { recursive: true, force: true }).catch(() => {})
   }
 
@@ -267,9 +278,7 @@ async function evictOldestOwned(keeps: ReadonlySet<string> = NO_KEEPS): Promise<
     for (const dir of evictable) {
       if (total <= MAX_OWNED_TEMP_BYTES) break
       if (yieldToReaders(keeps)) return
-      ownedTempDirs.delete(dir)
-      dirSizeCache.delete(dir)
-      settledDirs.delete(dir)
+      forgetOwnedTempDir(dir)
       await fs.rm(dir, { recursive: true, force: true }).catch(() => {})
       total -= sizes.get(dir) ?? 0
       evictedForBytes += 1
@@ -286,6 +295,15 @@ async function evictOldestOwned(keeps: ReadonlySet<string> = NO_KEEPS): Promise<
  * 墓碑的定义是「磁盘上没有、登记表里还有」——所以按 `readdir(tmpdir)` 遍历是**观测不到**
  * 它的，回归测试只能直接读这个数。少了它，「某条早退路径漏调 release」的变异只能靠扫源码
  * 抓，而扫源码抓不到「调了但对象不对」这类错。 */
+/** Test-only：三份辅助结构的条目数。
+ *
+ * 🔴 没有它，「摘除是否摘干净」根本观测不到——`ownedTempDirs` 清了、`settleEpoch` 漏了，
+ * 输出与行为完全一样，全套测试照样绿（实跑 510 个目录全部释放后残留 510 条，就是这么
+ * 长期没被发现的）。断言行为不够，要断言登记表本身。 */
+export function ownedTempBookkeepingSizes(): { cached: number; settled: number; epochs: number } {
+  return { cached: dirSizeCache.size, settled: settledDirs.size, epochs: settleEpoch.size }
+}
+
 export function ownedTempDirCount(): number {
   return ownedTempDirs.size
 }
@@ -295,6 +313,7 @@ export function resetOwnedTempDirs(): void {
   ownedTempDirs.clear()
   dirSizeCache.clear()
   settledDirs.clear()
+  settleEpoch.clear()
   activeSpillReads = 0
   quotaPending = false
 }

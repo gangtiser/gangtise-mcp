@@ -4,7 +4,7 @@ import os from "node:os"
 import path from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
-import { selectStaleTempDirs, createManagedTempDir, isOwnedTempPath, resetOwnedTempDirs, releaseOwnedTempDir, touchOwnedTempDir, enforceOwnedTempQuota, beginSpillRead, endSpillRead, ownedTempDirCount, MAX_OWNED_TEMP_DIRS, MAX_OWNED_TEMP_BYTES } from "../../../src/core/tempCleanup.js"
+import { selectStaleTempDirs, createManagedTempDir, isOwnedTempPath, resetOwnedTempDirs, releaseOwnedTempDir, touchOwnedTempDir, enforceOwnedTempQuota, beginSpillRead, endSpillRead, ownedTempDirCount, ownedTempBookkeepingSizes, MAX_OWNED_TEMP_DIRS, MAX_OWNED_TEMP_BYTES } from "../../../src/core/tempCleanup.js"
 
 const DAY = 86_400_000
 const now = 1_700_000_000_000
@@ -655,6 +655,110 @@ describe("a measurement is void if the dir settled again while it was being take
       resume()
       ;(fs as { stat: typeof fs.stat }).stat = realStat
       for (const dir of dirs) { await fs.rm(dir, { recursive: true, force: true }); releaseOwnedTempDir(dir) }
+      resetOwnedTempDirs()
+    }
+  })
+})
+
+// 🔴 `settleEpoch` 只增不删是两个问题，不是一个：
+//  ① 表随进程单调增长（实跑 510 个目录全部释放后仍残留 510 条）；
+//  ② **在途的旧扫描恢复时世代号没变**，会把一个已经释放的目录的缓存重新写回来。
+// 所以判据不能只看「有没有内存泄漏」，要连回填那条路一起堵。
+describe("bookkeeping is released together with the dir", () => {
+  it("leaves nothing behind after release, either kind of eviction, or reset", async () => {
+    resetOwnedTempDirs()
+    const dirs: string[] = []
+    try {
+      // 释放
+      for (let i = 0; i < 5; i += 1) {
+        const dir = await createManagedTempDir(); dirs.push(dir)
+        await fs.writeFile(partOf(dir), "x")
+        await enforceOwnedTempQuota(dir)
+      }
+      expect(ownedTempBookkeepingSizes().epochs).toBe(5)
+      for (const dir of dirs) { await fs.rm(dir, { recursive: true, force: true }); releaseOwnedTempDir(dir) }
+      expect(ownedTempBookkeepingSizes(), "释放没有清掉辅助结构")
+        .toEqual({ cached: 0, settled: 0, epochs: 0 })
+
+      // 数量淘汰：造到超上限，被削掉的那些也要清干净
+      dirs.length = 0
+      for (let i = 0; i < MAX_OWNED_TEMP_DIRS + 5; i += 1) {
+        const dir = await createManagedTempDir(); dirs.push(dir)
+        await fs.writeFile(partOf(dir), "x")
+        await enforceOwnedTempQuota(dir)
+      }
+      const afterCount = ownedTempBookkeepingSizes()
+      expect(ownedTempDirCount()).toBe(MAX_OWNED_TEMP_DIRS)
+      expect(afterCount.epochs, "数量淘汰漏清世代号").toBe(MAX_OWNED_TEMP_DIRS)
+      expect(afterCount.settled).toBe(MAX_OWNED_TEMP_DIRS)
+
+      // reset
+      resetOwnedTempDirs()
+      expect(ownedTempBookkeepingSizes(), "reset 没有清掉世代号表")
+        .toEqual({ cached: 0, settled: 0, epochs: 0 })
+    } finally {
+      for (const dir of dirs) { await fs.rm(dir, { recursive: true, force: true }).catch(() => {}) }
+      resetOwnedTempDirs()
+    }
+  })
+
+  it("clears bookkeeping for a dir dropped by the byte quota", async () => {
+    resetOwnedTempDirs()
+    const dirs: string[] = []
+    try {
+      for (let i = 0; i < 3; i += 1) {
+        const dir = await createManagedTempDir(); dirs.push(dir)
+        await fill(dir, 0.75 * GiB)
+        await enforceOwnedTempQuota(dir)
+      }
+      // 2.25 GiB 超配额 → 削掉一份，登记表应同步降到 2
+      expect(ownedTempDirCount()).toBe(2)
+      expect(ownedTempBookkeepingSizes(), "字节淘汰漏清辅助结构")
+        .toEqual({ cached: 2, settled: 2, epochs: 2 })
+    } finally {
+      for (const dir of dirs) { await fs.rm(dir, { recursive: true, force: true }); releaseOwnedTempDir(dir) }
+      resetOwnedTempDirs()
+    }
+  })
+
+  // 释放把世代号一并删掉，于是旧扫描恢复时 `epochBefore` 对不上，写回被挡住。
+  it("an in-flight scan cannot re-cache a dir that was released meanwhile", async () => {
+    resetOwnedTempDirs()
+    const dirs: string[] = []
+    const realStat = fs.stat
+    let resume: () => void = () => {}
+    let reached: () => void = () => {}
+    const gate = new Promise<void>((r) => { resume = r })
+    const observed = new Promise<void>((r) => { reached = r })
+    let paused = false
+    try {
+      const a = await createManagedTempDir(); dirs.push(a)
+      await fs.writeFile(partOf(a), "x")
+      await enforceOwnedTempQuota(a)                     // A 已结算，进缓存
+      const realPart = path.join(await fs.realpath(a), "part.bin")
+
+      ;(fs as { stat: typeof fs.stat }).stat = (async (target: string, ...rest: never[]) => {
+        const result = await (realStat as (...args: never[]) => Promise<unknown>)(target as never, ...rest)
+        if (String(target) === realPart && !paused) { paused = true; reached(); await gate }
+        return result
+      }) as typeof fs.stat
+
+      // 再结算一次：缓存作废后重新量 A，这次读数卡住。
+      const scan = enforceOwnedTempQuota(a)
+      await observed
+      await fs.rm(a, { recursive: true, force: true })   // 期间 A 被删除并释放
+      releaseOwnedTempDir(a)
+      resume()
+      await scan
+      ;(fs as { stat: typeof fs.stat }).stat = realStat
+
+      expect(paused, "钩子没触发，竞态根本没造出来").toBe(true)
+      expect(ownedTempBookkeepingSizes(), "旧扫描把已释放目录的缓存写了回来")
+        .toEqual({ cached: 0, settled: 0, epochs: 0 })
+    } finally {
+      resume()
+      ;(fs as { stat: typeof fs.stat }).stat = realStat
+      for (const dir of dirs) { await fs.rm(dir, { recursive: true, force: true }).catch(() => {}); releaseOwnedTempDir(dir) }
       resetOwnedTempDirs()
     }
   })
