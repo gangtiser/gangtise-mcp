@@ -206,7 +206,7 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
   server.registerTool(
     "gangtise_day_kline",
     {
-      description: "查询历史日 K 线数据，单接口覆盖 A股/港股/美股个股 + 沪深 ETF + 交易所指数（沪深京）+ 概念指数（.GT）+ 申万行业指数（.SWI）+ 中信行业指数（.CI）+ 20 个全球指数，可在一次请求里混着传（仅历史；盘中实时请用 gangtise_realtime）。security 传市场关键字 'aShares' / 'hkStocks' / 'usStocks' 配合 startDate/endDate 可拉取该市场全部个股（自动分片）；关键字只覆盖个股——**aShares 不含 ETF**，ETF 与各类指数都要逐个传代码。⚠️ **港股部分标的有人民币柜台**：代码首位换成 8、名字带 -R 或 -WR（中国移动港币 00941.HK / 人民币 80941.HK；阿里 09988.HK / 89988.HK）。两者**后缀相同、exchange 字段也相同、返回里没有币种字段**，价差约等于汇率、看着完全正常——要港币报价就别用 8 开头的那只（不是每只港股都有柜台）。⚠️ **本接口查指数只返代码、不返 securityName**；要指数名称、或要一次取回全部沪深京交易所指数，请用 gangtise_index_day_kline。返回字段含 adjustFactor 复权因子（个股与 ETF 有，指数为 null；ETF 的 volume 单位是「份」）。全球指数：amount 为 null、volume 正常，tradeDate 是交易所当地日期。" + CODE_IDENTITY_WARNING,
+      description: "查询历史日 K 线数据，单接口覆盖 A股/港股/美股个股 + 沪深 ETF + 交易所指数（沪深京）+ 概念指数（.GT）+ 申万行业指数（.SWI）+ 中信行业指数（.CI）+ 20 个全球指数，可在一次请求里混着传（仅历史；盘中实时请用 gangtise_realtime）。security 传市场关键字 'aShares' / 'hkStocks' / 'usStocks' 配合 startDate/endDate 可拉取该市场全部个股（自动分片）；关键字只覆盖个股——**aShares 不含 ETF**，ETF 与各类指数都要逐个传代码。⚠️ **港股部分标的有人民币柜台**：代码首位换成 8、名字带 -R 或 -WR（中国移动港币 00941.HK / 人民币 80941.HK；阿里 09988.HK / 89988.HK）。两者**后缀相同、exchange 字段也相同、返回里没有币种字段**，价差约等于汇率、看着完全正常——要港币报价就别用 8 开头的那只（不是每只港股都有柜台）。⚠️ **本接口查指数只返代码、不返 securityName**；要指数名称、或要一次取回全部沪深京交易所指数，请用 gangtise_index_day_kline。返回字段含 adjustFactor 复权因子（个股与 ETF 有，指数为 null）。⚠️ **volume 的单位是「股」**（ETF 为「份」），不是「手」——按手换算会差 100 倍，而数字看着仍像个成交量、不会报错。全球指数：amount 为 null、volume 正常，tradeDate 是交易所当地日期。" + CODE_IDENTITY_WARNING,
       inputSchema: {
         ...commonKlineSchema,
         // 统一工具的全市场关键字是三个市场名，不是 `all`，所以走 securityDesc 的双参形式
@@ -257,7 +257,7 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
   server.registerTool(
     "gangtise_minute_kline",
     {
-      description: "查询分钟级 K 线数据：A 股个股、沪深 ETF、各类指数（含 20 个全球指数，其 volume / amount 为 null、tradeTime 是交易所当地时间）。security 可传多只（逐只请求后按传入顺序合并，每只各自受 limit 约束，撞上限的证券标 _partial + _truncated_securities）。",
+      description: "查询分钟级 K 线数据：A 股个股、沪深 ETF、各类指数（含 20 个全球指数，其 volume / amount 为 null、tradeTime 是交易所当地时间）。security 可传多只（逐只请求后按传入顺序合并，每只各自受 limit 约束，撞上限的证券标 _partial + _truncated_securities）。⚠️ **volume 的单位是「股」**，不是「手」——按手换算会差 100 倍且不报错。",
       inputSchema: {
         security: z.union([nonEmptyString, nonEmptyList()]).describe("证券代码，单只（'600519.SH'）或多只（['600519.SH','512800.SH','SPX.SPI']）"),
         startTime: dateTimeString.optional(),
@@ -289,7 +289,7 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
   server.registerTool(
     "gangtise_realtime",
     {
-      description: "查询实时行情快照，单接口覆盖 A 股 / 港股 / 美股个股 + 沪深 ETF + 各类指数（含 20 个全球指数），可代码混合传入。非交易时间返回最近一个交易日的收盘快照；停牌证券返回停牌前最后一个有效快照。日 K 线接口（day-kline*）不含盘中数据，问\"现在/此刻\"请走本工具。**全部字段仅这 15 个：securityCode/exchange/tradeDate/tradeTime/tradeStatus/open/high/low/latestPrice(最新价)/preClose(昨收)/change/pctChange/volume/amount/amplitude——没有 close、没有市值，也没有 turnoverRate / volumeRatio**（传了会连字段名一起被静默丢掉；换手率走 gangtise_indicator_cross_section 的 qte_turn，A 股）；总市值请用 gangtise_indicator_cross_section 的 qte_mkt_cptl（A/港/美股均有数，默认返「元」，用 scale 缩放）。tradeStatus（未开市/连续竞价/收盘/停牌…）仅 A 股 / 港股个股有值，其余为 null。为 null 的字段：美股 amount（要美股成交额用 gangtise_day_kline 或 EDE qte_amt）；全球指数 volume / amount / amplitude。tradeDate / tradeTime：A 股 / 港股 / ETF / 沪深各类指数为北京时间，**美股与全球指数是交易所当地时间**（美股收盘快照的 tradeTime 是 16:00）。" + CODE_IDENTITY_WARNING,
+      description: "查询实时行情快照，单接口覆盖 A 股 / 港股 / 美股个股 + 沪深 ETF + 各类指数（含 20 个全球指数），可代码混合传入。非交易时间返回最近一个交易日的收盘快照；停牌证券返回停牌前最后一个有效快照。日 K 线接口（day-kline*）不含盘中数据，问\"现在/此刻\"请走本工具。⚠️ **volume 的单位是「股」**（ETF 为「份」），不是「手」——按手换算会差 100 倍且不报错。**全部字段仅这 15 个：securityCode/exchange/tradeDate/tradeTime/tradeStatus/open/high/low/latestPrice(最新价)/preClose(昨收)/change/pctChange/volume/amount/amplitude——没有 close、没有市值，也没有 turnoverRate / volumeRatio**（传了会连字段名一起被静默丢掉；换手率走 gangtise_indicator_cross_section 的 qte_turn，A 股）；总市值请用 gangtise_indicator_cross_section 的 qte_mkt_cptl（A/港/美股均有数，默认返「元」，用 scale 缩放）。tradeStatus（未开市/连续竞价/收盘/停牌…）仅 A 股 / 港股个股有值，其余为 null。为 null 的字段：美股 amount（要美股成交额用 gangtise_day_kline 或 EDE qte_amt）；全球指数 volume / amount / amplitude。tradeDate / tradeTime：A 股 / 港股 / ETF / 沪深各类指数为北京时间，**美股与全球指数是交易所当地时间**（美股收盘快照的 tradeTime 是 16:00）。" + CODE_IDENTITY_WARNING,
       inputSchema: {
         security: z.union([nonEmptyString, nonEmptyList()]).optional().describe("证券代码或全市场关键字：单/多只代码（'600519.SH' / ['600519.SH','00700.HK','AAPL.O','512800.SH','SPX.SPI']，沪深 ETF .SH/.SZ、交易所指数 .SH/.SZ/.BJ、概念指数 .GT、申万行业指数 .SWI（801xxx.SWI）、中信行业指数 .CI（821xxx.CI）、全球指数按数据源后缀照抄（SPX.SPI / DJI.SPI / IXIC.O / N225.NKI / HSI.HI / FTSE.FI / GDAXI.FRA 等 20 个）也可传），或市场关键字 'aShares' / 'hkStocks' / 'usStocks' 拉取全市场（关键字须单独传，不能与证券代码或另一个关键字混传；关键字只覆盖个股——指数没有全市场关键字，aShares 也不含 ETF）。"),
         fieldList: uniqueFieldList(`【默认不传 = 返回全量字段，最稳】仅当用户明确要精简、或查全市场（aShares/hkStocks/usStocks）想省 token 时才传。示例：['securityCode','tradeDate','tradeTime','latestPrice','pctChange','volume']。**只传本工具真实存在的 15 个字段名**（见描述；注意没有 close、turnoverRate、volumeRatio）。${FIELD_LIST_NOTE("securityCode（需要时点再加 tradeDate / tradeTime）")}`),

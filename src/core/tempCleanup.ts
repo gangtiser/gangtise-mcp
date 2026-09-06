@@ -57,10 +57,28 @@ export const MAX_OWNED_TEMP_DIRS = 200
  * 不至于填满的量级。淘汰仍按 LRU，正在回读的那份不会被挤掉。 */
 export const MAX_OWNED_TEMP_BYTES = 2 * 1024 * 1024 * 1024
 
-/** 各目录的字节数缓存。溢出文件与下载写完之后就不再改，所以每次配额检查只需重新量
- *  **刚写完的那一份**（`protect`），其余用上次的结果——否则每次落盘都要对全部（上限 200 个）
- *  目录递归 stat 一遍。淘汰 / 释放时一并摘掉。 */
+/** 各目录的字节数缓存。淘汰 / 释放时一并摘掉。
+ *
+ * 🔴 **只缓存已经「结算」的目录**（见 `settledDirs`）。按「量到的不是 0 就缓存」来判是错的：
+ * 一次下载正在流式写盘时，另一次 `createManagedTempDir` 顺带把它量了一遍——那是**写到一半**
+ * 的读数，却会被当成最终大小永久缓存下来。此后总量就一直少算这一份。 */
 const dirSizeCache = new Map<string, number>()
+
+/** 写入方已声明「这一份写完了」的目录：`enforceOwnedTempQuota(dir)` 调用过一次即算结算。
+ *
+ * 未结算的目录每次都重新量（数量很少，只有正在写的那几个）；结算过的才走缓存。这样既保住
+ * 了缓存的收益，又不会把一个半成品的读数固化下来。 */
+const settledDirs = new Set<string>()
+
+/** 有回读在飞时配额检查会整个跳过。跳过的那一次必须补上，否则「等下一次创建溢出再清」
+ * 只是个承诺——真的没有下一次时，超额就一直留在盘上。
+ *
+ * 🔴 连带把**当时要保护的目录**一起记下来。补跑时若丢了这份名单，那次调用刚写完的目录
+ * 会变成「最久未用」的一个而被优先淘汰 —— 调用方前一刻拿到的 `_saved_to` 当场作废，
+ * 正是 `protect` 参数存在的意义。 */
+let quotaPending = false
+const quotaPendingKeeps = new Set<string>()
+const NO_KEEPS: ReadonlySet<string> = new Set()
 
 /** 目录占用字节（递归）。失败按 0 计——配额是尽力而为的housekeeping，
  * 不能因为一次 stat 失败就把创建溢出这件事搞砸。 */
@@ -103,7 +121,18 @@ export async function createManagedTempDir(): Promise<string> {
 let activeSpillReads = 0
 
 export function beginSpillRead(): void { activeSpillReads += 1 }
-export function endSpillRead(): void { activeSpillReads = Math.max(0, activeSpillReads - 1) }
+
+/** 回读结束。最后一个读者离开时，把回读期间被跳过的那次配额检查补上。
+ *
+ * 返回值只为测试能确定性地等这次补偿跑完（生产调用点在 `finally` 里直接丢弃）。
+ * 不返回的话，「跳过的检查会被补上」这条只能靠 sleep 去撞，测不稳。 */
+export function endSpillRead(): Promise<void> | void {
+  activeSpillReads = Math.max(0, activeSpillReads - 1)
+  if (activeSpillReads > 0 || !quotaPending) return
+  const keeps = new Set(quotaPendingKeeps)
+  quotaPendingKeeps.clear()
+  return evictOldestOwned(keeps).catch(() => {})
+}
 
 /** 目录已被删除时，把它从登记表里一并摘掉。**每个 `fs.rm(tempDir)` 都必须配对调用。**
  *
@@ -120,6 +149,7 @@ export function releaseOwnedTempDir(dir: string): void {
   if (owned) {
     ownedTempDirs.delete(owned)
     dirSizeCache.delete(owned)
+    settledDirs.delete(owned)
   }
 }
 
@@ -147,22 +177,34 @@ function resolveOwned(dir: string): string | undefined {
  * 该假设在两种常见情形下不成立：并发的另一次下载后插入、或另一条路径刚留下一个墓碑。
  * 猜错的代价是把调用方刚拿到的 `_saved_to` 立刻作废，所以这里要求显式传。 */
 export async function enforceOwnedTempQuota(protect?: string): Promise<void> {
-  await evictOldestOwned(protect)
+  const keep = protect ? resolveOwned(protect) : undefined
+  if (keep) {
+    // 🔴 标结算 + 作废旧读数，都要在下面可能提前返回**之前**做完。
+    // 这一次调用是「这份写完了」的唯一信号，而它带来的旧读数一定过期（多半是别人趁它
+    // 还在写时顺带量的半成品）。放在提前返回之后，回读一撞上，那个半成品就永久留下了。
+    settledDirs.add(keep)
+    dirSizeCache.delete(keep)
+  }
+  await evictOldestOwned(keep ? new Set([keep]) : NO_KEEPS)
 }
 
-async function evictOldestOwned(protect?: string): Promise<void> {
-  // 有回读在飞就不淘汰 —— 下一次创建溢出时会把积压的一起清掉。
-  if (activeSpillReads > 0) return
-
-  const keep = protect ? resolveOwned(protect) : undefined
+async function evictOldestOwned(keeps: ReadonlySet<string> = NO_KEEPS): Promise<void> {
+  // 有回读在飞就不淘汰，改为记账，等最后一个读者离开时补跑（见 endSpillRead）。
+  if (activeSpillReads > 0) {
+    quotaPending = true
+    for (const dir of keeps) quotaPendingKeeps.add(dir)
+    return
+  }
+  quotaPending = false
 
   // 先按**数量**削（便宜，不用 stat）
   const excess = ownedTempDirs.size > MAX_OWNED_TEMP_DIRS
-    ? [...ownedTempDirs].filter((d) => d !== keep).slice(0, ownedTempDirs.size - MAX_OWNED_TEMP_DIRS)
+    ? [...ownedTempDirs].filter((d) => !keeps.has(d)).slice(0, ownedTempDirs.size - MAX_OWNED_TEMP_DIRS)
     : []
   for (const old of excess) {
     ownedTempDirs.delete(old)
     dirSizeCache.delete(old)
+    settledDirs.delete(old)
     await fs.rm(old, { recursive: true, force: true }).catch(() => {})
   }
 
@@ -172,10 +214,10 @@ async function evictOldestOwned(protect?: string): Promise<void> {
   const sizes = new Map<string, number>()
   let total = 0
   for (const dir of ownedTempDirs) {
-    // 刚写完的那一份必须重新量；其余目录写完即不变，沿用缓存。空目录（还没写）不入缓存，
-    // 下次仍会重新量。
-    const size = dir !== keep && dirSizeCache.has(dir) ? dirSizeCache.get(dir)! : await dirBytes(dir)
-    if (size > 0) dirSizeCache.set(dir, size)
+    // 已结算的目录写完即不变，沿用缓存；未结算的（正在写、或刚建还空着）每次重新量。
+    // 只有结算过的才写回缓存 —— 否则会把一个写到一半的读数固化下来。
+    const size = dirSizeCache.has(dir) ? dirSizeCache.get(dir)! : await dirBytes(dir)
+    if (settledDirs.has(dir)) dirSizeCache.set(dir, size)
     sizes.set(dir, size)
     total += size
   }
@@ -187,11 +229,13 @@ async function evictOldestOwned(protect?: string): Promise<void> {
     // 🔴 判据是调用方**显式传进来的** `protect`，不是「集合最后一项」。后者只在「没有并发、
     // 且没有别的路径刚插入过」时才碰巧成立 —— 一次并发下载、或另一条路径新建的目录，都会
     // 让最后一项不是刚写完的那份，于是保护落到别人头上而真正该保的被删。
-    const evictable = [...ownedTempDirs].filter((d) => d !== (keep ?? [...ownedTempDirs].at(-1)))
+    const fallback = keeps.size === 0 ? [...ownedTempDirs].at(-1) : undefined
+    const evictable = [...ownedTempDirs].filter((d) => !keeps.has(d) && d !== fallback)
     for (const dir of evictable) {
       if (total <= MAX_OWNED_TEMP_BYTES) break
       ownedTempDirs.delete(dir)
       dirSizeCache.delete(dir)
+      settledDirs.delete(dir)
       await fs.rm(dir, { recursive: true, force: true }).catch(() => {})
       total -= sizes.get(dir) ?? 0
       evictedForBytes += 1
@@ -216,7 +260,9 @@ export function ownedTempDirCount(): number {
 export function resetOwnedTempDirs(): void {
   ownedTempDirs.clear()
   dirSizeCache.clear()
+  settledDirs.clear()
   activeSpillReads = 0
+  quotaPending = false
 }
 
 /** True when `realPath` (already realpath-resolved) lives in a temp dir this process created. */

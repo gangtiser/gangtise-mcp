@@ -133,7 +133,7 @@ describe("companyType/currency swap note is withdrawn", () => {
 // 只挂在**真的有 earliestAnncDate 的** A 股报表上：港股/美股报表没有这个字段，
 // 在那里教人用它等于指向一个不存在的列。
 describe("point-in-time announcement-date guidance", () => {
-  it("names earliestAnncDate on the A-share statements that carry it", async () => {
+  it("distinguishes the returned report version from its first announcement on A-share statements", async () => {
     const mcp = await connect(makeClient())
     const byName = new Map((await mcp.listTools()).tools.map((t) => [t.name, t.description ?? ""]))
     for (const n of [
@@ -143,7 +143,11 @@ describe("point-in-time announcement-date guidance", () => {
       "gangtise_cash_flow",
       "gangtise_cash_flow_quarterly",
     ]) {
-      expect(byName.get(n), `${n} 应指向 earliestAnncDate`).toContain("earliestAnncDate")
+      const description = byName.get(n)
+      expect(description, `${n} 应区分两个公告日`).toContain("announcementDate 是当前返回报表版本的公告日")
+      expect(description).toContain("earliestAnncDate 是接口记录的首次公告日")
+      expect(description).toContain("不能靠它排除重述")
+      expect(description).not.toContain("都填成最后一期的披露日")
     }
   })
 

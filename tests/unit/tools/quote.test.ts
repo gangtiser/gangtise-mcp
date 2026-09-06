@@ -693,3 +693,18 @@ describe("quote tool descriptions track the current field sets", () => {
     expect(byName.get("gangtise_day_kline")).toMatch(/aShares 不含 ETF|不含 ETF/)
   })
 })
+
+// 🔴 volume 的单位是「股」。A 股的习惯读法是「手」（100 股），按手换算会差 100 倍，
+// 而算出来的数字看着仍像个成交量、不会报错。描述里不声明，模型只能按习惯猜。
+describe("volume unit is stated on every tool that returns it", () => {
+  it("says 股 (and 份 for ETF) on day kline, realtime and minute kline", async () => {
+    const mcp = await connect(makeMockClient())
+    const byName = new Map((await mcp.listTools()).tools.map((t) => [t.name, t.description ?? ""]))
+    for (const name of ["gangtise_day_kline", "gangtise_realtime", "gangtise_minute_kline"]) {
+      const description = byName.get(name) ?? ""
+      expect(description, `${name} 未声明 volume 单位`).toContain("volume 的单位是「股」")
+      expect(description, `${name} 未点出按手换算的后果`).toMatch(/100 倍/)
+    }
+    expect(byName.get("gangtise_day_kline"), "ETF 的份额口径也要留着").toContain("份")
+  })
+})

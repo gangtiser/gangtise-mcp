@@ -61,7 +61,7 @@ const mainBusinessFieldList = z
 // （拿一个晚得多的日期去回溯，等于把未来信息当成当时可见）。这不是普遍现象、是个股级的，
 // 所以只能靠字段选择规避，没法靠「换只票验一下」发现——茅台两个字段一致，用它当探针
 // 什么也测不出来。
-const PIT_NOTE = "做 point-in-time / 时点对齐请用 earliestAnncDate（首次公告日）：announcementDate 在部分个股上会把同一财年各期都填成最后一期的披露日，用它回溯会把本来早已可得的数据算成尚不可见（一/中/三季要等到年报日才「出现」），据此做的回测会漏掉整段区间。⚠️ 另一个方向也要留意：category 为「补充更正」「其他财务报告」的行，其数字来自那次更正公告，此时 earliestAnncDate 早于数字真正可得的时点——这类行两个字段都不是安全的时点，需按 category 单独判断。"
+const PIT_NOTE = "做 point-in-time / 时点对齐时，announcementDate 是当前返回报表版本的公告日，earliestAnncDate 是接口记录的首次公告日。consolidated 也可能返回后来重述的数值，不能把它配上 earliestAnncDate 就当成首次披露值；category 仍可能是一季报/半年报告/三季报，不能靠它排除重述。应按返回版本的公告日控制数值可见时间；需要首次披露的原始数值时，请核对当时公告。"
 
 export const specs: JsonToolSpec[] = [
   {

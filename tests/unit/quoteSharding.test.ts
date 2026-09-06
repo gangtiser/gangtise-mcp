@@ -529,3 +529,69 @@ describe("estimateTradingDays", () => {
     expect(estimateTradingDays("nope", "2026-04-03")).toBe(262)
   })
 })
+
+// 🔴 后片比首片**多**出来的列此前被静默丢掉：合并结果的 fieldList 取自首片，多的列没有
+// 位置可放，于是那几天/那几只确实返回了的一列凭空消失，结果读起来还是完整的。
+// 列丢可以接受（fieldList 是首片的契约），静默不行。
+describe("shard column supersets are reported, not silently dropped", () => {
+  const range = { securityList: ["all"], startDate: "2026-03-30", endDate: "2026-03-31" }
+
+  it("names the columns a later shard had but the merged fieldList cannot hold", async () => {
+    let n = 0
+    const call = vi.fn().mockImplementation(async () => {
+      n += 1
+      return n === 1
+        ? { fieldList: ["securityCode", "open"], list: [["600519.SH", 1]] }
+        : { fieldList: ["securityCode", "open", "close"], list: [["000858.SZ", 10, 20]] }
+    })
+
+    const out = await callKlineWithSharding({ call }, "quote.day-kline", range, { shardDays: 1 }) as Record<string, unknown>
+
+    expect(out._partial).toBe(true)
+    expect(String(out._partial_reason)).toContain("dropped_columns")
+    expect(out._dropped_columns).toEqual(["close"])
+    // 保留下来的列仍要对得上：多出来的那一列被剔掉，不是把值挤到别的列里。
+    expect(out.fieldList).toEqual(["securityCode", "open"])
+    expect(out.list).toEqual([["600519.SH", 1], ["000858.SZ", 10]])
+  })
+
+  it("stays quiet when every shard has the same columns", async () => {
+    const call = vi.fn().mockImplementation(async (_k: string, body: Record<string, unknown>) => ({
+      fieldList: ["securityCode", "open"],
+      list: [[String(body.startDate), 1]],
+    }))
+    const out = await callKlineWithSharding({ call }, "quote.day-kline", range, { shardDays: 1 }) as Record<string, unknown>
+    expect(out._partial).toBeUndefined()
+    expect(out._dropped_columns).toBeUndefined()
+  })
+
+  it("reports the same way on the per-security path", async () => {
+    const call = vi.fn().mockImplementation(async (_k: string, body: Record<string, unknown>) =>
+      body.securityCode === "600519.SH"
+        ? { fieldList: ["securityCode", "open"], list: [["600519.SH", 1]] }
+        : { fieldList: ["securityCode", "open", "close"], list: [["000858.SZ", 10, 20]] },
+    )
+
+    const out = await callKlinePerSecurity(
+      { call }, "quote.day-kline", ["600519.SH", "000858.SZ"],
+      (securityCode) => ({ securityCode }), 6000,
+    ) as Record<string, unknown>
+
+    expect(String(out._partial_reason)).toContain("dropped_columns")
+    expect(out._dropped_columns).toEqual(["close"])
+  })
+
+  // 缺列（首片有、这片没有）与多列是两种事：前者对不齐、整片不能并，后者只是放不下。
+  it("keeps missing-column shards distinct from superset shards", async () => {
+    let n = 0
+    const call = vi.fn().mockImplementation(async () => {
+      n += 1
+      return n === 1
+        ? { fieldList: ["securityCode", "open"], list: [["600519.SH", 1]] }
+        : { fieldList: ["securityCode", "close"], list: [["000858.SZ", 20]] }  // 没有 open
+    })
+    const out = await callKlineWithSharding({ call }, "quote.day-kline", range, { shardDays: 1 }) as Record<string, unknown>
+    expect(String(out._partial_reason)).toContain("malformed_shards")
+    expect(out._dropped_columns).toBeUndefined()
+  })
+})

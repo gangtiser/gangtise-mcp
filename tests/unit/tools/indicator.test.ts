@@ -1500,3 +1500,17 @@ describe("EDE nested date parameters get the same validation as the top-level da
     expect(client.call).not.toHaveBeenCalled()
   })
 })
+
+// EDE 的 flow_* 与 gangtise_fund_flow 是同一套数，但前者按单元格计费、后者免费。
+// 模型搜「资金流」就能搜到 EDE 的码，不点名就会为免费数据付费。
+describe("indicator_search routes fund flow to the free tool", () => {
+  it("names flow_* and points at gangtise_fund_flow", async () => {
+    const mcp = await connect(makeMockClient())
+    const search = (await mcp.listTools()).tools.find((t) => t.name === "gangtise_indicator_search")
+    const description = search?.description ?? ""
+    expect(description).toContain("flow_*")
+    expect(description).toContain("gangtise_fund_flow")
+    // 计费口径由 BILLING_CATALOG 生成的标签负责，描述里不手写价格（billing.test.ts 的门禁钉着）。
+    expect(description).toMatch(/同一套数/)
+  })
+})

@@ -134,10 +134,21 @@ async function fetchParts<P>(parts: P[], concurrency: number, fetch: (part: P) =
   }, signal)
 }
 
-/** 把一片的列顺序对回首片：相同返回 null（不用动），可对齐返回下标映射，
- *  列集合对不上返回 undefined（这一片不能并进来）。 */
-function columnRemap(header: string[], part: string[]): number[] | null | undefined {
-  if (header.length === part.length && header.every((field, i) => field === part[i])) return null
+/** 把一片的列顺序对回首片。
+ *
+ *  - `map: null` —— 与首片逐位相同，行不用动。
+ *  - `map: number[]` —— 按列名重排的下标映射。
+ *  - `undefined` —— 首片有的列这一片没有，对不齐，这一片不能并进来。
+ *
+ *  🔴 `extra` 是这一片**比首片多出来的列**。合并结果的 `fieldList` 是首片的，多出来的列
+ *  没有位置可放，只能丢——但**不能静默丢**：那意味着某几天/某几只确实返回了这一列，而
+ *  调用方从结果里完全看不出来。调用方按列名报出来，才有机会缩小范围重拉。 */
+function columnRemap(header: string[], part: string[]): { map: number[] | null; extra: string[] } | undefined {
+  const headerSet = new Set(header)
+  const extra = part.filter((field) => !headerSet.has(field))
+  if (extra.length === 0 && header.length === part.length && header.every((field, i) => field === part[i])) {
+    return { map: null, extra }
+  }
   const index = new Map(part.map((field, i) => [field, i]))
   const map: number[] = []
   for (const field of header) {
@@ -145,7 +156,7 @@ function columnRemap(header: string[], part: string[]): number[] | null | undefi
     if (i === undefined) return undefined
     map.push(i)
   }
-  return map
+  return { map, extra }
 }
 
 /** 行情端点的单请求响应必须带得出行。没有可读的 `list` 时原样交出去，模型收到的是一个
@@ -187,6 +198,9 @@ interface MergedParts {
   /** 各部件自己带来的 `_partial_reason`。合并结果只展开首片的元数据、且随后会覆写
    *  `_partial_reason`，不单独收集的话：非首片的标记整个消失，首片的原因被覆盖掉。 */
   partReasons: string[]
+  /** 某些部件返回了首片没有的列。合并结果的 `fieldList` 是首片的，这些列没有位置可放，
+   *  只能丢；按列名报出来，调用方才知道有一列在部分范围里其实是有值的。 */
+  droppedColumns: string[]
 }
 
 /** 合并多段同构响应（按日分片、逐只证券）。
@@ -201,6 +215,7 @@ function mergeParts(results: PartOutcome[], perLimit: number): MergedParts {
   const truncated: number[] = []
   const malformed: number[] = []
   const partReasons = new Set<string>()
+  const droppedColumns = new Set<string>()
   for (let i = 0; i < results.length; i++) {
     const r = results[i]
     if (!r.ok) continue
@@ -230,7 +245,9 @@ function mergeParts(results: PartOutcome[], perLimit: number): MergedParts {
         malformed.push(i)
         continue
       }
-      if (remap) rows = rows.map((row) => (Array.isArray(row) ? remap.map((k) => row[k]) : row))
+      for (const field of remap.extra) droppedColumns.add(field)
+      const map = remap.map
+      if (map) rows = rows.map((row) => (Array.isArray(row) ? map.map((k) => row[k]) : row))
     }
     if (!header) header = part.rec
     // A part whose row count reaches the per-request limit was itself capped, so
@@ -239,7 +256,15 @@ function mergeParts(results: PartOutcome[], perLimit: number): MergedParts {
     if (rows.length >= perLimit) truncated.push(i)
     merged.push(...rows)
   }
-  return { header, fieldList, merged, truncated, malformed, partReasons: [...partReasons] }
+  return { header, fieldList, merged, truncated, malformed, partReasons: [...partReasons], droppedColumns: [...droppedColumns] }
+}
+
+/** 合并结果里多出来的列被丢掉时，按列名记名并标 `_partial`。分片与逐只两条路共用。 */
+function flagDroppedColumns(out: Record<string, unknown>, reasons: string[], droppedColumns: string[]): void {
+  if (droppedColumns.length === 0) return
+  reasons.push("dropped_columns")
+  out._dropped_columns = droppedColumns
+  out._dropped_columns_note = "这些列只在部分分片/证券的响应里出现，而合并结果的 fieldList 取自第一份，放不下它们；需要这些列请缩小日期区间或按证券单独重拉"
 }
 
 /**
@@ -310,7 +335,7 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
     throw failed[0].r.cause
   }
 
-  const { header, fieldList, merged, truncated, malformed, partReasons } = mergeParts(results, perShardLimit)
+  const { header, fieldList, merged, truncated, malformed, partReasons, droppedColumns } = mergeParts(results, perShardLimit)
 
   // 没有任何一个分片给出可用形状（全失败已在上面抛过，这里是「全部坏形状」以及
   // 「失败 + 坏形状」的混合）——没有 header 就没有可信的载体，标 _partial 也只是把一份
@@ -345,6 +370,7 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
     reasons.push("malformed_shards")
     out._malformed_shards = malformed.map((i) => shards[i])
   }
+  flagDroppedColumns(out, reasons, droppedColumns)
   for (const reason of partReasons) if (!reasons.includes(reason)) reasons.push(reason)
   if (reasons.length > 0) {
     out._partial = true
@@ -380,7 +406,7 @@ export async function callKlinePerSecurity(
     throw failed[0].r.cause
   }
 
-  const { header, fieldList, merged, truncated, malformed, partReasons } = mergeParts(results, perLimit)
+  const { header, fieldList, merged, truncated, malformed, partReasons, droppedColumns } = mergeParts(results, perLimit)
   if (!header) {
     if (malformed.length > 0) {
       const alsoFailed = failed.length > 0 ? `，另有 ${failed.length} 只请求失败（${failed[0].r.error}）` : ""
@@ -406,6 +432,7 @@ export async function callKlinePerSecurity(
     reasons.push("malformed_securities")
     out._malformed_securities = malformed.map((i) => securities[i])
   }
+  flagDroppedColumns(out, reasons, droppedColumns)
   for (const reason of partReasons) if (!reasons.includes(reason)) reasons.push(reason)
   if (reasons.length > 0) {
     out._partial = true

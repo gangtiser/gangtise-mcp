@@ -4,7 +4,7 @@ import os from "node:os"
 import path from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
-import { selectStaleTempDirs, createManagedTempDir, isOwnedTempPath, resetOwnedTempDirs, releaseOwnedTempDir, touchOwnedTempDir, enforceOwnedTempQuota, MAX_OWNED_TEMP_DIRS } from "../../../src/core/tempCleanup.js"
+import { selectStaleTempDirs, createManagedTempDir, isOwnedTempPath, resetOwnedTempDirs, releaseOwnedTempDir, touchOwnedTempDir, enforceOwnedTempQuota, beginSpillRead, endSpillRead, MAX_OWNED_TEMP_DIRS, MAX_OWNED_TEMP_BYTES } from "../../../src/core/tempCleanup.js"
 
 const DAY = 86_400_000
 const now = 1_700_000_000_000
@@ -286,5 +286,151 @@ describe("byte-quota accounting caches per-dir sizes", () => {
     spy.mockRestore()
     expect(scanned).toBeLessThanOrEqual(2)
     expect(dirs.length).toBe(8)
+  })
+})
+
+// 🔴 一次下载还在流式写盘时，另一次 createManagedTempDir 会顺带把它量一遍——那是写到
+// 一半的读数。旧实现按「不是 0 就缓存」把它固化下来，而唯一会重新量它的那次调用
+// （写完后的 enforceOwnedTempQuota(自己)）一旦撞上回读期就提前返回，半成品读数便永久
+// 留下：此后每次总量都少算这一份，磁盘早已超配额而检查一路放行。
+describe("byte quota is not fooled by a size measured mid-write", () => {
+  const GiB = 1024 * 1024 * 1024
+  const sizeOf = async (dir: string) => {
+    try { return (await fs.stat(path.join(dir, "part.bin"))).size } catch { return 0 }
+  }
+
+  it("re-measures a dir that finished writing during a read-back", async () => {
+    resetOwnedTempDirs()
+    const dirs: string[] = []
+    try {
+      // a 先只写 1 字节；创建 b 时会顺带把 a 量成 1 字节。
+      const a = await createManagedTempDir(); dirs.push(a)
+      await fs.writeFile(path.join(a, "part.bin"), "x")
+      const b = await createManagedTempDir(); dirs.push(b)
+      await fs.writeFile(path.join(b, "part.bin"), "x")
+      await fs.truncate(path.join(b, "part.bin"), 0.75 * GiB)
+      await enforceOwnedTempQuota(b)
+      const c = await createManagedTempDir(); dirs.push(c)
+      await fs.writeFile(path.join(c, "part.bin"), "x")
+      await fs.truncate(path.join(c, "part.bin"), 0.75 * GiB)
+      await enforceOwnedTempQuota(c)
+
+      // a 在回读期间写完：这次配额检查会被跳过，但 a 的旧读数必须当场作废。
+      beginSpillRead()
+      try {
+        await fs.truncate(path.join(a, "part.bin"), 0.75 * GiB)
+        await enforceOwnedTempQuota(a)
+      } finally {
+        await endSpillRead()   // 最后一个读者离开 → 补跑被跳过的那次配额
+      }
+
+      const retained = (await Promise.all(dirs.map(sizeOf))).reduce((sum, n) => sum + n, 0)
+      expect(retained, "3 × 0.75 GiB 全留着就是 2.25 GiB，超过 2 GiB 配额").toBeLessThanOrEqual(MAX_OWNED_TEMP_BYTES)
+      // 刚写完的 a 是本次 protect 的对象，补跑时不能把它当成最久未用的一个删掉。
+      expect(await sizeOf(a), "刚写完、显式保护的目录被淘汰了").toBe(0.75 * GiB)
+    } finally {
+      for (const dir of dirs) { await fs.rm(dir, { recursive: true, force: true }); releaseOwnedTempDir(dir) }
+      resetOwnedTempDirs()
+    }
+  })
+
+  // 「结算时作废旧读数」救不了**尚未结算**的目录：一份正在流式写盘的下载会被别人顺带量到，
+  // 而它自己的结算还没到来。这段窗口里若把那个半成品读数缓存下来，期间每次配额检查都少算
+  // 它一份 —— 所以判据必须是「结算过才缓存」，不是「量到的不是 0 就缓存」。
+  it("never caches the size of a dir that has not settled yet", async () => {
+    resetOwnedTempDirs()
+    const dirs: string[] = []
+    try {
+      // a 一直在写，**从不调用 enforceOwnedTempQuota(a)**（模拟下载还没落完）。
+      const a = await createManagedTempDir(); dirs.push(a)
+      await fs.writeFile(path.join(a, "part.bin"), "x")
+
+      // b 结算时会顺带量一次 a —— 此刻 a 只有 1 字节。
+      const b = await createManagedTempDir(); dirs.push(b)
+      await fs.writeFile(path.join(b, "part.bin"), "x")
+      await fs.truncate(path.join(b, "part.bin"), 0.75 * GiB)
+      await enforceOwnedTempQuota(b)
+
+      // a 继续长到 1.5 GiB，仍未结算。
+      await fs.truncate(path.join(a, "part.bin"), 1.5 * GiB)
+
+      // c 结算：这次统计必须重新量 a（1.5 GiB），合计 3 GiB 超配额。
+      const c = await createManagedTempDir(); dirs.push(c)
+      await fs.writeFile(path.join(c, "part.bin"), "x")
+      await fs.truncate(path.join(c, "part.bin"), 0.75 * GiB)
+      await enforceOwnedTempQuota(c)
+
+      const retained = (await Promise.all(dirs.map(sizeOf))).reduce((sum, n) => sum + n, 0)
+      expect(retained, "把未结算目录写到一半的读数当成了最终大小").toBeLessThanOrEqual(MAX_OWNED_TEMP_BYTES)
+      expect(await sizeOf(c), "刚结算的那一份不该被淘汰").toBe(0.75 * GiB)
+    } finally {
+      for (const dir of dirs) { await fs.rm(dir, { recursive: true, force: true }); releaseOwnedTempDir(dir) }
+      resetOwnedTempDirs()
+    }
+  })
+
+  // `enforceOwnedTempQuota(dir)` 的契约是「这一份的内容刚定下来」，所以它必须**作废**该目录
+  // 之前的任何读数。缓存只在「上一次结算」到「下一次结算」之间有效——只靠「已结算才缓存」
+  // 是不够的：目录一旦结算过就进了缓存，再写入时若不作废，用的还是上一版的大小。
+  it("invalidates a settled dir's cached size when it is settled again", async () => {
+    resetOwnedTempDirs()
+    const dirs: string[] = []
+    try {
+      // 先写两份小的并结算，让它们进缓存。
+      const a = await createManagedTempDir(); dirs.push(a)
+      await fs.writeFile(path.join(a, "part.bin"), "x")
+      await enforceOwnedTempQuota(a)
+      const b = await createManagedTempDir(); dirs.push(b)
+      await fs.writeFile(path.join(b, "part.bin"), "x")
+      await fs.truncate(path.join(b, "part.bin"), 1.5 * GiB)
+      await enforceOwnedTempQuota(b)
+
+      // a 二次写入后再次结算：这次必须按 1.5 GiB 计，合计 3 GiB 超配额。
+      await fs.truncate(path.join(a, "part.bin"), 1.5 * GiB)
+      await enforceOwnedTempQuota(a)
+
+      const retained = (await Promise.all(dirs.map(sizeOf))).reduce((sum, n) => sum + n, 0)
+      expect(retained, "二次结算沿用了上一版的大小，总量少算了这一份").toBeLessThanOrEqual(MAX_OWNED_TEMP_BYTES)
+      expect(await sizeOf(a), "刚结算的那一份不该被淘汰").toBe(1.5 * GiB)
+    } finally {
+      for (const dir of dirs) { await fs.rm(dir, { recursive: true, force: true }); releaseOwnedTempDir(dir) }
+      resetOwnedTempDirs()
+    }
+  })
+
+  it("runs the skipped quota pass once the last reader leaves", async () => {
+    resetOwnedTempDirs()
+    const dirs: string[] = []
+    try {
+      // a、b 在回读之前写完：合计 1.5 GiB，配额之内，不该淘汰谁。
+      for (let i = 0; i < 2; i += 1) {
+        const dir = await createManagedTempDir(); dirs.push(dir)
+        await fs.writeFile(path.join(dir, "part.bin"), "x")
+        await fs.truncate(path.join(dir, "part.bin"), 0.75 * GiB)
+        await enforceOwnedTempQuota(dir)
+      }
+      expect((await Promise.all(dirs.map(sizeOf))).reduce((s, n) => s + n, 0)).toBeLessThanOrEqual(MAX_OWNED_TEMP_BYTES)
+
+      // c 落在回读期：它这次的配额检查被整个跳过，磁盘就此超额。
+      beginSpillRead()
+      const c = await createManagedTempDir(); dirs.push(c)
+      await fs.writeFile(path.join(c, "part.bin"), "x")
+      await fs.truncate(path.join(c, "part.bin"), 0.75 * GiB)
+      await enforceOwnedTempQuota(c)
+      expect(
+        (await Promise.all(dirs.map(sizeOf))).reduce((s, n) => s + n, 0),
+        "回读期间本就该推迟淘汰，这一步不该已经清理",
+      ).toBeGreaterThan(MAX_OWNED_TEMP_BYTES)
+
+      // 最后一个读者离开 → 补跑那次被跳过的检查。
+      await endSpillRead()
+      const retained = (await Promise.all(dirs.map(sizeOf))).reduce((sum, n) => sum + n, 0)
+      expect(retained, "回读结束后没有补跑配额检查").toBeLessThanOrEqual(MAX_OWNED_TEMP_BYTES)
+      // 补跑同样要认 protect：c 是刚写完的那一份，不能被当成淘汰对象。
+      expect(await sizeOf(c), "补跑时把刚写完的目录删了").toBe(0.75 * GiB)
+    } finally {
+      for (const dir of dirs) { await fs.rm(dir, { recursive: true, force: true }); releaseOwnedTempDir(dir) }
+      resetOwnedTempDirs()
+    }
   })
 })

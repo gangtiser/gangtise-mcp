@@ -355,11 +355,11 @@ export const listSpecs: JsonToolSpec[] = [
       endTime: qaTimeString.optional().describe("YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss"),
       source: nonEmptyList()
         .optional()
-        .describe("问题来源（可多选）：conference=电话会议 | interactive=互动平台 | survey=调研纪要；不传查全部（拼写错误服务端报 100003，不做本地白名单）"),
+        .describe("问题来源（可多选）：conference=电话会议 | interactive=互动平台 | survey=调研纪要；不传查全部（拼写错误服务端报 100005，不做本地白名单）"),
       questionCategory: nonEmptyList()
         .optional()
         .describe(
-          "问题分类（可多选）：productAndBusiness=产品技术与业务布局 | capacityAndProjects=产能与项目进展 | ordersAndCustomers=订单与客户 | financialData=财务与经营数据 | materialEvents=重大事项 | capitalOperations=资本运作 | shareholdersAndDividends=股东户数与常规分红 | corporateGovernance=治理与管理 | marketAndValuation=市场与估值 | macroAndIndustry=宏观与行业看法 | risksAndOthers=风险质疑其他（拼写错误服务端报 100003，不做本地白名单）",
+          "问题分类（可多选）：productAndBusiness=产品技术与业务布局 | capacityAndProjects=产能与项目进展 | ordersAndCustomers=订单与客户 | financialData=财务与经营数据 | materialEvents=重大事项 | capitalOperations=资本运作 | shareholdersAndDividends=股东户数与常规分红 | corporateGovernance=治理与管理 | marketAndValuation=市场与估值 | macroAndIndustry=宏观与行业看法 | risksAndOthers=风险质疑其他（拼写错误服务端报 100005，不做本地白名单）",
         ),
       answerImportant: enumList(intLiteralEnum([0, 1]))
         .optional()
