@@ -34,10 +34,36 @@ export function getDispatcher(): Dispatcher {
   return cachedDispatcher
 }
 
+/** 取消信号上挂着的原因；SDK 传的是字符串或 undefined，统一成能进 errorMessage 的值。 */
+export function abortReason(signal: AbortSignal): unknown {
+  return signal.reason ?? new Error("请求已取消")
+}
+
+/** 可取消的等待：信号触发时立刻以 signal.reason 拒绝，不等计时器走完。
+ *  重试退避与异步轮询的间隔都走这里——客户端已经放弃的请求，不该再睡满 30s 才发现。 */
+export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(abortReason(signal))
+      return
+    }
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(abortReason(signal!))
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort)
+      resolve()
+    }, ms)
+    signal?.addEventListener("abort", onAbort, { once: true })
+  })
+}
+
 export async function runWithConcurrency<T, R>(
   items: T[],
   concurrency: number,
   fn: (item: T, index: number) => Promise<R>,
+  signal?: AbortSignal,
 ): Promise<R[]> {
   if (items.length === 0) return []
   const limit = Math.max(1, Math.min(concurrency, items.length))
@@ -47,8 +73,9 @@ export async function runWithConcurrency<T, R>(
 
   async function worker(): Promise<void> {
     // Stop pulling new work once any worker has failed, so we don't waste
-    // requests after the batch is already doomed.
-    while (firstError === null) {
+    // requests after the batch is already doomed. 同理，调用方已取消时不再派发
+    // 尚未开始的条目——已在飞的那几条由各自的 HTTP signal 中止。
+    while (firstError === null && !signal?.aborted) {
       const index = next++
       if (index >= items.length) return
       try {
@@ -64,6 +91,7 @@ export async function runWithConcurrency<T, R>(
 
   await Promise.all(Array.from({ length: limit }, () => worker()))
   if (firstError !== null) throw firstError
+  if (signal?.aborted) throw abortReason(signal)
   return results
 }
 
@@ -154,6 +182,8 @@ export interface RetryOptions {
   baseDelayMs?: number
   maxDelayMs?: number
   policy?: RetryPolicy
+  /** 已取消的请求不再重试，退避等待也会被立刻打断。 */
+  signal?: AbortSignal
   onRetry?: (attempt: number, error: unknown, delayMs: number) => void
 }
 
@@ -190,10 +220,10 @@ export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions =
     try {
       return await fn()
     } catch (error) {
-      if (attempt >= retries || !isRetryableError(error, policy)) throw error
+      if (attempt >= retries || options.signal?.aborted || !isRetryableError(error, policy)) throw error
       const delay = computeRetryDelay(error, attempt, baseDelay, maxDelay)
       options.onRetry?.(attempt + 1, error, delay)
-      await new Promise(resolve => setTimeout(resolve, delay))
+      await sleep(delay, options.signal)
       attempt++
     }
   }

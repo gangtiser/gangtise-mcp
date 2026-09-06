@@ -134,9 +134,51 @@ function sampleFieldNames(list: unknown[]): string[] {
 // RSS +61.00MiB，不留时 +25.71MiB / +39.55MiB，差值正好是那份源文件。百万行响应上这就是
 // GC 抖动甚至 OOM。纯文本没有 `data`，它本来就只能留 raw。
 type SpillCache =
-  | { key: string; parsed: true; data: unknown }
+  | {
+      key: string
+      parsed: true
+      data: unknown
+      /** 惰性缓存：`fields` 投影前要确认全部行都是普通对象，这是**文件级**属性，逐页重扫
+       *  全表是 O(行数 × 页数)。 */
+      allObjectRows?: boolean
+      /** 惰性缓存：非列表大对象按字符分片，每页整份 stringify 一遍同样是 O(体积 × 页数)。 */
+      objText?: string
+    }
   | { key: string; parsed: false; raw: string }
 let parsedCache: SpillCache | null = null
+
+const isObjectRow = (row: unknown): boolean => row !== null && typeof row === "object" && !Array.isArray(row)
+
+/** 全表扫描次数（行形态检查 / 整份序列化），仅供测试断言「缓存真的省掉了这一趟」。
+ * 🔴 与 `spillReadCount` 同一个理由：这两处缓存都是**行为等价**的纯优化，把它们拆掉输出
+ * 一模一样、全套测试照样绿。断言行为钉不住成本，只能断言扫描次数。 */
+export let spillScanCount = 0
+export function resetSpillScanCount(): void { spillScanCount = 0 }
+
+/** 当前缓存条目就是这份 data 时，把逐页都要算的两个量记在条目上；否则现算。 */
+function cachedAllObjectRows(data: unknown, list: unknown[]): boolean {
+  const scan = () => {
+    spillScanCount += 1
+    return list.every(isObjectRow)
+  }
+  if (parsedCache?.parsed && parsedCache.data === data) {
+    parsedCache.allObjectRows ??= scan()
+    return parsedCache.allObjectRows
+  }
+  return scan()
+}
+
+function cachedObjectText(data: unknown): string {
+  const stringify = () => {
+    spillScanCount += 1
+    return JSON.stringify(data)
+  }
+  if (parsedCache?.parsed && parsedCache.data === data) {
+    parsedCache.objText ??= stringify()
+    return parsedCache.objText
+  }
+  return stringify()
+}
 
 /** 读盘次数，仅供测试断言「缓存真的省掉了 I/O」。
  * 🔴 没有它，缓存是**零护栏**的：把 cache-hit 那行删掉，输出完全不变，全套测试照样绿
@@ -176,13 +218,21 @@ async function readSavedJson(savedTo: string): Promise<{ raw: string; data: unkn
 
   const raw = await fs.readFile(real, "utf8")
   spillReadCount += 1
+  // 🔴 按**落盘时的类型**决定读法，不按内容能不能 JSON.parse：文本走 `response.md`、
+  // JSON 走 `response.json`，两者都是本进程写的。一份恰好是合法 JSON 的正文（AI 返回了一段
+  // JSON、下载了一个 .json 文本）若按内容判就会被当成列表——落盘时给的 next_offset 是
+  // **字符**偏移，回读却按**行**下标取，返回零行、has_more:false，后面的内容整段丢掉。
+  if (path.extname(real) === ".md") {
+    parsedCache = { key, parsed: false, raw }
+    return { raw, data: undefined, parsed: false }
+  }
   try {
     const data = JSON.parse(raw)
     // 有意只存 data —— 见 SpillCache 的注释。`raw` 在 parsed 分支上无人使用。
     parsedCache = { key, parsed: true, data }
     return { raw, data, parsed: true }
   } catch {
-    // 纯文本载荷（Markdown/HTML）同样入缓存。它不需要 parse，但**每页整份 readFile**
+    // 纯文本载荷同样入缓存。它不需要 parse，但**每页整份 readFile**
     // 一样是 O(文件大小 × 页数)——一份大 AI Markdown 翻几百页就重读几百遍。
     parsedCache = { key, parsed: false, raw }
     return { raw, data: undefined, parsed: false }
@@ -274,7 +324,7 @@ export function registerResponseTools(server: McpServer, _client: GangtiseClient
           // Non-list object. A small one is returned whole; a large one (e.g. a
           // object over INLINE_MAX_BYTES that was spilled with a metadata-only preview) is char-sliced
           // so read-back can't re-inline the whole blob and defeat the truncation.
-          const objText = JSON.stringify(data)
+          const objText = cachedObjectText(data)
           if (Buffer.byteLength(objText, "utf8") > INLINE_MAX_BYTES) {
             const total = objText.length
             const start = Math.min(offset, total)
@@ -312,7 +362,7 @@ export function registerResponseTools(server: McpServer, _client: GangtiseClient
           // 混合数组传 fields 即 isError）。这不是可窄化的实现细节：fields 是否可用应是**文件级**
           // 属性，对同一文件恒定——若只查本页窗口，同一文件会「第 0 页成功、翻到坏行的页才失败」，
           // 行为随 offset 变，调用方无法据此判断能否投影。异常数据 fail-fast 且一致，优于逐页碰运气。
-          if (list.length > 0 && list.some((r) => r === null || typeof r !== "object" || Array.isArray(r))) {
+          if (list.length > 0 && !cachedAllObjectRows(data, list)) {
             throw new ValidationError("fields 仅适用于对象行列表，该列表含非对象元素；去掉 fields 后重试。")
           }
           // 空列表无从判定字段合法性 —— 正常返回空结果，不判未知字段。

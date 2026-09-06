@@ -4,6 +4,24 @@ function wrapList(meta: Record<string, unknown>, list: unknown[]): unknown {
   return Object.keys(meta).length > 0 ? { ...meta, list } : list
 }
 
+/** 请求了却没回来的列。行情类接口（日K / 分钟K / 实时 / 资金流）对不认识的字段名是
+ *  **名和值一起丢**、不报错——结果里就是少一列，长度校验抓不到。比对请求与返回的
+ *  fieldList，缺列标 `_partial` + `missingFields`，让「字段名写错或已下线」有信号。
+ *  在 normalizeRows 之前调用（那一步会摘掉 fieldList）。 */
+export function flagMissingFields(result: unknown, requested: unknown): unknown {
+  if (!Array.isArray(requested) || requested.length === 0) return result
+  if (!result || typeof result !== "object" || Array.isArray(result)) return result
+  const rec = result as Record<string, unknown>
+  if (!Array.isArray(rec.fieldList)) return result
+  const returned = new Set(rec.fieldList.map(String))
+  const missing = requested.filter((field): field is string => typeof field === "string" && !returned.has(field))
+  if (missing.length === 0) return result
+  // `_partial_reason` 是逗号拼接的多原因列表，追加、不覆盖。
+  const prior = typeof rec._partial_reason === "string" && rec._partial_reason ? rec._partial_reason.split(",") : []
+  if (!prior.includes("missing_fields")) prior.push("missing_fields")
+  return { ...rec, _partial: true, _partial_reason: prior.join(","), missingFields: missing }
+}
+
 export function normalizeRows(value: unknown): unknown {
   if (!value || typeof value !== "object") {
     return value
@@ -17,13 +35,20 @@ export function normalizeRows(value: unknown): unknown {
 
   if (Array.isArray(record.fieldList) && Array.isArray(record.list)) {
     const fields = record.fieldList as unknown[]
+    // 重名列按位置拍平时后一列会盖掉前一列——长度对得上、没有任何信号地少一列。
+    const names = fields.map(String)
+    if (record.list.some(Array.isArray) && new Set(names).size !== names.length) {
+      const dupes = [...new Set(names.filter((name, i) => names.indexOf(name) !== i))]
+      throw new ValidationError(
+        `响应 fieldList 有重复列名（${dupes.join("、")}）——按位置拍平时后一列会覆盖前一列，已拒绝输出。返回结构可能已变更，请重试；持续出现请带上工具名与入参报障。`,
+      )
+    }
     const normalizedList = record.list.map((row) => {
       if (!Array.isArray(row)) return row
-      // 上游对「fieldList 里有该接口不存在的字段名」的处理是：值只按**有效**字段返回，
-      // 字段名却按**请求**原样回显。长度一旦不等，按位置拍平就会把值贴到错误的字段上
-      // ——实测请求 ["securityCode","close","turnoverRate"]（realtime 无 close）会把
-      // 换手率 28.5573 贴成 close，读起来就是「茅台收盘价 28.56」。静默错列远比缺字段
-      // 危险，这里必须直接失败，不允许输出错位数据。
+      // 部分接口（主营构成、估值分析）对「fieldList 里有不存在的字段名」的处理是：值只按
+      // **有效**字段返回，字段名却按**请求**原样回显。长度一旦不等，按位置拍平就会把值
+      // 贴到错误的字段上。静默错列远比缺字段危险，这里必须直接失败，不允许输出错位数据。
+      //（行情类接口是名和值一起丢，长度对得上，由 flagMissingFields 另行标记。）
       if (row.length !== fields.length) {
         throw new ValidationError(
           `响应字段数与请求 fieldList 不匹配（fieldList ${fields.length} 项、该行返回 ${row.length} 个值）——通常是 fieldList 里含该接口不存在的字段名：此时只返回有效字段的值、字段名却按请求回显，按位置拍平会把值贴到错误的字段上。请只传该工具实际支持的字段名；不确定就不传 fieldList（=返回全量字段，最稳）。`,
@@ -42,6 +67,12 @@ export function normalizeRows(value: unknown): unknown {
   }
 
   if (Array.isArray(record.list)) {
+    // 数组行没有 fieldList 就无从知道各列是什么，原样交出去等于一批无名数字。
+    if (record.list.some(Array.isArray)) {
+      throw new ValidationError(
+        "响应包含数组形式的行但没有 fieldList，无法确定各列的含义，已拒绝输出。返回结构可能已变更，请重试；持续出现请带上工具名与入参报障。",
+      )
+    }
     const { list, ...meta } = record
     return wrapList(meta, list)
   }

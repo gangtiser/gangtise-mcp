@@ -3,7 +3,8 @@ import fs from "node:fs/promises"
 import path from "node:path"
 import { Transform } from "node:stream"
 import { pipeline } from "node:stream/promises"
-import { gunzipSync } from "node:zlib"
+import { promisify } from "node:util"
+import { gunzip } from "node:zlib"
 
 import { request } from "undici"
 
@@ -13,7 +14,11 @@ import { ApiError, DownloadError, ValidationError, errorMessage } from "./errors
 import { ENDPOINTS, type EndpointDefinition } from "./endpoints.js"
 import { Envelope, isEnvelope, unwrapEnvelope } from "./envelope.js"
 import { getLookupData } from "./lookupData/index.js"
+import { currentSignal } from "./requestContext.js"
 import { getDispatcher, getDownloadDispatcher, isVerbose, logTiming, markRetryable, runWithConcurrency, withRetry } from "./transport.js"
+
+// 异步解压：同步版会把事件循环卡住整段解压时间，分页 / 分片扇出时几路响应只能排队解压。
+const gunzipAsync = promisify(gunzip)
 
 // Error codes that warrant one forced token refresh + retry:
 //   8000014 / 8000015 — access/secret key errors (arrive as HTTP 200 envelopes)
@@ -44,6 +49,10 @@ function isAuthRejection(error: ApiError): boolean {
 
 const MAX_PAGES = 1000
 
+function overCapError(limit: number): DownloadError {
+  return new DownloadError(`下载内容超过单文件上限 ${(limit / 1048576).toFixed(0)} MB，已中止以免占满临时磁盘。`)
+}
+
 /** 流式字节上限：超出即中止整条 pipeline。 */
 function capBytes(limit: number): Transform {
   let seen = 0
@@ -51,12 +60,40 @@ function capBytes(limit: number): Transform {
     transform(chunk, _enc, cb) {
       seen += chunk.length
       if (seen > limit) {
-        cb(new DownloadError(`下载内容超过单文件上限 ${(limit / 1048576).toFixed(0)} MB，已中止以免占满临时磁盘。`))
+        cb(overCapError(limit))
         return
       }
       cb(null, chunk)
     },
   })
+}
+
+interface TextBody {
+  text(): Promise<string>
+  destroy?(): void
+  [Symbol.asyncIterator]?(): AsyncIterator<Uint8Array>
+}
+
+/** 读文本体，同样受单文件上限约束——落盘的二进制走 capBytes，这里管**留在内存里**的那几条
+ *  路径（JSON 信封 / 直链、text/plain、text/html、text/markdown）。超限即销毁响应体并报错，
+ *  不把一份没有上限的正文整个吞进内存。 */
+async function readTextCapped(body: TextBody, limit: number): Promise<string> {
+  if (typeof body[Symbol.asyncIterator] !== "function") {
+    const text = await body.text()
+    if (Buffer.byteLength(text, "utf8") > limit) throw overCapError(limit)
+    return text
+  }
+  const chunks: Buffer[] = []
+  let seen = 0
+  for await (const chunk of body as AsyncIterable<Uint8Array>) {
+    seen += chunk.byteLength
+    if (seen > limit) {
+      body.destroy?.()
+      throw overCapError(limit)
+    }
+    chunks.push(Buffer.from(chunk))
+  }
+  return Buffer.concat(chunks).toString("utf8")
 }
 
 export interface PageRequest {
@@ -71,15 +108,14 @@ export interface PageRequest {
  */
 export function planRemainingPages(nextFrom: number, endFrom: number, maxPageSize: number, maxPages: number): PageRequest[] {
   const reqs: PageRequest[] = []
+  // -1 accounts for the first page that was already fetched serially. 上限写进循环条件，
+  // 而不是先把整段区间的请求对象全部造出来再截——total 是千万级时那一步要临时分配几十 MB。
+  const room = Math.max(0, maxPages - 1)
   let cursor = nextFrom
-  while (cursor < endFrom) {
+  while (cursor < endFrom && reqs.length < room) {
     const size = Math.min(maxPageSize, endFrom - cursor)
     reqs.push({ from: cursor, size })
     cursor += size
-  }
-  // +1 accounts for the first page that was already fetched serially.
-  if (reqs.length + 1 > maxPages) {
-    reqs.length = Math.max(0, maxPages - 1)
   }
   return reqs
 }
@@ -449,6 +485,9 @@ export class GangtiseClient {
     let unexpectedShape = false
     let totalDrift = false
     const failedPages: Array<{ from: number; size: number; error: string }> = []
+    // 客户端取消后不再派发剩余页：取消的请求结果到不了调用方，多拉的每一页都是白花的
+    // 请求与（按行计费端点上的）积分。
+    const signal = currentSignal()
     const pages = await runWithConcurrency(pageRequests, PAGE_CONCURRENCY, async (req) => {
       try {
         const page = await this.requestJson<Record<string, unknown>>(endpoint, {
@@ -463,13 +502,16 @@ export class GangtiseClient {
         if (page.total !== total) totalDrift = true
         return this.pageRows(page)
       } catch (err) {
+        // 取消不是「这一页失败了」，是整个请求作废。这里照常记进 _failed_pages 没关系：
+        // `runWithConcurrency` 收尾时看到 signal 已 abort 会直接抛，这份 _partial 结果
+        // 根本不会被返回（`clientCancel.test.ts` 钉住这条）。
         // Collect the failure instead of fail-fasting the whole batch: return the
         // pages we did get, flagged _partial — same loud-partial contract as
         // quoteSharding, so a dropped page never masquerades as complete data.
         failedPages.push({ from: req.from, size: req.size, error: errorMessage(err) })
         return [] as unknown[]
       }
-    })
+    }, signal)
 
     for (const list of pages) {
       if (list.length === 0) continue
@@ -548,6 +590,9 @@ export class GangtiseClient {
     // GANGTISE_TIMEOUT_MS still applies (slow synchronous AI generation would
     // otherwise abort at 30s — billed, with the result thrown away).
     const timeoutMs = Math.max(this.config.timeoutMs, endpoint.timeoutMs ?? 0)
+    // 登录（useAuth=false）刻意不挂取消信号：refreshPromise 是多个并发请求共享的，
+    // 让其中一个的取消把大家的登录一起中止，其余请求会平白失败。
+    const signal = useAuth ? currentSignal() : undefined
 
     const attemptOnce = async (): Promise<T> => {
       const headers: Record<string, string> = {
@@ -568,6 +613,7 @@ export class GangtiseClient {
         headersTimeout: timeoutMs,
         bodyTimeout: timeoutMs,
         dispatcher,
+        signal,
       })
       // Only buffer + gunzip when the server actually compressed; an unencoded
       // response reads as text directly.
@@ -577,7 +623,7 @@ export class GangtiseClient {
       if (gzipped) {
         const bytes = Buffer.from(await response.body.arrayBuffer())
         try {
-          text = gunzipSync(bytes).toString('utf8')
+          text = (await gunzipAsync(bytes)).toString('utf8')
         } catch (error) {
           // A proxy/middlebox can declare gzip and deliver garbage — surface it
           // with request context instead of a bare zlib Z_DATA_ERROR.
@@ -600,7 +646,12 @@ export class GangtiseClient {
         const message = response.statusCode >= 400
           ? `API request failed (HTTP ${response.statusCode})`
           : 'Failed to parse API response'
-        throw new ApiError(message, undefined, response.statusCode, text.slice(0, 500), retryAfterMs)
+        const error = new ApiError(message, undefined, response.statusCode, text.slice(0, 500), retryAfterMs)
+        // 网关直接挡下的 401 可能根本不是 JSON（HTML / 空体）。它同样是「凭据被拒」，
+        // 要过一遍鉴权自愈——否则缓存里的失效 token 会一直用到本地时钟判它过期为止。
+        // 下载链路早已如此处理（见 failDownload），这里此前漏了。
+        await this.refreshAuthIfRecoverable(error, useAuth, authState, headers.Authorization)
+        throw error
       }
 
       try {
@@ -622,6 +673,7 @@ export class GangtiseClient {
     // replay path is needed.
     return withRetry(attemptOnce, {
       policy: endpoint.retry,
+      signal,
       onRetry: (attempt: number, error: unknown, delay: number) => {
         if (!isVerbose()) return
         const msg = error instanceof Error ? error.message : String(error)
@@ -639,6 +691,8 @@ export class GangtiseClient {
     })
     const authState = { retried: false, startedAt: Date.now() }
     const timeoutMs = Math.max(this.config.timeoutMs, endpoint.timeoutMs ?? 0)
+    const signal = currentSignal()
+    const maxBytes = this.config.maxDownloadBytes ?? DEFAULT_MAX_DOWNLOAD_BYTES
 
     return withRetry(async () => {
       const authorization = await this.getAuthorizationHeader()
@@ -649,6 +703,7 @@ export class GangtiseClient {
         headersTimeout: timeoutMs,
         bodyTimeout: timeoutMs,
         dispatcher,
+        signal,
       })
 
       const contentType = Array.isArray(response.headers['content-type']) ? response.headers['content-type'][0] : response.headers['content-type']
@@ -678,7 +733,7 @@ export class GangtiseClient {
       // a user-stored .json in the vault drive), not an API envelope — fall
       // through to the binary path so its bytes are returned untouched.
       if (contentType?.includes('application/json') && !contentDisposition) {
-        const text = await response.body.text()
+        const text = await readTextCapped(response.body, maxBytes)
         logTiming(`GET ${endpoint.path} (json)`, Date.now() - startedAt, `${response.statusCode}, ${text.length}B`)
         let parsed: unknown
         try {
@@ -704,14 +759,16 @@ export class GangtiseClient {
         return { text: JSON.stringify(data), contentType }
       }
 
-      if (contentType?.includes('text/plain') || contentType?.includes('text/html')) {
-        const text = await response.body.text()
+      // text/markdown 与 plain/html 同为正文：不认它会把一份 Markdown 研报当二进制落盘成
+      // download.bin，调用方拿到的是文件路径而不是正文。
+      if (contentType?.includes('text/plain') || contentType?.includes('text/html') || contentType?.includes('text/markdown')) {
+        const text = await readTextCapped(response.body, maxBytes)
         logTiming(`GET ${endpoint.path} (text)`, Date.now() - startedAt, `${response.statusCode}, ${text.length}B`)
         if (response.statusCode >= 400) await failDownload(text)
         return { text, contentType }
       }
 
-      if (response.statusCode >= 400) await failDownload(await response.body.text())
+      if (response.statusCode >= 400) await failDownload(await readTextCapped(response.body, maxBytes))
 
       const filenameMatch = contentDisposition?.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i)
       // RFC 6266: plain filename= is not percent-encoded — a literal % (common
@@ -729,7 +786,6 @@ export class GangtiseClient {
 
       // Stream directly to disk when caller already knows the destination
       if (options?.streamTo) {
-        const maxBytes = this.config.maxDownloadBytes ?? DEFAULT_MAX_DOWNLOAD_BYTES
         // 🔴 落盘前先看 Content-Length：声明就超上限的直接拒，不浪费带宽也不碰磁盘。
         const declared = Number(Array.isArray(response.headers['content-length']) ? response.headers['content-length'][0] : response.headers['content-length'])
         if (Number.isFinite(declared) && declared > maxBytes) {
@@ -745,7 +801,7 @@ export class GangtiseClient {
         // 没有 Content-Length（chunked）时靠流式计数兜底：超限即中止，`pipeline` 会销毁
         // 两端并把错误抛出来，上层 downloadToResult 随即删掉整个临时目录。
         // 只做**事后清理**是不够的——那时磁盘已经被写满了。
-        await pipeline(response.body, capBytes(maxBytes), createWriteStream(options.streamTo))
+        await pipeline(response.body, capBytes(maxBytes), createWriteStream(options.streamTo), { signal })
         logTiming(`GET ${endpoint.path} (stream)`, Date.now() - startedAt, `${response.statusCode}`)
         return { contentType, filename, savedPath: options.streamTo }
       }
@@ -759,6 +815,7 @@ export class GangtiseClient {
       }
     }, {
       policy: endpoint.retry,
+      signal,
       onRetry: (attempt, error, delay) => {
         if (!isVerbose()) return
         const msg = error instanceof Error ? error.message : String(error)

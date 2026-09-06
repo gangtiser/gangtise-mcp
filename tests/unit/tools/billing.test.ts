@@ -272,11 +272,19 @@ describe("tool description boundaries", () => {
   it("routes 总市值 to EDE qte_mkt_cptl (realtime/day_kline don't carry it)", async () => {
     const byName = new Map((await listLiveTools()).map((t) => [t.name, t.description ?? ""]))
     const rt = byName.get("gangtise_realtime") ?? ""
-    expect(rt).toContain("没有 close，也没有市值") // realtime 是模型的落点，必须在这里就掉头
+    // realtime 是模型的落点，必须在这里就掉头。两条分开断言、不钉整句措辞：
+    // 要守的是「说了没有 close」和「说了没有市值」这两件事，不是它们怎么连成一句。
+    expect(rt).toMatch(/没有 close/)
+    expect(rt).toMatch(/没有市值/)
     expect(rt).toContain("qte_mkt_cptl")
     // 字段清单要准（旧文案写「开高低收」会诱导模型传 close → 触发错列）
     expect(rt).toContain("latestPrice")
     expect(rt).toContain("preClose")
+    // 0.38 起 realtime 不再返回这两个字段：传了会连字段名一起被丢掉，描述必须点名，
+    // 否则模型照旧传、拿到少两列的结果而看不出原因。
+    expect(rt).toContain("turnoverRate")
+    expect(rt).toContain("volumeRatio")
+    expect(rt).toContain("tradeStatus")
     // search 的行情 carve-out 必须点名这个例外，否则又把它推回 realtime
     expect(byName.get("gangtise_indicator_search")).toContain("qte_mkt_cptl")
   })

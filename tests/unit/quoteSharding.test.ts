@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { callKlineWithSharding } from "../../src/core/quoteSharding.js"
+import { callKlinePerSecurity, callKlineWithSharding, estimateTradingDays, requireQuoteRows } from "../../src/core/quoteSharding.js"
 
 describe("callKlineWithSharding", () => {
   it("injects API-max limit (10000) for security='all' when user didn't set limit", async () => {
@@ -347,5 +347,185 @@ describe("callKlineWithSharding: malformed shard shapes", () => {
 
     const out = await callKlineWithSharding({ call }, "quote.day-kline", range, { shardDays: 1 }) as Record<string, unknown>
     expect(String(out._partial_reason)).toContain("malformed_shards")
+  })
+})
+
+// 🔴 合并采用首片的 fieldList 解释全部分片，而没有谁保证各片列顺序一致。第二片把
+// open/close 调个位置，按位置并进来就是开盘价与收盘价互换：列数相同、长度校验抓不到、
+// 也不标 _partial —— 一份读起来完全正常的错数。必须按列名对齐。
+describe("shard column alignment", () => {
+  const range = { securityList: ["all"], startDate: "2026-03-30", endDate: "2026-04-01" }
+
+  it("realigns a shard whose columns come back in a different order", async () => {
+    let n = 0
+    const call = vi.fn().mockImplementation(async () => {
+      n += 1
+      return n === 1
+        ? { fieldList: ["securityCode", "open", "close"], list: [["600519.SH", 1, 2]] }
+        // 同样三列，顺序不同：open=1 / close=2 的语义必须跟着列名走。
+        : { fieldList: ["securityCode", "close", "open"], list: [["600519.SH", 20, 10]] }
+    })
+
+    const out = await callKlineWithSharding({ call }, "quote.day-kline", range, { shardDays: 1 }) as Record<string, unknown>
+
+    expect(out.fieldList).toEqual(["securityCode", "open", "close"])
+    // 第二片重排后必须是 [代码, open=10, close=20]，不是原样的 [代码, 20, 10]。
+    expect(out.list).toEqual([["600519.SH", 1, 2], ["600519.SH", 10, 20], ["600519.SH", 10, 20]])
+    expect(out._partial).toBeUndefined()
+  })
+
+  it("drops a shard whose column set cannot be aligned, and says so", async () => {
+    let n = 0
+    const call = vi.fn().mockImplementation(async () => {
+      n += 1
+      return n === 1
+        ? { fieldList: ["securityCode", "open", "close"], list: [["600519.SH", 1, 2]] }
+        : { fieldList: ["securityCode", "open", "high"], list: [["600519.SH", 1, 9]] }  // 没有 close
+    })
+
+    const out = await callKlineWithSharding({ call }, "quote.day-kline", range, { shardDays: 1 }) as Record<string, unknown>
+
+    expect(String(out._partial_reason)).toContain("malformed_shards")
+    expect(out.list).toEqual([["600519.SH", 1, 2]])
+  })
+
+  it("drops a shard whose columnar rows do not match its own fieldList", async () => {
+    let n = 0
+    const call = vi.fn().mockImplementation(async () => {
+      n += 1
+      return n === 1
+        ? { fieldList: ["securityCode", "open"], list: [["600519.SH", 1]] }
+        : { fieldList: ["securityCode", "open"], list: [["600519.SH", 1, 999]] }  // 行长多一格
+    })
+
+    const out = await callKlineWithSharding({ call }, "quote.day-kline", range, { shardDays: 1 }) as Record<string, unknown>
+    expect(String(out._partial_reason)).toContain("malformed_shards")
+    expect(out.list).toEqual([["600519.SH", 1]])
+  })
+
+  it("drops a shard whose fieldList has duplicate column names", async () => {
+    let n = 0
+    const call = vi.fn().mockImplementation(async () => {
+      n += 1
+      return n === 1
+        ? { fieldList: ["securityCode", "open"], list: [["600519.SH", 1]] }
+        : { fieldList: ["open", "open"], list: [["600519.SH", 1]] }
+    })
+
+    const out = await callKlineWithSharding({ call }, "quote.day-kline", range, { shardDays: 1 }) as Record<string, unknown>
+    expect(String(out._partial_reason)).toContain("malformed_shards")
+  })
+
+  // 对象行没有列顺序问题，不该被列对齐逻辑波及。
+  it("leaves object rows alone", async () => {
+    const call = vi.fn().mockImplementation(async (_k: string, body: Record<string, unknown>) => ({
+      fieldList: ["tradeDate"],
+      list: [{ tradeDate: body.startDate, close: 1 }],
+    }))
+    const out = await callKlineWithSharding({ call }, "quote.day-kline", range, { shardDays: 1 }) as Record<string, unknown>
+    expect((out.list as unknown[]).length).toBe(3)
+    expect(out._partial).toBeUndefined()
+  })
+
+  // 合并结果只展开首片的元数据、随后又覆写 _partial_reason —— 不单独收集的话，
+  // 非首片自带的 _partial 会在合并时整个消失。
+  it("carries a non-first shard's own _partial into the merged result", async () => {
+    let n = 0
+    const call = vi.fn().mockImplementation(async () => {
+      n += 1
+      return n === 2
+        ? { list: [{ id: n }], _partial: true, _partial_reason: "limit_truncated" }
+        : { list: [{ id: n }] }
+    })
+    const out = await callKlineWithSharding({ call }, "quote.day-kline", range, { shardDays: 1 }) as Record<string, unknown>
+    expect(out._partial).toBe(true)
+    expect(String(out._partial_reason)).toContain("limit_truncated")
+  })
+})
+
+// 显式多证券且单请求装不下时逐只拉：单请求会在窗口开头截断，只剩前几只的前几个月，
+// 且只有一个 _partial 说不清缺了谁。
+describe("callKlinePerSecurity", () => {
+  it("merges per-security parts in the requested order", async () => {
+    const call = vi.fn().mockImplementation(async (_k: string, body: Record<string, unknown>) => ({
+      fieldList: ["securityCode"],
+      list: [[(body.securityList as string[])[0]]],
+      total: 1,
+    }))
+
+    const out = await callKlinePerSecurity(
+      { call }, "quote.day-kline", ["600519.SH", "000858.SZ"],
+      (code) => ({ securityList: [code] }), 6000,
+    ) as Record<string, unknown>
+
+    expect(out.list).toEqual([["600519.SH"], ["000858.SZ"]])
+    expect(out.total).toBe(2)
+    expect(out._partial).toBeUndefined()
+  })
+
+  it("names the securities that hit the per-request limit", async () => {
+    const call = vi.fn().mockImplementation(async (_k: string, body: Record<string, unknown>) => {
+      const code = (body.securityList as string[])[0]
+      return { list: code === "000858.SZ" ? [{ a: 1 }, { a: 2 }] : [{ a: 1 }] }
+    })
+
+    const out = await callKlinePerSecurity(
+      { call }, "quote.day-kline", ["600519.SH", "000858.SZ"],
+      (code) => ({ securityList: [code] }), 2,
+    ) as Record<string, unknown>
+
+    expect(out._partial).toBe(true)
+    expect(String(out._partial_reason)).toContain("limit_truncated")
+    expect(out._truncated_securities).toEqual(["000858.SZ"])
+  })
+
+  it("keeps the securities that worked when one fails, and names the failure", async () => {
+    const call = vi.fn().mockImplementation(async (_k: string, body: Record<string, unknown>) => {
+      if ((body.securityList as string[])[0] === "000858.SZ") throw new Error("boom")
+      return { list: [{ a: 1 }] }
+    })
+
+    const out = await callKlinePerSecurity(
+      { call }, "quote.day-kline", ["600519.SH", "000858.SZ"],
+      (code) => ({ securityList: [code] }), 6000,
+    ) as Record<string, unknown>
+
+    expect(String(out._partial_reason)).toContain("failed_securities")
+    expect((out._failed_securities as Array<{ security: string }>)[0].security).toBe("000858.SZ")
+    expect((out.list as unknown[]).length).toBe(1)
+  })
+
+  it("throws the original error when every security fails", async () => {
+    const call = vi.fn().mockRejectedValue(new Error("auth expired"))
+    await expect(callKlinePerSecurity(
+      { call }, "quote.day-kline", ["600519.SH", "000858.SZ"],
+      (code) => ({ securityList: [code] }), 6000,
+    )).rejects.toThrow("auth expired")
+  })
+})
+
+// 单请求收到一个没有 list 的载荷时，原样交出去的是一个既不是表、也不是错误的对象。
+describe("requireQuoteRows", () => {
+  it("rejects a payload with no readable list", () => {
+    expect(() => requireQuoteRows({ message: "ok" }, "gangtise_day_kline")).toThrow(/没有可读的 list/)
+    expect(() => requireQuoteRows(null, "gangtise_day_kline")).toThrow(/不是可读的行集合/)
+  })
+
+  it("passes a normal list, a bare array and the {total:0,list:null} empty shape", () => {
+    expect(requireQuoteRows({ list: [{ a: 1 }] }, "t")).toEqual({ list: [{ a: 1 }] })
+    expect(requireQuoteRows([{ a: 1 }], "t")).toEqual([{ a: 1 }])
+    expect(requireQuoteRows({ total: 0, list: null }, "t")).toEqual({ total: 0, list: null })
+  })
+})
+
+describe("estimateTradingDays", () => {
+  it("counts weekdays inclusive and skips the weekend", () => {
+    expect(estimateTradingDays("2026-03-30", "2026-04-03")).toBe(5)   // Mon–Fri
+    expect(estimateTradingDays("2026-03-28", "2026-03-29")).toBe(0)   // Sat+Sun
+  })
+
+  it("falls back to a year when the start date is missing or unparseable", () => {
+    expect(estimateTradingDays(undefined, "2026-04-03")).toBe(262)
+    expect(estimateTradingDays("nope", "2026-04-03")).toBe(262)
   })
 })

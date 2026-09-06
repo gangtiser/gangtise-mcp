@@ -162,7 +162,7 @@ export const specs: JsonToolSpec[] = [
   },
   {
     name: "gangtise_earning_forecast",
-    description: "查询盈利预测一致预期（EPS、PE、净利润、ROE 等）。",
+    description: "查询盈利预测一致预期（EPS、PE、净利润、ROE 等）。roe 的单位是百分比（35.6 即 35.6%），不要再做 ÷100 换算——换算后的数字看着仍像个 ROE，不会报错。",
     endpointKey: "fundamental.earning-forecast",
     paginated: false,
     inputSchema: {
@@ -271,7 +271,7 @@ export function registerFundamentalTools(server: McpServer, client: GangtiseClie
         indicator: z.enum(["peTtm", "pbMrq", "peg", "psTtm", "pcfTtm", "em"]).describe("peTtm | pbMrq | peg | psTtm | pcfTtm | em（必填）"),
         ...dateRange,
         limit: z.number().int().min(1).optional().describe("最大返回行数（默认 2000）"),
-        skipNull: z.boolean().optional().describe("过滤掉 value 或 percentileRank 为空的行（客户端后处理）"),
+        skipNull: z.boolean().optional().describe("过滤掉 value 或 percentileRank 为空的行（客户端后处理；传了 fieldList 时只按其中请求到的那几列判空）"),
         fieldList: valuationFieldList,
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
@@ -282,13 +282,17 @@ export function registerFundamentalTools(server: McpServer, client: GangtiseClie
       const raw = await client.call("fundamental.valuation-analysis", body)
       const normalized = normalizeRows(raw)
       let result: unknown = normalized
-      if (skipNull && normalized && typeof normalized === "object" && !Array.isArray(normalized)) {
+      // 只按**请求到的**列判空。fieldList 投影掉 percentileRank 时那一列在行里根本不存在，
+      // 把「没查」当「为空」会把一份正常数据整个过滤成零行且不报错。
+      const requested = Array.isArray(body.fieldList) ? new Set(body.fieldList as string[]) : undefined
+      const nullKeys = ["value", "percentileRank"].filter((key) => !requested || requested.has(key))
+      if (skipNull && nullKeys.length > 0 && normalized && typeof normalized === "object" && !Array.isArray(normalized)) {
         const rec = normalized as Record<string, unknown>
         if (Array.isArray(rec.list)) {
           const filtered = rec.list.filter((row): row is Record<string, unknown> => {
             if (!row || typeof row !== "object") return false
             const r = row as Record<string, unknown>
-            return r.value != null && r.percentileRank != null
+            return nullKeys.every((key) => r[key] != null)
           })
           result = { ...rec, list: filtered, total: filtered.length }
         }

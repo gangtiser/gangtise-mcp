@@ -3,7 +3,7 @@ import fsSync from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { selectStaleTempDirs, createManagedTempDir, isOwnedTempPath, resetOwnedTempDirs, releaseOwnedTempDir, touchOwnedTempDir, enforceOwnedTempQuota, MAX_OWNED_TEMP_DIRS } from "../../../src/core/tempCleanup.js"
 
 const DAY = 86_400_000
@@ -262,5 +262,29 @@ describe("byte-quota eviction protects the dir the caller names", () => {
     } finally {
       for (const d of created) await fs.rm(d, { recursive: true, force: true })
     }
+  })
+})
+
+// 配额检查此前每次落盘都对全部（上限 200 个）目录递归 stat 一遍。溢出文件写完即不变，
+// 只有刚写完的那一份需要重量。
+describe("byte-quota accounting caches per-dir sizes", () => {
+  it("does not re-stat every owned dir on each spill", async () => {
+    resetOwnedTempDirs()
+    const dirs: string[] = []
+    for (let i = 0; i < 8; i += 1) {
+      const dir = await createManagedTempDir()
+      await fs.writeFile(path.join(dir, "response.json"), "x".repeat(1024), "utf8")
+      await enforceOwnedTempQuota(dir)
+      dirs.push(dir)
+    }
+    const spy = vi.spyOn(fs, "readdir")
+    const fresh = await createManagedTempDir()
+    await fs.writeFile(path.join(fresh, "response.json"), "y".repeat(1024), "utf8")
+    await enforceOwnedTempQuota(fresh)
+    // 只重量刚写完的那一份；缓存失效时这里会是 9 次（每个已登记目录一次）。
+    const scanned = spy.mock.calls.length
+    spy.mockRestore()
+    expect(scanned).toBeLessThanOrEqual(2)
+    expect(dirs.length).toBe(8)
   })
 })

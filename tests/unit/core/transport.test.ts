@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { runWithConcurrency, withRetry, markRetryable, computeRetryDelay, isRetryableError } from "../../../src/core/transport.js"
+import { runWithConcurrency, withRetry, markRetryable, computeRetryDelay, isRetryableError, sleep as cancellableSleep } from "../../../src/core/transport.js"
 import { ApiError } from "../../../src/core/errors.js"
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -280,5 +280,63 @@ describe("rate limiting in envelope form (999006)", () => {
 
   it("honors the server's Retry-After over the computed backoff", () => {
     expect(computeRetryDelay(new ApiError("rate", "999006", 200, {}, 9_000), 0, 400, 4_000)).toBe(9_000)
+  })
+})
+
+// 取消之后不该再等、也不该再派发。「客户端已经放弃」与「这一步失败了」是两回事。
+describe("cancellation", () => {
+  it("sleep rejects immediately when the signal is already aborted", async () => {
+    const c = new AbortController()
+    c.abort(new Error("gone"))
+    await expect(cancellableSleep(60_000, c.signal)).rejects.toThrow("gone")
+  })
+
+  it("sleep rejects mid-wait when the signal aborts", async () => {
+    const c = new AbortController()
+    const waiting = cancellableSleep(60_000, c.signal)
+    c.abort(new Error("client gave up"))
+    await expect(waiting).rejects.toThrow("client gave up")
+  })
+
+  it("sleep resolves normally without a signal", async () => {
+    await expect(cancellableSleep(1)).resolves.toBeUndefined()
+  })
+
+  it("runWithConcurrency stops pulling new items once aborted", async () => {
+    const c = new AbortController()
+    const started: number[] = []
+    const items = Array.from({ length: 50 }, (_, i) => i)
+    await expect(
+      runWithConcurrency(items, 2, async (i) => {
+        started.push(i)
+        if (started.length === 2) c.abort(new Error("stop"))
+        return i
+      }, c.signal),
+    ).rejects.toThrow("stop")
+    // 并发 2，取消发生在第 2 个开始时：最多再多跑几个，绝不该把 50 个都派发出去。
+    expect(started.length).toBeLessThan(10)
+  })
+
+  it("withRetry gives up instead of backing off once aborted", async () => {
+    const c = new AbortController()
+    let attempts = 0
+    const fn = async () => {
+      attempts += 1
+      c.abort(new Error("cancelled"))
+      throw new ApiError("boom", undefined, 500)
+    }
+    await expect(withRetry(fn, { signal: c.signal, retries: 2 })).rejects.toThrow("boom")
+    expect(attempts).toBe(1)
+  })
+
+  it("still retries normally when nothing cancels", async () => {
+    let attempts = 0
+    const fn = async () => {
+      attempts += 1
+      if (attempts < 2) throw new ApiError("boom", undefined, 500)
+      return "ok"
+    }
+    await expect(withRetry(fn, { retries: 2, baseDelayMs: 1 })).resolves.toBe("ok")
+    expect(attempts).toBe(2)
   })
 })

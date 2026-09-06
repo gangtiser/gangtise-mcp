@@ -1,6 +1,7 @@
 import { ApiError } from "./errors.js"
 import { AsyncTimeoutError } from "./errors.js"
-import { isTransientError } from "./transport.js"
+import { currentSignal } from "./requestContext.js"
+import { isTransientError, sleep } from "./transport.js"
 
 export const POLL_INITIAL_DELAY_MS = 5_000
 export const POLL_MAX_DELAY_MS = 30_000
@@ -57,6 +58,9 @@ export async function pollAsyncContent(
   timeoutMs: number,
 ): Promise<{ content: string }> {
   const deadline = Date.now() + timeoutMs
+  // 客户端取消后不再轮询也不再等待。已提交的任务不受影响——dataId 在服务端仍然有效，
+  // 但客户端既已放弃本次调用，任何返回都到不了它手上，继续轮询只是空烧请求。
+  const signal = currentSignal()
   let attempt = 0
 
   while (true) {
@@ -72,6 +76,7 @@ export async function pollAsyncContent(
       // A deadline abort is never "transient" — its message contains "timeout",
       // which the transient classifier would otherwise match.
       if (error instanceof AsyncTimeoutError) throw error
+      if (signal?.aborted) throw error
       if (isAsyncFailed(error)) {
         throw error
       }
@@ -88,7 +93,7 @@ export async function pollAsyncContent(
     }
 
     const delay = Math.min(nextDelayMs(attempt), deadline - now)
-    await new Promise(resolve => setTimeout(resolve, delay))
+    await sleep(delay, signal)
 
     if (Date.now() >= deadline) {
       throw new AsyncTimeoutError(dataId)

@@ -1422,3 +1422,81 @@ describe("EDE 单次单元格上限对外可见", () => {
     }
   })
 })
+
+// 顶层 date 早有 dateString 的校验与归一；嵌套的 indicatorParamList[].paramValue 此前只查
+// 非空——一个不存在的日期（2026-02-30）原样进 body，由服务端决定是报错还是静默顺延。
+describe("EDE nested date parameters get the same validation as the top-level date", () => {
+  const args = { indicatorCodeList: ["is_op_rev"], securityCodeList: ["600519.SH"], date: "2026-07-31" }
+
+  it("rejects a calendar-impossible reportDate without calling the API", async () => {
+    const client = makeMockClient()
+    const mcp = await connect(client)
+    const result = await mcp.callTool({
+      name: "gangtise_indicator_cross_section",
+      arguments: { ...args, indicatorParamList: [{ indicatorCode: "is_op_rev", parameters: [{ paramKey: "reportDate", paramValue: "2026-02-30" }] }] },
+    })
+    expect(result.isError).toBe(true)
+    expect(client.call).not.toHaveBeenCalled()
+  })
+
+  it("rejects a year-last reportDate (the API reads those month-first)", async () => {
+    const client = makeMockClient()
+    const mcp = await connect(client)
+    const result = await mcp.callTool({
+      name: "gangtise_indicator_cross_section",
+      arguments: { ...args, indicatorParamList: [{ indicatorCode: "is_op_rev", parameters: [{ paramKey: "reportDate", paramValue: "01-07-2026" }] }] },
+    })
+    expect(result.isError).toBe(true)
+    expect(client.call).not.toHaveBeenCalled()
+  })
+
+  it("normalises an accepted layout to YYYY-MM-DD before sending", async () => {
+    const client = makeMockClient()
+    const mcp = await connect(client)
+    await mcp.callTool({
+      name: "gangtise_indicator_cross_section",
+      arguments: { ...args, indicatorParamList: [{ indicatorCode: "is_op_rev", parameters: [{ paramKey: "reportDate", paramValue: "20241231" }] }] },
+    })
+    expect(bodyOf(client).indicatorParamList).toEqual([
+      { indicatorCode: "is_op_rev", parameters: [{ paramKey: "reportDate", paramValue: "2024-12-31" }] },
+    ])
+  })
+
+  it("validates sDate too — the interval start is a date like any other", async () => {
+    const client = makeMockClient()
+    const mcp = await connect(client)
+    const result = await mcp.callTool({
+      name: "gangtise_indicator_cross_section",
+      arguments: { ...args, indicatorParamList: [{ indicatorCode: "is_op_rev", parameters: [{ paramKey: "sDate", paramValue: "2026-13-01" }] }] },
+    })
+    expect(result.isError).toBe(true)
+    expect(client.call).not.toHaveBeenCalled()
+  })
+
+  it("leaves non-date parameters alone", async () => {
+    const client = makeMockClient()
+    const mcp = await connect(client)
+    await mcp.callTool({
+      name: "gangtise_indicator_cross_section",
+      arguments: { ...args, indicatorParamList: [{ indicatorCode: "is_op_rev", parameters: [{ paramKey: "adjustType", paramValue: "2" }] }] },
+    })
+    const sent = bodyOf(client).indicatorParamList as Array<{ parameters: Array<{ paramKey: string; paramValue: string }> }>
+    expect(sent[0].parameters).toContainEqual({ paramKey: "adjustType", paramValue: "2" })
+  })
+
+  it("applies the same rule to a screener variable binding", async () => {
+    const client = makeMockClient()
+    const mcp = await connect(client)
+    const result = await mcp.callTool({
+      name: "gangtise_indicator_screener",
+      arguments: {
+        indicatorList: [{ field: "F1", indicatorCode: "is_op_rev", parameters: [{ paramKey: "reportDate", paramValue: "2026-02-30" }] }],
+        expression: "F1 > 0",
+        securityCodeList: ["600519.SH"],
+        date: "2026-07-31",
+      },
+    })
+    expect(result.isError).toBe(true)
+    expect(client.call).not.toHaveBeenCalled()
+  })
+})

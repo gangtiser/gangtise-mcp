@@ -1,6 +1,7 @@
 import { runWithConcurrency, isVerbose } from "./transport.js"
 import { ApiError, errorMessage, ValidationError } from "./errors.js"
 import { PAGE_CONCURRENCY } from "./config.js"
+import { currentSignal } from "./requestContext.js"
 
 export interface KlineBody {
   securityList?: string[]
@@ -77,6 +78,21 @@ function isWeekend(epochMs: number): boolean {
   return day === 0 || day === 6
 }
 
+/** 区间内的工作日数（周一至周五，含两端）。缺起始日按一年（262 个交易日）估；
+ *  缺结束日按今天。只用来判断「显式多证券要不要逐只拉」，估高不估低——
+ *  估高的代价是多拆几次请求，估低的代价是撞上限截断。 */
+export function estimateTradingDays(startDate?: string, endDate?: string): number {
+  if (!startDate) return 262
+  const start = Date.parse(`${startDate}T00:00:00Z`)
+  const end = endDate ? Date.parse(`${endDate}T00:00:00Z`) : Date.now() + DAY_MS
+  if (Number.isNaN(start) || Number.isNaN(end) || end < start) return 262
+  let days = 0
+  for (let t = start; t <= end; t += DAY_MS) {
+    if (!isWeekend(t)) days++
+  }
+  return days
+}
+
 function buildShards(start: Date, end: Date, shardDays: number): Array<{ startDate: string; endDate: string }> {
   const shards: Array<{ startDate: string; endDate: string }> = []
   let cursor = start.getTime()
@@ -99,6 +115,131 @@ function buildShards(start: Date, end: Date, shardDays: number): Array<{ startDa
     cursor = shardEnd + DAY_MS
   }
   return shards
+}
+
+type PartOutcome =
+  | { ok: true; value: unknown }
+  | { ok: false; error: string; cause: unknown }
+
+/** 逐个发出，取消即停：取消的请求结果到不了调用方，剩下的分片 / 证券不再派发。 */
+async function fetchParts<P>(parts: P[], concurrency: number, fetch: (part: P) => Promise<unknown>): Promise<PartOutcome[]> {
+  const signal = currentSignal()
+  return runWithConcurrency(parts, concurrency, async (part): Promise<PartOutcome> => {
+    try {
+      return { ok: true, value: await fetch(part) }
+    } catch (err) {
+      if (signal?.aborted) throw err
+      return { ok: false, error: errorMessage(err), cause: err }
+    }
+  }, signal)
+}
+
+/** 把一片的列顺序对回首片：相同返回 null（不用动），可对齐返回下标映射，
+ *  列集合对不上返回 undefined（这一片不能并进来）。 */
+function columnRemap(header: string[], part: string[]): number[] | null | undefined {
+  if (header.length === part.length && header.every((field, i) => field === part[i])) return null
+  const index = new Map(part.map((field, i) => [field, i]))
+  const map: number[] = []
+  for (const field of header) {
+    const i = index.get(field)
+    if (i === undefined) return undefined
+    map.push(i)
+  }
+  return map
+}
+
+/** 行情端点的单请求响应必须带得出行。没有可读的 `list` 时原样交出去，模型收到的是一个
+ *  既不是表、也不是错误的对象——分片路径早已对同一形状响亮失败，单请求这条此前没有。
+ *  `{total: 0, list: null}` 是合法的零行写法，照旧放行。 */
+export function requireQuoteRows(result: unknown, label: string): unknown {
+  if (result === null || result === undefined || typeof result !== "object") {
+    throw new ApiError(`${label}：响应不是可读的行集合（形状可能已变更）——请重试；持续出现请带上工具名与入参报障。`)
+  }
+  if (Array.isArray(result)) return result
+  if (partRows(result) === undefined) {
+    throw new ApiError(`${label}：响应里没有可读的 list（形状可能已变更）——请重试；持续出现请带上工具名与入参报障。`)
+  }
+  return result
+}
+
+function partRows(value: unknown): { rec: Record<string, unknown>; rows: unknown[] } | undefined {
+  const rec = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined
+  if (!rec) return undefined
+  // `{total: 0, list: null}` 是部分端点编码空结果的写法（见 client.isPaginatedListResponse），
+  // 是合法的零行、不是坏形状；除此之外没有数组 `list` 就是形状漂移。
+  const rows = Array.isArray(rec.list)
+    ? (rec.list as unknown[])
+    : rec.total === 0 && (rec.list === null || rec.list === undefined)
+      ? []
+      : undefined
+  return rows === undefined ? undefined : { rec, rows }
+}
+
+interface MergedParts {
+  header: Record<string, unknown> | null
+  fieldList: string[] | undefined
+  merged: unknown[]
+  /** 行数撞到单请求上限的部件下标：那一段本身被截断了。 */
+  truncated: number[]
+  /** HTTP 没报错、载荷却并不进来的部件下标：没有可合并的 `list`，或数组行没有一份
+   *  自洽的 fieldList（缺失 / 重名 / 行长对不上），或列集合与首片对不上。 */
+  malformed: number[]
+  /** 各部件自己带来的 `_partial_reason`。合并结果只展开首片的元数据、且随后会覆写
+   *  `_partial_reason`，不单独收集的话：非首片的标记整个消失，首片的原因被覆盖掉。 */
+  partReasons: string[]
+}
+
+/** 合并多段同构响应（按日分片、逐只证券）。
+ *
+ * 🔴 数组行**按列名对齐**，不按位置：合并采用首片的 fieldList 解释全部部件，而各部件的
+ * 列顺序并没有谁保证一致——第二片把 open/close 调个位置，按位置并进来就是开盘价与收盘价
+ * 互换，列数相同、长度校验抓不到、也不标 _partial。对不上列名集合的部件按坏形状记名。 */
+function mergeParts(results: PartOutcome[], perLimit: number): MergedParts {
+  let header: Record<string, unknown> | null = null
+  let fieldList: string[] | undefined
+  const merged: unknown[] = []
+  const truncated: number[] = []
+  const malformed: number[] = []
+  const partReasons = new Set<string>()
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i]
+    if (!r.ok) continue
+    const part = partRows(r.value)
+    if (!part) {
+      malformed.push(i)
+      continue
+    }
+    if (part.rec._partial === true) {
+      const reason = typeof part.rec._partial_reason === "string" ? part.rec._partial_reason : ""
+      for (const one of reason ? reason.split(",") : ["part_partial"]) partReasons.add(one)
+    }
+    let rows = part.rows
+    const partFields = Array.isArray(part.rec.fieldList) && part.rec.fieldList.length > 0 ? part.rec.fieldList.map(String) : undefined
+    const columnar = rows.some(Array.isArray)
+    if (
+      columnar &&
+      (!partFields || new Set(partFields).size !== partFields.length || rows.some((row) => Array.isArray(row) && row.length !== partFields.length))
+    ) {
+      malformed.push(i)
+      continue
+    }
+    if (!fieldList && partFields) fieldList = partFields
+    if (columnar && fieldList && partFields) {
+      const remap = columnRemap(fieldList, partFields)
+      if (remap === undefined) {
+        malformed.push(i)
+        continue
+      }
+      if (remap) rows = rows.map((row) => (Array.isArray(row) ? remap.map((k) => row[k]) : row))
+    }
+    if (!header) header = part.rec
+    // A part whose row count reaches the per-request limit was itself capped, so
+    // its slice is incomplete — record it so a consumer can re-pull exactly that
+    // window / security with a narrower range.
+    if (rows.length >= perLimit) truncated.push(i)
+    merged.push(...rows)
+  }
+  return { header, fieldList, merged, truncated, malformed, partReasons: [...partReasons] }
 }
 
 /**
@@ -157,72 +298,28 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
     process.stderr.write(`[gangtise] sharding ${endpointKey} into ${shards.length} requests (${config.shardDays} day(s) each)\n`)
   }
 
-  type ShardOutcome =
-    | { ok: true; value: unknown }
-    | { ok: false; startDate: string; endDate: string; error: string; cause: unknown }
+  const results = await fetchParts(shards, config.concurrency ?? PAGE_CONCURRENCY, (shard) =>
+    client.call(endpointKey, { ...allMarketBody, startDate: shard.startDate, endDate: shard.endDate }),
+  )
 
-  const results = await runWithConcurrency(shards, config.concurrency ?? PAGE_CONCURRENCY, async (shard): Promise<ShardOutcome> => {
-    try {
-      const value = await client.call(endpointKey, { ...allMarketBody, startDate: shard.startDate, endDate: shard.endDate })
-      return { ok: true, value }
-    } catch (err) {
-      return { ok: false, startDate: shard.startDate, endDate: shard.endDate, error: errorMessage(err), cause: err }
-    }
-  })
-
-  const failed = results.filter((r): r is Extract<ShardOutcome, { ok: false }> => !r.ok)
+  const failed = results
+    .map((r, i) => ({ r, i }))
+    .filter((x): x is { r: Extract<PartOutcome, { ok: false }>; i: number } => !x.r.ok)
   // Every shard failed → surface the original error instead of masking it as empty data.
   if (failed.length === shards.length) {
-    throw failed[0].cause
+    throw failed[0].r.cause
   }
 
-  let fieldList: unknown[] | undefined
-  let header: Record<string, unknown> | null = null
-  const merged: unknown[] = []
-  const truncatedShards: Array<{ startDate: string; endDate: string }> = []
-  // 形状对不上的分片：HTTP 没报错，但载荷里没有可合并的 `list`。
-  //
-  // 🔴 这一档以前是**静默丢弃**的：`continue` 掉、不进 merged、也不标 _partial，于是
-  // 一天的全市场行情凭空消失而结果读起来完整。极端情形下每个分片都是这个形状，返回的
-  // 是 `{ ...第一个坏分片, list: [] }` —— 一份带着上游字段、零行、无任何标记的「正常空
-  // 结果」。与 `_failed_shards` 对称地记名，坏形状才有信号。
-  const malformedShards: Array<{ startDate: string; endDate: string }> = []
-  for (let i = 0; i < results.length; i++) {
-    const r = results[i]
-    if (!r.ok) continue
-    const rec = r.value && typeof r.value === "object" && !Array.isArray(r.value)
-      ? (r.value as Record<string, unknown>)
-      : undefined
-    // `{total: 0, list: null}` 是部分端点编码空结果的写法（见 client.isPaginatedListResponse），
-    // 是合法的零行、不是坏形状；除此之外没有数组 `list` 就是形状漂移。
-    const rows = rec && Array.isArray(rec.list)
-      ? (rec.list as unknown[])
-      : rec && rec.total === 0 && (rec.list === null || rec.list === undefined)
-        ? []
-        : undefined
-    if (!rec || rows === undefined) {
-      malformedShards.push({ startDate: shards[i].startDate, endDate: shards[i].endDate })
-      continue
-    }
-    if (!header) header = rec
-    if (!fieldList && Array.isArray(rec.fieldList)) fieldList = rec.fieldList
-    // A shard whose row count reaches the per-request limit was itself capped, so
-    // its slice of that day's market is incomplete — record its date window so a
-    // consumer can re-pull exactly those days with a narrower range.
-    if (rows.length >= perShardLimit) {
-      truncatedShards.push({ startDate: shards[i].startDate, endDate: shards[i].endDate })
-    }
-    merged.push(...rows)
-  }
+  const { header, fieldList, merged, truncated, malformed, partReasons } = mergeParts(results, perShardLimit)
 
   // 没有任何一个分片给出可用形状（全失败已在上面抛过，这里是「全部坏形状」以及
   // 「失败 + 坏形状」的混合）——没有 header 就没有可信的载体，标 _partial 也只是把一份
   // 无中生有的空表递出去。响亮失败。
   if (!header) {
-    if (malformedShards.length > 0) {
-      const alsoFailed = failed.length > 0 ? `，另有 ${failed.length} 个分片请求失败（${failed[0].error}）` : ""
+    if (malformed.length > 0) {
+      const alsoFailed = failed.length > 0 ? `，另有 ${failed.length} 个分片请求失败（${failed[0].r.error}）` : ""
       throw new ApiError(
-        `全市场分片查询：${malformedShards.length} 个分片返回的载荷里没有可合并的 list（形状可能已变更）${alsoFailed}，没有任何分片给出可用数据——请重试；持续出现请带上工具名与日期区间报障。`,
+        `全市场分片查询：${malformed.length} 个分片返回的载荷里没有可合并的 list 或列结构对不上（形状可能已变更）${alsoFailed}，没有任何分片给出可用数据——请重试；持续出现请带上工具名与日期区间报障。`,
       )
     }
     return { list: [] }
@@ -232,24 +329,90 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   // The header's `total` describes the first shard only — recompute it for the
   // merged result so downstream completeness checks aren't misled.
   if ("total" in out) out.total = merged.length
-  // Loud partial: a dropped shard (failure) or a shard whose rows hit the per-request
-  // limit (truncated slice) both leave the merged market data incomplete.
+  // Loud partial: a dropped shard (failure), a shard whose rows hit the per-request
+  // limit (truncated slice) or a shard whose payload could not be merged all leave
+  // the merged market data incomplete.
   const reasons: string[] = []
   if (failed.length > 0) {
     reasons.push("failed_shards")
-    out._failed_shards = failed.map((f) => ({ startDate: f.startDate, endDate: f.endDate, error: f.error }))
+    out._failed_shards = failed.map(({ r, i }) => ({ startDate: shards[i].startDate, endDate: shards[i].endDate, error: r.error }))
   }
-  if (truncatedShards.length > 0) {
+  if (truncated.length > 0) {
     reasons.push("limit_truncated")
-    out._truncated_shards = truncatedShards
+    out._truncated_shards = truncated.map((i) => shards[i])
   }
-  if (malformedShards.length > 0) {
+  if (malformed.length > 0) {
     reasons.push("malformed_shards")
-    out._malformed_shards = malformedShards
+    out._malformed_shards = malformed.map((i) => shards[i])
   }
+  for (const reason of partReasons) if (!reasons.includes(reason)) reasons.push(reason)
   if (reasons.length > 0) {
     out._partial = true
     out._partial_reason = reasons.join(",")
+  } else {
+    delete out._partial
+    delete out._partial_reason
+  }
+  return out
+}
+
+/**
+ * 显式多证券、单请求装不下时逐只请求再按传入顺序合并。每只各自受 `perLimit` 约束，
+ * 撞上限的证券记进 `_truncated_securities`；请求失败 / 载荷并不进来的分别记进
+ * `_failed_securities` / `_malformed_securities`，与全市场分片的标记对称。
+ */
+export async function callKlinePerSecurity(
+  client: KlineClient,
+  endpointKey: string,
+  securities: string[],
+  makeBody: (security: string) => Record<string, unknown>,
+  perLimit: number,
+): Promise<unknown> {
+  if (isVerbose()) {
+    process.stderr.write(`[gangtise] splitting ${endpointKey} into ${securities.length} per-security requests\n`)
+  }
+  const results = await fetchParts(securities, PAGE_CONCURRENCY, (code) => client.call(endpointKey, makeBody(code)))
+
+  const failed = results
+    .map((r, i) => ({ r, i }))
+    .filter((x): x is { r: Extract<PartOutcome, { ok: false }>; i: number } => !x.r.ok)
+  if (failed.length === securities.length) {
+    throw failed[0].r.cause
+  }
+
+  const { header, fieldList, merged, truncated, malformed, partReasons } = mergeParts(results, perLimit)
+  if (!header) {
+    if (malformed.length > 0) {
+      const alsoFailed = failed.length > 0 ? `，另有 ${failed.length} 只请求失败（${failed[0].r.error}）` : ""
+      throw new ApiError(
+        `逐只查询：${malformed.length} 只证券返回的载荷里没有可合并的 list 或列结构对不上（形状可能已变更）${alsoFailed}，没有任何一只给出可用数据——请重试；持续出现请带上工具名与证券代码报障。`,
+      )
+    }
+    return { list: [] }
+  }
+  const out: Record<string, unknown> = { ...header, list: merged }
+  if (fieldList) out.fieldList = fieldList
+  if ("total" in out) out.total = merged.length
+  const reasons: string[] = []
+  if (failed.length > 0) {
+    reasons.push("failed_securities")
+    out._failed_securities = failed.map(({ r, i }) => ({ security: securities[i], error: r.error }))
+  }
+  if (truncated.length > 0) {
+    reasons.push("limit_truncated")
+    out._truncated_securities = truncated.map((i) => securities[i])
+  }
+  if (malformed.length > 0) {
+    reasons.push("malformed_securities")
+    out._malformed_securities = malformed.map((i) => securities[i])
+  }
+  for (const reason of partReasons) if (!reasons.includes(reason)) reasons.push(reason)
+  if (reasons.length > 0) {
+    out._partial = true
+    out._partial_reason = reasons.join(",")
+  } else {
+    delete out._partial
+    delete out._partial_reason
   }
   return out
 }

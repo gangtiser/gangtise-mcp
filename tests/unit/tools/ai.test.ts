@@ -404,3 +404,46 @@ describe("async *_check across the 2026-07-17 renumbering", () => {
     expect((result.content as Array<{ text: string }>)[0].text).toContain(`"status":"${status}"`)
   })
 })
+
+// 超过 5000 只时接口返回 {total:0, list:[]}、HTTP 200、无告警 —— 读起来像「这批票都没看点」。
+// 本地拦下并提示分批，比让调用方对着一份空表猜原因便宜得多。
+describe("gangtise_stock_summary batch ceiling", () => {
+  it("rejects a securityList over 5000 without calling the API", async () => {
+    const client = { call: vi.fn(async () => ({ list: [], total: 0 })), download: vi.fn() } as unknown as GangtiseClient
+    const mcp = await connect(client)
+    const big = Array.from({ length: 5001 }, (_, i) => `${600000 + i}.SH`)
+    const result = await mcp.callTool({ name: "gangtise_stock_summary", arguments: { securityList: big } })
+    expect(result.isError).toBe(true)
+    expect((result as { content: Array<{ text: string }> }).content[0].text).toMatch(/5000/)
+    expect(client.call).not.toHaveBeenCalled()
+  })
+
+  it("accepts exactly 5000", async () => {
+    const client = { call: vi.fn(async () => ({ list: [], total: 0 })), download: vi.fn() } as unknown as GangtiseClient
+    const mcp = await connect(client)
+    const atCap = Array.from({ length: 5000 }, (_, i) => `${600000 + i}.SH`)
+    const result = await mcp.callTool({ name: "gangtise_stock_summary", arguments: { securityList: atCap } })
+    expect(result.isError).toBeFalsy()
+    expect(client.call).toHaveBeenCalled()
+  })
+})
+
+// 提交成功但响应里没有 dataId 时，旧写法在 `submitResult[field]` 上抛
+// "Cannot read properties of null" —— 一句读不懂的 JS 报错原样进模型上下文。
+describe("async submit with a malformed response", () => {
+  it("reports a missing dataId as a response-shape problem", async () => {
+    const client = {
+      call: vi.fn().mockResolvedValue(null),
+      download: vi.fn(),
+    } as unknown as GangtiseClient
+    const mcp = await connect(client)
+    const result = await mcp.callTool({
+      name: "gangtise_earnings_review",
+      arguments: { securityCode: "600519.SH", period: "2025q3", waitSeconds: 0 },
+    })
+    expect(result.isError).toBe(true)
+    const text = (result as { content: Array<{ text: string }> }).content[0].text
+    expect(text).toContain("dataId")
+    expect(text).not.toContain("Cannot read properties")
+  })
+})

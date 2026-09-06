@@ -2,7 +2,7 @@ import { z } from "zod"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { GangtiseClient } from "../core/client.js"
 import { registerJsonTool, registerDownloadTool, buildToolContent, buildTextResult, type JsonToolSpec, type DownloadToolSpec } from "./registry.js"
-import { toolHandler, textResult, contentResult } from "./helpers.js"
+import { toolHandler, textResult, contentResult, type HandlerExtra } from "./helpers.js"
 import { pollAsyncContent, isAsyncFailed, isAsyncPending } from "../core/asyncContent.js"
 import { normalizeRows } from "../core/normalize.js"
 import { AsyncTimeoutError, ValidationError, errorMessage } from "../core/errors.js"
@@ -71,15 +71,16 @@ export const jsonSpecs: JsonToolSpec[] = [
       securityList: z
         .array(z.string().trim().min(1))
         .min(1, "securityList 不能为空")
-        .max(6000, "securityList 单次最多 6000 个")
+        // 超过 5000 只时接口返回 {total:0, list:[]}、HTTP 200、无告警——读起来像「都没看点」。
+        .max(5000, "securityList 单次最多 5000 个（更大的批次接口会返回空列表而不报错），请分批")
         // 本接口只按具体代码批量，市场关键字会被判为无效证券代码（报「证券代码无效」，
         // 读起来像代码写错了）。按条计费，所以在 schema 层就拦下、不发请求。
         .refine(
           (list) => !list.some((code) => MARKET_KEYWORDS.has(code.toLowerCase())),
-          "本工具不支持 aShares / hkStocks 这类全市场关键字，请传具体证券代码（单次最多 6000 个）",
+          "本工具不支持 aShares / hkStocks 这类全市场关键字，请传具体证券代码（单次最多 5000 个）",
         )
         .describe(
-          "证券代码列表（A股/港股，如 ['600519.SH','00700.HK']，单次最多 6000）。必填，且**只接受具体代码**——本工具不支持全市场关键字。⚠️ 本工具按条计费，成本随实际返回条数增长，别为了省调用次数一次性铺满 6000 个代码",
+          "证券代码列表（A股/港股，如 ['600519.SH','00700.HK']，单次最多 5000——更大的批次接口返回空列表且不报错，全市场看点按 ≤5000 只/批分次提交）。必填，且**只接受具体代码**——本工具不支持全市场关键字。⚠️ 本工具按条计费，成本随实际返回条数增长，别为了省调用次数一次性铺满 5000 个代码",
         ),
     },
   },
@@ -212,9 +213,9 @@ function makeAsyncToolPair(
       const startedAt = Date.now()
       const { waitSeconds, ...submitArgs } = args
       const timeoutMs = typeof waitSeconds === "number" ? waitSeconds * 1000 : opts.asyncTimeoutMs
-      const submitResult = await client.call(config.submitEndpoint, submitArgs) as Record<string, string>
-      const dataId = submitResult[config.submitIdField]
-      if (!dataId) throw new Error(`No ${config.submitIdField} in response`)
+      const submitResult = await client.call(config.submitEndpoint, submitArgs) as Record<string, string> | null
+      const dataId = submitResult?.[config.submitIdField]
+      if (!dataId) throw new Error(`提交成功但响应里没有 ${config.submitIdField}（返回结构可能已变更）。请重试；持续出现请带上工具名与入参报障。`)
 
       // waitSeconds=0 (or a submit that already ate the whole budget) hands back
       // the dataId immediately — no wasted, billed poll round-trip.
@@ -256,11 +257,11 @@ function makeAsyncToolPair(
     },
     toolHandler(async ({ dataId }: { dataId: string }) => {
       try {
-        const result = await client.call(config.pollEndpoint, { dataId }) as { content?: string }
+        const result = await client.call(config.pollEndpoint, { dataId }) as { content?: string } | null
         // content: "" is a *finished* task with empty output (matches the poll
         // loop's `content != null` check) — a truthiness test would report the
         // billed task as pending forever.
-        if (result.content != null) {
+        if (result?.content != null) {
           if (!result.content.trim()) return textResult("任务已完成，但 AI 内容为空（后端未生成或数据缺失）。")
           return contentResult(await buildTextResult(result.content))
         }
@@ -324,7 +325,8 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
   // 每个 handler 建一次，不是每次调用建一次。
   const asHandler = (endpointKey: string) => {
     const handler = makeAiContentHandler(client, endpointKey)
-    return async (args: unknown) => handler(args as Record<string, unknown>)
+    // extra 透传：取消信号靠它进入调用链。
+    return async (args: unknown, extra?: HandlerExtra) => handler(args as Record<string, unknown>, extra)
   }
   const onePager = asHandler("ai.one-pager")
   const investmentLogic = asHandler("ai.investment-logic")

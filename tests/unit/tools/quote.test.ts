@@ -528,3 +528,168 @@ describe("gangtise quote limit-truncation marker", () => {
     expect(parsed._partial_reason).toBe("limit_truncated")
   })
 })
+
+// 行情类接口对不认识的字段名是**名和值一起丢**：长度对得上、不报错，结果里就是少一列。
+// 缺列必须有信号，否则「字段名写错」与「这列没数据」分不开。
+describe("quote missing-column guard", () => {
+  const parse = (r: unknown) => JSON.parse((r as { content: Array<{ text: string }> }).content[0].text)
+
+  it("flags a requested column the server never returned", async () => {
+    const client = {
+      call: vi.fn().mockResolvedValue({ fieldList: ["securityCode", "latestPrice"], list: [["600519.SH", 1500]] }),
+      download: vi.fn(),
+    } as unknown as GangtiseClient
+    const mcp = await connect(client)
+    const result = await mcp.callTool({
+      name: "gangtise_realtime",
+      arguments: { security: "600519.SH", fieldList: ["securityCode", "latestPrice", "turnoverRate"] },
+    })
+    const payload = parse(result)
+    expect(payload._partial).toBe(true)
+    expect(String(payload._partial_reason)).toContain("missing_fields")
+    expect(payload.missingFields).toEqual(["turnoverRate"])
+  })
+
+  it("stays quiet when every requested column came back", async () => {
+    const client = {
+      call: vi.fn().mockResolvedValue({ fieldList: ["securityCode", "latestPrice"], list: [["600519.SH", 1500]] }),
+      download: vi.fn(),
+    } as unknown as GangtiseClient
+    const mcp = await connect(client)
+    const result = await mcp.callTool({
+      name: "gangtise_realtime",
+      arguments: { security: "600519.SH", fieldList: ["securityCode", "latestPrice"] },
+    })
+    expect(parse(result)._partial).toBeUndefined()
+  })
+})
+
+// 显式多证券且单请求装不下时逐只拉：单请求会在窗口开头截断，只剩前几只的前几个月，
+// 而结果只有一个 _partial、说不清缺了谁。
+describe("explicit multi-security day kline splits per security when one request cannot hold it", () => {
+  it("splits when securities × trading days exceeds the row cap", async () => {
+    const seen: string[][] = []
+    const client = {
+      call: vi.fn().mockImplementation(async (_k: string, body: Record<string, unknown>) => {
+        seen.push(body.securityList as string[])
+        return { fieldList: ["securityCode"], list: [[(body.securityList as string[])[0]]] }
+      }),
+      download: vi.fn(),
+    } as unknown as GangtiseClient
+    const mcp = await connect(client)
+    await mcp.callTool({
+      name: "gangtise_day_kline",
+      arguments: { security: ["600519.SH", "000858.SZ"], startDate: "2026-01-01", endDate: "2026-09-01", limit: 10 },
+    })
+    expect(seen).toEqual([["600519.SH"], ["000858.SZ"]])
+  })
+
+  it("keeps a single request when the estimate fits", async () => {
+    const seen: string[][] = []
+    const client = {
+      call: vi.fn().mockImplementation(async (_k: string, body: Record<string, unknown>) => {
+        seen.push(body.securityList as string[])
+        return { list: [] }
+      }),
+      download: vi.fn(),
+    } as unknown as GangtiseClient
+    const mcp = await connect(client)
+    await mcp.callTool({
+      name: "gangtise_day_kline",
+      arguments: { security: ["600519.SH", "000858.SZ"], startDate: "2026-08-31", endDate: "2026-09-01" },
+    })
+    expect(seen).toEqual([["600519.SH", "000858.SZ"]])
+  })
+})
+
+// 分钟 K 接口一次只收一只（securityCode），多只在本地逐只请求再按传入顺序合并。
+describe("gangtise_minute_kline multi-security", () => {
+  it("issues one request per security and merges in order", async () => {
+    const seen: string[] = []
+    const client = {
+      call: vi.fn().mockImplementation(async (_k: string, body: Record<string, unknown>) => {
+        seen.push(body.securityCode as string)
+        return { fieldList: ["securityCode"], list: [[body.securityCode]] }
+      }),
+      download: vi.fn(),
+    } as unknown as GangtiseClient
+    const mcp = await connect(client)
+    const result = await mcp.callTool({
+      name: "gangtise_minute_kline",
+      arguments: { security: ["600519.SH", "512800.SH"] },
+    })
+    expect(seen).toEqual(["600519.SH", "512800.SH"])
+    // 合并结果没有额外 meta，normalizeRows 按既有约定返回裸数组。
+    const payload = JSON.parse((result as { content: Array<{ text: string }> }).content[0].text)
+    expect(payload).toEqual([{ securityCode: "600519.SH" }, { securityCode: "512800.SH" }])
+  })
+
+  it("still sends a single request for one security", async () => {
+    const client = {
+      call: vi.fn().mockResolvedValue({ list: [] }),
+      download: vi.fn(),
+    } as unknown as GangtiseClient
+    const mcp = await connect(client)
+    await mcp.callTool({ name: "gangtise_minute_kline", arguments: { security: "600519.SH" } })
+    expect((client.call as unknown as { mock: { calls: unknown[][] } }).mock.calls).toHaveLength(1)
+  })
+})
+
+// 单请求收到一个没有 list 的载荷时，原样交出去的是一个既不是表、也不是错误的对象。
+describe("quote single-request payload guard", () => {
+  it("fails loudly when a day-kline response carries no list", async () => {
+    const client = {
+      call: vi.fn().mockResolvedValue({ message: "ok" }),
+      download: vi.fn(),
+    } as unknown as GangtiseClient
+    const mcp = await connect(client)
+    const result = await mcp.callTool({ name: "gangtise_day_kline", arguments: { security: "600519.SH" } })
+    expect(result.isError).toBe(true)
+    expect((result as { content: Array<{ text: string }> }).content[0].text).toContain("没有可读的 list")
+  })
+
+  it("accepts the {total:0, list:null} empty encoding", async () => {
+    const client = {
+      call: vi.fn().mockResolvedValue({ total: 0, list: null }),
+      download: vi.fn(),
+    } as unknown as GangtiseClient
+    const mcp = await connect(client)
+    const result = await mcp.callTool({ name: "gangtise_day_kline", arguments: { security: "600519.SH" } })
+    expect(result.isError).toBeFalsy()
+  })
+})
+
+// 0.38 起 realtime 的字段集变了：新增 tradeStatus，turnoverRate / volumeRatio 不再返回。
+// 描述里的字段清单是模型唯一的依据，写错就会诱导它传一个会被丢掉的字段名。
+describe("quote tool descriptions track the current field sets", () => {
+  it("realtime names tradeStatus and warns off turnoverRate / volumeRatio", async () => {
+    const mcp = await connect(makeMockClient())
+    const byName = new Map((await mcp.listTools()).tools.map((t) => [t.name, t.description ?? ""]))
+    const rt = byName.get("gangtise_realtime") ?? ""
+    expect(rt).toContain("tradeStatus")
+    expect(rt).toContain("turnoverRate")
+    expect(rt).toContain("volumeRatio")
+  })
+
+  it("day kline and realtime name ETF and the global indices", async () => {
+    const mcp = await connect(makeMockClient())
+    const tools = (await mcp.listTools()).tools
+    const byName = new Map(tools.map((t) => [t.name, t.description ?? ""]))
+    for (const name of ["gangtise_day_kline", "gangtise_realtime", "gangtise_minute_kline"]) {
+      expect(byName.get(name), `${name} 应覆盖 ETF / 全球指数`).toMatch(/ETF|全球指数/)
+    }
+    // 具体代码写在 security 参数说明里（模型照抄的就是那一面），不在主描述里。
+    const securityDesc = (name: string) => {
+      const schema = tools.find((t) => t.name === name)!.inputSchema as { properties?: Record<string, { description?: string }> }
+      return schema.properties?.security?.description ?? ""
+    }
+    expect(securityDesc("gangtise_day_kline")).toContain("SPX.SPI")
+    expect(securityDesc("gangtise_realtime")).toContain("SPX.SPI")
+  })
+
+  it("says the whole-market keywords do not cover ETF", async () => {
+    const mcp = await connect(makeMockClient())
+    const byName = new Map((await mcp.listTools()).tools.map((t) => [t.name, t.description ?? ""]))
+    expect(byName.get("gangtise_day_kline")).toMatch(/aShares 不含 ETF|不含 ETF/)
+  })
+})

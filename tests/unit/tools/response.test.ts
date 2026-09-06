@@ -6,7 +6,7 @@ import { describe, it, expect } from "vitest"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
-import { registerResponseTools, TEXT_CHUNK_CHARS, pageNote, fitByBytes, spillReadCount, resetSpillReadCount } from "../../../src/tools/response.js"
+import { registerResponseTools, TEXT_CHUNK_CHARS, pageNote, fitByBytes, spillReadCount, resetSpillReadCount, spillScanCount, resetSpillScanCount } from "../../../src/tools/response.js"
 import { buildToolContent } from "../../../src/tools/registry.js"
 import { createManagedTempDir, resetOwnedTempDirs, MAX_OWNED_TEMP_DIRS } from "../../../src/core/tempCleanup.js"
 import { INLINE_MAX_BYTES } from "../../../src/core/config.js"
@@ -926,5 +926,85 @@ describe("回读页：采样与行预算用同一份 rest", () => {
     } finally {
       await fs.rm(dir, { recursive: true, force: true })
     }
+  })
+})
+
+// 🔴 落盘时按**类型**分文件（正文 response.md / JSON response.json），回读却曾按「内容能不能
+// JSON.parse」判读法。一份恰好是合法 JSON 的正文（AI 返回一段 JSON、下载的 .json 文本）
+// 因此被当成列表：落盘给的 next_offset 是**字符**偏移，回读却拿它当**行**下标，
+// 返回零行、has_more:false —— 后面的内容整段丢掉，且读起来像「已经读完了」。
+describe("read-back follows the spilled content type, not the content's shape", () => {
+  it("pages a JSON-looking text payload by characters, not by row index", async () => {
+    const rows = Array.from({ length: 4000 }, (_, i) => ({ id: i, note: "占位内容" }))
+    const jsonLookingText = JSON.stringify(rows)
+    expect(Buffer.byteLength(jsonLookingText, "utf8")).toBeGreaterThan(INLINE_MAX_BYTES)
+    const savedTo = await writeTmpText(jsonLookingText)
+    const client = await makeConnectedPair()
+
+    const first = parseText(await client.callTool({ name: "gangtise_read_response", arguments: { saved_to: savedTo } }))
+    expect(typeof first._text).toBe("string")
+    expect(first.has_more).toBe(true)
+
+    // 续读必须真的推进并拿到内容——按行下标读会返回 0 行、has_more:false。
+    const next = parseText(await client.callTool({
+      name: "gangtise_read_response",
+      arguments: { saved_to: savedTo, offset: first.next_offset as number },
+    }))
+    expect((next._text as string).length).toBeGreaterThan(0)
+    expect(next._offset).toBe(first.next_offset)
+  })
+
+  it("still pages a spilled JSON list by rows", async () => {
+    const savedTo = await writeTmpJson({ list: Array.from({ length: 120 }, (_, i) => ({ id: i })), total: 120 })
+    const client = await makeConnectedPair()
+    const page = parseText(await client.callTool({ name: "gangtise_read_response", arguments: { saved_to: savedTo, limit: 50 } }))
+    expect((page.list as unknown[]).length).toBe(50)
+    expect(page.next_offset).toBe(50)
+  })
+})
+
+// fields 投影前要确认全部行都是普通对象，这是**文件级**属性；逐页重扫全表是
+// O(行数 × 页数)。10 万行翻 10 页只返回 500 行，却要检查 100 万行。
+describe("read-back caches the per-file row-shape scan", () => {
+  it("does not rescan the whole list on every page", async () => {
+    const savedTo = await writeTmpJson({ list: Array.from({ length: 5_000 }, (_, i) => ({ id: i, v: i })), total: 5_000 })
+    const client = await makeConnectedPair()
+    const page = async (offset: number) =>
+      parseText(await client.callTool({
+        name: "gangtise_read_response",
+        arguments: { saved_to: savedTo, offset, limit: 50, fields: ["id"] },
+      }))
+
+    const first = await page(0)
+    expect((first.list as unknown[]).length).toBe(50)
+    // 第二页起走缓存：既不再读盘，也不再重扫全表。
+    resetSpillReadCount()
+    resetSpillScanCount()
+    const second = await page(50)
+    expect((second.list as unknown[]).length).toBe(50)
+    expect(spillReadCount, "重复读盘").toBe(0)
+    expect(spillScanCount, "重复全表扫描").toBe(0)
+  })
+
+  it("does not re-serialize a large non-list object on every page", async () => {
+    const big = { blob: "中".repeat(40_000), meta: { a: 1 } }
+    const savedTo = await writeTmpJson(big)
+    const client = await makeConnectedPair()
+    const chunk = async (offset: number) =>
+      parseText(await client.callTool({ name: "gangtise_read_response", arguments: { saved_to: savedTo, offset } }))
+
+    const first = await chunk(0)
+    expect(typeof first._json_chunk).toBe("string")
+    resetSpillScanCount()
+    const second = await chunk(first.next_offset as number)
+    expect(typeof second._json_chunk).toBe("string")
+    expect(spillScanCount, "每页都把整份对象重新序列化了一遍").toBe(0)
+  })
+
+  it("still rejects a mixed list on any page", async () => {
+    const savedTo = await writeTmpJson({ list: [{ id: 0 }, 42, { id: 2 }], total: 3 })
+    const client = await makeConnectedPair()
+    const r = await client.callTool({ name: "gangtise_read_response", arguments: { saved_to: savedTo, fields: ["id"] } })
+    expect(r.isError).toBe(true)
   })
 })

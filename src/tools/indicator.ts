@@ -378,7 +378,20 @@ const scale = z
 // paramValue 与 paramKey 同样收紧：空白值不构成一个取值，下发只会换来一次按单元格
 // 计价的无效请求，或者被当成「没传这个参数」而静默用默认口径（没传 adjustType 就是
 // 不复权价）—— 后者不报错，拿到的是一份读起来完全正常的错数。
-const paramPair = z.object({ paramKey: nonEmptyString, paramValue: nonEmptyString }).strict()
+const paramPairShape = z.object({ paramKey: nonEmptyString, paramValue: nonEmptyString }).strict()
+// 已知的日期键在这里同样过 dateString 的校验与归一（YYYY/MM/DD、YYYYMMDD → YYYY-MM-DD，
+// 拒掉 2026-02-30 这类不存在的日期）。顶层 date 早已如此，嵌套参数此前只查非空——
+// 一个不存在的日期会原样进 body，由服务端决定是报错还是静默顺延。
+const DATE_VALUE_KEYS = new Set(["tradeDate", "reportDate", "sDate"])
+const paramPair = paramPairShape.transform((pair, ctx) => {
+  if (!DATE_VALUE_KEYS.has(pair.paramKey)) return pair
+  const parsed = dateString.safeParse(pair.paramValue)
+  if (!parsed.success) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["paramValue"], message: `${pair.paramKey} 取值无效：${parsed.error.issues[0]?.message ?? "日期格式错误"}` })
+    return z.NEVER
+  }
+  return { ...pair, paramValue: parsed.data }
+})
 
 // 非日期类的参数说明，三个取数工具共用。日期类的说明**必须分开**：截面/选股是单日快照
 // （工具有 date，会注入 tradeDate），时序是区间（服务端明确禁止 parameters 里出现单日期

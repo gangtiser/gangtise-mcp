@@ -1147,3 +1147,88 @@ describe("GangtiseClient auth recovery: only adopts a cache refreshed DURING the
     expect(seenAuth).toEqual(["Bearer explicit", "Bearer fresh"])
   })
 })
+
+// 🔴 JSON 链路上的同一个洞：网关直接挡下的 401 可能根本不是 JSON（HTML 错误页 / 空体）。
+// 解析失败那一条 throw 此前在鉴权恢复的 try/catch **之外**，于是自愈整个不发生——缓存里
+// 那个失效的 token 会一直用到本地时钟判它过期为止，期间每一次调用都失败。
+// 下载链路早就处理了同一形态（见上面两条），JSON 链路漏了。
+describe("GangtiseClient auth recovery on a non-JSON 401 (JSON path)", () => {
+  it("refreshes the token once when a 401 arrives as HTML instead of an envelope", async () => {
+    let logins = 0
+    let listCalls = 0
+    requestMock.mockImplementation((url: unknown) => {
+      if (String(url).includes("/loginV2")) {
+        logins += 1
+        return Promise.resolve(rawJsonResponse({ code: "000000", data: { accessToken: "fresh", expiresIn: 7200, time: 1 } }))
+      }
+      listCalls += 1
+      if (listCalls === 1) {
+        return Promise.resolve({
+          statusCode: 401,
+          headers: { "content-type": "text/html" },
+          body: { text: vi.fn().mockResolvedValue("<html><body>401 Unauthorized</body></html>") },
+        })
+      }
+      return Promise.resolve(jsonResponse({ answer: 42 }))
+    })
+
+    const result = await keyClient().call("ai.one-pager", { securityCode: "600519.SH" })
+    expect(result, "非 JSON 的 401 没有触发一次 token 续期").toEqual({ answer: 42 })
+    // 两次登录：一次取初始 token，一次是 401 触发的自愈。漏掉自愈时这里只有 1 次。
+    expect(logins).toBe(2)
+    expect(listCalls).toBe(2)
+  })
+
+  it("does not attempt a refresh when the unparseable body is not a 401", async () => {
+    let logins = 0
+    requestMock.mockImplementation((url: unknown) => {
+      if (String(url).includes("/loginV2")) {
+        logins += 1
+        return Promise.resolve(rawJsonResponse({ code: "000000", data: { accessToken: "fresh", expiresIn: 7200, time: 1 } }))
+      }
+      return Promise.resolve({
+        statusCode: 400,
+        headers: { "content-type": "text/html" },
+        body: { text: vi.fn().mockResolvedValue("<html>bad request</html>") },
+      })
+    })
+
+    await expect(keyClient().call("ai.one-pager", { securityCode: "600519.SH" })).rejects.toThrow(/HTTP 400/)
+    // 只有登录那一次（拿初始 token），没有第二次「自愈」。
+    expect(logins).toBe(1)
+  })
+})
+
+// text/markdown 与 plain/html 同为正文：不认它会把一份 Markdown 研报当二进制落盘，
+// 调用方拿到的是文件路径而不是正文。
+describe("GangtiseClient download text content types", () => {
+  it("returns text/markdown as text, not as binary bytes", async () => {
+    requestMock.mockResolvedValue({
+      statusCode: 200,
+      headers: { "content-type": "text/markdown; charset=utf-8" },
+      body: { text: vi.fn().mockResolvedValue("# 研报正文"), arrayBuffer: vi.fn() },
+    })
+    const result = await tokenClient().call("insight.research.download", undefined, { reportId: "1" }) as { text?: string; data?: Uint8Array }
+    expect(result.text).toBe("# 研报正文")
+    expect(result.data).toBeUndefined()
+  })
+
+  // 落盘的二进制早有 capBytes 兜底，留在**内存**里的这几条路径此前完全没有上限。
+  it("refuses an oversized text body instead of buffering it whole", async () => {
+    const huge = "x".repeat(3000)
+    requestMock.mockResolvedValue({
+      statusCode: 200,
+      headers: { "content-type": "text/plain" },
+      body: { text: vi.fn().mockResolvedValue(huge), arrayBuffer: vi.fn() },
+    })
+    const client = new GangtiseClient({
+      baseUrl: "https://open.gangtise.com",
+      timeoutMs: 30_000,
+      token: "test-token",
+      tokenCachePath,
+      asyncTimeoutMs: 60_000,
+      maxDownloadBytes: 1024,
+    })
+    await expect(client.call("insight.research.download", undefined, { reportId: "1" })).rejects.toThrow(/超过单文件上限/)
+  })
+})

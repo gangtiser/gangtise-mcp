@@ -6,7 +6,7 @@ import { z } from "zod"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
-import { registerJsonTool, registerDownloadTool, sanitizeArgs, buildToolContent, buildTextResult } from "../../../src/tools/registry.js"
+import { registerJsonTool, registerDownloadTool, sanitizeArgs, buildToolContent, buildTextResult, buildTextPointer } from "../../../src/tools/registry.js"
 import { INLINE_MAX_BYTES } from "../../../src/core/config.js"
 import { createGangtiseMcpServer } from "../../../src/server.js"
 import type { GangtiseClient } from "../../../src/core/client.js"
@@ -585,5 +585,73 @@ describe("spill pointer is a HARD byte cap", () => {
     expect(parsed._failed_pages_sampled).toMatchObject({ total: 900 })
     expect((parsed._failed_pages as unknown[]).length).toBeLessThan(900)
     await cleanup()
+  })
+})
+
+// 🔴「零行」不等于「小」：分页 / 分片层挂上的诊断数组（每失败一页 / 一片一条）能把一份
+// 空表顶到字节预算的几倍，而空结果那条早退路径此前直接内联、绕过了整个上限。
+describe("empty results are still held to the byte budget", () => {
+  it("spills an empty list that carries oversized diagnostics", async () => {
+    const failedPages = Array.from({ length: 900 }, (_, i) => ({
+      from: i * 50,
+      size: 50,
+      error: `page ${i} failed: `.padEnd(300, "x"),
+    }))
+    const payload = { total: 0, list: [], _partial: true, _partial_reason: "failed_pages", _failed_pages: failedPages }
+    expect(Buffer.byteLength(JSON.stringify(payload), "utf8")).toBeGreaterThan(INLINE_MAX_BYTES * 3)
+
+    const content = await buildToolContent(payload)
+    const text = content[0].text
+    expect(Buffer.byteLength(text, "utf8"), "零行也必须收敛回预算内").toBeLessThanOrEqual(INLINE_MAX_BYTES)
+    const parsed = JSON.parse(text)
+    // 收敛不是静默丢：指针留得下，诊断如实标注总数。
+    expect(parsed._saved_to).toBeTruthy()
+    expect(parsed._read_with).toBe("gangtise_read_response")
+    expect(parsed._failed_pages_sampled).toMatchObject({ total: 900 })
+  })
+
+  it("keeps a small empty result inline with its hint", async () => {
+    const content = await buildToolContent({ total: 0, list: [] })
+    const parsed = JSON.parse(content[0].text)
+    expect(parsed.list).toEqual([])
+    expect(parsed._hint).toContain("0 行结果")
+    expect(parsed._saved_to).toBeUndefined()
+  })
+})
+
+// 文本预览此前按**字符数**切（4000 字），而中文一个字 3 字节、JSON 转义还能再翻倍。
+// 预算调到下限 8KB 时，预览自己就超了。
+describe("spilled text preview fits the byte budget", () => {
+  // 8192 是 GANGTISE_INLINE_MAX_BYTES 允许的下限。4000 个中文字符 = 12,000 字节，
+  // 按字符切的预览在这一档必然超预算。
+  it("shrinks a CJK preview down to an 8KB budget", () => {
+    const text = "上下文预算".repeat(40_000)
+    const meta = buildTextPointer(text, "/tmp/gangtise-mcp-x/response.md", 8192)
+    expect(Buffer.byteLength(JSON.stringify(meta), "utf8")).toBeLessThanOrEqual(8192)
+    expect((meta._preview as string).length).toBeGreaterThan(0)
+    // next_offset 必须与实际发出的预览长度一致，否则续读会跳字或重复。
+    expect(meta.next_offset).toBe((meta._preview as string).length)
+    expect(meta._preview_chars).toBe((meta._preview as string).length)
+  })
+
+  // 控制字符被转义成 6 字符的 \uXXXX，是「3 字节/字符」上界的两倍。
+  it("shrinks a control-character-dense preview too", () => {
+    const text = "".repeat(20_000)
+    const meta = buildTextPointer(text, "/tmp/gangtise-mcp-x/response.md", 8192)
+    expect(Buffer.byteLength(JSON.stringify(meta), "utf8")).toBeLessThanOrEqual(8192)
+  })
+
+  it("leaves a preview that already fits untouched", () => {
+    const text = "a".repeat(100_000)
+    const meta = buildTextPointer(text, "/tmp/gangtise-mcp-x/response.md")
+    expect(meta._preview_chars).toBe(4_000)
+    expect(meta.next_offset).toBe(4_000)
+  })
+
+  it("end to end: buildTextResult stays within the live budget", async () => {
+    const content = await buildTextResult("上下文预算".repeat(40_000))
+    const raw = content[0].text
+    expect(Buffer.byteLength(raw, "utf8")).toBeLessThanOrEqual(INLINE_MAX_BYTES)
+    expect(JSON.parse(raw)._truncated).toBe(true)
   })
 })

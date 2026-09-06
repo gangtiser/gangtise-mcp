@@ -29,6 +29,7 @@ const MIME_EXT: Record<string, string> = {
   "application/json": ".json",
   "text/plain": ".txt",
   "text/html": ".html",
+  "text/markdown": ".md",
   "text/csv": ".csv",
   "image/png": ".png",
   "image/jpeg": ".jpg",

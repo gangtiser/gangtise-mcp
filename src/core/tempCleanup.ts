@@ -57,6 +57,11 @@ export const MAX_OWNED_TEMP_DIRS = 200
  * 不至于填满的量级。淘汰仍按 LRU，正在回读的那份不会被挤掉。 */
 export const MAX_OWNED_TEMP_BYTES = 2 * 1024 * 1024 * 1024
 
+/** 各目录的字节数缓存。溢出文件与下载写完之后就不再改，所以每次配额检查只需重新量
+ *  **刚写完的那一份**（`protect`），其余用上次的结果——否则每次落盘都要对全部（上限 200 个）
+ *  目录递归 stat 一遍。淘汰 / 释放时一并摘掉。 */
+const dirSizeCache = new Map<string, number>()
+
 /** 目录占用字节（递归）。失败按 0 计——配额是尽力而为的housekeeping，
  * 不能因为一次 stat 失败就把创建溢出这件事搞砸。 */
 async function dirBytes(dir: string): Promise<number> {
@@ -112,7 +117,10 @@ export function endSpillRead(): void { activeSpillReads = Math.max(0, activeSpil
  * 幂等：不在集合里就是 no-op。 */
 export function releaseOwnedTempDir(dir: string): void {
   const owned = resolveOwned(dir)
-  if (owned) ownedTempDirs.delete(owned)
+  if (owned) {
+    ownedTempDirs.delete(owned)
+    dirSizeCache.delete(owned)
+  }
 }
 
 /** 把调用方手上的路径对回集合里登记的那一条。
@@ -154,6 +162,7 @@ async function evictOldestOwned(protect?: string): Promise<void> {
     : []
   for (const old of excess) {
     ownedTempDirs.delete(old)
+    dirSizeCache.delete(old)
     await fs.rm(old, { recursive: true, force: true }).catch(() => {})
   }
 
@@ -163,7 +172,10 @@ async function evictOldestOwned(protect?: string): Promise<void> {
   const sizes = new Map<string, number>()
   let total = 0
   for (const dir of ownedTempDirs) {
-    const size = await dirBytes(dir)
+    // 刚写完的那一份必须重新量；其余目录写完即不变，沿用缓存。空目录（还没写）不入缓存，
+    // 下次仍会重新量。
+    const size = dir !== keep && dirSizeCache.has(dir) ? dirSizeCache.get(dir)! : await dirBytes(dir)
+    if (size > 0) dirSizeCache.set(dir, size)
     sizes.set(dir, size)
     total += size
   }
@@ -179,6 +191,7 @@ async function evictOldestOwned(protect?: string): Promise<void> {
     for (const dir of evictable) {
       if (total <= MAX_OWNED_TEMP_BYTES) break
       ownedTempDirs.delete(dir)
+      dirSizeCache.delete(dir)
       await fs.rm(dir, { recursive: true, force: true }).catch(() => {})
       total -= sizes.get(dir) ?? 0
       evictedForBytes += 1
@@ -202,6 +215,7 @@ export function ownedTempDirCount(): number {
 /** Test-only: reset the owned-dir registry between cases. */
 export function resetOwnedTempDirs(): void {
   ownedTempDirs.clear()
+  dirSizeCache.clear()
   activeSpillReads = 0
 }
 

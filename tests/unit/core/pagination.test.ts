@@ -30,3 +30,31 @@ describe("planRemainingPages", () => {
     expect(reqs[1]).toEqual({ from: 50, size: 50 })
   })
 })
+
+// 上限此前是「先把整段区间的请求对象全部造出来，再截成 maxPages-1 条」。total 千万级时
+// 那一步要临时分配几十 MB，而最终只留下几百条。上限必须在生成循环里生效。
+describe("planRemainingPages allocation", () => {
+  it("never builds more than the cap, however large the range", () => {
+    const reqs = planRemainingPages(50, 50_000_000, 50, 1000)
+    expect(reqs).toHaveLength(999)
+    expect(reqs[0]).toEqual({ from: 50, size: 50 })
+    expect(reqs[998]).toEqual({ from: 50 + 998 * 50, size: 50 })
+  })
+
+  it("allocates proportionally to the cap, not to the range", () => {
+    // 峰值堆内存与「区间多大」无关。两个区间差 1000 倍，分配量必须同量级。
+    const measure = (endFrom: number) => {
+      global.gc?.()
+      const before = process.memoryUsage().heapUsed
+      const reqs = planRemainingPages(50, endFrom, 50, 1000)
+      const after = process.memoryUsage().heapUsed
+      return { grew: after - before, len: reqs.length }
+    }
+    const small = measure(100_000)
+    const huge = measure(100_000_000)
+    expect(small.len).toBe(999)
+    expect(huge.len).toBe(999)
+    // 旧写法在 1 亿这一档要先造 200 万个对象（数十 MB）；现在两档都只造 999 个。
+    expect(huge.grew).toBeLessThan(8 * 1024 * 1024)
+  })
+})

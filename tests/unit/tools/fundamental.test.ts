@@ -162,3 +162,58 @@ describe("point-in-time announcement-date guidance", () => {
     }
   })
 })
+
+// skipNull 是「过滤掉没有取到值的行」，判据必须只看**请求到的**列。
+// fieldList 把 percentileRank 投影掉时，那一列在返回的行里根本不存在——把「没查这一列」
+// 当成「这一列为空」，会把一份完全正常的估值数据整个过滤成零行，且 isError=false。
+describe("gangtise_valuation_analysis skipNull × fieldList", () => {
+  function clientWithRows(rows: Array<Record<string, unknown>>) {
+    const call = vi.fn(async () => ({ list: rows, total: rows.length }))
+    return { call, download: vi.fn() } as unknown as GangtiseClient
+  }
+  const parse = (r: unknown) => JSON.parse((r as { content: Array<{ text: string }> }).content[0].text)
+
+  it("keeps rows when fieldList projected percentileRank away", async () => {
+    // 投影只留 value 时，行里没有 percentileRank —— 它不是「空」，是没请求。
+    const mcp = await connect(clientWithRows([{ tradeDate: "2026-09-01", value: 20.06 }]))
+    const result = await mcp.callTool({
+      name: "gangtise_valuation_analysis",
+      arguments: { ...base, skipNull: true, fieldList: ["value"] },
+    })
+    expect(result.isError).toBeFalsy()
+    expect(parse(result).list).toHaveLength(1)
+  })
+
+  it("still drops a row whose requested column is genuinely null", async () => {
+    const mcp = await connect(clientWithRows([
+      { tradeDate: "2026-09-01", value: 20.06 },
+      { tradeDate: "2026-09-02", value: null },
+    ]))
+    const result = await mcp.callTool({
+      name: "gangtise_valuation_analysis",
+      arguments: { ...base, skipNull: true, fieldList: ["value"] },
+    })
+    expect(parse(result).list).toHaveLength(1)
+  })
+
+  it("without fieldList both columns still gate the row", async () => {
+    const mcp = await connect(clientWithRows([
+      { tradeDate: "2026-09-01", value: 20.06, percentileRank: 0.4 },
+      { tradeDate: "2026-09-02", value: 20.5, percentileRank: null },
+    ]))
+    const result = await mcp.callTool({
+      name: "gangtise_valuation_analysis",
+      arguments: { ...base, skipNull: true },
+    })
+    expect(parse(result).list).toHaveLength(1)
+  })
+})
+
+// roe 的单位是百分比：再做一次 ÷100 得到的数字看着仍像个 ROE，不会报错。
+describe("gangtise_earning_forecast unit note", () => {
+  it("states the roe percentage unit in the description", async () => {
+    const mcp = await connect(makeClient())
+    const byName = new Map((await mcp.listTools()).tools.map((t) => [t.name, t.description ?? ""]))
+    expect(byName.get("gangtise_earning_forecast")).toContain("百分比")
+  })
+})

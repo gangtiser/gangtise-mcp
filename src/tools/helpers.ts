@@ -1,4 +1,5 @@
 import { errorMessage } from "../core/errors.js"
+import { runWithRequestContext } from "../core/requestContext.js"
 
 export interface ToolTextResult {
   content: Array<{ type: "text"; text: string }>
@@ -6,6 +7,11 @@ export interface ToolTextResult {
   // MCP CallToolResult carries an open index signature (_meta etc.); mirror it
   // so handlers wrapped by toolHandler satisfy registerTool's callback type.
   [key: string]: unknown
+}
+
+/** SDK 传给 handler 的第二个参数里我们只用 `signal`：客户端超时或主动取消时它会触发。 */
+export interface HandlerExtra {
+  signal?: AbortSignal
 }
 
 /** Wrap raw text into a single MCP text content block. */
@@ -24,16 +30,18 @@ export function errorResult(err: unknown): ToolTextResult {
 }
 
 /**
- * Wraps a tool handler so any thrown error becomes a uniform error result.
- * Removes the repeated try/catch boilerplate from hand-registered tools.
+ * Wraps a tool handler so any thrown error becomes a uniform error result, and
+ * carries the request's cancel signal into the call chain (see requestContext.ts):
+ * once the client gives up, no further page / shard / retry / poll is issued.
  */
 export function toolHandler<A>(
   fn: (args: A) => Promise<ToolTextResult>,
-): (args: A) => Promise<ToolTextResult> {
-  return async (args: A) => {
+): (args: A, extra?: HandlerExtra) => Promise<ToolTextResult> {
+  return async (args: A, extra?: HandlerExtra) => {
     try {
-      return await fn(args)
+      return await runWithRequestContext(extra?.signal, () => fn(args))
     } catch (err) {
+      if (extra?.signal?.aborted) return errorResult(new Error("请求已被客户端取消，未再发出后续的分页 / 分片 / 轮询请求。"))
       return errorResult(err)
     }
   }

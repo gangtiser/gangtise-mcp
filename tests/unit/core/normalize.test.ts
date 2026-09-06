@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { normalizeRows } from "../../../src/core/normalize.js"
+import { flagMissingFields, normalizeRows } from "../../../src/core/normalize.js"
 
 describe("normalizeRows", () => {
   it("passes through primitives, null, and arrays unchanged", () => {
@@ -112,5 +112,64 @@ describe("normalizeRows: caller-controlled field names and shape drift", () => {
   it("fails loudly when constants is a non-array, non-null shape", () => {
     expect(() => normalizeRows({ constants: { a: 1 } })).toThrow(/constants 不是数组/)
     expect(() => normalizeRows({ constants: "oops" })).toThrow(/constants 不是数组/)
+  })
+})
+
+// 数组行按位置拍平，所以列名必须唯一、且必须存在——两者都不成立时，输出要么静默少一列，
+// 要么是一批无名数字。
+describe("normalizeRows columnar guards", () => {
+  it("rejects a fieldList with duplicate column names", () => {
+    expect(() => normalizeRows({ fieldList: ["a", "a", "b"], list: [[1, 2, 3]] })).toThrow(/重复列名/)
+  })
+
+  it("allows duplicate names when the rows are objects (no positional flattening)", () => {
+    // 无额外 meta 时 normalizeRows 返回裸数组（既有约定）。
+    expect(normalizeRows({ fieldList: ["a", "a"], list: [{ a: 1 }] })).toEqual([{ a: 1 }])
+  })
+
+  it("rejects array rows that arrive without any fieldList", () => {
+    expect(() => normalizeRows({ total: 1, list: [[1, 2]] })).toThrow(/没有 fieldList/)
+  })
+
+  it("still passes object rows without a fieldList", () => {
+    expect(normalizeRows({ total: 1, list: [{ a: 1 }] })).toEqual({ total: 1, list: [{ a: 1 }] })
+  })
+})
+
+// 行情类接口对不认识的字段名是**名和值一起丢**：长度对得上，结果里就是少一列，
+// 没有任何信号。比对请求与返回的 fieldList，缺列要标出来。
+describe("flagMissingFields", () => {
+  it("marks the columns that were requested but never came back", () => {
+    const out = flagMissingFields(
+      { fieldList: ["securityCode", "latestPrice"], list: [["600519.SH", 1]] },
+      ["securityCode", "latestPrice", "turnoverRate"],
+    ) as Record<string, unknown>
+    expect(out._partial).toBe(true)
+    expect(String(out._partial_reason)).toContain("missing_fields")
+    expect(out.missingFields).toEqual(["turnoverRate"])
+  })
+
+  it("stays quiet when every requested column came back", () => {
+    const out = flagMissingFields(
+      { fieldList: ["securityCode"], list: [["600519.SH"]] },
+      ["securityCode"],
+    ) as Record<string, unknown>
+    expect(out._partial).toBeUndefined()
+    expect(out.missingFields).toBeUndefined()
+  })
+
+  it("appends to an existing _partial_reason instead of overwriting it", () => {
+    const out = flagMissingFields(
+      { fieldList: ["a"], list: [["x"]], _partial: true, _partial_reason: "limit_truncated" },
+      ["a", "b"],
+    ) as Record<string, unknown>
+    expect(String(out._partial_reason)).toBe("limit_truncated,missing_fields")
+  })
+
+  it("is a no-op without a requested fieldList or without a returned one", () => {
+    const payload = { fieldList: ["a"], list: [["x"]] }
+    expect(flagMissingFields(payload, undefined)).toBe(payload)
+    const noFields = { list: [{ a: 1 }] }
+    expect(flagMissingFields(noFields, ["a"])).toBe(noFields)
   })
 })

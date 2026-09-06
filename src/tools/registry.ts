@@ -7,10 +7,11 @@ import type { GangtiseClient } from "../core/client.js"
 import { ENDPOINTS } from "../core/endpoints.js"
 import { normalizeRows } from "../core/normalize.js"
 import { downloadToResult, type DownloadResult } from "../core/download.js"
-import { errorMessage, ValidationError } from "../core/errors.js"
+import { ValidationError } from "../core/errors.js"
 import { createManagedTempDir, enforceOwnedTempQuota } from "../core/tempCleanup.js"
 import { INLINE_MAX_BYTES } from "../core/config.js"
 import { withBilling } from "./billing.js"
+import { toolHandler } from "./helpers.js"
 
 const PREVIEW_ITEMS = 20
 const TEXT_PREVIEW_CHARS = 4_000
@@ -135,7 +136,11 @@ const DIAGNOSTIC_ENTRY_MAX = 400
  * 从**数字**（采样行数）覆盖成 `{shown,total}` 对象 —— 那是一个已有契约：读者靠
  * `_available_fields_sampled < _total_items` 判断字段清单可能不全。收缩逻辑不该有权
  * 改写它不认识的字段。 */
-const SHRINKABLE = new Set(["_failed_pages", "_failed_shards", "_malformed_shards", "_truncated_shards"])
+const SHRINKABLE = new Set([
+  "_failed_pages",
+  "_failed_shards", "_malformed_shards", "_truncated_shards",
+  "_failed_securities", "_malformed_securities", "_truncated_securities",
+])
 
 /** 指针必须保留的最小信息：没有它们，这条回复就没法回读了。 */
 const POINTER_KEYS = new Set([
@@ -242,19 +247,26 @@ function shrinkDiagnostics(preview: Record<string, unknown>): Record<string, unk
   }
 }
 
-export async function buildToolContent(normalized: unknown, options?: BuildOptions): Promise<Array<{ type: "text"; text: string }>> {
+export async function buildToolContent(payload: unknown, options?: BuildOptions): Promise<Array<{ type: "text"; text: string }>> {
   // 没开 nullMeansEmpty 的端点收到 null/undefined = 协议异常，必须**响亮失败**。
   // 此前它会被 JSON.stringify 成字面量 "null" 原样返回、且 isError=false，调用方分不清
   // 「报错 / 无数据 / 坏了」——这正是 CHANGELOG 承诺「其余保持原样响亮暴露」时没做到的。
   // 只有确认以 null 表示零行的**列表**端点才 opt-in（目前是两个外资观点列表）。
-  if (!options?.nullMeansEmpty && (normalized === null || normalized === undefined)) {
+  if (!options?.nullMeansEmpty && (payload === null || payload === undefined)) {
     // 有意**不**让调用方「带上 trace」：走到这里时信封已被剥掉，而 attachEnvelopeTraceId
     // 挂不到 null 上，所以这条路径根本没有 traceId 可给——要一个不存在的东西只会让人白找。
     throw new Error("本接口返回了空响应体（null），而它不以 null 表示零行——这是一次异常响应。请重试；持续出现请带上工具名与入参报障。")
   }
+  let normalized = payload
   const empty = emptyResultHint(normalized, options)
   if (empty !== undefined) {
-    return [{ type: "text" as const, text: JSON.stringify(empty) }]
+    const text = JSON.stringify(empty)
+    if (Buffer.byteLength(text, "utf8") <= INLINE_MAX_BYTES) {
+      return [{ type: "text" as const, text }]
+    }
+    // 零行不等于小：分页 / 分片层挂上的诊断数组（每失败一页 / 一片一条）能把一份空表
+    // 顶到预算的几倍。带着 _hint 走正常的落盘 + 收缩路径，字节上限对零行同样成立。
+    normalized = empty
   }
   const json = JSON.stringify(normalized)
   const byteLength = Buffer.byteLength(json, "utf8")
@@ -381,26 +393,46 @@ export function alignSliceEnd(text: string, end: number): number {
   return end
 }
 
+/** 溢出正文的指针元数据。预览按**序列化后的字节**收敛，不按字符数：4000 个中文字符是
+ *  12KB，`JSON.stringify` 还会把控制字符转义成 6 字节 —— 预算调到下限 8KB 时，按字符切的
+ *  预览自己就超预算了，而这条路径的存在意义正是「不超预算」。
+ *
+ *  `budget` 显式传入而不是直接读常量：默认预算下这个收缩基本不触发，写死常量的测试
+ *  等于没钉住它（`GANGTISE_INLINE_MAX_BYTES` 在模块加载时读一次，测试改不动）。 */
+export function buildTextPointer(text: string, savedPath: string, budget = INLINE_MAX_BYTES): Record<string, unknown> {
+  const build = (end: number) => {
+    const preview = text.slice(0, end)
+    return {
+      _truncated: true,
+      _saved_to: savedPath,
+      _local_hint: LOCAL_HINT_TEXT,
+      _read_with: "gangtise_read_response",
+      _total_bytes: Buffer.byteLength(text, "utf8"),
+      _total_chars: text.length,
+      _preview_chars: preview.length,
+      has_more: text.length > preview.length,
+      next_offset: text.length > preview.length ? preview.length : null,
+      _preview: preview,
+    }
+  }
+  let end = alignSliceEnd(text, Math.min(TEXT_PREVIEW_CHARS, text.length))
+  let meta = build(end)
+  // 折半到装得下为止。end 严格递减且有下界 0，必然终止；预览削到空仍超预算，说明
+  // 光是指针本身（临时目录路径 + 固定说明）就超了预算，那时也没有别的可削。
+  while (end > 0 && Buffer.byteLength(JSON.stringify(meta), "utf8") > budget) {
+    end = alignSliceEnd(text, Math.floor(end / 2))
+    meta = build(end)
+  }
+  return meta
+}
+
 /** Writes oversized text to a temp .md file and returns the truncation-pointer metadata. */
 async function spillTextMeta(text: string): Promise<Record<string, unknown>> {
   const tempDir = await createManagedTempDir()
   const savedPath = path.join(tempDir, "response.md")
   await fs.writeFile(savedPath, text, "utf8")
   await enforceOwnedTempQuota(tempDir)
-
-  const preview = text.slice(0, alignSliceEnd(text, TEXT_PREVIEW_CHARS))
-  return {
-    _truncated: true,
-    _saved_to: savedPath,
-    _local_hint: LOCAL_HINT_TEXT,
-    _read_with: "gangtise_read_response",
-    _total_bytes: Buffer.byteLength(text, "utf8"),
-    _total_chars: text.length,
-    _preview_chars: preview.length,
-    has_more: text.length > preview.length,
-    next_offset: text.length > preview.length ? preview.length : null,
-    _preview: preview,
-  }
+  return buildTextPointer(text, savedPath)
 }
 
 /**
@@ -537,18 +569,15 @@ export function registerJsonTool(server: McpServer, client: GangtiseClient, spec
   server.registerTool(
     spec.name,
     { description: withBilling(spec.name, spec.description), inputSchema: strictSchema(schema), annotations: { readOnlyHint: true, openWorldHint: false } },
-    async (args) => {
-      try {
-        const { fetchAll, ...rest } = args as Record<string, unknown>
-        const sanitized = sanitizeArgs(rest, { paginated: spec.paginated, fetchAll: Boolean(fetchAll) })
-        assertDateOrder(sanitized)
-        const body = spec.transformBody ? spec.transformBody(sanitized) : sanitized
-        const result = await client.call(spec.endpointKey, body)
-        return { content: await buildToolContent(normalizeRows(result), { nullMeansEmpty: spec.nullMeansEmpty, emptyHint: spec.emptyHint }) }
-      } catch (err) {
-        return { content: [{ type: "text" as const, text: errorMessage(err) }], isError: true }
-      }
-    },
+    // toolHandler 统一错误形状，并把取消信号带进分页扇出（见 helpers.ts）。
+    toolHandler(async (args: Record<string, unknown>) => {
+      const { fetchAll, ...rest } = args
+      const sanitized = sanitizeArgs(rest, { paginated: spec.paginated, fetchAll: Boolean(fetchAll) })
+      assertDateOrder(sanitized)
+      const body = spec.transformBody ? spec.transformBody(sanitized) : sanitized
+      const result = await client.call(spec.endpointKey, body)
+      return { content: await buildToolContent(normalizeRows(result), { nullMeansEmpty: spec.nullMeansEmpty, emptyHint: spec.emptyHint }) }
+    }),
   )
 }
 
@@ -556,16 +585,12 @@ export function registerDownloadTool(server: McpServer, client: GangtiseClient, 
   server.registerTool(
     spec.name,
     { description: withBilling(spec.name, spec.description), inputSchema: strictSchema(spec.inputSchema), annotations: { readOnlyHint: true, openWorldHint: false } },
-    async (args) => {
-      try {
-        const endpoint = ENDPOINTS[spec.endpointKey]
-        if (!endpoint) throw new Error(`Unknown endpoint: ${spec.endpointKey}`)
-        const query = args as Record<string, string | number>
-        const result = await downloadToResult(client, endpoint, query)
-        return { content: await buildDownloadContent(result) }
-      } catch (err) {
-        return { content: [{ type: "text" as const, text: errorMessage(err) }], isError: true }
-      }
-    },
+    toolHandler(async (args: Record<string, unknown>) => {
+      const endpoint = ENDPOINTS[spec.endpointKey]
+      if (!endpoint) throw new Error(`Unknown endpoint: ${spec.endpointKey}`)
+      const query = args as Record<string, string | number>
+      const result = await downloadToResult(client, endpoint, query)
+      return { content: await buildDownloadContent(result) }
+    }),
   )
 }
