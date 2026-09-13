@@ -1195,6 +1195,8 @@ describe("no blank string reaches upstream (enumerated from tools/list)", () => 
     if (s.type === "string" && !s.enum && !s.pattern && !path.endsWith(".paramValue")) acc.push(path)
   }
 
+  // 这条要把 tools/list 里 97 个工具的每一个自由字符串参数（含嵌套）都发一次探测请求，
+  // 本身就是几千次调用、空载 2-3 秒。并行跑时离 5s 默认超时不到两倍余量，给足时间。
   it("rejects a whitespace-only value in every free-string parameter, nested ones included", async () => {
     const probe = await makeTestClient(makeMockClient())
     const { tools } = await probe.listTools()
@@ -1224,7 +1226,7 @@ describe("no blank string reaches upstream (enumerated from tools/list)", () => 
 
     expect(checked, "没有枚举到足够的自由字符串入参，判据自身失效了").toBeGreaterThan(70)
     expect(leaked, `这些入参把纯空白原样下发了：\n  ${leaked.join("\n  ")}`).toEqual([])
-  })
+  }, 30_000)
 
   // fieldList 重名会在按位置拍平时相互覆盖：长度校验对得上，结果里静默少一列。
   it("rejects a duplicated fieldList entry", async () => {

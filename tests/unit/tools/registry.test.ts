@@ -536,6 +536,9 @@ describe("spill pointer is a HARD byte cap", () => {
     })()],
   ]
 
+  // 这两条的载荷是**故意**做大的（3000 行 × 50 个千字符列名 ≈ 150MB JSON），空载就要 2 秒。
+  // 整套并行跑时会撞上 5s 默认超时——而超时不会终止已经在跑的落盘动作，残留会连累后面的
+  // 用例。这里给足时间，而不是把载荷改小：前两轮复核正是靠这个量级才找出漏网形态的。
   it.each(pathological)("%s still stays within the budget and stays readable back", async (_label, payload) => {
     const [content] = await buildToolContent(payload)
     const size = Buffer.byteLength(content.text, "utf8")
@@ -546,7 +549,7 @@ describe("spill pointer is a HARD byte cap", () => {
     expect((parsed._saved_to as string).length).toBeGreaterThan(0)
     expect(parsed._read_with).toBe("gangtise_read_response")
     await fs.rm(path.dirname(String(parsed._saved_to)), { recursive: true, force: true })
-  })
+  }, 30_000)
 
   it.each(cases)("%s stays within the inline budget", async (_label, payload) => {
     const [content] = await buildToolContent(payload)

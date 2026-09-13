@@ -172,15 +172,6 @@ describe("schema tightening (billing + ID guards)", () => {
     expect(client.call).not.toHaveBeenCalled()
   })
 
-  it("rejects a securityList over the 6000 cap without calling the API", async () => {
-    const client = makeClient(async () => ({}))
-    const mcp = await connect(client)
-    const big = Array.from({ length: 6001 }, (_, i) => `x${i}`)
-    const result = await mcp.callTool({ name: "gangtise_stock_summary", arguments: { securityList: big } })
-    expect(result.isError).toBe(true)
-    expect(client.call).not.toHaveBeenCalled()
-  })
-
   // 本接口只按具体代码批量。市场关键字会被判为无效证券代码（报「证券代码无效」，读起来
   // 像代码写错了），而它按条计费——所以必须在 schema 层拦下，不能让请求发出去。
   it.each(["aShares", "hkStocks", "usStocks", "all", "ashares"])(
@@ -405,23 +396,22 @@ describe("async *_check across the 2026-07-17 renumbering", () => {
   })
 })
 
-// 超过 5000 只时接口返回 {total:0, list:[]}、HTTP 200、无告警 —— 读起来像「这批票都没看点」。
-// 本地拦下并提示分批，比让调用方对着一份空表猜原因便宜得多。
+// 接口上限 6000。按条计费，超限在 schema 层拦下、不发请求。
 describe("gangtise_stock_summary batch ceiling", () => {
-  it("rejects a securityList over 5000 without calling the API", async () => {
+  it("rejects a securityList over 6000 without calling the API", async () => {
     const client = { call: vi.fn(async () => ({ list: [], total: 0 })), download: vi.fn() } as unknown as GangtiseClient
     const mcp = await connect(client)
-    const big = Array.from({ length: 5001 }, (_, i) => `${600000 + i}.SH`)
+    const big = Array.from({ length: 6001 }, (_, i) => `${600000 + i}.SH`)
     const result = await mcp.callTool({ name: "gangtise_stock_summary", arguments: { securityList: big } })
     expect(result.isError).toBe(true)
-    expect((result as { content: Array<{ text: string }> }).content[0].text).toMatch(/5000/)
+    expect((result as { content: Array<{ text: string }> }).content[0].text).toMatch(/6000/)
     expect(client.call).not.toHaveBeenCalled()
   })
 
-  it("accepts exactly 5000", async () => {
+  it("accepts exactly 6000", async () => {
     const client = { call: vi.fn(async () => ({ list: [], total: 0 })), download: vi.fn() } as unknown as GangtiseClient
     const mcp = await connect(client)
-    const atCap = Array.from({ length: 5000 }, (_, i) => `${600000 + i}.SH`)
+    const atCap = Array.from({ length: 6000 }, (_, i) => `${600000 + i}.SH`)
     const result = await mcp.callTool({ name: "gangtise_stock_summary", arguments: { securityList: atCap } })
     expect(result.isError).toBeFalsy()
     expect(client.call).toHaveBeenCalled()

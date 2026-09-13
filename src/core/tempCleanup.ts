@@ -45,7 +45,20 @@ export function touchOwnedTempDir(realPath: string): void {
  *
  * 200 份足够覆盖任何真实的翻页会话——**前提是淘汰按 LRU**：回读会把该目录移到 MRU 端
  * （见 `touchOwnedTempDir`），所以正在翻页的那一份不会被后来的溢出挤掉。 */
-export const MAX_OWNED_TEMP_DIRS = 200
+const DEFAULT_MAX_OWNED_TEMP_DIRS = 200
+export let MAX_OWNED_TEMP_DIRS = DEFAULT_MAX_OWNED_TEMP_DIRS
+
+/** Test-only: 把**数量**配额临时调小；不传参数即还原。字节配额不受影响。
+ *
+ * 🔴 为什么要有它：淘汰用例必须真的把登记表填过上限，而每次 `createManagedTempDir` 都会
+ * 把当时所有已登记目录量一遍（未结算的不走缓存）——按真实的 200 跑就是 O(n²) 次目录遍历，
+ * 单条用例空载 ~0.9-1.4s。默认超时 5s，余量不到 4 倍，整套并行跑时这几条必超时；而 vitest
+ * 判超时**不会**终止那条用例里还在跑的建目录动作，残留会让紧接着的用例断言失败（表现为
+ * 几十毫秒就红的"淘汰了不该淘汰的目录"）。配额调小后这条链整体消失，用例仍逐条钉住同样的
+ * 机制——上限的**取值**本身不在任何用例的断言里。生产路径不调用本函数。 */
+export function setMaxOwnedTempDirsForTests(limit = DEFAULT_MAX_OWNED_TEMP_DIRS): void {
+  MAX_OWNED_TEMP_DIRS = limit
+}
 
 /** 本进程溢出目录的**总字节**配额。
  *

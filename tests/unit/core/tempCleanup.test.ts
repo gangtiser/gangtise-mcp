@@ -3,11 +3,18 @@ import fsSync from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 
-import { describe, expect, it, vi } from "vitest"
-import { selectStaleTempDirs, createManagedTempDir, isOwnedTempPath, resetOwnedTempDirs, releaseOwnedTempDir, touchOwnedTempDir, enforceOwnedTempQuota, beginSpillRead, endSpillRead, ownedTempDirCount, ownedTempBookkeepingSizes, MAX_OWNED_TEMP_DIRS, MAX_OWNED_TEMP_BYTES } from "../../../src/core/tempCleanup.js"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import { selectStaleTempDirs, createManagedTempDir, isOwnedTempPath, resetOwnedTempDirs, releaseOwnedTempDir, touchOwnedTempDir, enforceOwnedTempQuota, beginSpillRead, endSpillRead, ownedTempDirCount, ownedTempBookkeepingSizes, setMaxOwnedTempDirsForTests, MAX_OWNED_TEMP_DIRS, MAX_OWNED_TEMP_BYTES } from "../../../src/core/tempCleanup.js"
 
 const DAY = 86_400_000
 const now = 1_700_000_000_000
+const TEST_MAX_OWNED = 12
+
+// 淘汰类用例必须真的把登记表填过上限。按真实的 200 跑，每次 create 都要把已登记目录量一遍
+// （O(n²) 次目录遍历），单条空载就近 1 秒，整套并行跑时必超时——而超时不会终止那条用例里
+// 还在跑的建目录动作，残留会让下一条用例断言失败。调小配额，机制一条不少，耗时降两个数量级。
+beforeAll(() => setMaxOwnedTempDirsForTests(TEST_MAX_OWNED))
+afterAll(() => setMaxOwnedTempDirsForTests())
 
 describe("selectStaleTempDirs", () => {
   it("selects prefixed dirs older than maxAge", () => {
@@ -76,7 +83,7 @@ describe("createManagedTempDir: in-session retention cap", () => {
 // 计费端点就只能重新付费再查。跨 session 复核用端到端探针复现过（第二次回读报
 // "saved_to path not found"）。
 describe("owned temp dirs evict by LRU, not FIFO", () => {
-  it("keeps a dir that was touched by a read, even when 200 newer dirs appear", async () => {
+  it("keeps a dir that was touched by a read, even when a full cap of newer dirs appears", async () => {
     resetOwnedTempDirs()
     const created: string[] = []
     const track = async () => { const d = await createManagedTempDir(); created.push(d); return d }

@@ -2,15 +2,23 @@ import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 
-import { describe, it, expect } from "vitest"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { registerResponseTools, TEXT_CHUNK_CHARS, pageNote, fitByBytes, spillReadCount, resetSpillReadCount, spillScanCount, resetSpillScanCount } from "../../../src/tools/response.js"
 import { buildToolContent } from "../../../src/tools/registry.js"
-import { createManagedTempDir, resetOwnedTempDirs, MAX_OWNED_TEMP_DIRS } from "../../../src/core/tempCleanup.js"
+import { createManagedTempDir, resetOwnedTempDirs, setMaxOwnedTempDirsForTests, MAX_OWNED_TEMP_DIRS } from "../../../src/core/tempCleanup.js"
 import { INLINE_MAX_BYTES } from "../../../src/core/config.js"
 import type { GangtiseClient } from "../../../src/core/client.js"
+
+const TEST_MAX_OWNED = 12
+
+// 淘汰类用例必须真的把登记表填过上限。按真实的 200 跑，每次 create 都要把已登记目录量一遍
+// （O(n²) 次目录遍历），单条空载就近 1 秒，整套并行跑时必超时——而超时不会终止那条用例里
+// 还在跑的建目录动作，残留会让下一条用例断言失败。调小配额，机制一条不少，耗时降两个数量级。
+beforeAll(() => setMaxOwnedTempDirsForTests(TEST_MAX_OWNED))
+afterAll(() => setMaxOwnedTempDirsForTests())
 
 const mockClient = { call: async () => ({}), download: async () => ({}) } as unknown as GangtiseClient
 
