@@ -296,12 +296,13 @@ export function checkScreenerBindings(
  *
  * The server used to drop any axis it had no DATA for, which made this a coverage
  * check. That closed: a coverage gap now keeps its row and column and is filled
- * with `null`, down to the 1×1 case (`finc_pb_mrq` × 09992.HK — null, present,
- * alone in the request). What still disappears is a code the server
- * cannot RESOLVE: usually an unknown indicator code or a wrong market suffix
- * (`AAPL.US` vanishes, `AAPL.O` returns) — but "absent axis" is all this function
- * can prove; entitlement or coverage changes make the same shape. Callers must
- * phrase it as "not resolved/accepted", never as "you misspelled it".
+ * with `null`, down to the 1×1 case (`mgn_bal` × 00700.HK — null, present,
+ * alone in the request; the same indicator on an A-share returns a number).
+ * What still disappears is a code the server cannot RESOLVE: usually an unknown
+ * indicator code or a wrong market suffix (`AAPL.US` vanishes, `AAPL.O` returns)
+ * — but "absent axis" is all this function can prove; entitlement or coverage
+ * changes make the same shape. Callers must phrase it as "not resolved/accepted",
+ * never as "you misspelled it".
  *
  * So the remaining shape is the dangerous one: an absent axis is invisible
  * otherwise — the pull quietly returns fewer rows/columns than requested at HTTP

@@ -22,7 +22,7 @@ import { withBilling } from "./billing.js"
 // The EDE FETCH endpoints (cross-section/time-series/screener) used to answer a
 // no-data query with HTTP 500 + 999999. They stopped on 2026-08-01, and since
 // 2026-08-07 a no-data answer is a null CELL with its row and column intact
-// (re-probed 2026-08-08: finc_pb_mrq × 09992.HK alone returns one row of null),
+// (re-probed 2026-09-12: mgn_bal × 00700.HK alone returns one row of null),
 // so this code is now almost always a real fault. The hint keeps the parameter
 // checklist anyway, and it must state BOTH halves — they are opposites:
 // a wrong parameter NAME (invented, or real-but-wrong like `startDate` for
