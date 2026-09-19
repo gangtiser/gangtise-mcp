@@ -162,6 +162,7 @@ function klineHandler(
       const result = await callKlineWithSharding(client, endpointKey, body, {
         shardDays: fullMarket.shardDays,
         fullMarketValue: fullMarket.keyword,
+        tool,
       })
       return contentResult(await buildToolContent(normalizeRows(flagMissingFields(result, body.fieldList))))
     }
@@ -354,7 +355,7 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
         if (!body.startDate || !body.endDate) {
           throw new ValidationError("security='aShares' 全市场资金流向须同时提供 startDate 和 endDate（按日分片拉取）")
         }
-        const result = await callKlineWithSharding(client, "quote.fund-flow", body, { shardDays: 1, fullMarketValue: "aShares" })
+        const result = await callKlineWithSharding(client, "quote.fund-flow", body, { shardDays: 1, fullMarketValue: "aShares", tool: "gangtise_fund_flow" })
         return contentResult(await buildToolContent(normalizeRows(flagMissingFields(result, body.fieldList))))
       }
       // Pin the row cap so limit-truncation detection is exact (mirrors CLI DEFAULT_QUOTE_LIMIT).

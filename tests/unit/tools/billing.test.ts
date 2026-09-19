@@ -32,7 +32,7 @@ describe("billing catalog coverage", () => {
   it("classifies exactly the registered tool set", async () => {
     const live = (await listLiveTools()).map((t) => t.name).sort()
     expect(Object.keys(BILLING_CATALOG).sort()).toEqual(live)
-    expect(live).toHaveLength(97)
+    expect(live).toHaveLength(102)
   })
 
   it("renders the documented label shapes", () => {
@@ -94,7 +94,7 @@ describe("billing catalog coverage", () => {
     for (const n of ["roadshow", "site_visit", "strategy", "forum"]) {
       expect(billingSuffix(`gangtise_${n}_list`)).toBe("单次约 400 积分。")
     }
-    const CELL = "按单元格计价，指标数×证券数×日期数即放大倍数，单次上限 10 万单元格。"
+    const CELL = "按单元格计价，指标数×证券数×日期数即放大倍数，单次上限 3 万单元格（服务端硬限，超出报 100006 且不返回部分结果）。"
     expect(billingSuffix("gangtise_indicator_time_series")).toBe(CELL)
     expect(billingSuffix("gangtise_indicator_cross_section")).toBe(CELL)
     // size 无 .max()、且有 fetchAll —— 这些数字是「一次调用的成本示例」，不是上限
@@ -119,11 +119,11 @@ describe("billing catalog coverage", () => {
     expect(() => billingLabel("gangtise_not_a_tool")).toThrow(/billing catalog/)
   })
 
-  // 免费档 34 个不打标签（instructions 末行已声明「未标注即免费」），
-  // 省 714 B 并让付费标签更醒目；目录仍 100% 覆盖 97 个（覆盖 ≠ 输出）。
-  it("keeps 34 free tools label-free while all 97 stay classified", () => {
+  // 免费档不打标签（instructions 末行已声明「未标注即免费」），
+  // 省下字节并让付费标签更醒目；目录仍 100% 覆盖全部 102 个（覆盖 ≠ 输出）。
+  it("keeps free tools label-free while all 102 stay classified", () => {
     const entries = Object.values(BILLING_CATALOG)
-    expect(entries.filter((s) => s.kind === "free")).toHaveLength(34)
+    expect(entries.filter((s) => s.kind === "free")).toHaveLength(39)
     expect(entries.filter((s) => s.kind === "fixed")).toHaveLength(45)
     expect(entries.filter((s) => s.kind === "downstream")).toHaveLength(1)
     expect(entries.filter((s) => s.kind === "variable")).toHaveLength(3)

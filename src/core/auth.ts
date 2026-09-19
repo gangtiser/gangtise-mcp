@@ -1,6 +1,6 @@
 import fs from "node:fs/promises"
 import path from "node:path"
-import { randomUUID } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 
 import { ConfigError } from "./errors.js"
 
@@ -12,6 +12,20 @@ export interface TokenCache {
   uid?: number
   userName?: string
   tenantId?: number
+  /** 这枚 token 是用哪套凭证、对着哪个 host 换来的。没有这个字段时缓存只是「某个还
+   * 没过期的 token」：换掉 GANGTISE_ACCESS_KEY 之后，上一个账号**尚未过期**的 token
+   * 会继续被发出去，请求带的是上一个账号的身份、取到的也是它的数据——股票池写操作
+   * 一旦撞上，改的就是别人的池，而删池不可恢复。缓存文件与 gangtise CLI 共用，所以
+   * 另一个账号的 token 躺在那里并不是假想情形。
+   * 存的是指纹不是 key 本身：足够分辨两个账号，而 0600 文件万一被读走也不泄露凭证。
+   * 该字段出现之前写的旧缓存没有这一项，按来源不明处理。 */
+  issuedFor?: string
+}
+
+/** 「哪套凭证 + 哪个 host」的稳定、不可逆标识。只有 accessKey 参与——secret 没有参与
+ * 的必要，把它排除在外意味着缓存文件即使泄露也帮不上对 secret 的离线猜测。 */
+export function credentialFingerprint(accessKey: string, baseUrl: string): string {
+  return createHash("sha256").update(`${accessKey}\u0000${baseUrl}`).digest("hex").slice(0, 16)
 }
 
 export async function readTokenCache(filePath: string): Promise<TokenCache | null> {
@@ -85,8 +99,16 @@ export async function writeTokenCache(filePath: string, cache: TokenCache): Prom
   }
 }
 
-export function isTokenCacheValid(cache: TokenCache | null, bufferSeconds = 300): boolean {
+/** `expectedFingerprint` 为 `undefined` 时不做归属比对——没有配 AK/SK 的部署里不存在
+ * 第二个账号，此时拒绝缓存只会破坏「仅有 token 缓存」这种正常用法。 */
+export function isTokenCacheValid(cache: TokenCache | null, bufferSeconds = 300, expectedFingerprint?: string): boolean {
   if (!cache?.accessToken || !cache.expiresAt) {
+    return false
+  }
+
+  // 属于别的凭证（或写在 issuedFor 出现之前、来源不明）的缓存一律当作不可用：
+  // 重新登录的代价是一次免费请求，用错账号的代价是一份别人的数据。
+  if (expectedFingerprint !== undefined && cache.issuedFor !== expectedFingerprint) {
     return false
   }
 

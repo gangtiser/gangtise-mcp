@@ -104,3 +104,144 @@ describe("gangtise_my_conference_list", () => {
     )
   })
 })
+
+// ─── 股票池写操作 ───
+// 本服务仅有的五个写工具。三条线各自钉住：请求体形状、逐条失败的可见性、不可逆操作的闸门。
+describe("stock-pool writes", () => {
+  function writeClient(response: unknown = { successList: [], failList: [] }) {
+    const call = vi.fn(async () => response)
+    return { client: { call, download: vi.fn() } as unknown as GangtiseClient, call }
+  }
+
+  const bodyOf = (call: ReturnType<typeof vi.fn>) => call.mock.calls[0][1] as Record<string, unknown>
+  const payload = (r: { content: unknown }) => JSON.parse((r.content as Array<{ text: string }>)[0].text) as Record<string, unknown>
+
+  it("sends the documented request body for each write", async () => {
+    const cases: Array<[string, Record<string, unknown>, string, Record<string, unknown>]> = [
+      ["gangtise_stock_pool_create", { poolName: "测试池" }, "vault.stock-pool.create", { poolName: "测试池" }],
+      ["gangtise_stock_pool_rename", { poolId: "1", poolName: "新名" }, "vault.stock-pool.rename", { poolId: "1", poolName: "新名" }],
+      ["gangtise_stock_pool_add_stock", { poolId: "1", securityCodeList: ["600519.SH"] }, "vault.stock-pool.add-stock", { poolId: "1", securityCodeList: ["600519.SH"] }],
+      ["gangtise_stock_pool_remove_stock", { poolId: "1", securityCodeList: ["600519.SH"] }, "vault.stock-pool.remove-stock", { poolId: "1", securityCodeList: ["600519.SH"] }],
+      ["gangtise_stock_pool_delete", { poolIdList: ["1"], confirm: true }, "vault.stock-pool.delete", { poolIdList: ["1"] }],
+    ]
+    for (const [name, args, endpoint, expected] of cases) {
+      const { client, call } = writeClient()
+      const mcp = await connect(client)
+      const r = await mcp.callTool({ name, arguments: args })
+      expect(r.isError, `${name} 报错了`).toBeFalsy()
+      expect(call.mock.calls[0][0]).toBe(endpoint)
+      // confirm 是本地闸门用的，不能泄进请求体。
+      expect(bodyOf(call)).toEqual(expected)
+    }
+  })
+
+  // 逐条失败的标记已下沉到 client（按端点上的 itemFailures 执行），覆盖在
+  // client.test.ts 与 endpoints.test.ts。这里只验工具**透传**那份已标注的结果。
+  it("passes an already-flagged partial result through untouched", async () => {
+    const { client } = writeClient({
+      successList: ["600519.SH"],
+      failList: [{ securityCode: "999999.XX", failReason: "证券不存在" }],
+      _partial: true,
+      _partial_reason: "failed_items",
+      failedItems: ["999999.XX（证券不存在）"],
+    })
+    const mcp = await connect(client)
+    const r = await mcp.callTool({ name: "gangtise_stock_pool_add_stock", arguments: { poolId: "1", securityCodeList: ["600519.SH"] } })
+    const p = payload(r)
+    expect(p._partial).toBe(true)
+    expect(p.failedItems).toEqual(["999999.XX（证券不存在）"])
+  })
+
+  it("leaves a fully successful write unmarked", async () => {
+    const { client } = writeClient({ successList: ["600519.SH"], failList: [] })
+    const mcp = await connect(client)
+    const r = await mcp.callTool({ name: "gangtise_stock_pool_add_stock", arguments: { poolId: "1", securityCodeList: ["600519.SH"] } })
+    expect(payload(r)._partial).toBeUndefined()
+  })
+
+  // 删池不可恢复，所以闸门必须在**取得任何网络资源之前**拦下——被拒时一个请求都不发。
+  it("refuses an unconfirmed delete without issuing a request", async () => {
+    const { client, call } = writeClient()
+    const mcp = await connect(client)
+    const r = await mcp.callTool({ name: "gangtise_stock_pool_delete", arguments: { poolIdList: ["1"], confirm: false } })
+    expect(r.isError).toBe(true)
+    expect((r.content as Array<{ text: string }>)[0].text).toContain("不可恢复")
+    expect(call, "未确认的删除请求被发出去了").not.toHaveBeenCalled()
+  })
+
+  it("refuses a delete with confirm omitted entirely", async () => {
+    const { client, call } = writeClient()
+    const mcp = await connect(client)
+    const r = await mcp.callTool({ name: "gangtise_stock_pool_delete", arguments: { poolIdList: ["1"] } })
+    expect(r.isError).toBe(true)
+    expect(call).not.toHaveBeenCalled()
+  })
+
+  // 闸门文案与端点标记是同一份事实：删掉标记而忘了改文案，这条会红。
+  it("sources the refusal wording from the endpoint marker", async () => {
+    const { ENDPOINTS } = await import("../../../src/core/endpoints.js")
+    const { client } = writeClient()
+    const mcp = await connect(client)
+    const r = await mcp.callTool({ name: "gangtise_stock_pool_delete", arguments: { poolIdList: ["1"], confirm: false } })
+    expect((r.content as Array<{ text: string }>)[0].text).toContain(ENDPOINTS["vault.stock-pool.delete"].destructive!.warning)
+  })
+
+  // 🔴 池名判重是整串精确比较（首尾空格不 trim），所以本地替调用方 trim 既改掉了用户
+  // 指定的名字，又可能让一个本来不冲突的名字撞上已有池。
+  it("forwards a pool name byte-for-byte, including leading and trailing spaces", async () => {
+    for (const [tool, args] of [
+      ["gangtise_stock_pool_create", { poolName: " 观察 " }],
+      ["gangtise_stock_pool_rename", { poolId: "1", poolName: " 观察 " }],
+    ] as Array<[string, Record<string, unknown>]>) {
+      const { client, call } = writeClient({ poolId: "1", poolName: "x" })
+      const mcp = await connect(client)
+      const r = await mcp.callTool({ name: tool, arguments: args })
+      expect(r.isError, `${tool} 报错了`).toBeFalsy()
+      expect((bodyOf(call) as { poolName: string }).poolName, `${tool} 改掉了调用方给的池名`).toBe(" 观察 ")
+    }
+  })
+
+  it("counts length on the raw string, not a trimmed one", async () => {
+    // 「一二三四五六七八九十」是 10 个字符，两侧各加一个空格就是 12 —— 超长。
+    const { client, call } = writeClient()
+    const mcp = await connect(client)
+    const r = await mcp.callTool({ name: "gangtise_stock_pool_create", arguments: { poolName: " 一二三四五六七八九十 " } })
+    expect(r.isError).toBe(true)
+    expect(call).not.toHaveBeenCalled()
+  })
+
+  it("rejects an all-whitespace pool name", async () => {
+    const { client, call } = writeClient()
+    const mcp = await connect(client)
+    const r = await mcp.callTool({ name: "gangtise_stock_pool_create", arguments: { poolName: "   " } })
+    expect(r.isError).toBe(true)
+    expect(call).not.toHaveBeenCalled()
+  })
+
+  // 大响应会落盘，首条回复只剩一个指针 —— 而工具说明让调用方「先看有没有 _partial」。
+  // 标记要是跟着正文一起沉进文件，一次部分失败就会被读成全部成功。
+  it("keeps the failure marker on the pointer when the result spills to a file", async () => {
+    const { client } = writeClient({
+      successList: Array.from({ length: 6000 }, (_, i) => `${600000 + i}.SH`),
+      failList: [{ securityCode: "999999.XX", failReason: "证券代码不存在" }],
+      _partial: true,
+      _partial_reason: "failed_items",
+      failedItems: ["999999.XX（证券代码不存在）"],
+    })
+    const mcp = await connect(client)
+    const r = await mcp.callTool({ name: "gangtise_stock_pool_add_stock", arguments: { poolId: "1", securityCodeList: ["600519.SH"] } })
+    const p = payload(r)
+    expect(p._truncated, "这条用例要的是落盘路径，载荷没到阈值就白测了").toBe(true)
+    expect(p._partial, "落盘后首条回复丢了失败标记").toBe(true)
+    expect(p._partial_reason).toContain("failed_items")
+    expect(p.failedItems).toEqual(["999999.XX（证券代码不存在）"])
+  })
+
+  it("rejects an over-long pool name before sending", async () => {
+    const { client, call } = writeClient()
+    const mcp = await connect(client)
+    const r = await mcp.callTool({ name: "gangtise_stock_pool_create", arguments: { poolName: "一二三四五六七八九十一" } })
+    expect(r.isError).toBe(true)
+    expect(call).not.toHaveBeenCalled()
+  })
+})

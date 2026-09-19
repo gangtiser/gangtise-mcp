@@ -42,7 +42,7 @@ const ROUTING_INSTRUCTIONS = `以下为全局默认，**工具/参数自带描�
 ①行情/财务：日K/realtime 各一个工具覆盖三市场+指数；三表按市场用 _hk/_us；资金流仅 A 股。单票财务/估值/盈利预测/股东/主营用专用工具；多证券财务/估值指标优先 indicator_*(EDE) 截面/时序，长尾同；宏观行业 edb_*。
 ②内容：研报/观点/纪要/公告/公众号/问答 qa_list/研报图表 report_image 用对应 *_list；跨类语义检索用 knowledge_batch；roadshow/site_visit/strategy/forum 只查日程、正文用 summary_list。研报与独立观点有专用下载工具，机构观点无（见其描述）。
 ③AI：除 earnings_review/viewpoint_debate 外均取平台已生成的内容，直接调即可；这两个是异步提交，超时只用对应 *_check 续查、勿重提（重提再计费）。
-④其他：drive_*/record_*/my_conference_*/wechat_* 查云盘/录音/会议/群消息；stock_pool_* 查股票池；名称与 ID 解析用 *_search/concept_*/sector_*/constant_*/lookup。
+④其他：drive_*/record_*/my_conference_*/wechat_* 查云盘/录音/会议/群消息；stock_pool_* 查/改股票池；名称与 ID 解析用 *_search/concept_*/sector_*/constant_*/lookup。
 计费见各工具【积分】标签，未标注即免费（最终以账户权限与平台计费规则为准）；除①批量外，优先免费/低价，慎用全市场/超大 size/fetchAll。`
 
 

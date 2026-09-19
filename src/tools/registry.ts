@@ -247,6 +247,53 @@ function shrinkDiagnostics(preview: Record<string, unknown>): Record<string, unk
   }
 }
 
+/** 「结果不完整」的明细键。分页形状的预览靠 `...rest` 把顶层元数据整片带上，非列表
+ *  大对象没有那条路——它的预览是**纯指针**，一个字段都不带。正文沉进文件没关系，
+ *  「这份结果完整吗」不能跟着沉下去：工具说明让调用方看 `_partial`，而它恰好是唯一
+ *  看不到的地方，一次部分失败就会被读成全部成功。
+ *
+ *  新增不完整标记时必须同步加进这张表，`registry.test.ts` 用精确集合钉住它。 */
+const PARTIAL_DETAIL_KEYS = [
+  "failedItems",
+  "missingFields",
+  "omittedIndicators",
+  "omittedSecurities",
+  "_dropped_columns",
+  "_dropped_columns_note",
+  "_failed_pages",
+  "_failed_shards",
+  "_failed_securities",
+  "_malformed_securities",
+  "_malformed_shards",
+  "_truncated_shards",
+  "_truncated_securities",
+] as const
+
+/** 明细数组在指针里最多带几条。有界是硬要求：这些数组本身就可能是把载荷顶过阈值的
+ *  那个东西，整片搬进预览等于把刚落盘的内容又塞回上下文。 */
+const PARTIAL_DETAIL_PREVIEW = 5
+
+/** 从大对象里摘出不完整标记，供纯指针预览使用。完整明细仍在 `_saved_to` 的文件里。 */
+function partialMarkers(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {}
+  const rec = value as Record<string, unknown>
+  if (rec._partial !== true) return {}
+  const out: Record<string, unknown> = { _partial: true }
+  if (typeof rec._partial_reason === "string") out._partial_reason = rec._partial_reason
+  for (const key of PARTIAL_DETAIL_KEYS) {
+    const detail = rec[key]
+    if (detail === undefined) continue
+    if (!Array.isArray(detail)) {
+      out[key] = detail
+      continue
+    }
+    out[key] = detail.length > PARTIAL_DETAIL_PREVIEW
+      ? [...detail.slice(0, PARTIAL_DETAIL_PREVIEW), `…共 ${detail.length} 条，完整列表见 _saved_to`]
+      : detail
+  }
+  return out
+}
+
 export async function buildToolContent(payload: unknown, options?: BuildOptions): Promise<Array<{ type: "text"; text: string }>> {
   // 没开 nullMeansEmpty 的端点收到 null/undefined = 协议异常，必须**响亮失败**。
   // 此前它会被 JSON.stringify 成字面量 "null" 原样返回、且 isError=false，调用方分不清
@@ -322,6 +369,8 @@ export async function buildToolContent(payload: unknown, options?: BuildOptions)
     // `has_more: false` 与同一条里的 `_truncated: true` / `_read_with` 直接矛盾，而
     // 「还有没有」这一格才是调用方决定要不要回读的依据：它会就此停手，整份载荷丢在盘上。
     preview = {
+      // 不完整标记排在最前，且**先于**指针字段 —— 它是调用方要做决定的那一格。
+      ...partialMarkers(normalized),
       _truncated: true,
       _saved_to: savedPath,
       _local_hint: LOCAL_HINT_JSON,

@@ -595,3 +595,58 @@ describe("shard column supersets are reported, not silently dropped", () => {
     expect(out._dropped_columns).toBeUndefined()
   })
 })
+
+// 🔴 分片路径对「没有可读 list」的载荷早已响亮失败，单请求这条却曾直接原样交出去：
+// `{total: 42, fieldList: [...]}` 这种既不是表也不是错误的对象被当成一次成功返回，
+// 连 `_partial` 都没有。而全市场**单日**查询走的正是这条路——最常见的用法。
+describe("全市场单请求路径的形状护栏", () => {
+  const bad = { total: 42, fieldList: ["securityCode", "close"] }
+
+  it.each([
+    ["单日区间（一个分片就装下）", { securityList: ["all"], startDate: "2026-04-01", endDate: "2026-04-01" }],
+    ["缺起止日期", { securityList: ["all"] }],
+    ["日期无法解析", { securityList: ["all"], startDate: "不是日期", endDate: "也不是" }],
+    ["起止颠倒", { securityList: ["all"], startDate: "2026-04-05", endDate: "2026-04-01" }],
+  ])("rejects a payload with no readable list — %s", async (_label, body) => {
+    const call = vi.fn().mockResolvedValue(bad)
+    await expect(
+      callKlineWithSharding({ call }, "quote.day-kline", body, { shardDays: 1, tool: "gangtise_day_kline" }),
+    ).rejects.toThrow(/没有可读的 list/)
+  })
+
+  it("names the tool in the refusal", async () => {
+    const call = vi.fn().mockResolvedValue(bad)
+    await expect(
+      callKlineWithSharding({ call }, "quote.day-kline", { securityList: ["all"] }, { shardDays: 1, tool: "gangtise_day_kline" }),
+    ).rejects.toThrow(/gangtise_day_kline/)
+  })
+
+  // `{total: 0, list: null}` 是部分端点编码零行的合法写法，不能被这道护栏误伤。
+  it("still accepts the documented empty-result shape", async () => {
+    const call = vi.fn().mockResolvedValue({ total: 0, list: null })
+    const r = await callKlineWithSharding({ call }, "quote.day-kline", { securityList: ["all"] }, { shardDays: 1, tool: "t" })
+    expect(r).toEqual({ total: 0, list: null })
+  })
+
+  it("lets a normal single-day result through", async () => {
+    const call = vi.fn().mockResolvedValue({ total: 1, list: [{ securityCode: "600519.SH", close: 1 }] })
+    const r = await callKlineWithSharding(
+      { call }, "quote.day-kline",
+      { securityList: ["all"], startDate: "2026-04-01", endDate: "2026-04-01" },
+      { shardDays: 1, tool: "t" },
+    )
+    expect((r as { list: unknown[] }).list).toHaveLength(1)
+  })
+
+  // 周六日是必然空的请求，压根不发 —— 护栏不该改变这条捷径。
+  it("keeps the weekend short-circuit", async () => {
+    const call = vi.fn().mockResolvedValue(bad)
+    const r = await callKlineWithSharding(
+      { call }, "quote.day-kline",
+      { securityList: ["all"], startDate: "2026-04-04", endDate: "2026-04-04" },
+      { shardDays: 1, tool: "t" },
+    )
+    expect(r).toEqual({ list: [] })
+    expect(call).not.toHaveBeenCalled()
+  })
+})

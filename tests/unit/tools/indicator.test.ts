@@ -45,8 +45,17 @@ async function connect(client: GangtiseClient) {
   return mcp
 }
 
+/** 取数请求的 body。用**最后一次** call：时序在取数前会先发免费的 indicator.search
+ *  探针来挑日期轴（见 core/calendarType.ts），取数始终是最后那一次。 */
 function bodyOf(client: GangtiseClient): Record<string, unknown> {
-  return (client.call as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][1] as Record<string, unknown>
+  const calls = (client.call as unknown as { mock: { calls: unknown[][] } }).mock.calls
+  return calls[calls.length - 1][1] as Record<string, unknown>
+}
+
+/** 取数请求的次数，**不含**挑日期轴的免费 indicator.search 探针。 */
+function fetchCalls(client: GangtiseClient): number {
+  const calls = (client.call as unknown as { mock: { calls: unknown[][] } }).mock.calls
+  return calls.filter((call) => call[0] !== "indicator.search").length
 }
 
 function payloadOf(result: { content: unknown }): Record<string, unknown> {
@@ -418,7 +427,9 @@ describe("indicator inner-envelope failure surfacing", () => {
     const mcp = await connect(client)
     const result = await mcp.callTool({ name, arguments: args })
     expect(result.isError).toBe(true)
-    expect(client.call).toHaveBeenCalledTimes(1)
+    // gangtise_indicator_search 本身就打 indicator.search，其余三个工具只该发一次取数
+    // （时序另有挑日期轴的免费探针，不计在内）。任何情况下都不该有第二次取数重试。
+    expect(name === "gangtise_indicator_search" ? 0 : fetchCalls(client)).toBe(name === "gangtise_indicator_search" ? 0 : 1)
   })
 })
 
@@ -457,7 +468,7 @@ describe("gangtise_indicator_time_series dimension guard", () => {
       arguments: { ...TS_ARGS, indicatorCodeList: ["qte_close", "qte_open"] },
     })
     expect(result.isError).toBeFalsy()
-    expect(client.call).toHaveBeenCalledTimes(1)
+    expect(fetchCalls(client)).toBe(1)
   })
 
   it("allows single-indicator × multi-security", async () => {
@@ -468,7 +479,7 @@ describe("gangtise_indicator_time_series dimension guard", () => {
       arguments: { ...TS_ARGS, securityCodeList: ["600519.SH", "000001.SZ"] },
     })
     expect(result.isError).toBeFalsy()
-    expect(client.call).toHaveBeenCalledTimes(1)
+    expect(fetchCalls(client)).toBe(1)
   })
 
   // 单个板块 ID 配单指标是板块在时序接口上唯一合法的用法，不能被上面那条守卫误杀。
@@ -477,7 +488,7 @@ describe("gangtise_indicator_time_series dimension guard", () => {
     const mcp = await connect(client)
     const result = await mcp.callTool({ name: "gangtise_indicator_time_series", arguments: { ...TS_ARGS, securityCodeList: ["1000012345"] } })
     expect(result.isError).toBeFalsy()
-    expect(client.call).toHaveBeenCalledTimes(1)
+    expect(fetchCalls(client)).toBe(1)
   })
 })
 
@@ -1367,6 +1378,9 @@ describe("EDE time-series budget counts the DATE factor", () => {
         securityCodeList: Array.from({ length: 6000 }, (_, i) => `${600000 + i}.SH`),
         startDate: "2020-01-01",
         endDate: "2026-01-01",
+        // 显式钉住一条**算得准**的轴：ND 的日期列数就是自然日数。不传的话轴由探针决定，
+        // 而 TD 的列数本地不可知（按 1 计），这条就测不到日期因子了。
+        calendarType: "ND",
       },
     })
     expect(r.isError, "漏算日期因子 → 1315 万单元格被放行").toBe(true)
@@ -1413,13 +1427,17 @@ describe("EDE 单次单元格上限对外可见", () => {
     const { readFileSync } = await import("node:fs")
     const src = readFileSync("src/tools/indicator.ts", "utf8")
     const cap = Number(src.match(/const MAX_EDE_CELLS = ([\d_]+)/)![1].replace(/_/g, ""))
-    expect(cap).toBe(100_000)
+    const screenerCap = Number(src.match(/const MAX_SCREENER_CELLS = ([\d_]+)/)![1].replace(/_/g, ""))
+    // 截面 / 时序钉的是服务端硬限（超出报 100006）；选股那档没有已证实的服务端上限，
+    // 是本仓自己的失控计费兜底，所以两个数不必相等、但都必须与描述一致。
+    expect(cap).toBe(30_000)
+    expect(screenerCap).toBe(100_000)
 
     const { billingSuffix } = await import("../../../src/tools/billing.js")
-    const shown = `单次上限 ${cap / 10_000} 万单元格`
-    for (const t of ["gangtise_indicator_cross_section", "gangtise_indicator_time_series", "gangtise_indicator_screener"]) {
-      expect(billingSuffix(t), `${t} 的描述没有公布 handler 实际执行的单元格上限`).toContain(shown)
+    for (const t of ["gangtise_indicator_cross_section", "gangtise_indicator_time_series"]) {
+      expect(billingSuffix(t), `${t} 的描述没有公布 handler 实际执行的单元格上限`).toContain(`单次上限 ${cap / 10_000} 万单元格`)
     }
+    expect(billingSuffix("gangtise_indicator_screener")).toContain(`单次上限 ${screenerCap / 10_000} 万单元格`)
   })
 })
 
@@ -1514,3 +1532,115 @@ describe("indicator_search routes fund flow to the free tool", () => {
     expect(description).toMatch(/同一套数/)
   })
 })
+
+
+// 🔴 本地硬拒绝用的日期数只能来自**算得准**的轴，这条上踩过两次：先是对 TD 用工作日数
+// （上界），把「120 只 × 一年 × TD」这种接口会接受的请求拒在本地；改成「工作日数 − 按天
+// 均摊的休市日」后仍是错的——法定休市是成串出现的，均摊对短区间根本不成立。
+//
+// 实测（茅台 qte_close，两个含长假的区间）：
+//   2024-02-01..02-29  自然日 29 / ND 29 · 工作日 21 / WD 21 · 交易所实际 15 / TD 18
+//   2024-10-01..10-31  自然日 31 / ND 31 · 工作日 23 / WD 23 · 交易所实际 18 / TD 19
+// ND 与 WD 精确可算；TD 既不等于工作日、也不等于交易所日历，本地无法预测。
+describe("时序预算只用算得准的日期轴", () => {
+  const secs = (n: number) => Array.from({ length: n }, (_, i) => `${600000 + i}.SH`)
+
+  /** 让探针把 qte_close 判成交易日型，从而自动选 TD。 */
+  function tdClient() {
+    const search = { code: "000000", status: true, data: [{ indicatorCode: "qte_close", parameterList: [{ paramKey: "tradeDate" }] }] }
+    const series = matrix({
+      dates: ["2024-01-02"], securityCodeList: ["600000.SH"], securityNameList: ["x"],
+      indicatorList: [meta("qte_close", "收盘价")], values: [[1]],
+    })
+    const call = vi.fn(async (key: string) => (key === "indicator.search" ? search : series))
+    return { call, download: vi.fn() } as unknown as GangtiseClient
+  }
+
+  const run = async (client: GangtiseClient, args: Record<string, unknown>) =>
+    (await connect(client)).callTool({ name: "gangtise_indicator_time_series", arguments: { indicatorCodeList: ["qte_close"], ...args } })
+
+  // 审查用例：1600 只 × 春节月 × TD。接口实际返回 18 个日期列 → 28800，在上限内。
+  // 任何「按天均摊休市日」的估算都会算成 19 天 → 30400 → 误拒。
+  it.each([
+    ["春节", "2024-02-01", "2024-02-29"],
+    ["国庆", "2024-10-01", "2024-10-31"],
+  ])("does not reject a TD request over the %s holiday cluster", async (_label, startDate, endDate) => {
+    const client = tdClient()
+    const r = await run(client, { securityCodeList: secs(1600), startDate, endDate, calendarType: "TD" })
+    expect(r.isError, "按天均摊休市日 → 长假短区间被误拒").toBeFalsy()
+    expect(fetchCalls(client)).toBe(1)
+  })
+
+  it("does not reject the same window when the axis was auto-picked as TD", async () => {
+    const client = tdClient()
+    const r = await run(client, { securityCodeList: secs(1600), startDate: "2024-02-01", endDate: "2024-02-29" })
+    expect(r.isError).toBeFalsy()
+    expect(fetchCalls(client)).toBe(1)
+  })
+
+  it("allows 120 securities x a full year on TD", async () => {
+    const client = tdClient()
+    const r = await run(client, { securityCodeList: secs(120), startDate: "2024-01-01", endDate: "2024-12-31", calendarType: "TD" })
+    expect(r.isError).toBeFalsy()
+  })
+
+  // ND 的日期数是自然日，精确可算，照常拦。
+  it("keeps the natural-day count exact when the caller pins ND", async () => {
+    const client = tdClient()
+    const r = await run(client, { securityCodeList: secs(120), startDate: "2024-01-01", endDate: "2024-12-31", calendarType: "ND" })
+    expect(r.isError).toBe(true)
+    expect((r.content as Array<{ text: string }>)[0].text).toMatch(/× 366 天/)
+  })
+
+  // WD 只排周末、不排法定节假日（上面两个长假区间实测 21 / 23 与工作日数逐一相等），
+  // 所以工作日数就是它的日期列数——同样精确，不该被节假日折扣稀释。
+  it("counts WD as weekdays, undiscounted by holidays", async () => {
+    const client = tdClient()
+    const ok = await run(client, { securityCodeList: secs(1400), startDate: "2024-02-01", endDate: "2024-02-29", calendarType: "WD" })
+    expect(ok.isError, "1400 × 21 = 29400 在上限内").toBeFalsy()
+    const tooBig = await run(tdClient(), { securityCodeList: secs(1500), startDate: "2024-02-01", endDate: "2024-02-29", calendarType: "WD" })
+    expect(tooBig.isError, "1500 × 21 = 31500 超限").toBe(true)
+    expect((tooBig.content as Array<{ text: string }>)[0].text).toMatch(/× 21 天/)
+  })
+
+  // 指标 × 证券 这一层与日期轴无关，任何轴下都拦得住。
+  it("still rejects on the indicator x security factor alone", async () => {
+    const client = tdClient()
+    const r = await mcpCrossSection(client, 200, 6000)
+    expect(r.isError).toBe(true)
+  })
+
+  // 轴是本服务替调用方挑的时候，报错要说明白——否则「按证券分批」读起来像唯一出路。
+  it("names the auto-picked axis in the refusal", async () => {
+    const search = { code: "000000", status: true, data: [{ indicatorCode: "is_op_rev", parameterList: [{ paramKey: "reportDate" }] }] }
+    const call = vi.fn(async () => search)
+    const client = { call, download: vi.fn() } as unknown as GangtiseClient
+    const mcp = await connect(client)
+    const r = await mcp.callTool({
+      name: "gangtise_indicator_time_series",
+      arguments: { indicatorCodeList: ["is_op_rev"], securityCodeList: secs(120), startDate: "2024-01-01", endDate: "2024-12-31" },
+    })
+    expect(r.isError).toBe(true)
+    const text = (r.content as Array<{ text: string }>)[0].text
+    expect(text).toContain("未传 calendarType")
+    expect(text).toContain("ND")
+  })
+
+  it("stays silent about the axis when the caller pinned one", async () => {
+    const client = tdClient()
+    const r = await run(client, { securityCodeList: secs(120), startDate: "2024-01-01", endDate: "2024-12-31", calendarType: "ND" })
+    expect((r.content as Array<{ text: string }>)[0].text).not.toContain("未传 calendarType")
+  })
+})
+
+async function mcpCrossSection(client: GangtiseClient, indicators: number, securities: number) {
+  const mcp = await connect(client)
+  return mcp.callTool({
+    name: "gangtise_indicator_cross_section",
+    arguments: {
+      indicatorCodeList: Array.from({ length: indicators }, (_, i) => `ind_${i}`),
+      securityCodeList: Array.from({ length: securities }, (_, i) => `${600000 + i}.SH`),
+      date: "2026-07-31",
+    },
+  })
+}

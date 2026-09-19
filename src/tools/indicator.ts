@@ -4,6 +4,8 @@ import type { GangtiseClient } from "../core/client.js"
 import { assertDateOrder, buildToolContent } from "./registry.js"
 import { toolHandler, contentResult } from "./helpers.js"
 import { normalizeRows } from "../core/normalize.js"
+import { resolveCalendarType } from "../core/calendarType.js"
+import { estimateTradingDays } from "../core/quoteSharding.js"
 import {
   unwrapIndicatorData,
   requireIndicatorMatrix,
@@ -302,21 +304,23 @@ function withQueryDate(groups: ParamGroup[] | undefined, codes: string[], date: 
   return [...merged.values()]
 }
 
-/** EDE 单次请求的单元格上限。
- *
- * 🔴 这是一条**成本策略**，不是数据事实 —— 与财报日历那条不同：那里「这个区间筛没筛掉
- * 东西」有唯一正确答案、可以实测（拍的阈值因此是错的）；这里「多少单元格算太多」没有
- * 可测的真值，只能明写成一条策略，所以要把算术摊开、并留出改的余地。
- *
- * 算术：单价 A股 0.05 / 港股 0.1 / 美股 0.2 每 100 单元格（见 billing.ts）。
- * 10 万单元格 = 美股档 200 积分、A股档 50 积分。一次正常的批量（50 指标 × 300 证券
- * = 1.5 万单元格 ≈ 30 积分）离它还有 6 倍余量，所以它挡的是**明显失控的笛卡尔积**，
- * 不会碰到真实用法。
+/** 截面 / 时序单次请求的单元格上限 —— 这一条是**服务端事实**，不是本仓的成本策略：
+ * 超出即报 `100006`，不截断、也不返回部分结果。口径是返回矩阵的元素个数（截面 =
+ * 证券数 × 指标数，时序 = 序列数 × 日期数）。本地按同一个数挡住，只为把「这次要拆批」
+ * 在花掉一次往返之前说清楚。
  *
  * ⚠️ **它看不见板块展开**：`securityCodeList` 里传一个 sectorId，服务端会展开成 N 只
- * 成分股，本地数到的是 1。所以这条守卫覆盖的是「显式列表铺太大」这一种，不是全部。
- * 板块的放大倍数在 billing 的 amplify 提示里单独讲。 */
-const MAX_EDE_CELLS = 100_000
+ * 成分股，本地数到的是 1。所以这条守卫覆盖的是「显式列表铺太大」这一种，不是全部——
+ * 而板块恰恰是最容易撞上限的一处。板块的放大倍数在 billing 的 amplify 提示里单独讲。 */
+const MAX_EDE_CELLS = 30_000
+
+/** 条件选股的上限则仍是一条**成本策略**：服务端在这个端点上没有已证实的单次上限，
+ * 所以不跟着收到 30000 —— 本地挡掉一个服务端本会接受的查询，比让它到服务端去失败更糟。
+ *
+ * 算术：单价 A股 0.05 / 港股 0.1 / 美股 0.2 每 100 单元格（见 billing.ts）。10 万单元格
+ * = 美股档 200 积分、A股档 50 积分。一次正常的批量（50 指标 × 300 证券 = 1.5 万单元格
+ * ≈ 30 积分）离它还有 6 倍余量，所以它挡的是**明显失控的笛卡尔积**，不会碰到真实用法。 */
+const MAX_SCREENER_CELLS = 100_000
 
 /** 区间天数（含两端）。任一端缺失或不可解析则按 1 天算 —— 宁可低估也不要凭空拒绝一个
  * 本地解析不了的日期，那种入参在 schema 层已经先被拒了。 */
@@ -332,17 +336,47 @@ function spanDays(startDate: unknown, endDate: unknown): number {
  *
  * 前一版只算「指标数 × 证券数」，而 billing.ts 写得清清楚楚是「指标数 × 证券数 × 日期数」
  * ——同一个文件里我自己引的那句话。于是时序上「1 指标 × 6000 证券 × 六年区间」
- * = 约 1315 万单元格，一路穿过 10 万的闸门，`isError` 是 false。
+ * = 约 1315 万单元格，一路穿过闸门，`isError` 是 false。
  * **守卫的算术必须和它声称守护的计费模型逐字对齐**，差一个因子就等于没有。
  *
  * `days` 用自然日，是**上界**：calendarType=TD/WD 实际返回的行更少（交易日约为自然日的
  * 0.68）。宁可高估——高估只会让一个接近上限的请求被要求拆分，低估则是放行一次失控计费。 */
-function assertCellBudget(indicators: string[], securities: string[], tool: string, days = 1): void {
+/** 这条轴上的日期列数，用于**本地硬拒绝**，所以只在能算准时才给数——算不准的一律
+ * 按 1 处理，把日期这一维交给接口判。
+ *
+ * 🔴 **方向错了就是误拒**，而这条上踩过两次：
+ * 先是对 `TD` 用工作日数（上界），把「120 只 × 一年 × TD」这种接口会接受的请求拒在本地；
+ * 改成「工作日数 − 按天均摊的休市日」后仍是错的——法定休市是**成串**出现的，均摊对短
+ * 区间根本不成立（2024-02 按均摊只扣 2 天，春节实际占掉 6 个工作日）。
+ *
+ * 实测三条轴各返回多少日期列（茅台 `qte_close`，两个含长假的区间）：
+ *
+ * | 区间 | 自然日 / `ND` | 工作日 / `WD` | 交易所实际 / `TD` |
+ * |---|---|---|---|
+ * | 2024-02-01..02-29 | 29 / **29** | 21 / **21** | 15 / **18** |
+ * | 2024-10-01..10-31 | 31 / **31** | 23 / **23** | 18 / **19** |
+ *
+ * 所以：`ND` 就是自然日数、`WD` 就是工作日数（只排周末，**不排法定节假日**），两者都
+ * 精确可算；而 `TD` 既不等于工作日、也不等于交易所交易日历，本地**没有任何办法预测**
+ * 它会返回多少列。既然算不准，就不拿它做拒绝依据——超限的请求会被接口明确拒绝并写明
+ * 限额，代价是一次往返；误拒的代价是一个本来能用的查询直接没了。 */
+function axisDays(startDate: unknown, endDate: unknown, calendarType?: "ND" | "TD" | "WD"): number {
+  // `TD` 的日期列数本地不可知 —— 按 1 计，等于只用「指标 × 证券」这一层判。
+  if (calendarType === "TD") return 1
+  if (calendarType !== "WD") return spanDays(startDate, endDate)
+  if (typeof startDate !== "string" || typeof endDate !== "string") return spanDays(startDate, endDate)
+  return Math.max(1, estimateTradingDays(startDate, endDate))
+}
+
+function assertCellBudget(indicators: string[], securities: string[], tool: string, days = 1, max = MAX_EDE_CELLS, autoAxis?: string): void {
   const cells = indicators.length * securities.length * days
-  if (cells > MAX_EDE_CELLS) {
+  if (cells > max) {
     const dim = days > 1 ? `${indicators.length} 指标 × ${securities.length} 证券 × ${days} 天` : `${indicators.length} 指标 × ${securities.length} 证券`
+    const axisNote = autoAxis
+      ? `本次未传 calendarType，日期轴按指标类型自动选为 ${autoAxis}；改传 calendarType='TD' 可减少约三成日期列（仅当所查指标都按交易日取值时才可用，报告期类指标用 TD 会整片返 null）。`
+      : ""
     throw new ValidationError(
-      `${tool} 单次请求 ${dim} = ${cells.toLocaleString()} 个单元格，超过单次上限 ${MAX_EDE_CELLS.toLocaleString()}（本端点按单元格计价）。请拆成多次查询——${days > 1 ? "缩短日期区间或按证券分批" : "按指标分批"}通常最简单。`,
+      `${tool} 单次请求 ${dim} = ${cells.toLocaleString()} 个单元格，超过单次上限 ${max.toLocaleString()}（本端点按单元格计价）。${axisNote}请拆成多次查询——${days > 1 ? "缩短日期区间或按证券分批" : "按指标分批"}通常最简单。注意 securityCodeList 里传板块 ID 时服务端会展开成全部成分股，实际证券数远大于写进参数的条数。`,
     )
   }
 }
@@ -512,7 +546,12 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
         securityCodeList,
         startDate: dateString,
         endDate: dateString,
-        calendarType: z.enum(["ND", "TD", "WD"]).optional().describe("日历类型：ND=自然日 | TD=交易日（默认）| WD=工作日"),
+        calendarType: z
+          .enum(["ND", "TD", "WD"])
+          .optional()
+          .describe(
+            "日历类型：ND=自然日 | TD=交易日 | WD=工作日。**不传时由本服务按指标类型自动选**（全部指标都只吃 tradeDate 才用 TD，否则交给服务端默认的 ND）；除非确知要哪条轴，否则建议不传。🔴 给报告期类指标显式传 TD 会静默丢数：报告期末常落在非交易日（2024-03-31、06-30 都是周日），TD 的日期轴里没有那一列，整片返 null 且不报错",
+          ),
         currency,
         scale,
         indicatorParamList: indicatorParamListWith(PARAM_GUIDANCE_RANGE),
@@ -541,13 +580,28 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
           "securityCodeList 里含板块 ID（sectorId）时只能配单个指标：板块由服务端展开成全部成分股，即「多证券」，与多指标同时使用不被支持。请改为单指标，或把板块换成具体证券代码。",
         )
       }
-      assertCellBudget(indicators, securities, "gangtise_indicator_time_series", spanDays(args.startDate, args.endDate))
+      // 先按**所有轴里最小的可能值**预检（`TD` 算不准、按 1 计，就是那个最小值）：连它
+      // 都超就没有任何日历救得了，直接拒绝，连挑轴的探针都不必花。
+      assertCellBudget(indicators, securities, "gangtise_indicator_time_series", axisDays(args.startDate, args.endDate, "TD"))
+      // 过了预检才去挑轴。显式传了就完全按给的发；没传才探——免费的 search，去重后每码一次。
+      const calendarType = (args.calendarType as "ND" | "TD" | "WD" | undefined) ?? (await resolveCalendarType(client, indicators))
+      // 再按真正会发出去的那条轴收紧（`ND` / `WD` 精确可算；`TD` 仍按 1，不拿它拒绝）。
+      assertCellBudget(
+        indicators,
+        securities,
+        "gangtise_indicator_time_series",
+        axisDays(args.startDate, args.endDate, calendarType),
+        MAX_EDE_CELLS,
+        // 轴是本服务替调用方挑的时候要说明白，否则「按证券分批」读起来像唯一出路，
+        // 而显式传 `TD` 往往就够了。
+        args.calendarType === undefined ? (calendarType ?? "ND") : undefined,
+      )
       const body = {
         indicatorCodeList: indicators,
         universe: securities,
         startDate: args.startDate,
         endDate: args.endDate,
-        calendarType: args.calendarType,
+        calendarType,
         currency: args.currency,
         scale: args.scale,
         // Merge repeated codes (see mergeParamGroups) but do NOT inject a
@@ -641,7 +695,7 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
       // warned. Re-probed 2026-08-08 and it is FIXED: F1@08-07 + F2@08-06 return
       // 1309.22 / 1308.55, each on its own date, stable across repeat runs. The
       // local block is gone; keeping it would refuse a working query.
-      assertCellBudget(bindings.map((b) => b.indicatorCode), securities, "gangtise_indicator_screener")
+      assertCellBudget(bindings.map((b) => b.indicatorCode), securities, "gangtise_indicator_screener", 1, MAX_SCREENER_CELLS)
       const body = {
         universe: securities,
         expression,

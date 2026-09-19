@@ -22,6 +22,25 @@ export function flagMissingFields(result: unknown, requested: unknown): unknown 
   return { ...rec, _partial: true, _partial_reason: prior.join(","), missingFields: missing }
 }
 
+/** 逐条写操作（加/删证券、删池）的逐条失败**藏在成功信封里**：外层 `code` 恒为
+ *  `000000`，解析不了的条目落在 `failList`。不查这个键，一次「10 只里 3 只代码写错」
+ *  的调用会原样报成功，而调用方以为 10 只都进池了。非空即标 `_partial` + `failedItems`。 */
+export function flagFailedItems(result: unknown): unknown {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return result
+  const rec = result as Record<string, unknown>
+  if (!Array.isArray(rec.failList) || rec.failList.length === 0) return result
+  const failedItems = rec.failList.map((item) => {
+    if (!item || typeof item !== "object") return String(item)
+    const entry = item as Record<string, unknown>
+    // 两族写操作把失败挂在不同的键上：证券类是 securityCode，删池是 poolId。
+    const id = entry.securityCode ?? entry.poolId ?? JSON.stringify(entry)
+    return entry.failReason ? `${String(id)}（${String(entry.failReason)}）` : String(id)
+  })
+  const prior = typeof rec._partial_reason === "string" && rec._partial_reason ? rec._partial_reason.split(",") : []
+  if (!prior.includes("failed_items")) prior.push("failed_items")
+  return { ...rec, _partial: true, _partial_reason: prior.join(","), failedItems }
+}
+
 export function normalizeRows(value: unknown): unknown {
   if (!value || typeof value !== "object") {
     return value

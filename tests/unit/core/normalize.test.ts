@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { flagMissingFields, normalizeRows } from "../../../src/core/normalize.js"
+import { flagFailedItems, flagMissingFields, normalizeRows } from "../../../src/core/normalize.js"
 
 describe("normalizeRows", () => {
   it("passes through primitives, null, and arrays unchanged", () => {
@@ -171,5 +171,62 @@ describe("flagMissingFields", () => {
     expect(flagMissingFields(payload, undefined)).toBe(payload)
     const noFields = { list: [{ a: 1 }] }
     expect(flagMissingFields(noFields, ["a"])).toBe(noFields)
+  })
+})
+
+// 逐条写操作的失败藏在 `000000` 成功信封里：不查 failList，一次「10 只里 3 只代码写错」
+// 会原样报成功，调用方以为 10 只都进池了。
+describe("flagFailedItems", () => {
+  it("marks a non-empty failList as partial and names the items", () => {
+    const out = flagFailedItems({
+      successList: ["600519.SH"],
+      failList: [{ securityCode: "999999.XX", failReason: "证券不存在" }],
+    }) as Record<string, unknown>
+    expect(out._partial).toBe(true)
+    expect(out._partial_reason).toBe("failed_items")
+    expect(out.failedItems).toEqual(["999999.XX（证券不存在）"])
+  })
+
+  it("keys a pool failure on poolId", () => {
+    const out = flagFailedItems({ failList: [{ poolId: "404", failReason: "池不存在" }] }) as Record<string, unknown>
+    expect(out.failedItems).toEqual(["404（池不存在）"])
+  })
+
+  it("falls back to the raw entry when neither key is present", () => {
+    const out = flagFailedItems({ failList: [{ what: "?" }] }) as Record<string, unknown>
+    expect(out.failedItems).toEqual(['{"what":"?"}'])
+  })
+
+  it("omits the reason when the server gave none", () => {
+    const out = flagFailedItems({ failList: [{ securityCode: "999999.XX" }] }) as Record<string, unknown>
+    expect(out.failedItems).toEqual(["999999.XX"])
+  })
+
+  it("leaves a fully successful response untouched", () => {
+    const input = { successList: ["600519.SH"], failList: [] }
+    expect(flagFailedItems(input)).toBe(input)
+  })
+
+  it("leaves a response without failList untouched", () => {
+    const input = { poolId: "1", poolName: "x" }
+    expect(flagFailedItems(input)).toBe(input)
+  })
+
+  // `_partial_reason` 是逗号拼接的多原因列表：追加，不覆盖。
+  it("appends to an existing partial reason instead of replacing it", () => {
+    const out = flagFailedItems({
+      _partial: true,
+      _partial_reason: "short_page",
+      failList: [{ securityCode: "X" }],
+    }) as Record<string, unknown>
+    expect(out._partial_reason).toBe("short_page,failed_items")
+  })
+
+  it("does not duplicate its own reason", () => {
+    const out = flagFailedItems({
+      _partial_reason: "failed_items",
+      failList: [{ securityCode: "X" }],
+    }) as Record<string, unknown>
+    expect(out._partial_reason).toBe("failed_items")
   })
 })

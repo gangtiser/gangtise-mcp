@@ -16,6 +16,8 @@ interface ShardConfig {
   /** Days per shard. Picked so each request stays under the 10K-row API cap. */
   shardDays: number
   concurrency?: number
+  /** 报错文案里的工具名。单请求路径要靠它给出与 quote.ts 各端点一致的提示。 */
+  tool?: string
   /** securityList sentinel that means "whole market" and triggers day-sharding.
    * `aShares` / `hkStocks` / `usStocks` on the unified day K-line (each with its own
    * shardDays — the caller resolves which one was asked for) and `aShares` on
@@ -289,7 +291,12 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   // one shard) skips the merge loop below, so it needs the same limit-truncation
   // check inline — else a low limit or an oversized single window slips through as a
   // silently truncated "complete" result (e.g. index 'all' over a 30-day window).
-  const callSingle = async () => flagLimitTruncated(await client.call(endpointKey, allMarketBody), perShardLimit)
+  // 🔴 `requireQuoteRows` 不能漏：分片路径对「没有可读 list」的载荷早已响亮失败（见下面
+  // 的 header 检查），单请求这条却曾直接原样交出去——`{total: 42, fieldList: [...]}` 这种
+  // 既不是表也不是错误的对象会被当成一次成功返回，连 `_partial` 都没有。
+  // 全市场单日（最常见的用法）走的正是这条路。
+  const callSingle = async () =>
+    flagLimitTruncated(requireQuoteRows(await client.call(endpointKey, allMarketBody), config.tool ?? endpointKey), perShardLimit)
 
   if (!body.startDate || !body.endDate) {
     return callSingle()

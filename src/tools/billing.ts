@@ -89,6 +89,12 @@ const CATALOG: Record<string, BillingSpec> = {
   gangtise_wechat_chatroom_list: FREE,
   gangtise_stock_pool_list: FREE,
   gangtise_stock_pool_stocks: FREE,
+  // 五个写操作均为免费（计分表未列价，服务端文档声明免费）。
+  gangtise_stock_pool_create: FREE,
+  gangtise_stock_pool_rename: FREE,
+  gangtise_stock_pool_add_stock: FREE,
+  gangtise_stock_pool_remove_stock: FREE,
+  gangtise_stock_pool_delete: FREE,
   gangtise_drive_list: FREE,
   gangtise_drive_download: FREE,
   // 源非计分表：7.1 未列此二者，依据是既有代码描述已标「免费。」
@@ -176,12 +182,12 @@ const CATALOG: Record<string, BillingSpec> = {
   gangtise_indicator_cross_section: {
     kind: "variable",
     note: "按单元格计价，单价见 gangtise CLI indicator.md（A股 0.05 / 港股 0.1 / 美股 0.2 每 100 单元格）",
-    amplify: "按单元格计价，指标数×证券数×日期数即放大倍数，单次上限 10 万单元格",
+    amplify: "按单元格计价，指标数×证券数×日期数即放大倍数，单次上限 3 万单元格（服务端硬限，超出报 100006 且不返回部分结果）",
   },
   gangtise_indicator_time_series: {
     kind: "variable",
     note: "按单元格计价，单价见 gangtise CLI indicator.md（A股 0.05 / 港股 0.1 / 美股 0.2 每 100 单元格）",
-    amplify: "按单元格计价，指标数×证券数×日期数即放大倍数，单次上限 10 万单元格",
+    amplify: "按单元格计价，指标数×证券数×日期数即放大倍数，单次上限 3 万单元格（服务端硬限，超出报 100006 且不返回部分结果）",
   },
   // 同族同口径：条件选股按 universe 展开后的单元格计价，而 universe 可以是一个板块 ID
   // （服务端展开成 N 只成分股），所以放大倍数由「展开后的证券数」决定、请求里看不出来 ——

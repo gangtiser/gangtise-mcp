@@ -1,10 +1,13 @@
 import fs from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
 import { gzipSync } from "node:zlib"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { GangtiseClient } from "../../../src/core/client.js"
 import { ENDPOINTS } from "../../../src/core/endpoints.js"
+import { credentialFingerprint } from "../../../src/core/auth.js"
 
 const { requestMock } = vi.hoisted(() => ({ requestMock: vi.fn() }))
 
@@ -431,6 +434,8 @@ describe("GangtiseClient auth replay and freshness", () => {
         await fs.writeFile(tokenCachePath, JSON.stringify({
           accessToken: "sibling-fresh", expiresIn: 7200, time: 1,
           expiresAt: Math.floor(Date.now() / 1000) + 7200,
+          // 兄弟进程用的是**同一套**凭证，所以指纹相同——这正是这条优化针对的情形。
+          issuedFor: credentialFingerprint("ak", "https://open.gangtise.com"),
         }), "utf8")
         // 🔴 显式把 mtime 推到「明确晚于本次请求开始」。
         // 判据是 `mtimeMs >= authState.startedAt`，而这里的 transport 是 mock、**零延迟**：
@@ -459,6 +464,152 @@ describe("GangtiseClient auth replay and freshness", () => {
     expect(await client.call("ai.one-pager", { securityCode: "600519.SH" })).toEqual({ answer: 1 })
     expect(loginCalls).toBe(0)
     expect(seenAuth).toEqual(["Bearer stale", "Bearer sibling-fresh"])
+  })
+
+  // 同一个缓存文件也可能是**另一个账号**写的（CLI 换了 AK/SK 登录过）。采用它等于拿别人
+  // 的身份重试一次，还把每次请求仅有的一次自愈名额烧掉——真正该发生的登录再也不会发生。
+  it("refuses a sibling token minted for different credentials and logs in instead", async () => {
+    let loginCalls = 0
+    const seenAuth: string[] = []
+    requestMock.mockImplementation(async (url: unknown, options?: { headers?: Record<string, string> }) => {
+      if (String(url).includes("/loginV2")) {
+        loginCalls += 1
+        return rawJsonResponse({ code: "000000", data: { accessToken: "fresh", expiresIn: 7200, time: 1 } })
+      }
+      seenAuth.push(options?.headers?.Authorization ?? "")
+      if (seenAuth.length === 1) {
+        await fs.writeFile(tokenCachePath, JSON.stringify({
+          accessToken: "other-account", expiresIn: 7200, time: 1,
+          expiresAt: Math.floor(Date.now() / 1000) + 7200,
+          issuedFor: credentialFingerprint("another-ak", "https://open.gangtise.com"),
+        }), "utf8")
+        const later = Date.now() / 1000 + 5
+        await fs.utimes(tokenCachePath, later, later)
+        return rawJsonResponse({ code: "0000001008", msg: "token is invalid" }, 401)
+      }
+      return jsonResponse({ answer: 1 })
+    })
+
+    const client = new GangtiseClient({
+      baseUrl: "https://open.gangtise.com",
+      timeoutMs: 30_000,
+      token: "stale",
+      accessKey: "ak",
+      secretKey: "sk",
+      tokenCachePath,
+      asyncTimeoutMs: 60_000,
+      maxDownloadBytes: 1024 * 1024 * 1024,
+    })
+
+    expect(await client.call("ai.one-pager", { securityCode: "600519.SH" })).toEqual({ answer: 1 })
+    expect(loginCalls, "别人的 token 被当成兄弟刷新采用了").toBe(1)
+    expect(seenAuth).toEqual(["Bearer stale", "Bearer fresh"])
+  })
+})
+
+// 缓存文件与 gangtise CLI 共用。没有归属标记时它只是「某个还没过期的 token」——换掉
+// GANGTISE_ACCESS_KEY 之后，上一个账号尚未过期的 token 会继续被发出去，请求带的是上一个
+// 账号的身份。股票池写操作一旦撞上，改的就是别人的池，而删池不可恢复。
+describe("GangtiseClient token cache ownership", () => {
+  let tokenCachePath: string
+  let dir: string
+
+  beforeEach(async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "gangtise-owner-"))
+    tokenCachePath = path.join(dir, "token.json")
+    requestMock.mockReset()
+  })
+
+  afterEach(async () => {
+    await fs.rm(dir, { recursive: true, force: true })
+  })
+
+  function clientWith(accessKey: string) {
+    return new GangtiseClient({
+      baseUrl: "https://open.gangtise.com",
+      timeoutMs: 30_000,
+      accessKey,
+      secretKey: "sk",
+      tokenCachePath,
+      asyncTimeoutMs: 60_000,
+      maxDownloadBytes: 1024 * 1024 * 1024,
+    })
+  }
+
+  async function seedCache(cache: Record<string, unknown>) {
+    await fs.writeFile(tokenCachePath, JSON.stringify({
+      accessToken: "Bearer cached", expiresIn: 7200, time: 1,
+      expiresAt: Math.floor(Date.now() / 1000) + 7200,
+      ...cache,
+    }), "utf8")
+  }
+
+  function trackAuth() {
+    const seen: string[] = []
+    let loginCalls = 0
+    requestMock.mockImplementation(async (url: unknown, options?: { headers?: Record<string, string> }) => {
+      if (String(url).includes("/loginV2")) {
+        loginCalls += 1
+        return rawJsonResponse({ code: "000000", data: { accessToken: "minted", expiresIn: 7200, time: 1 } })
+      }
+      seen.push(options?.headers?.Authorization ?? "")
+      return jsonResponse({ ok: 1 })
+    })
+    return { seen, logins: () => loginCalls }
+  }
+
+  it("uses a cache minted for the same credentials", async () => {
+    await seedCache({ issuedFor: credentialFingerprint("ak", "https://open.gangtise.com") })
+    const t = trackAuth()
+    await clientWith("ak").call("ai.one-pager", { securityCode: "600519.SH" })
+    expect(t.logins()).toBe(0)
+    expect(t.seen).toEqual(["Bearer cached"])
+  })
+
+  it("re-logs in when the accessKey changed, instead of sending the other account's token", async () => {
+    await seedCache({ issuedFor: credentialFingerprint("ak", "https://open.gangtise.com") })
+    const t = trackAuth()
+    await clientWith("second-ak").call("ai.one-pager", { securityCode: "600519.SH" })
+    expect(t.logins(), "换了凭证仍复用上一个账号的 token").toBe(1)
+    expect(t.seen).toEqual(["Bearer minted"])
+  })
+
+  it("treats a cache written before the ownership field existed as unknown provenance", async () => {
+    await seedCache({})
+    const t = trackAuth()
+    await clientWith("ak").call("ai.one-pager", { securityCode: "600519.SH" })
+    expect(t.logins()).toBe(1)
+    expect(t.seen).toEqual(["Bearer minted"])
+  })
+
+  it("stamps the fingerprint on a freshly minted token", async () => {
+    trackAuth()
+    await clientWith("ak").call("ai.one-pager", { securityCode: "600519.SH" })
+    const written = JSON.parse(await fs.readFile(tokenCachePath, "utf8"))
+    expect(written.issuedFor).toBe(credentialFingerprint("ak", "https://open.gangtise.com"))
+  })
+
+  it("skips the ownership check when no accessKey is configured", async () => {
+    // 没有 AK/SK 的部署里不存在第二个账号，拒绝缓存只会破坏「仅有 token 缓存」的用法。
+    await seedCache({})
+    const t = trackAuth()
+    const client = new GangtiseClient({
+      baseUrl: "https://open.gangtise.com",
+      timeoutMs: 30_000,
+      tokenCachePath,
+      asyncTimeoutMs: 60_000,
+      maxDownloadBytes: 1024 * 1024 * 1024,
+    })
+    await client.call("ai.one-pager", { securityCode: "600519.SH" })
+    expect(t.logins()).toBe(0)
+    expect(t.seen).toEqual(["Bearer cached"])
+  })
+
+  it("separates two hosts sharing one accessKey", async () => {
+    await seedCache({ issuedFor: credentialFingerprint("ak", "https://other.gangtise.com") })
+    const t = trackAuth()
+    await clientWith("ak").call("ai.one-pager", { securityCode: "600519.SH" })
+    expect(t.logins()).toBe(1)
   })
 })
 
@@ -1230,5 +1381,59 @@ describe("GangtiseClient download text content types", () => {
       maxDownloadBytes: 1024,
     })
     await expect(client.call("insight.research.download", undefined, { reportId: "1" })).rejects.toThrow(/超过单文件上限/)
+  })
+})
+
+// 逐条失败藏在 `000000` 成功信封里：`{successList, failList}`，外层写着操作成功而解析不了
+// 的条目落在 failList。判据挂在端点上、由 client.call 统一执行——让每个 handler 自己记得
+// 调一次，就是把同一条规则写成两份，下一个加逐条端点的人标了字段就以为完事。
+describe("GangtiseClient per-item failure flagging", () => {
+  let tokenCachePath: string
+  let dir: string
+
+  beforeEach(async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "gangtise-items-"))
+    tokenCachePath = path.join(dir, "token.json")
+    requestMock.mockReset()
+  })
+  afterEach(async () => { await fs.rm(dir, { recursive: true, force: true }) })
+
+  const client = () => new GangtiseClient({
+    baseUrl: "https://open.gangtise.com",
+    timeoutMs: 30_000,
+    token: "t",
+    tokenCachePath,
+    asyncTimeoutMs: 60_000,
+    maxDownloadBytes: 1024 * 1024 * 1024,
+  })
+
+  it("flags a failList inside a success envelope on an itemFailures endpoint", async () => {
+    requestMock.mockImplementation(async () => jsonResponse({
+      successList: ["600519.SH"],
+      failList: [{ securityCode: "999999.XX", failReason: "证券代码不存在" }],
+    }))
+    const r = await client().call("vault.stock-pool.add-stock", { poolId: "1", securityCodeList: ["600519.SH"] }) as Record<string, unknown>
+    expect(r._partial).toBe(true)
+    expect(r._partial_reason).toBe("failed_items")
+    expect(r.failedItems).toEqual(["999999.XX（证券代码不存在）"])
+  })
+
+  it("keys a pool deletion failure on poolId", async () => {
+    requestMock.mockImplementation(async () => jsonResponse({ successList: [], failList: [{ poolId: "404", failReason: "池不存在" }] }))
+    const r = await client().call("vault.stock-pool.delete", { poolIdList: ["404"] }) as Record<string, unknown>
+    expect(r.failedItems).toEqual(["404（池不存在）"])
+  })
+
+  it("leaves a fully successful batch unflagged", async () => {
+    requestMock.mockImplementation(async () => jsonResponse({ successList: ["600519.SH"], failList: [] }))
+    const r = await client().call("vault.stock-pool.remove-stock", { poolId: "1", securityCodeList: ["600519.SH"] }) as Record<string, unknown>
+    expect(r._partial).toBeUndefined()
+  })
+
+  // 没标记的端点不该被顺手加工——failList 在别的端点上可能是一个普通的业务字段。
+  it("leaves an unmarked endpoint's payload alone", async () => {
+    requestMock.mockImplementation(async () => jsonResponse({ poolId: "1", poolName: "x", failList: [{ securityCode: "Z" }] }))
+    const r = await client().call("vault.stock-pool.create", { poolName: "x" }) as Record<string, unknown>
+    expect(r._partial).toBeUndefined()
   })
 })

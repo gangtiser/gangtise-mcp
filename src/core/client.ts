@@ -9,8 +9,9 @@ import { gunzip } from "node:zlib"
 import { request } from "undici"
 
 import { DEFAULT_MAX_DOWNLOAD_BYTES, PAGE_CONCURRENCY, type CliConfig } from "./config.js"
-import { isTokenCacheValid, normalizeToken, readTokenCache, readTokenCacheWithMtime, requireAccessCredentials, writeTokenCache, type TokenCache } from "./auth.js"
+import { credentialFingerprint, isTokenCacheValid, normalizeToken, readTokenCache, readTokenCacheWithMtime, requireAccessCredentials, writeTokenCache, type TokenCache } from "./auth.js"
 import { ApiError, DownloadError, ValidationError, errorMessage } from "./errors.js"
+import { flagFailedItems } from "./normalize.js"
 import { ENDPOINTS, type EndpointDefinition } from "./endpoints.js"
 import { Envelope, isEnvelope, unwrapEnvelope } from "./envelope.js"
 import { getLookupData } from "./lookupData/index.js"
@@ -139,16 +140,24 @@ export class GangtiseClient {
 
   constructor(private readonly config: CliConfig) {}
 
+  /** `undefined` 表示没有配 accessKey：此时不存在第二个账号，也就无从比对。 */
+  private expectedFingerprint(): string | undefined {
+    return this.config.accessKey ? credentialFingerprint(this.config.accessKey, this.config.baseUrl) : undefined
+  }
+
   private async getAuthorizationHeader(forceRefresh = false): Promise<string> {
     if (!forceRefresh) {
-      if (isTokenCacheValid(this.memoCache)) {
+      const expected = this.expectedFingerprint()
+      if (isTokenCacheValid(this.memoCache, undefined, expected)) {
         return normalizeToken(this.memoCache!.accessToken)
       }
       if (this.config.token) {
         return normalizeToken(this.config.token)
       }
+      // 缓存文件与 gangtise CLI 共用，而 CLI 可能是用另一套凭证登录的。没有归属比对时
+      // 那枚 token 会被原样采用，请求于是带着另一个账号的身份发出去。
       const cache = await readTokenCache(this.config.tokenCachePath)
-      if (isTokenCacheValid(cache)) {
+      if (isTokenCacheValid(cache, undefined, expected)) {
         this.memoCache = cache
         return normalizeToken(cache!.accessToken)
       }
@@ -178,7 +187,7 @@ export class GangtiseClient {
     const accessToken = normalizeToken(envelope.accessToken)
     const expiresAt = Math.floor(Date.now() / 1000) + envelope.expiresIn
 
-    const cache: TokenCache = { ...envelope, accessToken, expiresAt }
+    const cache: TokenCache = { ...envelope, accessToken, expiresAt, issuedFor: credentialFingerprint(credentials.accessKey, this.config.baseUrl) }
     this.memoCache = cache
     // Persisting to disk is a cross-process cache optimization — this token is
     // already valid in memoCache. A write failure (read-only home, ENOSPC) must
@@ -225,10 +234,12 @@ export class GangtiseClient {
       //      来源）→ 采用它等于拿另一个死 token 重试一次，把每次请求仅有的一次自愈名
       //      额白白烧掉，而真正该做的 AK/SK 登录再也不会发生。
       // 两者的 token 都「不等于失败的那个」，只有写入时间能把它们分开。
+      // 归属比对在这里同样不能省：兄弟进程既可能是同账号的刷新（该采用），也可能是
+      // 另一个账号的登录（采用它就是换错身份重试一次，还把仅有的一次自愈名额烧掉）。
       const { cache: fileCache, mtimeMs } = await readTokenCacheWithMtime(this.config.tokenCachePath)
       const refreshedDuringThisRequest = mtimeMs >= authState.startedAt
       if (
-        isTokenCacheValid(fileCache)
+        isTokenCacheValid(fileCache, undefined, this.expectedFingerprint())
         && refreshedDuringThisRequest
         && usedAuthorization !== undefined
         && normalizeToken(fileCache!.accessToken) !== usedAuthorization
@@ -824,7 +835,7 @@ export class GangtiseClient {
     })
   }
 
-  async call(endpointKey: string, body?: unknown, query?: Record<string, string | number>, options?: { streamTo?: string }) {
+  async call(endpointKey: string, body?: unknown, query?: Record<string, string | number>, options?: { streamTo?: string }): Promise<unknown> {
     const endpoint = ENDPOINTS[endpointKey]
     if (!endpoint) {
       throw new ApiError(`Unknown endpoint key: ${endpointKey}`)
@@ -838,6 +849,10 @@ export class GangtiseClient {
       return this.requestPaginated(endpoint, body)
     }
 
-    return this.requestJson(endpoint, body)
+    const data = await this.requestJson(endpoint, body)
+    // 逐条失败藏在 `000000` 成功信封里。判据挂在端点上、在这里统一执行，而不是让每个
+    // 工具的 handler 自己记得调一次 —— 规则复制成两份，早晚只改其中一份：下一个加逐条
+    // 端点的人标了 `itemFailures` 就会以为完事，落地的正是注释警告的那个后果。
+    return endpoint.itemFailures ? flagFailedItems(data) : data
   }
 }

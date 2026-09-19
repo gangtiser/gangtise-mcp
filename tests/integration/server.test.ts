@@ -120,7 +120,19 @@ describe("MCP server integration", () => {
     // retry: "no-replay"), so they must NOT be read-only — clients shouldn't
     // auto-invoke them unconfirmed.
     // Their _check polling tools stay read-only.
-    expect(nonReadOnly).toEqual(["gangtise_earnings_review", "gangtise_viewpoint_debate"])
+    // 五个股票池写工具是本服务仅有的写操作，改的是用户本人的自选股——同样不能是只读。
+    expect(nonReadOnly).toEqual([
+      "gangtise_earnings_review",
+      "gangtise_stock_pool_add_stock",
+      "gangtise_stock_pool_create",
+      "gangtise_stock_pool_delete",
+      "gangtise_stock_pool_remove_stock",
+      "gangtise_stock_pool_rename",
+      "gangtise_viewpoint_debate",
+    ])
+    // 不可逆的那些必须自报 destructiveHint，客户端才好在调用前要确认。
+    const destructive = tools.filter(t => t.annotations?.destructiveHint === true).map(t => t.name).sort()
+    expect(destructive).toEqual(["gangtise_stock_pool_delete", "gangtise_stock_pool_remove_stock"])
     // Every tool hits a single closed-domain API (or local data), never the open
     // world — so all declare openWorldHint: false.
     expect(tools.every(t => t.annotations?.openWorldHint === false)).toBe(true)

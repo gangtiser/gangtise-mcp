@@ -658,3 +658,87 @@ describe("spilled text preview fits the byte budget", () => {
     expect(JSON.parse(raw)._truncated).toBe(true)
   })
 })
+
+// 分页形状的预览靠 `...rest` 把顶层元数据整片带上；非列表大对象没有那条路，它的预览是
+// 纯指针。正文沉进文件没关系，「这份结果完整吗」不能跟着沉下去 —— 工具说明让调用方看
+// `_partial`，而它恰好是唯一看不到的地方，一次部分失败就会被读成全部成功。
+describe("spilled non-list objects keep their incompleteness markers", () => {
+  const bulk = (n: number) => Array.from({ length: n }, (_, i) => `${600000 + i}.SH`)
+  const parse = (content: Array<{ text: string }>) => JSON.parse(content[0].text) as Record<string, unknown>
+
+  it("surfaces _partial and the detail list on the pointer", async () => {
+    const content = await buildToolContent({
+      successList: bulk(6000),
+      failList: [{ securityCode: "999999.XX", failReason: "证券代码不存在" }],
+      _partial: true,
+      _partial_reason: "failed_items",
+      failedItems: ["999999.XX（证券代码不存在）"],
+    })
+    const p = parse(content)
+    expect(p._truncated, "载荷没到阈值，这条用例白测了").toBe(true)
+    expect(p._partial).toBe(true)
+    expect(p._partial_reason).toBe("failed_items")
+    expect(p.failedItems).toEqual(["999999.XX（证券代码不存在）"])
+  })
+
+  // 明细数组本身可能就是把载荷顶过阈值的那个东西，整片搬进预览等于把刚落盘的内容
+  // 又塞回上下文。
+  it("bounds a long detail list instead of copying it back inline", async () => {
+    const content = await buildToolContent({
+      payload: bulk(6000),
+      _partial: true,
+      _partial_reason: "failed_items",
+      failedItems: bulk(500),
+    })
+    const p = parse(content)
+    const items = p.failedItems as unknown[]
+    expect(items).toHaveLength(6)
+    expect(items.slice(0, 5)).toEqual(bulk(5))
+    expect(String(items[5])).toContain("共 500 条")
+    expect(Buffer.byteLength(content[0].text, "utf8")).toBeLessThanOrEqual(INLINE_MAX_BYTES)
+  })
+
+  it("adds nothing when the result is complete", async () => {
+    const content = await buildToolContent({ successList: bulk(6000), failList: [] })
+    const p = parse(content)
+    expect(p._truncated).toBe(true)
+    expect(p._partial).toBeUndefined()
+    expect(p._partial_reason).toBeUndefined()
+  })
+
+  // 🔴 钉法必须与**真实产生这些键的代码**交叉验证。只用正则把表里的字面量读出来再跟
+  // 手抄的期望比一遍，等于让这张表给自己作证：`_malformed_securities` 就是这样漏掉还
+  // 全绿的（quoteSharding 真实产生它，表里却只有对称的 `_malformed_shards`）。
+  //
+  // 下划线族（`_failed_*` / `_truncated_*` / `_malformed_*` / `_dropped_*`）命名有规律，
+  // 直接从源码穷举出来，要求表是它的超集——将来新增一个就会自动被抓到。
+  it("covers every underscore-family partial marker produced anywhere in src", async () => {
+    const { readFileSync, readdirSync, statSync } = await import("node:fs")
+    const walk = (dir: string): string[] =>
+      readdirSync(dir).flatMap((name) => {
+        const full = `${dir}/${name}`
+        return statSync(full).isDirectory() ? walk(full) : full.endsWith(".ts") ? [full] : []
+      })
+    const all = walk("src").map((f) => readFileSync(f, "utf8")).join("\n")
+    const registry = readFileSync("src/tools/registry.ts", "utf8")
+    const table = new Set(
+      [...registry.match(/const PARTIAL_DETAIL_KEYS = \[([^\]]*)\]/)![1].matchAll(/"([^"]+)"/g)].map((m) => m[1]),
+    )
+    const produced = new Set(
+      [...all.matchAll(/\b_(?:failed|truncated|malformed|dropped)_[a-z_]+\b/g)].map((m) => m[0]),
+    )
+    const missing = [...produced].filter((key) => !table.has(key)).sort()
+    expect(missing, `这些标记会在落盘指针上静默消失：${missing.join("、")}`).toEqual([])
+  })
+
+  // 驼峰族没有统一前缀，只能显式钉；加删都应当是一次被看见的改动。
+  it("pins the camelCase detail keys", async () => {
+    const { readFileSync } = await import("node:fs")
+    const registry = readFileSync("src/tools/registry.ts", "utf8")
+    const keys = [...registry.match(/const PARTIAL_DETAIL_KEYS = \[([^\]]*)\]/)![1].matchAll(/"([^"]+)"/g)]
+      .map((m) => m[1])
+      .filter((k) => !k.startsWith("_"))
+      .sort()
+    expect(keys).toEqual(["failedItems", "missingFields", "omittedIndicators", "omittedSecurities"])
+  })
+})
