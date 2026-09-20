@@ -275,7 +275,7 @@ describe("每条早退路径都释放登记表名额", () => {
   }
 
   // 🔴 异常分支同样要释放名额，而且**只能靠运行时断言**：
-  // 静态扫描抓得到「某处写回了裸 fs.rm」，抓不到「某个 catch 里整段 dropTempDir() 被删掉」——
+  // 静态扫描抓得到「某处写回了裸 fs.rm」，抓不到「某个 catch 里整段 discardManagedTempDir() 被删掉」——
   // 那种改法下源码里 fs.rm 的出现次数一点没变，扫描全绿而墓碑照留。
   //
   // 🔴 每个 mock 都要把 `streamTo` 记下来。被测代码正常时会自己删掉目录，但这些用例存在的
@@ -354,7 +354,64 @@ describe("每条早退路径都释放登记表名额", () => {
     const src = readFileSync("src/core/download.ts", "utf8")
     // Case 3 (savedPath) 与 Case 4 (data) 各有一次，且都传了 tempDir 做保护
     expect((src.match(/await enforceOwnedTempQuota\(tempDir\)/g) ?? []).length, "有落盘路径漏了写后配额").toBe(2)
-    // `fs.rm(tempDir` 只该在 dropTempDir 内部出现这一次；多出来的就是绕过了释放。
-    expect((src.match(/fs\.rm\(tempDir/g) ?? []).length, "有分支绕过 dropTempDir 直接 fs.rm").toBe(1)
+    // 「删受管临时目录只许走 discardManagedTempDir」那条由 tempCleanup.test.ts 全目录扫描，
+    // 不在这里按文件清单钉——清单会在下一个落盘点出现在新文件时静默失效。
+  })
+})
+
+// 🔴 「删不掉目录」和「摘不掉登记」的后果完全不同，而且在「未结算 = 不可淘汰」这条规则
+// 立下之后差距被放大了：`force: true` 只消化 ENOENT，EACCES / EPERM / EBUSY 照样抛；抛出
+// 的话 `releaseOwnedTempDir` 就不执行，留下的条目既在登记表里、又**从未结算**——两条淘汰
+// 路径都会跳过它，于是它永久占一格数量配额、字节永久计进总量，配额被顶死后再也削不下去。
+// 删不掉的那份至少还有一条回收路径（下次启动的 cleanupStaleTempDirs），配额被顶死一条都没有。
+describe("清理失败时仍然摘掉登记", () => {
+  const ebusy = () => Object.assign(new Error("EBUSY: resource busy or locked"), { code: "EBUSY" })
+
+  it("直链早退：rm 抛 EBUSY 不该让一次成功的下载失败，也不该留下条目", async () => {
+    resetOwnedTempDirs()
+    const realRm = fs.rm
+    let seen: string | undefined
+    const client = {
+      download: async (_e: EndpointDefinition, _q: unknown, o?: { streamTo?: string }) => {
+        seen = o?.streamTo
+        return { url: "https://cdn.example.com/a.pdf", filename: "a.pdf" }
+      },
+    } as unknown as GangtiseClient
+
+    ;(fs as { rm: typeof fs.rm }).rm = (async () => { throw ebusy() }) as typeof fs.rm
+    let outcome: unknown
+    try {
+      outcome = await downloadToResult(client, endpoint, {}).then((r) => r, (e) => e)
+    } finally {
+      ;(fs as { rm: typeof fs.rm }).rm = realRm
+      if (seen) await realRm(path.dirname(seen), { recursive: true, force: true })
+    }
+
+    expect(outcome, "清理的二次失败把一次成功的下载搞砸了").toMatchObject({ url: "https://cdn.example.com/a.pdf" })
+    expect(ownedTempDirCount(), "清理失败留下了永不结算的条目，它会永久占一格数量配额").toBe(0)
+  })
+
+  it("下载失败 + 清理失败：抛的是下载的原始错误，且不留条目", async () => {
+    resetOwnedTempDirs()
+    const realRm = fs.rm
+    let seen: string | undefined
+    const client = {
+      download: async (_e: EndpointDefinition, _q: unknown, o?: { streamTo?: string }) => {
+        seen = o?.streamTo
+        throw new Error("stream reset mid-download")
+      },
+    } as unknown as GangtiseClient
+
+    ;(fs as { rm: typeof fs.rm }).rm = (async () => { throw ebusy() }) as typeof fs.rm
+    let outcome: unknown
+    try {
+      outcome = await downloadToResult(client, endpoint, {}).then(() => "resolved", (e) => e)
+    } finally {
+      ;(fs as { rm: typeof fs.rm }).rm = realRm
+      if (seen) await realRm(path.dirname(seen), { recursive: true, force: true })
+    }
+
+    expect((outcome as Error).message, "清理的二次失败盖住了下载本身的错误").toBe("stream reset mid-download")
+    expect(ownedTempDirCount(), "失败路径上清理失败留下了永不结算的条目").toBe(0)
   })
 })

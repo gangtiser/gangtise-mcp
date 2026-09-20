@@ -4,7 +4,7 @@ import os from "node:os"
 import path from "node:path"
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
-import { selectStaleTempDirs, createManagedTempDir, isOwnedTempPath, resetOwnedTempDirs, releaseOwnedTempDir, touchOwnedTempDir, enforceOwnedTempQuota, beginSpillRead, endSpillRead, ownedTempDirCount, ownedTempBookkeepingSizes, setMaxOwnedTempDirsForTests, MAX_OWNED_TEMP_DIRS, MAX_OWNED_TEMP_BYTES } from "../../../src/core/tempCleanup.js"
+import { selectStaleTempDirs, cleanupStaleTempDirs, createManagedTempDir, isOwnedTempPath, resetOwnedTempDirs, releaseOwnedTempDir, touchOwnedTempDir, enforceOwnedTempQuota, beginSpillRead, endSpillRead, ownedTempDirCount, ownedTempBookkeepingSizes, setMaxOwnedTempDirsForTests, MAX_OWNED_TEMP_DIRS, MAX_OWNED_TEMP_BYTES } from "../../../src/core/tempCleanup.js"
 
 const DAY = 86_400_000
 const now = 1_700_000_000_000
@@ -57,7 +57,13 @@ describe("createManagedTempDir: in-session retention cap", () => {
     resetOwnedTempDirs()
     const dirs: string[] = []
     try {
-    for (let i = 0; i < MAX_OWNED_TEMP_DIRS + 3; i += 1) dirs.push(await createManagedTempDir())
+    // 每建一份就结算一次 —— 三个落盘点都是这么收尾的，而**未结算的目录不参与淘汰**
+    // （在途的下载不能被别人的配额执行删掉）。不结算就等于把每一份都标成「还在写」。
+    for (let i = 0; i < MAX_OWNED_TEMP_DIRS + 3; i += 1) {
+      const d = await createManagedTempDir()
+      dirs.push(d)
+      await enforceOwnedTempQuota(d)
+    }
     // realpath 要在被挤掉**之前**取：淘汰会把目录从磁盘删掉，事后 realpath 直接 ENOENT。
     const oldest = dirs[0]
 
@@ -86,7 +92,12 @@ describe("owned temp dirs evict by LRU, not FIFO", () => {
   it("keeps a dir that was touched by a read, even when a full cap of newer dirs appears", async () => {
     resetOwnedTempDirs()
     const created: string[] = []
-    const track = async () => { const d = await createManagedTempDir(); created.push(d); return d }
+    const track = async () => {
+      const d = await createManagedTempDir()
+      created.push(d)
+      await enforceOwnedTempQuota(d)   // 写完即结算；未结算的目录不参与淘汰
+      return d
+    }
     try {
     const touched = await track()
     const neverRead = await track()
@@ -136,6 +147,7 @@ describe("owned temp dirs also honour a byte quota", () => {
         const dir = await createManagedTempDir()
         created.push(dir)
         await sparse(path.join(dir, name), chunk)
+        await enforceOwnedTempQuota(dir)   // 写完即结算；未结算的目录不参与淘汰
         return fsSync.realpath(dir)
       }
       const oldest = await mk("a.bin")
@@ -164,11 +176,13 @@ describe("owned temp dirs also honour a byte quota", () => {
     try {
       const older = await createManagedTempDir(); created.push(older)
       await sparse(path.join(older, "a.bin"), 512 * 1024 * 1024)
+      await enforceOwnedTempQuota(older)   // 写完即结算；未结算的目录不参与淘汰
       const olderReal = await fsSync.realpath(older)
 
       const newest = await createManagedTempDir(); created.push(newest)
       // 这一份自己就超过 2 GiB 配额
       await sparse(path.join(newest, "huge.bin"), 3 * 1024 * 1024 * 1024)
+      await enforceOwnedTempQuota(newest)
       const newestReal = await fsSync.realpath(newest)
 
       await enforceOwnedTempQuota()
@@ -367,8 +381,11 @@ describe("byte quota is not fooled by a size measured mid-write", () => {
       await fs.truncate(path.join(c, "part.bin"), 0.75 * GiB)
       await enforceOwnedTempQuota(c)
 
-      const retained = (await Promise.all(dirs.map(sizeOf))).reduce((sum, n) => sum + n, 0)
-      expect(retained, "把未结算目录写到一半的读数当成了最终大小").toBeLessThanOrEqual(MAX_OWNED_TEMP_BYTES)
+      // 判据是「b 被淘汰了」，不是「总量回到配额内」：a 还在写（未结算），按 M30 它不参与
+      // 淘汰，总量因此会**暂时**停在 2.25 GiB。而 b 之所以被淘汰，只可能是 a 被重新量到了
+      // 1.5 GiB —— 若那 1 字节的半成品读数被缓存下来，合计只有 1.5 GiB，一个都不会淘汰。
+      expect(await sizeOf(b), "没有重新量 a，半成品读数被当成了最终大小").toBe(0)
+      expect(await sizeOf(a), "把还在写入的在途目录淘汰了").toBe(1.5 * GiB)
       expect(await sizeOf(c), "刚结算的那一份不该被淘汰").toBe(0.75 * GiB)
     } finally {
       for (const dir of dirs) { await fs.rm(dir, { recursive: true, force: true }); releaseOwnedTempDir(dir) }
@@ -530,7 +547,12 @@ describe("eviction yields to a reader that registers mid-scan", () => {
     const dirs: string[] = []
     const realRm = fs.rm
     try {
-      for (let i = 0; i < MAX_OWNED_TEMP_DIRS; i += 1) dirs.push(await createManagedTempDir())
+      // 建完即结算 —— 未结算的目录不参与数量淘汰，不结算的话补跑时一个都削不掉。
+      for (let i = 0; i < MAX_OWNED_TEMP_DIRS; i += 1) {
+        const d = await createManagedTempDir()
+        dirs.push(d)
+        await enforceOwnedTempQuota(d)
+      }
       // 回读期间再造 3 个：淘汰全被推迟，登记表因此超出上限 3 个。
       beginSpillRead()
       for (let i = 0; i < 3; i += 1) dirs.push(await createManagedTempDir())
@@ -766,6 +788,158 @@ describe("bookkeeping is released together with the dir", () => {
       resume()
       ;(fs as { stat: typeof fs.stat }).stat = realStat
       for (const dir of dirs) { await fs.rm(dir, { recursive: true, force: true }).catch(() => {}); releaseOwnedTempDir(dir) }
+      resetOwnedTempDirs()
+    }
+  })
+})
+
+// 🔴 配额淘汰此前只排除调用方**点名保护**的那一份，不看目录有没有「结算」。于是一个正在
+// 写入、尚未调 `enforceOwnedTempQuota(自己)` 的下载目录，会被另一条并发路径的配额执行删掉
+// —— 下载方收尾时 ENOENT，在计费端点上意味着已经付过费的内容拿不到。
+//
+// 两条淘汰路径**各自独立过滤**（字节那条的 evictable、数量那条的 excess），只改一条等于
+// 没改：配额压力从另一条照样能删掉在途的下载。所以两条都要钉。
+describe("in-flight (unsettled) temp dirs are never evicted", () => {
+  const GiB = 1024 ** 3
+  const sparse = async (dir: string, size: number) => {
+    const fh = await fs.open(path.join(dir, "part.bin"), "w")
+    try { await fh.truncate(size) } finally { await fh.close() }
+  }
+  const sizeOf = async (dir: string) => {
+    try { return (await fs.stat(path.join(dir, "part.bin"))).size } catch { return 0 }
+  }
+
+  it("byte quota: two in-flight downloads survive a third dir settling over the quota", async () => {
+    resetOwnedTempDirs()
+    const created: string[] = []
+    try {
+      // A、B 在途（从不结算，模拟还在流式写盘）；C 写完即结算。三份各 0.8 GiB，合计 2.4 GiB。
+      const mk = async () => {
+        const d = await createManagedTempDir()
+        created.push(d)
+        await sparse(d, Math.floor(0.8 * GiB))
+        return d
+      }
+      const a = await mk()
+      const b = await mk()
+      const c = await mk()
+      const [aReal, bReal, cReal] = await Promise.all([a, b, c].map((d) => fs.realpath(d)))
+
+      await enforceOwnedTempQuota(c)
+
+      expect(isOwnedTempPath(aReal), "在途的下载目录被别人的配额执行删掉了").toBe(true)
+      expect((await fs.stat(aReal)).isDirectory()).toBe(true)
+      // B 此前是「侥幸存活」——删掉 A 后总量已回落、循环 break。它必须是被规则保住的，不是运气。
+      expect(isOwnedTempPath(bReal), "第二份在途目录被删了").toBe(true)
+      expect(isOwnedTempPath(cReal), "刚结算的那一份不该被淘汰").toBe(true)
+
+      // 「暂时超出配额」必须只是**暂时**的：在途的几份各自结算之后，总量要回落到上限内，
+      // 否则这条修复就把缺陷换成了「永久不淘汰」。
+      await enforceOwnedTempQuota(a)
+      await enforceOwnedTempQuota(b)
+      const total = (await Promise.all(created.map(sizeOf))).reduce((sum, n) => sum + n, 0)
+      expect(total, "全部结算之后总量仍超配额 —— 超出变成了永久的").toBeLessThanOrEqual(MAX_OWNED_TEMP_BYTES)
+    } finally {
+      for (const d of created) await fs.rm(d, { recursive: true, force: true })
+      resetOwnedTempDirs()
+    }
+  }, 30_000)
+
+  it("count quota: the cheap count sweep skips them too", async () => {
+    resetOwnedTempDirs()
+    setMaxOwnedTempDirsForTests(2)
+    const created: string[] = []
+    try {
+      const mk = async () => { const d = await createManagedTempDir(); created.push(d); return d }
+      const a = await mk()   // 在途
+      const b = await mk()   // 在途
+      const c = await mk()
+      const [aReal, bReal] = await Promise.all([a, b].map((d) => fs.realpath(d)))
+
+      await enforceOwnedTempQuota(c)   // 登记 3 个、上限 2 个：数量配额要削掉 1 个
+
+      expect(ownedTempDirCount(), "数量配额削掉了在途的目录").toBe(3)
+      expect(isOwnedTempPath(aReal), "在途的目录被数量配额删掉了").toBe(true)
+      expect(isOwnedTempPath(bReal), "在途的目录被数量配额删掉了").toBe(true)
+      expect((await fs.stat(aReal)).isDirectory()).toBe(true)
+    } finally {
+      setMaxOwnedTempDirsForTests(TEST_MAX_OWNED)
+      for (const d of created) await fs.rm(d, { recursive: true, force: true })
+      resetOwnedTempDirs()
+    }
+  })
+})
+
+// 🔴 删受管临时目录**只许走 `discardManagedTempDir`**：那里 rm 的失败是吞掉的、摘登记
+// 无条件执行。任何地方写回裸 `fs.rm` + 自己配对摘登记，一次 EACCES / EPERM / EBUSY 就会
+// 让摘登记不执行——留下的条目既未结算、又不参与淘汰（见 `settledDirs`），永久占一格数量
+// 配额、字节永久计进总量。这正是合并前那两份同构实现「只改了一处」酿成的回归。
+//
+// ⚠️ 扫**整个 `src/`**，不按文件清单钉。清单版的守卫在下一个落盘点出现在新文件时静默
+// 失效——「靠人记得同时改两处实现」只是换成了「靠人记得往清单里加一行」，失败模式没变。
+// 本文件是唯一豁免：`discardManagedTempDir` 自己、两条淘汰路径（先摘登记再删，顺序相反
+// 且正确）、以及扫别的进程残留的启动清扫。
+describe("removing a managed temp dir only ever goes through discardManagedTempDir", () => {
+  it("no file outside tempCleanup.ts calls fs.rm", async () => {
+    const { readFileSync, readdirSync } = await import("node:fs")
+    const walk = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+        const full = path.join(dir, e.name)
+        return e.isDirectory() ? walk(full) : full.endsWith(".ts") ? [full] : []
+      })
+    // 注释里提到 `fs.rm(` 的那些段落（本文件的 🔴 注释就有）不算调用，剥掉再扫；
+    // 反过来也一样——一段注释不该让下面的反查通过。
+    const code = (file: string) =>
+      readFileSync(file, "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/^\s*\/\/.*$/gm, "")
+
+    const shared = path.join("src", "core", "tempCleanup.ts")
+    const offenders = walk("src").filter((f) => f !== shared).filter((f) => /fs\.rm\(/.test(code(f)))
+    expect(offenders, `这些文件绕过 discardManagedTempDir 直接 fs.rm：${offenders.join("、")}`).toEqual([])
+
+    // 🔴 反查：共用入口必须还在豁免文件里，而且还在**自己删、自己摘**。
+    // 少了这条，把 discardManagedTempDir 挪走（或掏空）之后上面那条会变成空转的全绿。
+    // 只测「本文件含 fs.rm(」不够——两条淘汰路径和启动清扫都含，证明不了共用入口还在。
+    const body = code(shared).match(/export async function discardManagedTempDir\b[^{]*\{([\s\S]*?)\n\}/)
+    expect(body, "共用入口不在 tempCleanup.ts 里了，上面那条守卫已变成空转的全绿").not.toBeNull()
+    expect(body![1], "共用入口不再自己删目录了").toMatch(/fs\.rm\(/)
+    expect(body![1], "共用入口删了目录却不摘登记了").toMatch(/releaseOwnedTempDir\(/)
+  })
+})
+
+// 🔴 `cleanupStaleTempDirs` 是「删受管目录只走 discardManagedTempDir」的唯一例外，而它成立
+// 的理由——「只在启动时跑，那时登记表还是空的」——没有任何东西钉住：函数是 export 的、签名
+// 带 now/maxAgeMs，看着就是个通用工具，而 fs.rm( 的静态守卫豁免了整个 tempCleanup.ts。
+// 在它内部加一条周期性清理不会被任何检查拦下，而那会留下**墓碑 + 未结算**：既占一格数量
+// 配额，又因为未结算而不参与淘汰——正是 M30 修的那个形态。所以让它自己无条件摘登记。
+describe("cleanupStaleTempDirs never leaves a tombstone behind", () => {
+  // ⚠️ 这条**必须**把 os.tmpdir() 指到用例独占的沙箱：cleanupStaleTempDirs 扫的是整个临时区，
+  // 按真实 tmpdir 跑会删掉本用例没创建的东西——开发机上就是把真实 server 留下的溢出目录扫了。
+  // 只改自己那份的 mtime 限制不了扫描范围，它限制的只是「哪些会被判定为陈旧」。
+  it("releases the registry slot of every dir it sweeps", async () => {
+    const sandbox = await fs.mkdtemp(path.join(os.tmpdir(), "gangtise-sweep-case-"))
+    const tmpdirSpy = vi.spyOn(os, "tmpdir").mockReturnValue(sandbox)
+    resetOwnedTempDirs()
+    try {
+      const dir = await createManagedTempDir()      // 建在沙箱里
+      const real = await fs.realpath(dir)
+      // 同期造一份「别的进程留下的」，同样改旧：它也该被扫掉，但它不在登记表里，
+      // 摘登记对它是 no-op——顺带钉住「摘登记不会误伤非受管目录」。
+      const foreign = path.join(sandbox, "gangtise-mcp-foreign")
+      await fs.mkdir(foreign)
+      const stale = new Date(Date.now() - 3 * DAY)
+      await fs.utimes(real, stale, stale)
+      await fs.utimes(foreign, stale, stale)
+
+      const removed = await cleanupStaleTempDirs()
+
+      expect(removed.sort(), "扫到的不是沙箱里那两份").toEqual([path.basename(real), "gangtise-mcp-foreign"].sort())
+      expect(await fs.stat(real).then(() => true, () => false), "目录没删掉").toBe(false)
+      expect(ownedTempDirCount(), "删了目录却没摘登记——墓碑会永久占一格，且因未结算而不可淘汰").toBe(0)
+    } finally {
+      tmpdirSpy.mockRestore()
+      await fs.rm(sandbox, { recursive: true, force: true })
       resetOwnedTempDirs()
     }
   })

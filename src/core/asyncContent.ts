@@ -1,6 +1,6 @@
 import { ApiError } from "./errors.js"
 import { AsyncTimeoutError } from "./errors.js"
-import { currentSignal } from "./requestContext.js"
+import { currentSignal, runWithRequestContext } from "./requestContext.js"
 import { isTransientError, sleep } from "./transport.js"
 
 export const POLL_INITIAL_DELAY_MS = 5_000
@@ -33,20 +33,58 @@ export function isAsyncFailed(error: unknown): boolean {
   return error instanceof ApiError && error.code !== undefined && FAILED_CODES.has(error.code)
 }
 
-/** Rejects with AsyncTimeoutError if `promise` hasn't settled within `budgetMs`.
+/** Rejects with AsyncTimeoutError if `run()` hasn't settled within `budgetMs`.
  * The poll loop bounds its sleep by the deadline, but a single client.call() can
  * itself stall up to the request timeout (~30s). Without this, a poll fired with
  * a sliver of budget left blocks until that call returns — overshooting the
  * deadline and the client's ~60s cutoff, losing the billed dataId the deadline
- * exists to protect. The stalled call is abandoned (its .catch swallows a late
- * rejection); the caller still gets the dataId back to recover via *_check. */
-function withPollDeadline<T>(promise: Promise<T>, budgetMs: number, dataId: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout>
+ * exists to protect. The caller still gets the dataId back to recover via *_check.
+ *
+ * 🔴 截止时间必须**真的中止**那次调用，不能只是不再等它：`Promise.race` 输掉的那一侧
+ * 仍在跑，底层的 HTTP 请求和 transport 的重试退避会继续按节奏重发 —— 调用方早已拿到
+ * `AsyncTimeoutError`，后台还在空烧请求，按次计费的端点上是实打实的消耗，也绕过了
+ * 「客户端取消后不再发后续请求」这条约定。所以这里派生一个子信号：`run()` 在该信号的
+ * 上下文里执行（`client` 经 `currentSignal()` 取到它，传给 undici 与 `withRetry`），
+ * 截止时 abort 掉，在飞的请求与还没睡完的退避一并结束。
+ *
+ * `parent` 是整次 MCP 请求的取消信号，要继续向下传 —— 子信号只是**额外**叠一个截止
+ * 时间，不是替代。监听器用完即摘：一次轮询要跑很多轮，留着会在父信号上越挂越多。 */
+function withPollDeadline<T>(run: () => Promise<T>, budgetMs: number, dataId: string, parent?: AbortSignal): Promise<T> {
+  const controller = new AbortController()
+  const onParentAbort = () => controller.abort(parent!.reason)
+  if (parent?.aborted) controller.abort(parent.reason)
+  else parent?.addEventListener("abort", onParentAbort, { once: true })
+
+  let timer: ReturnType<typeof setTimeout> | undefined
   const deadline = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new AsyncTimeoutError(dataId)), budgetMs)
+    timer = setTimeout(() => {
+      const expired = new AsyncTimeoutError(dataId)
+      // 🔴 先 reject 再 abort。两者在同一个同步 tick 里，但 `Promise.race` 的胜者由**谁先
+      // settle** 决定：反过来写时 abort 会让底层链路以同一个错误先拒绝，赢家取决于微任务
+      // 层数。结果碰巧一样（两边都是这个 dataId 的 AsyncTimeoutError），但那是巧合不是约定。
+      // abort 仍在同一 tick 内执行，在飞的请求照样当场中止。
+      reject(expired)
+      controller.abort(expired)
+    }, budgetMs)
   })
+
+  // 🔴 `run()` 同步抛时 `.finally` 永远不会建立，而 timer 已经在上面建好了 —— budgetMs
+  // 之后那次 `reject(expired)` 落在一个没有 handler 的 promise 上，Node 默认对 unhandled
+  // rejection 是**直接退进程**，而 MCP server 是常驻的。旧签名收的是已经求值的 promise，
+  // 同步抛发生在本函数之外，没有这条路径；把求值搬进来就得自己收尾。
+  // 生产路径上 `client.call` 是 async 方法、不会同步抛，但代价与概率不对称。
+  let promise: Promise<T>
+  try {
+    promise = runWithRequestContext(controller.signal, run)
+  } catch (error) {
+    clearTimeout(timer)
+    parent?.removeEventListener("abort", onParentAbort)
+    return Promise.reject(error)
+  }
   return Promise.race([promise, deadline]).finally(() => {
     clearTimeout(timer)
+    parent?.removeEventListener("abort", onParentAbort)
+    // 中止后迟到的那次 rejection 已经没人接了。
     promise.catch(() => {})
   })
 }
@@ -68,7 +106,7 @@ export async function pollAsyncContent(
     const remaining = deadline - Date.now()
     if (remaining <= 0) throw new AsyncTimeoutError(dataId)
     try {
-      const result = await withPollDeadline(client.call(getContentEndpoint, { dataId }), remaining, dataId) as { content?: string }
+      const result = await withPollDeadline(() => client.call(getContentEndpoint, { dataId }), remaining, dataId, signal) as { content?: string }
       if (result?.content != null) {
         return { content: result.content }
       }

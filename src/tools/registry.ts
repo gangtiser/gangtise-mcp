@@ -8,7 +8,7 @@ import { ENDPOINTS } from "../core/endpoints.js"
 import { normalizeRows } from "../core/normalize.js"
 import { downloadToResult, type DownloadResult } from "../core/download.js"
 import { ValidationError } from "../core/errors.js"
-import { createManagedTempDir, enforceOwnedTempQuota } from "../core/tempCleanup.js"
+import { createManagedTempDir, discardManagedTempDir, enforceOwnedTempQuota } from "../core/tempCleanup.js"
 import { INLINE_MAX_BYTES } from "../core/config.js"
 import { withBilling } from "./billing.js"
 import { toolHandler } from "./helpers.js"
@@ -324,7 +324,12 @@ export async function buildToolContent(payload: unknown, options?: BuildOptions)
 
   const tempDir = await createManagedTempDir()
   const savedPath = path.join(tempDir, "response.json")
-  await fs.writeFile(savedPath, json, "utf8")
+  try {
+    await fs.writeFile(savedPath, json, "utf8")
+  } catch (err) {
+    await discardManagedTempDir(tempDir)
+    throw err
+  }
   // 写完才知道真实体积——配额必须在这里再执行一次（创建时目录还是空的）。
   await enforceOwnedTempQuota(tempDir)
 
@@ -479,7 +484,12 @@ export function buildTextPointer(text: string, savedPath: string, budget = INLIN
 async function spillTextMeta(text: string): Promise<Record<string, unknown>> {
   const tempDir = await createManagedTempDir()
   const savedPath = path.join(tempDir, "response.md")
-  await fs.writeFile(savedPath, text, "utf8")
+  try {
+    await fs.writeFile(savedPath, text, "utf8")
+  } catch (err) {
+    await discardManagedTempDir(tempDir)
+    throw err
+  }
   await enforceOwnedTempQuota(tempDir)
   return buildTextPointer(text, savedPath)
 }

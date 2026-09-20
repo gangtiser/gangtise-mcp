@@ -80,7 +80,20 @@ const dirSizeCache = new Map<string, number>()
 /** 写入方已声明「这一份写完了」的目录：`enforceOwnedTempQuota(dir)` 调用过一次即算结算。
  *
  * 未结算的目录每次都重新量（数量很少，只有正在写的那几个）；结算过的才走缓存。这样既保住
- * 了缓存的收益，又不会把一个半成品的读数固化下来。 */
+ * 了缓存的收益，又不会把一个半成品的读数固化下来。
+ *
+ * 🔴 它同时是**能不能淘汰**的判据（见 `settledEvictable`）：只结算过的目录才参与淘汰。
+ * 少了这一条，一个正在写入、尚未结算的下载目录会被另一条并发路径的配额执行删掉，下载方
+ * 收尾时 ENOENT —— 计费端点上意味着已经付过费的内容拿不到。
+ *
+ * 代价是「未结算」必须是个**暂态**：每个建目录的地方都要么最终结算（`enforceOwnedTempQuota`），
+ * 要么失败时丢弃（`discardManagedTempDir`）。三个落盘点（`core/download.ts` 与 `tools/registry.ts`
+ * 的两处）都已成对；新加落盘点时漏掉任何一侧，那个目录就变成**永不回收**的一格。
+ *
+ * ⚠️ 「成对」还有一层：摘登记**不能跟着删文件一起失败**。`fs.rm(..., { force: true })` 只消化
+ * ENOENT，一次 EACCES / EPERM / EBUSY 就会让紧随其后的摘登记不执行。`discardManagedTempDir`
+ * 因此吞掉 rm 的错误——落盘点走它就自动满足这一条，这也正是那段逻辑不再各写一份的原因。
+ * 这条规则立下之前，那样的条目还能被数量淘汰扫掉、下一轮自愈；立下之后它不可回收。 */
 const settledDirs = new Set<string>()
 
 /** 每个目录的**结算世代号**，每结算一次 +1。
@@ -172,7 +185,11 @@ export function endSpillRead(): Promise<void> | void {
   return evictOldestOwned(keeps).catch(() => {})
 }
 
-/** 目录已被删除时，把它从登记表里一并摘掉。**每个 `fs.rm(tempDir)` 都必须配对调用。**
+/** 摘登记的底层入口：目录已经不在磁盘上了，把它从登记表里一并摘掉。
+ *
+ * ⚠️ 落盘点**不要**自己「裸 `fs.rm` + 配对调用它」——那样写会被静态守卫当场打红（见
+ * `tempCleanup.test.ts`）。删受管临时目录一律走 `discardManagedTempDir`，它保证摘登记
+ * 不会跟着删文件一起失败。淘汰路径是另一回事：那里先 `forgetOwnedTempDir` 再删，顺序相反。
  *
  * 🔴 少了它，删除留下的是**墓碑**：磁盘上没有了，`ownedTempDirs` 里还占着一格。而
  * `MAX_OWNED_TEMP_DIRS` 数的是这个集合的大小，于是墓碑挤占的是**活目录**的名额 ——
@@ -185,6 +202,28 @@ export function endSpillRead(): Promise<void> | void {
 export function releaseOwnedTempDir(dir: string): void {
   const owned = resolveOwned(dir)
   if (owned) forgetOwnedTempDir(owned)
+}
+
+/** 删目录 + 摘登记，成对执行。**落盘点丢弃一个受管临时目录只许走这一个入口**——三个落盘点
+ *  的早退与失败路径都是它，静态守卫钉住 `fs.rm(` 在 `src/` 里只许出现于本文件。
+ *
+ *  ⚠️ 不包括**淘汰**路径（`evictOldestOwned`）与启动清扫（`cleanupStaleTempDirs`）：前者先
+ *  `forgetOwnedTempDir` 摘掉再删，顺序与这里相反且是对的（淘汰是自己决定丢，不存在「删不掉
+ *  就别摘」的问题）；后者在自己的删除循环里无条件摘登记，两者都不会留下墓碑。
+ *
+ * 🔴 `fs.rm` 的失败必须吞掉，**摘登记不能跟着删文件一起失败**：`force: true` 只消化 ENOENT，
+ * EACCES / EPERM / EBUSY 照样抛，抛出的话下面那行就不执行了。留下的条目既在登记表里、又
+ * **从未结算**——未结算的目录不参与淘汰（见 `settledDirs`），于是它永久占一格数量配额、
+ * 字节永久计进总量，还因为不走尺寸缓存而每轮配额都被重新量一遍。删不掉的那份至少还有一条
+ * 回收路径（下次启动的 `cleanupStaleTempDirs`），配额被顶死一条都没有。
+ *
+ * 这也是失败路径要的语义：正在往外抛的是落盘 / 下载本身的错误，别让清理的二次失败盖住它。
+ *
+ * 🔴 此前这段逻辑在 `download.ts` 与 `tools/registry.ts` 各有一份，两份在「rm 抛错怎么办」
+ * 上恰好相反，而只有前者有静态守卫。合并成一个入口就是为了不再靠人记得同时改两处。 */
+export async function discardManagedTempDir(dir: string): Promise<void> {
+  await fs.rm(dir, { recursive: true, force: true }).catch(() => {})
+  releaseOwnedTempDir(dir)
 }
 
 /** 把调用方手上的路径对回集合里登记的那一条。
@@ -236,6 +275,15 @@ function yieldToReaders(keeps: ReadonlySet<string>): boolean {
   return true
 }
 
+/** 按 LRU 顺序列出**可以删**的目录：已结算、不在保护名单里、也不是 `extraKeep`。
+ *
+ * 🔴 两条淘汰路径都必须经过这里。此前**数量**那条只过滤 `keeps`（连字节路径的 `fallback`
+ * 兜底都没有），比字节那条更宽松——只给其中一条加结算判据等于没加：配额压力从另一条路径
+ * 照样能删掉在途的下载。 */
+function settledEvictable(keeps: ReadonlySet<string>, extraKeep?: string): string[] {
+  return [...ownedTempDirs].filter((d) => settledDirs.has(d) && !keeps.has(d) && d !== extraKeep)
+}
+
 async function evictOldestOwned(keeps: ReadonlySet<string> = NO_KEEPS): Promise<void> {
   // 有回读在飞就不淘汰，改为记账，等最后一个读者离开时补跑（见 endSpillRead）。
   if (activeSpillReads > 0) {
@@ -245,9 +293,9 @@ async function evictOldestOwned(keeps: ReadonlySet<string> = NO_KEEPS): Promise<
   }
   quotaPending = false
 
-  // 先按**数量**削（便宜，不用 stat）
+  // 先按**数量**削（便宜，不用 stat）。只削已结算的那些——在途的那几份留到它们写完。
   const excess = ownedTempDirs.size > MAX_OWNED_TEMP_DIRS
-    ? [...ownedTempDirs].filter((d) => !keeps.has(d)).slice(0, ownedTempDirs.size - MAX_OWNED_TEMP_DIRS)
+    ? settledEvictable(keeps).slice(0, ownedTempDirs.size - MAX_OWNED_TEMP_DIRS)
     : []
   for (const old of excess) {
     if (yieldToReaders(keeps)) return
@@ -286,8 +334,12 @@ async function evictOldestOwned(keeps: ReadonlySet<string> = NO_KEEPS): Promise<
     // 🔴 判据是调用方**显式传进来的** `protect`，不是「集合最后一项」。后者只在「没有并发、
     // 且没有别的路径刚插入过」时才碰巧成立 —— 一次并发下载、或另一条路径新建的目录，都会
     // 让最后一项不是刚写完的那份，于是保护落到别人头上而真正该保的被删。
+    //
+    // 🔴 在途（未结算）的目录同样不参与：`protect` 只保得住**调用方自己**那一份，保不住
+    // 并发的另一条路径正在写的那一份。总量因此可能**暂时**超出配额——那是有意的，等在途
+    // 的几份各自结算时会各跑一次配额，届时它们已可淘汰。
     const fallback = keeps.size === 0 ? [...ownedTempDirs].at(-1) : undefined
-    const evictable = [...ownedTempDirs].filter((d) => !keeps.has(d) && d !== fallback)
+    const evictable = settledEvictable(keeps, fallback)
     for (const dir of evictable) {
       if (total <= MAX_OWNED_TEMP_BYTES) break
       if (yieldToReaders(keeps)) return
@@ -355,7 +407,15 @@ export function selectStaleTempDirs(entries: DirEntryStat[], prefix: string, now
  * Best-effort sweep of stale gangtise-mcp-* temp dirs left behind by
  * buildToolContent / buildTextResult / downloads. Swallows all errors —
  * cleanup must never break server startup. Returns the dirs removed.
- */
+ *
+ * 🔴 扫到的每一份都无条件摘登记。今天它只在启动时跑一次（`src/index.ts`），那时登记表还是
+ * 空的、这行是个 no-op —— 但「只在启动时调」这个不变量没有任何东西钉住：函数是 export 的、
+ * 签名带 `now` / `maxAgeMs`，看着就是个通用工具，而 `fs.rm(` 的静态守卫豁免了整个本文件。
+ * 一旦有人在这里加一条周期性清理，删了登记表里的目录却不摘登记，留下的就是**墓碑 + 未结算**
+ * ——既占一格数量配额、又不参与淘汰，正是 M30 修的那个形态。靠注释约束不住，让它自己摘。
+ *
+ * 摘登记不看 rm 成没成，与 `discardManagedTempDir` 同理：盘上的残留下次启动还会再扫一遍，
+ * 卡死的登记表条目没有第二次机会。 */
 export async function cleanupStaleTempDirs(now = Date.now(), maxAgeMs = DEFAULT_MAX_AGE_MS): Promise<string[]> {
   const tmp = os.tmpdir()
   let names: string[]
@@ -379,12 +439,14 @@ export async function cleanupStaleTempDirs(now = Date.now(), maxAgeMs = DEFAULT_
   const stale = selectStaleTempDirs(stats, TMP_DIR_PREFIX, now, maxAgeMs)
   const removed: string[] = []
   for (const name of stale) {
+    const full = path.join(tmp, name)
     try {
-      await fs.rm(path.join(tmp, name), { recursive: true, force: true })
+      await fs.rm(full, { recursive: true, force: true })
       removed.push(name)
     } catch {
       // ignore
     }
+    releaseOwnedTempDir(full)
   }
 
   if (removed.length > 0 && isVerbose()) {

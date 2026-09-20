@@ -4,7 +4,7 @@ import path from "node:path"
 import type { GangtiseClient } from "./client.js"
 import type { EndpointDefinition } from "./endpoints.js"
 import { DownloadError } from "./errors.js"
-import { createManagedTempDir, enforceOwnedTempQuota, releaseOwnedTempDir } from "./tempCleanup.js"
+import { createManagedTempDir, discardManagedTempDir, enforceOwnedTempQuota } from "./tempCleanup.js"
 
 export interface DownloadResult {
   /** Presigned or redirect URL (caller should pass to user) */
@@ -53,16 +53,6 @@ function safeFilename(filename: string | undefined, fallback?: string): string |
   return cleaned
 }
 
-/** 删目录 + 从登记表摘除，成对执行。
- *
- * 🔴 只 `fs.rm` 不摘除会留下**墓碑**：`ownedTempDirs` 的容量上限数的是集合大小，墓碑
- * 因此挤占活目录的名额。下面六条早退路径（直链、文本正文、四类失败）都是建了就删，
- * 是墓碑的主要来源 —— 每一条都必须走这里，别再直接调 `fs.rm`。 */
-async function dropTempDir(tempDir: string): Promise<void> {
-  await fs.rm(tempDir, { recursive: true, force: true })
-  releaseOwnedTempDir(tempDir)
-}
-
 /**
  * Downloads a file via the Gangtise client and returns a structured result.
  * For binary files, streams to a unique temp directory (not auto-cleaned).
@@ -82,20 +72,20 @@ export async function downloadToResult(
   } catch (err) {
     // A mid-stream failure can leave a truncated download.bin behind; drop the
     // whole temp dir so a failed download never lingers as a partial file.
-    await dropTempDir(tempDir)
+    await discardManagedTempDir(tempDir)
     throw err
   }
 
   // Case 1: API returned a redirect/presigned URL
   if (raw.url) {
     // Clean up the unused temp file
-    await dropTempDir(tempDir)
+    await discardManagedTempDir(tempDir)
     return { url: raw.url, filename: safeFilename(raw.filename) }
   }
 
   // Case 2: Text content (Markdown, HTML, plain text)
   if (raw.text != null) {
-    await dropTempDir(tempDir)
+    await discardManagedTempDir(tempDir)
     return { text: raw.text, filename: safeFilename(raw.filename), contentType: raw.contentType }
   }
 
@@ -113,7 +103,7 @@ export async function downloadToResult(
       await enforceOwnedTempQuota(tempDir)
       return { savedPath: finalPath, filename, contentType: raw.contentType }
     } catch (err) {
-      await dropTempDir(tempDir)
+      await discardManagedTempDir(tempDir)
       throw err
     }
   }
@@ -130,11 +120,11 @@ export async function downloadToResult(
       await enforceOwnedTempQuota(tempDir)
       return { savedPath: finalPath, filename, contentType: raw.contentType }
     } catch (err) {
-      await dropTempDir(tempDir)
+      await discardManagedTempDir(tempDir)
       throw err
     }
   }
 
-  await dropTempDir(tempDir)
+  await discardManagedTempDir(tempDir)
   throw new DownloadError("Unexpected download response: no url, text, or binary data")
 }

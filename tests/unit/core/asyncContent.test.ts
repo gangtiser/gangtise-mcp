@@ -122,3 +122,23 @@ describe("async status codes across the 2026-07-17 renumbering", () => {
     expect(client.call).toHaveBeenCalledTimes(1)
   })
 })
+
+// 🔴 截止时间的 timer 在 `run()` 求值**之前**就建好了。`run()` 同步抛时 `.finally` 永远
+// 不会建立，于是 budgetMs 之后那次 reject 落在一个没有 handler 的 promise 上 —— Node 默认
+// 对 unhandled rejection 是**直接退进程**，而 MCP server 是常驻的。
+//
+// 旧签名收的是已经求值的 promise，同步抛发生在 withPollDeadline 之外，没有这条路径；把求值
+// 搬进来（为了能在它外面套取消上下文）就得自己收尾。生产上 `client.call` 是 async 方法、
+// 不会同步抛，但代价与概率不对称：一条永不触发的清理不值几行代码，退进程值。
+describe("a synchronously throwing client leaves no orphan deadline timer", () => {
+  it("rethrows the original error and clears the deadline timer", async () => {
+    vi.useFakeTimers()
+    try {
+      const client = { call: () => { throw new Error("boom: synchronous throw") } }
+      await expect(pollAsyncContent(client, "ep", "d-sync", 30_000)).rejects.toThrow("boom: synchronous throw")
+      expect(vi.getTimerCount(), "截止时间的 timer 泄漏了 —— 它到期时会引发 unhandledRejection").toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})

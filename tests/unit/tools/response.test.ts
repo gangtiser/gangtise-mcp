@@ -8,7 +8,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { registerResponseTools, TEXT_CHUNK_CHARS, pageNote, fitByBytes, spillReadCount, resetSpillReadCount, spillScanCount, resetSpillScanCount } from "../../../src/tools/response.js"
 import { buildToolContent } from "../../../src/tools/registry.js"
-import { createManagedTempDir, resetOwnedTempDirs, setMaxOwnedTempDirsForTests, MAX_OWNED_TEMP_DIRS } from "../../../src/core/tempCleanup.js"
+import { createManagedTempDir, enforceOwnedTempQuota, resetOwnedTempDirs, setMaxOwnedTempDirsForTests, MAX_OWNED_TEMP_DIRS } from "../../../src/core/tempCleanup.js"
 import { INLINE_MAX_BYTES } from "../../../src/core/config.js"
 import type { GangtiseClient } from "../../../src/core/client.js"
 
@@ -36,6 +36,8 @@ async function writeTmpJson(payload: unknown): Promise<string> {
   const dir = await createManagedTempDir()
   const file = path.join(dir, "response.json")
   await fs.writeFile(file, JSON.stringify(payload), "utf8")
+  // 与 registry.ts 的溢出路径一致：写完即结算。未结算的目录不参与淘汰。
+  await enforceOwnedTempQuota(dir)
   return file
 }
 
@@ -43,6 +45,7 @@ async function writeTmpText(text: string): Promise<string> {
   const dir = await createManagedTempDir()
   const file = path.join(dir, "response.md")
   await fs.writeFile(file, text, "utf8")
+  await enforceOwnedTempQuota(dir)
   return file
 }
 
@@ -805,6 +808,7 @@ describe("reading a spill keeps it alive against the in-session cap", () => {
     resetOwnedTempDirs()
     const savedTo = await writeTmpJson({ list: Array.from({ length: 300 }, (_, i) => ({ i })) })
     const neverRead = await createManagedTempDir()      // 同期创建、从不回读
+    await enforceOwnedTempQuota(neverRead)             // 写完即结算；在途目录不参与淘汰
     const client = await makeConnectedPair()
 
     // 回读第一页 —— 这一步应当把 savedTo 的目录移到 MRU 端
@@ -817,7 +821,11 @@ describe("reading a spill keeps it alive against the in-session cap", () => {
     // 补到刚好超出上限 1 个：只淘汰一份，才看得出淘汰的是哪一份
     // 🔴 收集起来，最后逐个删——不然每跑一次就在系统临时目录留下 199 个 gangtise-mcp-*
     const spills: string[] = []
-    for (let i = 0; i < MAX_OWNED_TEMP_DIRS - 1; i += 1) spills.push(await createManagedTempDir())
+    for (let i = 0; i < MAX_OWNED_TEMP_DIRS - 1; i += 1) {
+      const d = await createManagedTempDir()
+      spills.push(d)
+      await enforceOwnedTempQuota(d)
+    }
 
     // 没被读过的那份先走
     await expect(fs.stat(neverRead)).rejects.toThrow()

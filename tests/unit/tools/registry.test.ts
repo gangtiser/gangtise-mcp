@@ -8,6 +8,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { registerJsonTool, registerDownloadTool, sanitizeArgs, buildToolContent, buildTextResult, buildTextPointer } from "../../../src/tools/registry.js"
 import { INLINE_MAX_BYTES } from "../../../src/core/config.js"
+import { ownedTempDirCount, ownedTempBookkeepingSizes, resetOwnedTempDirs } from "../../../src/core/tempCleanup.js"
 import { createGangtiseMcpServer } from "../../../src/server.js"
 import type { GangtiseClient } from "../../../src/core/client.js"
 
@@ -740,5 +741,40 @@ describe("spilled non-list objects keep their incompleteness markers", () => {
       .filter((k) => !k.startsWith("_"))
       .sort()
     expect(keys).toEqual(["failedItems", "missingFields", "omittedIndicators", "omittedSecurities"])
+  })
+})
+
+// 🔴 落盘失败必须把刚建的目录摘掉。`enforceOwnedTempQuota(自己)` 只在写成功之后才被调到，
+// 所以一次 ENOSPC / 只读 tmp 留下的目录**永不结算** —— 而未结算的目录不参与淘汰（见
+// tempCleanup 的 settledDirs），于是它既占着数量配额的一格、又把自己的字节数永久计进总量，
+// 最终把配额顶死、真正该淘汰的旧目录反而清不掉。删除入口统一在 tempCleanup 的 discardManagedTempDir。
+describe("a failed spill write leaves no registry entry behind", () => {
+  const failWriteFile = async <T>(run: () => Promise<T>): Promise<unknown> => {
+    const real = fs.writeFile
+    ;(fs as { writeFile: typeof fs.writeFile }).writeFile = (async () => {
+      throw Object.assign(new Error("ENOSPC: no space left on device"), { code: "ENOSPC" })
+    }) as typeof fs.writeFile
+    try {
+      return await run().then(() => "resolved", (err) => err)
+    } finally {
+      ;(fs as { writeFile: typeof fs.writeFile }).writeFile = real
+    }
+  }
+
+  it.each([
+    ["JSON（response.json）", () => buildToolContent({ list: Array.from({ length: 4_000 }, (_, i) => ({ i, pad: "x".repeat(24) })) })],
+    ["正文（response.md）", () => buildTextResult("超预算正文".repeat(20_000))],
+  ])("%s: 写失败后登记表回到调用前的数值", async (_label, run) => {
+    resetOwnedTempDirs()
+    const before = ownedTempDirCount()
+    const beforeBooks = ownedTempBookkeepingSizes()
+
+    const outcome = await failWriteFile(run)
+    // 原始的落盘错误必须原样抛出 —— 清理的二次失败不该把它盖住。
+    expect(outcome, "落盘失败被吞掉了").toBeInstanceOf(Error)
+    expect((outcome as Error).message).toContain("ENOSPC")
+
+    expect(ownedTempDirCount(), "写失败留下了永不结算的目录，占着数量配额的一格").toBe(before)
+    expect(ownedTempBookkeepingSizes(), "三份辅助登记没跟着摘干净").toEqual(beforeBooks)
   })
 })
