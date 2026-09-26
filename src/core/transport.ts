@@ -1,6 +1,11 @@
 import { Agent, interceptors, type Dispatcher } from "undici"
 
+import { PAGE_CONCURRENCY } from "./config.js"
 import { ApiError } from "./errors.js"
+
+/** 每个源的连接数。分页扇出 / 分片按 GANGTISE_PAGE_CONCURRENCY 并发，池子比它小时多出来的
+ *  请求会在 undici 内部排队，调大并发等于没调；16 是并发取默认值时的下限。 */
+export const POOL_CONNECTIONS = Math.max(16, PAGE_CONCURRENCY)
 
 let cachedDispatcher: Dispatcher | null = null
 
@@ -27,7 +32,7 @@ export function getDispatcher(): Dispatcher {
     cachedDispatcher = new Agent({
       keepAliveTimeout: 60_000,
       keepAliveMaxTimeout: 600_000,
-      connections: 16,
+      connections: POOL_CONNECTIONS,
       pipelining: 1,
     })
   }

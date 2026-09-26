@@ -5,6 +5,15 @@ import { ApiError } from "../../../src/core/errors.js"
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const fast = { baseDelayMs: 1, maxDelayMs: 4 }
 
+describe("connection pool", () => {
+  it("连接数不小于分页并发，也不低于 16", async () => {
+    const { POOL_CONNECTIONS } = await import("../../../src/core/transport.js")
+    const { PAGE_CONCURRENCY } = await import("../../../src/core/config.js")
+    expect(POOL_CONNECTIONS).toBeGreaterThanOrEqual(16)
+    expect(POOL_CONNECTIONS).toBeGreaterThanOrEqual(PAGE_CONCURRENCY)
+  })
+})
+
 describe("runWithConcurrency", () => {
   it("returns results in input order", async () => {
     const res = await runWithConcurrency([1, 2, 3, 4, 5], 2, async (x) => x * 10)

@@ -802,7 +802,7 @@ export class GangtiseClient {
         if (Number.isFinite(declared) && declared > maxBytes) {
           // 🔴 抛错之前必须**主动销毁响应体**。undici 的连接要么被读完、要么被 destroy
           // 才会归还连接池；直接 throw 会把 socket 留在那儿，服务端还在推流而我们已经
-          // 不读了。连续几次超限下载就能占满 `connections: 16` 的池子，之后所有请求排队。
+          // 不读了。连续几次超限下载就能占满连接池（`POOL_CONNECTIONS`），之后所有请求排队。
           response.body.destroy()
           throw new DownloadError(
             `下载内容 ${(declared / 1048576).toFixed(0)} MB 超过单文件上限 ${(maxBytes / 1048576).toFixed(0)} MB，已拒绝以免占满临时磁盘。请改用返回下载直链的方式，或联系客户经理确认该资源是否应当这么大。`,
