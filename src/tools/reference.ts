@@ -4,9 +4,9 @@ import type { GangtiseClient } from "../core/client.js"
 import { normalizeRows } from "../core/normalize.js"
 import { registerJsonTool, type JsonToolSpec } from "./registry.js"
 import { buildToolContent } from "../core/present.js"
-import { toolHandler, contentResult } from "./helpers.js"
-import { withBilling } from "./billing.js"
-import { nonEmptyString, enumList } from "./schemas.js"
+import { toolHandler, contentResult } from "../mcp/handler.js"
+import { withBilling } from "../mcp/billing.js"
+import { nonEmptyString, enumList } from "../mcp/schemas.js"
 
 export const referenceSpecs: JsonToolSpec[] = [
   {

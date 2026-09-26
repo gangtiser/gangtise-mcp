@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { GangtiseClient } from "../core/client.js"
 import { currentDateContext, CURRENT_TIMEZONE } from "../core/dateContext.js"
-import { LOCAL, withBilling } from "./billing.js"
+import { LOCAL, withBilling } from "../mcp/billing.js"
 
 export function registerContextTools(server: McpServer, _client: GangtiseClient): void {
   server.registerTool(

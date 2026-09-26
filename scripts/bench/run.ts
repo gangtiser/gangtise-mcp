@@ -10,7 +10,7 @@
  * 取 GANGTISE_PAGE_CONCURRENCY 等环境变量的默认值，不在这里改。
  * 任一场景出错时退出码为 1；但数字本身没有阈值判定，退出码 0 不代表「没有退化」，结果仍要人读。
  */
-import { endpointBilling } from "../../src/tools/billing.js"
+import { endpointBilling } from "../../src/mcp/billing.js"
 import { startHarness, type Harness } from "../../tests/helpers/harness.js"
 import type { RecordedRequest, Responder, UpstreamReply } from "../../tests/helpers/mockUpstream.js"
 

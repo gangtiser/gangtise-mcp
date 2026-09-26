@@ -3,13 +3,13 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { GangtiseClient } from "../core/client.js"
 import { registerJsonTool, registerDownloadTool, type JsonToolSpec, type DownloadToolSpec } from "./registry.js"
 import { buildTextResult, buildToolContent } from "../core/present.js"
-import { toolHandler, textResult, contentResult, type HandlerExtra } from "./helpers.js"
+import { toolHandler, textResult, contentResult, type HandlerExtra } from "../mcp/handler.js"
 import { pollAsyncContent, isAsyncFailed, isAsyncPending } from "../core/asyncContent.js"
 import { normalizeRows } from "../core/normalize.js"
 import { AsyncTimeoutError, ValidationError, errorMessage } from "../core/errors.js"
 import { dateString, dateTimeString, quarterEndDate, today, todayDate } from "../core/dateContext.js"
-import { nonEmptyString, nonEmptyList, intLiteralEnum, MARKET_KEYWORDS, enumList } from "./schemas.js"
-import { withBilling } from "./billing.js"
+import { nonEmptyString, nonEmptyList, intLiteralEnum, MARKET_KEYWORDS, enumList } from "../mcp/schemas.js"
+import { withBilling } from "../mcp/billing.js"
 
 export interface AiToolOptions {
   asyncTimeoutMs: number

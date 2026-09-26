@@ -3,11 +3,11 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { GangtiseClient } from "../core/client.js"
 import { registerJsonTool, registerDownloadTool, type JsonToolSpec, type DownloadToolSpec } from "./registry.js"
 import { buildToolContent } from "../core/present.js"
-import { toolHandler, contentResult } from "./helpers.js"
+import { toolHandler, contentResult } from "../mcp/handler.js"
 import { normalizeRows } from "../core/normalize.js"
 import { ENDPOINTS } from "../core/endpoints.js"
 import { ValidationError } from "../core/errors.js"
-import { intLiteralEnum, nonEmptyString, nonEmptyList, enumList } from "./schemas.js"
+import { intLiteralEnum, nonEmptyString, nonEmptyList, enumList } from "../mcp/schemas.js"
 import { dateTimeString } from "../core/dateContext.js"
 
 /** 删池的后果说明只有一份，写在端点上（core/endpoints.ts），工具描述与确认闸门都读它。 */

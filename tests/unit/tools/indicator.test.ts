@@ -1366,7 +1366,7 @@ describe("EDE request-size ceilings", () => {
 
 // 🔴 时序的计费因子是**三个**：指标数 × 证券数 × 日期数。
 // 前一版闸门只乘前两个，于是「1 指标 × 6000 证券 × 六年」= 1315 万单元格一路放行。
-// 守卫的算术必须和 billing.ts 声称的计费模型逐字对齐 —— 差一个因子就等于没有。
+// 守卫的算术必须和端点 billing 声称的计费模型逐字对齐 —— 差一个因子就等于没有。
 describe("EDE time-series budget counts the DATE factor", () => {
   it("rejects 1 indicator x 6000 securities x ~6 years without calling upstream", async () => {
     const client = makeMockClient()
@@ -1433,7 +1433,7 @@ describe("EDE 单次单元格上限对外可见", () => {
     expect(cap).toBe(30_000)
     expect(screenerCap).toBe(100_000)
 
-    const { billingSuffix } = await import("../../../src/tools/billing.js")
+    const { billingSuffix } = await import("../../../src/mcp/billing.js")
     for (const t of ["indicator.cross-section", "indicator.time-series"]) {
       expect(billingSuffix(t), `${t} 的描述没有公布 handler 实际执行的单元格上限`).toContain(`单次上限 ${cap / 10_000} 万单元格`)
     }

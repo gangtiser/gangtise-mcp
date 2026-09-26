@@ -3,11 +3,11 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { GangtiseClient } from "../core/client.js"
 import { assertDateOrder, registerJsonTool, type JsonToolSpec } from "./registry.js"
 import { buildToolContent } from "../core/present.js"
-import { toolHandler, contentResult } from "./helpers.js"
+import { toolHandler, contentResult } from "../mcp/handler.js"
 import { normalizeRows } from "../core/normalize.js"
 import { dateString } from "../core/dateContext.js"
-import { nonEmptyString, nonEmptyList } from "./schemas.js"
-import { withBilling } from "./billing.js"
+import { nonEmptyString, nonEmptyList } from "../mcp/schemas.js"
+import { withBilling } from "../mcp/billing.js"
 
 /** 题材两档端点：full 缺省或为 true 走完整画像（v1），false 走不含催化事件 / 重点标记的低价端点。
  *  开关只决定打哪个端点，不进请求体。 */

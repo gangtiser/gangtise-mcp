@@ -6,8 +6,8 @@ import { normalizeRows } from "../core/normalize.js"
 import { downloadToResult } from "../core/download.js"
 import { ValidationError } from "../core/errors.js"
 import { buildDownloadContent, buildToolContent } from "../core/present.js"
-import { withBilling } from "./billing.js"
-import { toolHandler } from "./helpers.js"
+import { withBilling } from "../mcp/billing.js"
+import { toolHandler } from "../mcp/handler.js"
 
 // Zod raw shape type (compatible with registerTool inputSchema)
 type ZodShape = Record<string, z.ZodTypeAny>
@@ -133,7 +133,7 @@ export function registerJsonTool(server: McpServer, client: GangtiseClient, spec
   server.registerTool(
     spec.name,
     { description: withBilling(spec.description, spec.endpointKey), inputSchema: strictSchema(schema), annotations: { readOnlyHint: true, openWorldHint: false } },
-    // toolHandler 统一错误形状，并把取消信号带进分页扇出（见 helpers.ts）。
+    // toolHandler 统一错误形状，并把取消信号带进分页扇出（见 mcp/handler.ts）。
     toolHandler(async (args: Record<string, unknown>) => {
       const { fetchAll, ...rest } = args
       const sanitized = sanitizeArgs(rest, { paginated: spec.paginated, fetchAll: Boolean(fetchAll) })

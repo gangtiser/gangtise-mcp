@@ -2,9 +2,9 @@ import { z } from "zod"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { GangtiseClient } from "../core/client.js"
 import { getLookupData, type LookupKey } from "../core/lookupData/index.js"
-import { toolHandler, contentResult } from "./helpers.js"
+import { toolHandler, contentResult } from "../mcp/handler.js"
 import { buildToolContent } from "../core/present.js"
-import { LOCAL, withBilling } from "./billing.js"
+import { LOCAL, withBilling } from "../mcp/billing.js"
 
 const LOOKUP_TYPES = [
   "broker-orgs",

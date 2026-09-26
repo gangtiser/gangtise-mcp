@@ -8,7 +8,7 @@ import { vaultEndpoints } from "../tools/vault.endpoints.js"
 import { alternativeEndpoints } from "../tools/alternative.endpoints.js"
 import { indicatorEndpoints } from "../tools/indicator.endpoints.js"
 
-/** 公布的单价。它同时是工具描述里积分标签的来源（billing.ts 渲染）与重试守卫的依据
+/** 公布的单价。它同时是工具描述里积分标签的来源（mcp/billing.ts 渲染）与重试守卫的依据
  *  （endpoints.test.ts），所以价格只在端点表里写一次。与重试策略、MCP annotations 解耦：计费高不等于
  *  不可重试，只读也不等于免费。只记单价，不记取数窗口，也不据此做本地拦截。
  *

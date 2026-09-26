@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { toolHandler, textResult, errorResult } from "../../../src/tools/helpers.js"
+import { toolHandler, textResult, errorResult } from "../../../src/mcp/handler.js"
 import { ApiError } from "../../../src/core/errors.js"
 import { currentSignal } from "../../../src/core/requestContext.js"
 

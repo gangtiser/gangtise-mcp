@@ -3,12 +3,12 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { GangtiseClient } from "../core/client.js"
 import { registerJsonTool, type JsonToolSpec } from "./registry.js"
 import { buildToolContent } from "../core/present.js"
-import { toolHandler, contentResult } from "./helpers.js"
+import { toolHandler, contentResult } from "../mcp/handler.js"
 import { assertDateOrder } from "./registry.js"
 import { normalizeRows } from "../core/normalize.js"
 import { markPartial } from "../core/partial.js"
 import { dateString } from "../core/dateContext.js"
-import { nonEmptyString, uniqueFieldList, enumList } from "./schemas.js"
+import { nonEmptyString, uniqueFieldList, enumList } from "../mcp/schemas.js"
 
 const periodEnum = enumList(z.enum(["q1", "interim", "q3", "annual", "latest"])).optional().describe("q1=一季报 | interim=中报 | q3=三季报 | annual=年报 | latest=最新")
 const quarterlyPeriodEnum = enumList(z.enum(["q1", "q2", "q3", "q4", "latest"])).optional().describe("q1 | q2 | q3 | q4 | latest")

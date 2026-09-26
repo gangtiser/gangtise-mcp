@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { createGangtiseMcpServer } from "../../../src/server.js"
-import { LOCAL, billingLabel, billingSuffix } from "../../../src/tools/billing.js"
+import { LOCAL, billingLabel, billingSuffix } from "../../../src/mcp/billing.js"
 import { ENDPOINTS } from "../../../src/core/endpoints.js"
 import type { GangtiseClient } from "../../../src/core/client.js"
 

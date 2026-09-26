@@ -8,7 +8,7 @@ import { errorMessage, ValidationError } from "../core/errors.js"
 import { beginSpillRead, endSpillRead, isOwnedTempPath, touchOwnedTempDir } from "../core/tempCleanup.js"
 import { INLINE_MAX_BYTES } from "../core/config.js"
 import { alignSliceEnd, sampleDiagnostics } from "../core/present.js"
-import { LOCAL, withBilling } from "./billing.js"
+import { LOCAL, withBilling } from "../mcp/billing.js"
 
 const DEFAULT_LIMIT = 50
 

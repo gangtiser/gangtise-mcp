@@ -3,7 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { GangtiseClient } from "../core/client.js"
 import { assertDateOrder } from "./registry.js"
 import { buildToolContent } from "../core/present.js"
-import { toolHandler, contentResult } from "./helpers.js"
+import { toolHandler, contentResult } from "../mcp/handler.js"
 import { normalizeRows } from "../core/normalize.js"
 import { unwrapPayload } from "../core/shape.js"
 import { markPartial, type PartialReason } from "../core/partial.js"
@@ -18,10 +18,10 @@ import {
   flattenTimeSeries,
 } from "../core/indicatorMatrix.js"
 import { screenerExpressionFields, SCREENER_FIELD } from "../core/screenerExpression.js"
-import { nonEmptyString } from "./schemas.js"
+import { nonEmptyString } from "../mcp/schemas.js"
 import { dateDesc, dateString } from "../core/dateContext.js"
 import { ApiError, ValidationError } from "../core/errors.js"
-import { withBilling } from "./billing.js"
+import { withBilling } from "../mcp/billing.js"
 
 // The EDE FETCH endpoints (cross-section/time-series/screener) used to answer a
 // no-data query with HTTP 500 + 999999. They stopped on 2026-08-01, and since
@@ -317,7 +317,7 @@ const MAX_EDE_CELLS = 30_000
 /** 条件选股的上限则仍是一条**成本策略**：服务端在这个端点上没有已证实的单次上限，
  * 所以不跟着收到 30000 —— 本地挡掉一个服务端本会接受的查询，比让它到服务端去失败更糟。
  *
- * 算术：单价 A股 0.05 / 港股 0.1 / 美股 0.2 每 100 单元格（见 billing.ts）。10 万单元格
+ * 算术：单价 A股 0.05 / 港股 0.1 / 美股 0.2 每 100 单元格（见 indicator.endpoints.ts）。10 万单元格
  * = 美股档 200 积分、A股档 50 积分。一次正常的批量（50 指标 × 300 证券 = 1.5 万单元格
  * ≈ 30 积分）离它还有 6 倍余量，所以它挡的是**明显失控的笛卡尔积**，不会碰到真实用法。 */
 const MAX_SCREENER_CELLS = 100_000
@@ -334,7 +334,7 @@ function spanDays(startDate: unknown, endDate: unknown): number {
 
 /** 🔴 **日期数是计费的第三个因子，不能漏。**
  *
- * 前一版只算「指标数 × 证券数」，而 billing.ts 写得清清楚楚是「指标数 × 证券数 × 日期数」
+ * 前一版只算「指标数 × 证券数」，而端点的 billing 写得清清楚楚是「指标数 × 证券数 × 日期数」
  * ——同一个文件里我自己引的那句话。于是时序上「1 指标 × 6000 证券 × 六年区间」
  * = 约 1315 万单元格，一路穿过闸门，`isError` 是 false。
  * **守卫的算术必须和它声称守护的计费模型逐字对齐**，差一个因子就等于没有。
