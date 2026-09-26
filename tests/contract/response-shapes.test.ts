@@ -51,6 +51,8 @@ interface Scenario {
   upstream?: Responder
   /** 基于第一次调用的输出再调一次（回读落盘文件），快照的是第二次的输出。 */
   followUp?: (first: unknown) => { tool: string; args: Record<string, unknown> }
+  /** 单个场景的超时（毫秒）。只给发大量请求的重载场景用，覆盖率插桩下它们会超过默认 5 秒。 */
+  timeoutMs?: number
 }
 
 const LONG_TEXT = "研报正文段落。".repeat(40)
@@ -70,7 +72,7 @@ const SCENARIOS: Scenario[] = [
   { name: "partial-total-capped", tool: "gangtise_research_list", args: { keyword: "AI" }, upstream: (req) => (bodyOf(req).from === 7 ? { data: { total: 7, list: [{ id: "row-7" }] } } : paged(7)(req, 0)) },
   { name: "partial-total-drift", tool: "gangtise_research_list", args: { keyword: "AI" }, upstream: (req) => (bodyOf(req).from === 7 ? { data: { total: 8, list: [{ id: "row-7" }] } } : paged(7)(req, 0)) },
   // 1000 页 × 50 行的上限：fetchAll 面对 6 万行会停在第 1000 页。约 1000 个本机请求，结果落盘。
-  { name: "partial-page-cap", tool: "gangtise_research_list", args: { keyword: "AI", fetchAll: true }, upstream: paged(60_000) },
+  { name: "partial-page-cap", tool: "gangtise_research_list", args: { keyword: "AI", fetchAll: true }, upstream: paged(60_000), timeoutMs: 30_000 },
   { name: "partial-unexpected-page-shape", tool: "gangtise_research_list", args: { keyword: "AI" }, upstream: on("insight.research.list", () => ({ data: [{ id: "row-0" }] })) },
   { name: "partial-limit-truncated", tool: "gangtise_day_kline", args: { security: "600519.SH", startDate: "2026-09-01", endDate: "2026-09-03", limit: 3 }, upstream: on("quote.day-kline", () => ({ data: fixture("kline-columnar") })) },
   { name: "partial-failed-shards", tool: "gangtise_day_kline", args: { security: "aShares", startDate: "2026-09-07", endDate: "2026-09-09" }, upstream: shardRows("quote.day-kline", { "2026-09-08": errorEnvelope("100005", "参数错误") }) },
@@ -163,6 +165,6 @@ describe("response fixtures", () => {
         outcome = await harness.call(next.tool, next.args)
       }
       await expect(render(outcome)).toMatchFileSnapshot(`../fixtures/responses/__outputs__/${scenario.name}.json`)
-    })
+    }, scenario.timeoutMs)
   }
 })
