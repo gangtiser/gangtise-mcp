@@ -38,6 +38,13 @@ const NO_REPLAY_KEYS = [
   // 按行计费且单次行数无可靠上界（盈利预测随区间增长；个股看点单次最多 6000 只 × 3 积分）。
   "fundamental.earning-forecast",
   "ai.stock-summary.list",
+  // 观点带正文的列表与按 ID 取正文：30 积分/条。题材完整画像：500 积分/次。
+  "insight.opinion.list-with-content",
+  "insight.opinion.detail",
+  "insight.foreign-opinion.list-with-content",
+  "insight.foreign-opinion.detail",
+  "alternative.concept-info-full",
+  "alternative.concept-securities-full",
   // 清单里唯一不是出于计费原因的一条：池名不允许重复，所以重发一个其实已经建成的
   // 创建请求会撞上 230006，把一次成功报成失败。
   "vault.stock-pool.create",

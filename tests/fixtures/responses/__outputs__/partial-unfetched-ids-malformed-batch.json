@@ -1,0 +1,96 @@
+{
+  "isError": false,
+  "result": {
+    "total": 20,
+    "list": [
+      {
+        "chiefOpinionId": "co-0",
+        "content": "<p>正文</p>"
+      },
+      {
+        "chiefOpinionId": "co-1",
+        "content": "<p>正文</p>"
+      },
+      {
+        "chiefOpinionId": "co-2",
+        "content": "<p>正文</p>"
+      },
+      {
+        "chiefOpinionId": "co-3",
+        "content": "<p>正文</p>"
+      },
+      {
+        "chiefOpinionId": "co-4",
+        "content": "<p>正文</p>"
+      },
+      {
+        "chiefOpinionId": "co-5",
+        "content": "<p>正文</p>"
+      },
+      {
+        "chiefOpinionId": "co-6",
+        "content": "<p>正文</p>"
+      },
+      {
+        "chiefOpinionId": "co-7",
+        "content": "<p>正文</p>"
+      },
+      {
+        "chiefOpinionId": "co-8",
+        "content": "<p>正文</p>"
+      },
+      {
+        "chiefOpinionId": "co-9",
+        "content": "<p>正文</p>"
+      },
+      {
+        "chiefOpinionId": "co-10",
+        "content": "<p>正文</p>"
+      },
+      {
+        "chiefOpinionId": "co-11",
+        "content": "<p>正文</p>"
+      },
+      {
+        "chiefOpinionId": "co-12",
+        "content": "<p>正文</p>"
+      },
+      {
+        "chiefOpinionId": "co-13",
+        "content": "<p>正文</p>"
+      },
+      {
+        "chiefOpinionId": "co-14",
+        "content": "<p>正文</p>"
+      },
+      {
+        "chiefOpinionId": "co-15",
+        "content": "<p>正文</p>"
+      },
+      {
+        "chiefOpinionId": "co-16",
+        "content": "<p>正文</p>"
+      },
+      {
+        "chiefOpinionId": "co-17",
+        "content": "<p>正文</p>"
+      },
+      {
+        "chiefOpinionId": "co-18",
+        "content": "<p>正文</p>"
+      },
+      {
+        "chiefOpinionId": "co-19",
+        "content": "<p>正文</p>"
+      }
+    ],
+    "unfetchedIds": [
+      "co-20"
+    ],
+    "unfetchedError": {
+      "message": "观点正文的返回里有不是对象的元素（形状可能已变更），这一批无法按 ID 逐条对上。请重试；持续出现请带上工具名与入参报障。"
+    },
+    "_partial": true,
+    "_partial_reason": "unfetched_ids"
+  }
+}

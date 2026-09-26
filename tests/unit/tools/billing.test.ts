@@ -32,7 +32,7 @@ describe("billing catalog coverage", () => {
   it("classifies exactly the registered tool set", async () => {
     const live = (await listLiveTools()).map((t) => t.name).sort()
     expect(Object.keys(BILLING_CATALOG).sort()).toEqual(live)
-    expect(live).toHaveLength(102)
+    expect(live).toHaveLength(103)
   })
 
   it("renders the documented label shapes", () => {
@@ -121,10 +121,10 @@ describe("billing catalog coverage", () => {
 
   // 免费档不打标签（instructions 末行已声明「未标注即免费」），
   // 省下字节并让付费标签更醒目；目录仍 100% 覆盖全部 102 个（覆盖 ≠ 输出）。
-  it("keeps free tools label-free while all 102 stay classified", () => {
+  it("keeps free tools label-free while all 103 stay classified", () => {
     const entries = Object.values(BILLING_CATALOG)
     expect(entries.filter((s) => s.kind === "free")).toHaveLength(39)
-    expect(entries.filter((s) => s.kind === "fixed")).toHaveLength(45)
+    expect(entries.filter((s) => s.kind === "fixed")).toHaveLength(46)
     expect(entries.filter((s) => s.kind === "downstream")).toHaveLength(1)
     expect(entries.filter((s) => s.kind === "variable")).toHaveLength(3)
     // 11 = 9 + 帕米尔两个：计分表未列它们，spec 只写了「需购买专家纪要数据库」这个
@@ -204,8 +204,9 @@ describe("tool description boundaries", () => {
     const byName = new Map((await listLiveTools()).map((t) => [t.name, t.description ?? ""]))
     // 钉稳定的路由结论「回退专用工具」，而非会随指标库扩充失效的覆盖度断言
     expect(byName.get("gangtise_indicator_search")).toContain("回退专用工具")
-    expect(byName.get("gangtise_opinion_list")).toContain("无专用下载工具")
-    expect(byName.get("gangtise_foreign_opinion_list")).toContain("无专用下载工具")
+    // 观点没有下载工具（instructions 的路由行已声明），描述要指向拿正文的办法。
+    expect(byName.get("gangtise_opinion_list")).toMatch(/正文见 withContent/)
+    expect(byName.get("gangtise_foreign_opinion_list")).toMatch(/正文见 withContent/)
     expect(byName.get("gangtise_stock_summary")).toContain("单证券长文另用 one_pager")
   })
 

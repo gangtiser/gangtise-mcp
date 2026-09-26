@@ -256,6 +256,9 @@ function shrinkDiagnostics(preview: Record<string, unknown>): Record<string, unk
 const PARTIAL_DETAIL_KEYS = [
   "failedItems",
   "missingFields",
+  "missingIds",
+  "unfetchedIds",
+  "unfetchedError",
   "omittedIndicators",
   "omittedSecurities",
   "_dropped_columns",
@@ -267,6 +270,9 @@ const PARTIAL_DETAIL_KEYS = [
   "_malformed_shards",
   "_truncated_shards",
   "_truncated_securities",
+  "_duplicate_rows",
+  "_changed_rows",
+  "_window_cut",
 ] as const
 
 /** 明细数组在指针里最多带几条。有界是硬要求：这些数组本身就可能是把载荷顶过阈值的
@@ -529,6 +535,12 @@ export interface JsonToolSpec {
    */
   transformBody?: (body: Record<string, unknown>) => Record<string, unknown>
   /**
+   * 按参数选端点（如 withContent / full 切换两档价格的端点）。在 transformBody 之后调用，
+   * 返回实际端点与去掉开关参数后的请求体——开关只决定打哪个端点，不进 body。
+   * 同步、纯函数、返回新对象；没有它时用 endpointKey。
+   */
+  resolve?: (body: Record<string, unknown>) => { endpointKey: string; body: Record<string, unknown> }
+  /**
    * 该端点用 `null` 表示「零行」时置 true —— 只对**列表**端点开。
    * 默认关闭：null 一律原样透出，让协议异常响亮地暴露，而不是被伪装成空列表。
    *
@@ -633,8 +645,9 @@ export function registerJsonTool(server: McpServer, client: GangtiseClient, spec
       const { fetchAll, ...rest } = args
       const sanitized = sanitizeArgs(rest, { paginated: spec.paginated, fetchAll: Boolean(fetchAll) })
       assertDateOrder(sanitized)
-      const body = spec.transformBody ? spec.transformBody(sanitized) : sanitized
-      const result = await client.call(spec.endpointKey, body)
+      const transformed = spec.transformBody ? spec.transformBody(sanitized) : sanitized
+      const { endpointKey, body } = spec.resolve ? spec.resolve(transformed) : { endpointKey: spec.endpointKey, body: transformed }
+      const result = await client.call(endpointKey, body)
       return { content: await buildToolContent(normalizeRows(result), { nullMeansEmpty: spec.nullMeansEmpty, emptyHint: spec.emptyHint }) }
     }),
   )

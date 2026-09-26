@@ -1,0 +1,119 @@
+{
+  "isError": false,
+  "result": {
+    "total": 20,
+    "list": [
+      {
+        "foreignOpinionId": "fo-0",
+        "content": "body",
+        "contentTranslate": "正文"
+      },
+      {
+        "foreignOpinionId": "fo-1",
+        "content": "body",
+        "contentTranslate": "正文"
+      },
+      {
+        "foreignOpinionId": "fo-2",
+        "content": "body",
+        "contentTranslate": "正文"
+      },
+      {
+        "foreignOpinionId": "fo-3",
+        "content": "body",
+        "contentTranslate": "正文"
+      },
+      {
+        "foreignOpinionId": "fo-4",
+        "content": "body",
+        "contentTranslate": "正文"
+      },
+      {
+        "foreignOpinionId": "fo-5",
+        "content": "body",
+        "contentTranslate": "正文"
+      },
+      {
+        "foreignOpinionId": "fo-6",
+        "content": "body",
+        "contentTranslate": "正文"
+      },
+      {
+        "foreignOpinionId": "fo-7",
+        "content": "body",
+        "contentTranslate": "正文"
+      },
+      {
+        "foreignOpinionId": "fo-8",
+        "content": "body",
+        "contentTranslate": "正文"
+      },
+      {
+        "foreignOpinionId": "fo-9",
+        "content": "body",
+        "contentTranslate": "正文"
+      },
+      {
+        "foreignOpinionId": "fo-10",
+        "content": "body",
+        "contentTranslate": "正文"
+      },
+      {
+        "foreignOpinionId": "fo-11",
+        "content": "body",
+        "contentTranslate": "正文"
+      },
+      {
+        "foreignOpinionId": "fo-12",
+        "content": "body",
+        "contentTranslate": "正文"
+      },
+      {
+        "foreignOpinionId": "fo-13",
+        "content": "body",
+        "contentTranslate": "正文"
+      },
+      {
+        "foreignOpinionId": "fo-14",
+        "content": "body",
+        "contentTranslate": "正文"
+      },
+      {
+        "foreignOpinionId": "fo-15",
+        "content": "body",
+        "contentTranslate": "正文"
+      },
+      {
+        "foreignOpinionId": "fo-16",
+        "content": "body",
+        "contentTranslate": "正文"
+      },
+      {
+        "foreignOpinionId": "fo-17",
+        "content": "body",
+        "contentTranslate": "正文"
+      },
+      {
+        "foreignOpinionId": "fo-18",
+        "content": "body",
+        "contentTranslate": "正文"
+      },
+      {
+        "foreignOpinionId": "fo-19",
+        "content": "body",
+        "contentTranslate": "正文"
+      }
+    ],
+    "unfetchedIds": [
+      "fo-20",
+      "fo-21"
+    ],
+    "unfetchedError": {
+      "message": "系统错误",
+      "code": "999999",
+      "traceId": "trace-d2"
+    },
+    "_partial": true,
+    "_partial_reason": "unfetched_ids"
+  }
+}

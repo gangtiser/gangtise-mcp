@@ -140,6 +140,8 @@ const CATALOG: Record<string, BillingSpec> = {
   gangtise_performance_calendar_list: fixed(0.1, "item"),
   gangtise_opinion_list: fixed(30, "item", "单次约 600 积分"),
   gangtise_foreign_opinion_list: fixed(30, "item", "单次约 600 积分"),
+  // 按 ID 取正文，与带正文的观点列表同价。
+  gangtise_opinion_detail: fixed(30, "item"),
   gangtise_independent_opinion_list: fixed(5, "item"),
   gangtise_roadshow_list: fixed(20, "item", "单次约 400 积分"),
   gangtise_site_visit_list: fixed(20, "item", "单次约 400 积分"),

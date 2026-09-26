@@ -337,7 +337,7 @@
   },
   {
     "name": "gangtise_opinion_list",
-    "description": "查询国内机构首席观点列表，支持按证券、券商、研究方向、行业、时间范围、语义标签等筛选。本工具返回首席观点结论摘要，无专用下载工具。单次约 600 积分。【积分：30/条】",
+    "description": "查询国内机构首席观点列表，支持按证券、券商、研究方向、行业、时间范围、语义标签等筛选。正文见 withContent。单次约 600 积分。【积分：30/条】",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -443,6 +443,10 @@
           },
           "minItems": 1,
           "description": "realTime=实时 | openSource=公开"
+        },
+        "withContent": {
+          "type": "boolean",
+          "description": "默认 true 带正文（价见标签），标题与正文在 contentList.title / .content，顶层无 title / brief；false 只回标题 + 200 字 brief，1 积分/条，全文用 gangtise_opinion_detail"
         },
         "size": {
           "type": "integer",
@@ -1651,7 +1655,7 @@
   },
   {
     "name": "gangtise_foreign_opinion_list",
-    "description": "查询外资机构观点列表（高盛、摩根士丹利等），支持按关键词、证券、地区、行业、评级、评级变动、时间范围筛选。本工具返回外资机构观点结论摘要，无专用下载工具。单次约 600 积分。【积分：30/条】",
+    "description": "查询外资机构观点列表（高盛、摩根士丹利等），支持按关键词、证券、地区、行业、评级、评级变动、时间范围筛选。正文见 withContent。单次约 600 积分。【积分：30/条】",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1748,6 +1752,10 @@
           },
           "minItems": 1,
           "description": "upgrade=上调 | maintain=维持 | downgrade=下调 | initiate=首次覆盖"
+        },
+        "withContent": {
+          "type": "boolean",
+          "description": "默认 true 带正文（价见标签），在顶层 content / contentTranslate，无 brief；false 只回标题 + 200 字 brief 及其译文，1 积分/条，全文用 gangtise_opinion_detail"
         },
         "size": {
           "type": "integer",
@@ -2444,6 +2452,44 @@
       },
       "required": [
         "performanceReportId"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "gangtise_opinion_detail",
+    "description": "按 ID 取观点全文。⚠️ 没有正文的 ID 被跳过而不报错（ID 错、超出取数窗口、刚发布都可能），结果标 _partial 并列在 missingIds；某批失败时已取到的正文照常返回，未取的列在 unfetchedIds，只重跑这几个。【积分：30/条】",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "domestic",
+            "foreign"
+          ],
+          "description": "domestic=内资 chiefOpinionId | foreign=外资 foreignOpinionId（另有 contentTranslate）"
+        },
+        "ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "观点 ID，20 个一批串行请求"
+        }
+      },
+      "required": [
+        "kind",
+        "ids"
       ],
       "additionalProperties": false
     },
@@ -5427,7 +5473,7 @@
   },
   {
     "name": "gangtise_concept_info",
-    "description": "查询题材指数（概念/主题）基本信息：返回题材整体画像（定义 / 投资逻辑 / 行业空间 / 竞争格局 / 催化事件）。仅返回最新截面数据，不支持历史回溯。conceptId 与主题跟踪 gangtise_theme_tracking 的 themeId 为同一套 ID 体系，可用 gangtise_concept_search 按名称查询（如 机器人 → 121000130）。【积分：500/次】",
+    "description": "查询题材指数（概念/主题）基本信息：返回题材整体画像（定义 / 投资逻辑 / 行业空间 / 竞争格局；催化事件见 full）。仅返回最新截面数据，不支持历史回溯。conceptId 与主题跟踪 gangtise_theme_tracking 的 themeId 为同一套 ID 体系，可用 gangtise_concept_search 按名称查询（如 机器人 → 121000130）。【积分：500/次】",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -5435,6 +5481,10 @@
           "type": "string",
           "minLength": 1,
           "description": "题材指数 ID，如 '121000130'（机器人）。来自 gangtise_concept_search（必填）"
+        },
+        "full": {
+          "type": "boolean",
+          "description": "默认 true 含催化事件 keyEvents（价见标签）；false 不含，50 积分/次"
         }
       },
       "required": [
@@ -5452,7 +5502,7 @@
   },
   {
     "name": "gangtise_concept_securities",
-    "description": "查询题材指数（概念/主题）成分股（题材深度 F8）：按分组结构返回当前成分股，每只含是否重点个股 isKey 与纳入理由 inclusionReason。conceptId 与主题跟踪 gangtise_theme_tracking 的 themeId 为同一套 ID 体系，可用 gangtise_concept_search 按名称查询（如 机器人 → 121000130）。【积分：500/次】",
+    "description": "查询题材指数（概念/主题）成分股（题材深度 F8）：按分组结构返回当前成分股（isKey / inclusionReason 见 full）。securityCount 是去重后的只数，逐组累加会多算。conceptId 与主题跟踪 gangtise_theme_tracking 的 themeId 为同一套 ID 体系，可用 gangtise_concept_search 按名称查询（如 机器人 → 121000130）。【积分：500/次】",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -5460,6 +5510,10 @@
           "type": "string",
           "minLength": 1,
           "description": "题材指数 ID，如 '121000130'（机器人）。来自 gangtise_concept_search（必填）"
+        },
+        "full": {
+          "type": "boolean",
+          "description": "默认 true 每只带 isKey（是否重点）与 inclusionReason（纳入理由），价见标签；false 不带，50 积分/次"
         }
       },
       "required": [

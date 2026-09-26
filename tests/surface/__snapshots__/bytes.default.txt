@@ -1,5 +1,5 @@
-tools: 102
-tools/list bytes: 148389
+tools: 103
+tools/list bytes: 149971
 instructions bytes: 2468
 
    396  gangtise_current_date
@@ -13,7 +13,7 @@ instructions bytes: 2468
    865  gangtise_concept_search
    964  gangtise_sector_search
    860  gangtise_sector_constituents
-  2663  gangtise_opinion_list
+  2874  gangtise_opinion_list
   2718  gangtise_summary_list
   2645  gangtise_pamirs_summary_list
   2831  gangtise_roadshow_list
@@ -25,7 +25,7 @@ instructions bytes: 2468
   1109  gangtise_announcement_list
   1107  gangtise_announcement_hk_list
   1159  gangtise_announcement_us_list
-  2548  gangtise_foreign_opinion_list
+  2741  gangtise_foreign_opinion_list
   1548  gangtise_independent_opinion_list
   2329  gangtise_official_account_list
   2259  gangtise_qa_list
@@ -41,6 +41,7 @@ instructions bytes: 2468
    548  gangtise_official_account_download
    505  gangtise_report_image_download
    586  gangtise_performance_calendar_download
+   837  gangtise_opinion_detail
   2365  gangtise_performance_calendar_list
   4268  gangtise_day_kline
   1636  gangtise_day_kline_hk
@@ -96,8 +97,8 @@ instructions bytes: 2468
    851  gangtise_stock_pool_remove_stock
   1209  gangtise_stock_pool_delete
    735  gangtise_edb_search
-   798  gangtise_concept_info
-   776  gangtise_concept_securities
+   935  gangtise_concept_info
+   979  gangtise_concept_securities
    756  gangtise_edb_data
   2346  gangtise_indicator_search
   7616  gangtise_indicator_cross_section

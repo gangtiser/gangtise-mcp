@@ -8,6 +8,7 @@ import { ValidationError } from "../core/errors.js"
 import { dateString, dateTimeString } from "../core/dateContext.js"
 import { nonEmptyString, nonEmptyList, intLiteralEnum, enumList } from "./schemas.js"
 import { withBilling } from "./billing.js"
+import { fetchOpinionDetails } from "../core/opinionDetail.js"
 
 // insight.qa.list accepts either a plain date or a full datetime; the string is
 // passed through to the API as-is (no timestamp conversion).
@@ -40,6 +41,12 @@ const RANK_TYPE = intLiteralEnum([1, 2]).optional()
 // （最常见的是把「中国香港」写成 hk、把欧洲写成 eu）在 foreign-report 上不报错，
 // 而是把筛选条件整个丢掉、返回未经筛选的全库结果 —— 按条计费，且从结果里看不出来。
 const REGION_ENUM = z.enum(["cn", "cnHk", "cnTw", "us", "jp", "sea", "gl", "uk", "fr", "de", "kr", "in", "ca", "me", "othAs", "othEur", "latAm", "oce", "af"])
+/** 观点列表的两档端点：withContent 缺省或为 true 走带正文的端点，false 走只回 brief 的低价端点。
+ *  开关只决定打哪个端点，不进请求体。 */
+function opinionListResolve(withContentKey: string, briefKey: string) {
+  return ({ withContent, ...body }: Record<string, unknown>) => ({ endpointKey: withContent === false ? briefKey : withContentKey, body })
+}
+
 const REGION_DESC = "地区 ID，来自 gangtise_constant_list category=regionCategory：cn=中国 | cnHk=中国香港 | cnTw=中国台湾 | us=美国 | jp=日本 | sea=东南亚 | gl=全球 | uk=英国 | fr=法国 | de=德国 | kr=韩国 | in=印度 | ca=加拿大 | me=中东 | othAs=亚洲其他 | othEur=欧洲其他 | latAm=拉美 | oce=大洋洲 | af=非洲。⚠️ 取值须逐字匹配（中国香港是 cnHk 不是 hk；欧洲按国家/地区分列，没有 eu）"
 
 type ScheduleFields = {
@@ -89,8 +96,9 @@ function scheduleSpec(name: string, label: string, endpointKey: string, fields: 
 export const listSpecs: JsonToolSpec[] = [
   {
     name: "gangtise_opinion_list",
-    description: "查询国内机构首席观点列表，支持按证券、券商、研究方向、行业、时间范围、语义标签等筛选。本工具返回首席观点结论摘要，无专用下载工具。",
-    endpointKey: "insight.opinion.list",
+    description: "查询国内机构首席观点列表，支持按证券、券商、研究方向、行业、时间范围、语义标签等筛选。正文见 withContent。",
+    endpointKey: "insight.opinion.list-with-content",
+    resolve: opinionListResolve("insight.opinion.list-with-content", "insight.opinion.list"),
     paginated: true,
     inputSchema: {
       from: z.number().int().min(0).optional(),
@@ -106,6 +114,7 @@ export const listSpecs: JsonToolSpec[] = [
       conceptList: nonEmptyList().optional().describe("题材/概念 ID，来自 gangtise_concept_search，如 '121000130'（机器人）"),
       llmTagList: enumList(z.enum(["strongRcmd", "earningsReview", "topBroker", "newFortune"])).optional().describe("strongRcmd=强推 | earningsReview=业绩点评 | topBroker=头部券商 | newFortune=新财富"),
       sourceList: enumList(z.enum(["realTime", "openSource"])).optional().describe("realTime=实时 | openSource=公开"),
+      withContent: z.boolean().optional().describe("默认 true 带正文（价见标签），标题与正文在 contentList.title / .content，顶层无 title / brief；false 只回标题 + 200 字 brief，1 积分/条，全文用 gangtise_opinion_detail"),
     },
   },
   {
@@ -291,8 +300,9 @@ export const listSpecs: JsonToolSpec[] = [
     // 全不沾边，模型拿到 0 行后未必回头读参数描述。
     emptyHint:
       "0 行结果：**如果传了 brokerList，先核对 ID 的码系** —— 本参数只认 foreignOpinionInstitution 类别的 ID，传其他码系（如 domesticBroker 的 C1xxxxxxxx）会返 0 行且不报错。regionList / industryList 传了不接受的取值会直接报 100005，因此 0 行与它们无关。其余情况按常规排查：证券代码后缀、时间范围、评级等条件是否过窄。",
-    description: "查询外资机构观点列表（高盛、摩根士丹利等），支持按关键词、证券、地区、行业、评级、评级变动、时间范围筛选。本工具返回外资机构观点结论摘要，无专用下载工具。",
-    endpointKey: "insight.foreign-opinion.list",
+    description: "查询外资机构观点列表（高盛、摩根士丹利等），支持按关键词、证券、地区、行业、评级、评级变动、时间范围筛选。正文见 withContent。",
+    endpointKey: "insight.foreign-opinion.list-with-content",
+    resolve: opinionListResolve("insight.foreign-opinion.list-with-content", "insight.foreign-opinion.list"),
     paginated: true,
     inputSchema: {
       from: z.number().int().min(0).optional(),
@@ -306,6 +316,7 @@ export const listSpecs: JsonToolSpec[] = [
       brokerList: nonEmptyList().optional().describe("外资观点机构 ID：用 gangtise_institution_search categoryList=['foreignOpinionInstitution'] 按名称搜。⚠️ 必须用该类别的 ID——传其他码系的机构 ID（如 domesticBroker 的 C1xxxxxxxx）会返回空结果且不报错"),
       ratingList: enumList(RATING_ENUM).optional().describe(RATING_DESC),
       ratingChangeList: enumList(RATING_CHANGE_ENUM).optional().describe(RATING_CHANGE_DESC),
+      withContent: z.boolean().optional().describe("默认 true 带正文（价见标签），在顶层 content / contentTranslate，无 brief；false 只回标题 + 200 字 brief 及其译文，1 积分/条，全文用 gangtise_opinion_detail"),
     },
   },
   {
@@ -534,6 +545,28 @@ export function registerInsightTools(server: McpServer, client: GangtiseClient):
   for (const spec of downloadSpecs) {
     registerDownloadTool(server, client, spec)
   }
+
+  // 按 ID 分批取正文：多批串行、部分失败保留已付费正文，registerJsonTool 表达不了。
+  server.registerTool(
+    "gangtise_opinion_detail",
+    {
+      description: withBilling(
+        "gangtise_opinion_detail",
+        "按 ID 取观点全文。⚠️ 没有正文的 ID 被跳过而不报错（ID 错、超出取数窗口、刚发布都可能），结果标 _partial 并列在 missingIds；某批失败时已取到的正文照常返回，未取的列在 unfetchedIds，只重跑这几个。",
+      ),
+      inputSchema: {
+        kind: z.enum(["domestic", "foreign"]).describe("domestic=内资 chiefOpinionId | foreign=外资 foreignOpinionId（另有 contentTranslate）"),
+        ids: nonEmptyList().describe("观点 ID，20 个一批串行请求"),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    toolHandler(async ({ kind, ids }: Record<string, unknown>) => {
+      const result = kind === "foreign"
+        ? await fetchOpinionDetails(client, "insight.foreign-opinion.detail", "foreignOpinionIdList", "foreignOpinionId", ids as string[])
+        : await fetchOpinionDetails(client, "insight.opinion.detail", "chiefOpinionIdList", "chiefOpinionId", ids as string[])
+      return contentResult(await buildToolContent(result))
+    }),
+  )
 
   // 直接注册而非走 registerJsonTool：fetchAll 需要「必须有真实约束」的前置校验，
   // 而 registerJsonTool 没有留出这个钩子。

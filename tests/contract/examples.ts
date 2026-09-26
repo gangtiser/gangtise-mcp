@@ -54,7 +54,18 @@ export const EXAMPLES: Record<string, ContractExample[]> = {
   // ─── insight lists ───
   gangtise_opinion_list: [
     { title: "默认注入 size=20、from 原样", args: { securityList: ["600519.SH"], rankType: 2 }, expect: { requests: [{ method: "POST", path: "/application/open-insight/chief-opinion/getList", body: { rankType: 2, securityList: ["600519.SH"], size: 20, from: 0 } }] } },
+    { title: "withContent=false 走只回 brief 的端点，开关不进 body", args: { securityList: ["600519.SH"], withContent: false }, expect: { requests: [{ method: "POST", path: "/application/open-insight/chief-opinion/v2/getList", body: { securityList: ["600519.SH"], size: 20, from: 0 } }] } },
+    { title: "withContent=true 与缺省同端点", args: { securityList: ["600519.SH"], withContent: true }, expect: { requests: [{ method: "POST", path: "/application/open-insight/chief-opinion/getList", body: { securityList: ["600519.SH"], size: 20, from: 0 } }] } },
     { title: "显式 size 与 from", args: { keyword: "机器人", from: 40, size: 5, llmTagList: ["strongRcmd"], sourceList: ["realTime"] }, expect: { requests: [{ method: "POST", path: "/application/open-insight/chief-opinion/getList", body: { from: 40, keyword: "机器人", llmTagList: ["strongRcmd"], sourceList: ["realTime"], size: 5 } }] } },
+  ],
+  gangtise_opinion_detail: [
+    { title: "内资：按 20 个一批串行、重复 ID 只取一次", args: { kind: "domestic", ids: Array.from({ length: 21 }, (_, i) => `co-${i}`).concat(["co-0"]) }, upstream: (req) => (req.endpoint === "insight.opinion.detail" ? { data: [] } : undefined), expect: { requests: [
+        { method: "POST", path: "/application/open-insight/chief-opinion/getDetail", body: { chiefOpinionIdList: Array.from({ length: 20 }, (_, i) => `co-${i}`) } },
+        { method: "POST", path: "/application/open-insight/chief-opinion/getDetail", body: { chiefOpinionIdList: ["co-20"] } },
+      ] } },
+    { title: "外资：ID 列表键是 foreignOpinionIdList", args: { kind: "foreign", ids: ["fo-1"] }, upstream: (req) => (req.endpoint === "insight.foreign-opinion.detail" ? { data: [] } : undefined), expect: { requests: [{ method: "POST", path: "/application/open-insight/foreign-opinion/getDetail", body: { foreignOpinionIdList: ["fo-1"] } }] } },
+    { title: "第一批就有不是对象的元素时整次报错", args: { kind: "domestic", ids: ["co-1"] }, upstream: (req) => (req.endpoint === "insight.opinion.detail" ? { data: [null] } : undefined), expect: { rejects: /不是对象的元素/, requests: [{ method: "POST", path: "/application/open-insight/chief-opinion/getDetail", body: { chiefOpinionIdList: ["co-1"] } }] } },
+    { title: "返回不是数组时整次报错（第一批）", args: { kind: "domestic", ids: ["co-1"] }, upstream: (req) => (req.endpoint === "insight.opinion.detail" ? { data: { list: [] } } : undefined), expect: { rejects: /不是预期的数组结构/, requests: [{ method: "POST", path: "/application/open-insight/chief-opinion/getDetail", body: { chiefOpinionIdList: ["co-1"] } }] } },
   ],
   gangtise_summary_list: [
     { title: "sourceList 发数字", args: { securityList: ["600519.SH"], categoryList: ["earningsCall"], searchType: 2, sourceList: [1], marketList: ["aShares"] }, expect: { requests: [{ method: "POST", path: "/application/open-insight/summary/v2/getList", body: { searchType: 2, securityList: ["600519.SH"], categoryList: ["earningsCall"], marketList: ["aShares"], sourceList: [1], size: 20, from: 0 } }] } },
@@ -109,6 +120,7 @@ export const EXAMPLES: Record<string, ContractExample[]> = {
   ],
   gangtise_foreign_opinion_list: [
     { title: "申万码 + 外资观点机构", args: { industryList: ["104340000"], brokerList: ["F-1"], regionList: ["us"] }, expect: { requests: [{ method: "POST", path: "/application/open-insight/foreign-opinion/getList", body: { regionList: ["us"], industryList: ["104340000"], brokerList: ["F-1"], size: 20, from: 0 } }] } },
+    { title: "withContent=false 走只回 brief 的端点", args: { securityList: ["AAPL.O"], withContent: false }, expect: { requests: [{ method: "POST", path: "/application/open-insight/foreign-opinion/v2/getList", body: { securityList: ["AAPL.O"], size: 20, from: 0 } }] } },
   ],
   gangtise_independent_opinion_list: [
     { title: "评级变动", args: { ratingChangeList: ["upgrade"], securityList: ["AAPL.O"] }, expect: { requests: [{ method: "POST", path: "/application/open-insight/independent-opinion/getList", body: { securityList: ["AAPL.O"], ratingChangeList: ["upgrade"], size: 20, from: 0 } }] } },
@@ -401,10 +413,12 @@ export const EXAMPLES: Record<string, ContractExample[]> = {
     { title: "指标 + 区间", args: { indicatorIdList: ["edb-1", "edb-2"], startDate: "2025-01-01", endDate: "2026-06-30" }, expect: { requests: [{ method: "POST", path: "/application/open-alternative/EDB/getData", body: { indicatorIdList: ["edb-1", "edb-2"], startDate: "2025-01-01", endDate: "2026-06-30" } }] } },
   ],
   gangtise_concept_info: [
-    { title: "conceptId", args: { conceptId: "121000130" }, expect: { requests: [{ method: "POST", path: "/application/open-alternative/concept/info", body: { conceptId: "121000130" } }] } },
+    { title: "缺省 full：完整画像端点", args: { conceptId: "121000130" }, expect: { requests: [{ method: "POST", path: "/application/open-alternative/concept/info", body: { conceptId: "121000130" } }] } },
+    { title: "full=false 走低价端点，开关不进 body", args: { conceptId: "121000130", full: false }, expect: { requests: [{ method: "POST", path: "/application/open-alternative/concept/v2/info", body: { conceptId: "121000130" } }] } },
   ],
   gangtise_concept_securities: [
-    { title: "conceptId", args: { conceptId: "121000130" }, expect: { requests: [{ method: "POST", path: "/application/open-alternative/concept/securities", body: { conceptId: "121000130" } }] } },
+    { title: "缺省 full：带重点标记的端点", args: { conceptId: "121000130" }, expect: { requests: [{ method: "POST", path: "/application/open-alternative/concept/securities", body: { conceptId: "121000130" } }] } },
+    { title: "full=false 走低价端点", args: { conceptId: "121000130", full: false }, expect: { requests: [{ method: "POST", path: "/application/open-alternative/concept/v2/securities", body: { conceptId: "121000130" } }] } },
   ],
 
   // ─── indicator (EDE) ───

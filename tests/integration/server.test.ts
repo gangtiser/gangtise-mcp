@@ -12,6 +12,8 @@ function makeMockClient() {
   return {
     call: vi.fn().mockImplementation(async (key: string) => {
       if (key.startsWith("lookup.")) return [{ id: "1", name: "Test" }]
+      // 观点正文端点按契约返回裸数组。
+      if (key.endsWith(".detail")) return []
       // EDE 走双层信封 + 矩阵，返回通用 list 会被 requireIndicatorMatrix 硬拒。
       // 闭集参数用例靠正向对照判断「这条红是不是枚举造成的」，mock 形状不对
       // 会让 currency/scale/calendarType 全部沦为跳过——测不到就是漏。
@@ -487,7 +489,7 @@ describe("MCP server integration", () => {
   it("gangtise_opinion_list calls API with default size: 20", async () => {
     await mcpClient.callTool({ name: "gangtise_opinion_list", arguments: {} })
     expect(mockClient.call).toHaveBeenCalledWith(
-      "insight.opinion.list",
+      "insight.opinion.list-with-content",
       expect.objectContaining({ size: 20 }),
     )
   })
@@ -495,7 +497,7 @@ describe("MCP server integration", () => {
   it("gangtise_opinion_list respects explicit size", async () => {
     await mcpClient.callTool({ name: "gangtise_opinion_list", arguments: { size: 5 } })
     expect(mockClient.call).toHaveBeenCalledWith(
-      "insight.opinion.list",
+      "insight.opinion.list-with-content",
       expect.objectContaining({ size: 5 }),
     )
   })
@@ -509,7 +511,7 @@ describe("MCP server integration", () => {
   it("gangtise_concept_info calls concept-info endpoint with conceptId", async () => {
     await mcpClient.callTool({ name: "gangtise_concept_info", arguments: { conceptId: "121000130" } })
     expect(mockClient.call).toHaveBeenCalledWith(
-      "alternative.concept-info",
+      "alternative.concept-info-full",
       expect.objectContaining({ conceptId: "121000130" }),
     )
   })
@@ -517,7 +519,7 @@ describe("MCP server integration", () => {
   it("gangtise_concept_securities calls concept-securities endpoint with conceptId", async () => {
     await mcpClient.callTool({ name: "gangtise_concept_securities", arguments: { conceptId: "121000130" } })
     expect(mockClient.call).toHaveBeenCalledWith(
-      "alternative.concept-securities",
+      "alternative.concept-securities-full",
       expect.objectContaining({ conceptId: "121000130" }),
     )
   })
@@ -963,6 +965,7 @@ const CLOSED_SET_SNAPSHOT = [
     "foreign_opinion_list.regionList",
     "foreign_opinion_list.ratingList",
     "foreign_opinion_list.ratingChangeList",
+    "opinion_detail.kind",
     "independent_opinion_list.rankType",
     "independent_opinion_list.ratingList",
     "independent_opinion_list.ratingChangeList",

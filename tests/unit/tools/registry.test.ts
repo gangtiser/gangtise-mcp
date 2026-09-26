@@ -740,7 +740,7 @@ describe("spilled non-list objects keep their incompleteness markers", () => {
       .map((m) => m[1])
       .filter((k) => !k.startsWith("_"))
       .sort()
-    expect(keys).toEqual(["failedItems", "missingFields", "omittedIndicators", "omittedSecurities"])
+    expect(keys).toEqual(["failedItems", "missingFields", "missingIds", "omittedIndicators", "omittedSecurities", "unfetchedError", "unfetchedIds"])
   })
 })
 

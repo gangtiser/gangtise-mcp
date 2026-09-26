@@ -114,6 +114,18 @@ const SCENARIOS: Scenario[] = [
   { name: "partial-window-cut", tool: "gangtise_wechat_message_list", args: { keyword: "AI", from: 9990, fetchAll: true }, upstream: paged(20_000) },
   // 越过 total 的探针被 100006 拒绝：按未声明的偏移窗口保守判封顶。
   { name: "partial-total-capped-refused", tool: "gangtise_research_list", args: { keyword: "AI" }, upstream: (req) => (bodyOf(req).from === 7 ? errorEnvelope("100006", "超出查询范围") : paged(7)(req, 0)) },
+  // 观点正文：服务端跳过没有正文的 ID 且不报错；第二批失败时保留第一批已付费的正文。
+  { name: "partial-missing-ids", tool: "gangtise_opinion_detail", args: { kind: "domestic", ids: ["co-1", "co-2", "co-3"] }, upstream: on("insight.opinion.detail", () => ({ data: [{ chiefOpinionId: "co-1", title: "观点一", content: "<p>正文</p>" }, { chiefOpinionId: "co-3", title: "观点三", content: "<p>正文</p>" }] })) },
+  { name: "partial-unfetched-ids", tool: "gangtise_opinion_detail", args: { kind: "foreign", ids: Array.from({ length: 22 }, (_, i) => `fo-${i}`) }, upstream: on("insight.foreign-opinion.detail", (req) => {
+    const ids = bodyOf(req).foreignOpinionIdList as string[]
+    if (ids[0] === "fo-20") return { json: { code: "999999", msg: "系统错误", data: null, traceId: "trace-d2" }, status: 200 }
+    return { data: ids.map((id) => ({ foreignOpinionId: id, content: "body", contentTranslate: "正文" })) }
+  }) },
+  // 第二批返回了不是对象的元素：第一批已付费的正文照常返回，第二批按未取处理。
+  { name: "partial-unfetched-ids-malformed-batch", tool: "gangtise_opinion_detail", args: { kind: "domestic", ids: Array.from({ length: 21 }, (_, i) => `co-${i}`) }, upstream: on("insight.opinion.detail", (req) => {
+    const ids = bodyOf(req).chiefOpinionIdList as string[]
+    return { data: ids[0] === "co-20" ? [null] : ids.map((id) => ({ chiefOpinionId: id, content: "<p>正文</p>" })) }
+  }) },
   { name: "partial-limit-truncated", tool: "gangtise_day_kline", args: { security: "600519.SH", startDate: "2026-09-01", endDate: "2026-09-03", limit: 3 }, upstream: on("quote.day-kline", () => ({ data: fixture("kline-columnar") })) },
   { name: "partial-failed-shards", tool: "gangtise_day_kline", args: { security: "aShares", startDate: "2026-09-07", endDate: "2026-09-09" }, upstream: shardRows("quote.day-kline", { "2026-09-08": errorEnvelope("100005", "参数错误") }) },
   { name: "partial-malformed-shards", tool: "gangtise_day_kline", args: { security: "aShares", startDate: "2026-09-07", endDate: "2026-09-09" }, upstream: shardRows("quote.day-kline", { "2026-09-08": { data: { total: 5 } } }) },

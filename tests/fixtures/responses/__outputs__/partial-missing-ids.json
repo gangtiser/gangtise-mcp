@@ -1,0 +1,23 @@
+{
+  "isError": false,
+  "result": {
+    "total": 2,
+    "list": [
+      {
+        "chiefOpinionId": "co-1",
+        "title": "观点一",
+        "content": "<p>正文</p>"
+      },
+      {
+        "chiefOpinionId": "co-3",
+        "title": "观点三",
+        "content": "<p>正文</p>"
+      }
+    ],
+    "missingIds": [
+      "co-2"
+    ],
+    "_partial": true,
+    "_partial_reason": "missing_ids"
+  }
+}
