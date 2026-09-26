@@ -3,6 +3,7 @@ import { ApiError, ResponseShapeError, errorMessage, ValidationError } from "./e
 import { PAGE_CONCURRENCY } from "./config.js"
 import { currentSignal } from "./requestContext.js"
 import { clearPartial, markPartial, partialReasonsOf, type PartialReason } from "./partial.js"
+import { CALL_LIMITS } from "./scheduler.js"
 
 export interface KlineBody {
   securityList?: string[]
@@ -36,11 +37,8 @@ const DAY_MS = 86_400_000
  * queries so a single shard (~5-6K rows/day per market) isn't silently truncated.
  * Single-security queries are untouched. */
 const ALL_MARKET_LIMIT = 10_000
-/** Hard cap on shard fan-out. ~180 one-day shards ≈ 6+ months of A-share
- * full-market rows; beyond that the merged rows approach the V8 string limit in
- * the JSON sink — every shard would succeed and then stringify would throw,
- * discarding all of them — and the request count hammers the daily quota. */
-const MAX_SHARDS = 180
+/** 一次全市场拉取最多切的片数（见 scheduler.ts 的 CALL_LIMITS）。 */
+const MAX_SHARDS = CALL_LIMITS.maxShards
 
 function parseDate(value: string): Date | null {
   // Accept yyyy-MM-dd; reject anything else so we can fall back to a single request.

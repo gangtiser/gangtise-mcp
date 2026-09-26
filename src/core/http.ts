@@ -1,0 +1,539 @@
+import { createWriteStream } from "node:fs"
+import fs from "node:fs/promises"
+import path from "node:path"
+import { Transform } from "node:stream"
+import { pipeline } from "node:stream/promises"
+import { promisify } from "node:util"
+import { gunzip } from "node:zlib"
+
+import { request } from "undici"
+
+import { DEFAULT_MAX_DOWNLOAD_BYTES, type CliConfig } from "./config.js"
+import { credentialFingerprint, isTokenCacheValid, normalizeToken, readTokenCache, readTokenCacheWithMtime, requireAccessCredentials, writeTokenCache, type TokenCache } from "./auth.js"
+import { ApiError, DownloadError, ResponseShapeError } from "./errors.js"
+import { ENDPOINTS, type EndpointDefinition } from "./endpoints.js"
+import { Envelope, isEnvelope, unwrapEnvelope } from "./envelope.js"
+import { getLookupData } from "./lookupData/index.js"
+import { currentSignal } from "./requestContext.js"
+import { withGlobalSlot } from "./scheduler.js"
+import { getDispatcher, getDownloadDispatcher, isVerbose, logTiming, markRetryable, withRetry } from "./transport.js"
+
+// 异步解压：同步版会把事件循环卡住整段解压时间，分页 / 分片扇出时几路响应只能排队解压。
+const gunzipAsync = promisify(gunzip)
+
+// Error codes that warrant one forced token refresh + retry:
+//   8000014 / 8000015 — access/secret key errors (arrive as HTTP 200 envelopes)
+//   0000001008 — "token is invalid" (HTTP 401): a cached token rejected
+//     server-side even though not locally expired (e.g. the session was
+//     superseded by a newer login elsewhere).
+//   999002 — the 2026-07-17 renumbering of 0000001008. Listed ahead of the
+//     switchover: without it the self-heal silently stops working the day the
+//     token filter migrates, surfacing as a hard auth failure to the user.
+// 999011 (AK/SK mismatch) is deliberately absent — bad credentials never heal,
+// and transport's NON_RETRYABLE_API_CODES stops it being replayed on a 5xx either.
+const AUTH_RETRY_CODES = new Set(["8000014", "8000015", "0000001008", "999002"])
+
+/** 一次「凭据被拒」的判据：带码的按 AUTH_RETRY_CODES，**没有码的裸 HTTP 401 也算**。
+ *
+ * 🔴 只认码会漏掉下载链路。信封形态的错误才有 `code`，而下载响应可能根本不是信封：
+ * 跟随 30x 之后落到对象存储域名，它拒绝过期凭据时返回的是自家的 HTML / XML；网关直接
+ * 挡下时返回的可能是空体。这些路径构造出的 `ApiError` 的 `code` 是 `undefined`，于是
+ * 自愈整个不发生 —— 缓存里那个已失效的 token 会一直用到本地时钟判定它过期为止，期间
+ * 每一次下载都失败，而 JSON 接口因为走信封反而是好的，现象上像「只有下载坏了」。
+ *
+ * 401 的语义本身就是「这个凭据不被接受」，据此刷新一次是安全的：`authState.retried`
+ * 保证每个请求只自愈一次，AK/SK 不对的情况会在第二次以同样的 401 结束、不成环。 */
+function isAuthRejection(error: ApiError): boolean {
+  if (error.code) return AUTH_RETRY_CODES.has(error.code)
+  return error.statusCode === 401
+}
+
+function overCapError(limit: number): DownloadError {
+  return new DownloadError(`下载内容超过单文件上限 ${(limit / 1048576).toFixed(0)} MB，已中止以免占满临时磁盘。`)
+}
+
+/** 流式字节上限：超出即中止整条 pipeline。 */
+function capBytes(limit: number): Transform {
+  let seen = 0
+  return new Transform({
+    transform(chunk, _enc, cb) {
+      seen += chunk.length
+      if (seen > limit) {
+        cb(overCapError(limit))
+        return
+      }
+      cb(null, chunk)
+    },
+  })
+}
+
+interface TextBody {
+  text(): Promise<string>
+  destroy?(): void
+  [Symbol.asyncIterator]?(): AsyncIterator<Uint8Array>
+}
+
+/** 读文本体，同样受单文件上限约束——落盘的二进制走 capBytes，这里管**留在内存里**的那几条
+ *  路径（JSON 信封 / 直链、text/plain、text/html、text/markdown）。超限即销毁响应体并报错，
+ *  不把一份没有上限的正文整个吞进内存。 */
+async function readTextCapped(body: TextBody, limit: number): Promise<string> {
+  if (typeof body[Symbol.asyncIterator] !== "function") {
+    const text = await body.text()
+    if (Buffer.byteLength(text, "utf8") > limit) throw overCapError(limit)
+    return text
+  }
+  const chunks: Buffer[] = []
+  let seen = 0
+  for await (const chunk of body as AsyncIterable<Uint8Array>) {
+    seen += chunk.byteLength
+    if (seen > limit) {
+      body.destroy?.()
+      throw overCapError(limit)
+    }
+    chunks.push(Buffer.from(chunk))
+  }
+  return Buffer.concat(chunks).toString("utf8")
+}
+
+export interface DownloadResponse {
+  data?: Uint8Array
+  text?: string
+  url?: string
+  contentType?: string
+  filename?: string
+  /** When set, the response body has been streamed directly to this path (no in-memory buffer). */
+  savedPath?: string
+}
+
+/** 端点声明的返回形状是否成立（见 EndpointDefinition.expects）。 */
+function hasExpectedShape(expects: "list" | "array", payload: unknown): boolean {
+  if (expects === "array") return Array.isArray(payload)
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false
+  const { total, list } = payload as { total?: unknown; list?: unknown }
+  return Array.isArray(list) || (total === 0 && (list === null || list === undefined))
+}
+
+/** HTTP 层：鉴权与自愈、JSON 请求（信封解包、形状校验、重试策略）、下载（流式落盘、字节上限）。 */
+export class HttpClient {
+  private refreshPromise: Promise<string> | null = null
+  private memoCache: TokenCache | null = null
+
+  constructor(protected readonly config: CliConfig) {}
+
+  /** `undefined` 表示没有配 accessKey：此时不存在第二个账号，也就无从比对。 */
+  private expectedFingerprint(): string | undefined {
+    return this.config.accessKey ? credentialFingerprint(this.config.accessKey, this.config.baseUrl) : undefined
+  }
+
+  private async getAuthorizationHeader(forceRefresh = false): Promise<string> {
+    if (!forceRefresh) {
+      const expected = this.expectedFingerprint()
+      if (isTokenCacheValid(this.memoCache, undefined, expected)) {
+        return normalizeToken(this.memoCache!.accessToken)
+      }
+      if (this.config.token) {
+        return normalizeToken(this.config.token)
+      }
+      // 缓存文件与 gangtise CLI 共用，而 CLI 可能是用另一套凭证登录的。没有归属比对时
+      // 那枚 token 会被原样采用，请求于是带着另一个账号的身份发出去。
+      const cache = await readTokenCache(this.config.tokenCachePath)
+      if (isTokenCacheValid(cache, undefined, expected)) {
+        this.memoCache = cache
+        return normalizeToken(cache!.accessToken)
+      }
+    }
+
+    if (!this.refreshPromise) {
+      this.refreshPromise = this.doTokenRefresh().finally(() => { this.refreshPromise = null })
+    }
+    return this.refreshPromise
+  }
+
+  private async doTokenRefresh(): Promise<string> {
+    const credentials = requireAccessCredentials(this.config.accessKey, this.config.secretKey)
+
+    const envelope = await this.requestJson<{
+      accessToken: string
+      expiresIn: number
+      uid?: number
+      userName?: string
+      tenantId?: number
+      time: number
+    }>(ENDPOINTS["auth.login"], {
+      accessKey: credentials.accessKey,
+      secretKey: credentials.secretKey,
+    }, false)
+
+    const accessToken = normalizeToken(envelope.accessToken)
+    const expiresAt = Math.floor(Date.now() / 1000) + envelope.expiresIn
+
+    const cache: TokenCache = { ...envelope, accessToken, expiresAt, issuedFor: credentialFingerprint(credentials.accessKey, this.config.baseUrl) }
+    this.memoCache = cache
+    // Persisting to disk is a cross-process cache optimization — this token is
+    // already valid in memoCache. A write failure (read-only home, ENOSPC) must
+    // not fail the in-flight request that triggered the refresh, nor its
+    // concurrent waiters on refreshPromise; the next process just re-logs in.
+    await writeTokenCache(this.config.tokenCachePath, cache).catch((err) => {
+      if (isVerbose()) {
+        const msg = err instanceof Error ? err.message : String(err)
+        process.stderr.write(`[gangtise] token cache write failed (token still valid in memory): ${msg}\n`)
+      }
+    })
+
+    return accessToken
+  }
+
+  /**
+   * On a recoverable auth error (expired/invalid token codes), force a one-time
+   * token refresh and re-throw as retryable so withRetry replays the request.
+   * Otherwise — or once we've already retried this request — it's a no-op and
+   * the caller re-throws the original error. `authState` persists across the
+   * withRetry attempts so we only refresh once per logical request.
+   */
+  private async refreshAuthIfRecoverable(error: unknown, useAuth: boolean, authState: { retried: boolean; startedAt: number }, usedAuthorization?: string): Promise<void> {
+    if (
+      useAuth
+      && !authState.retried
+      && error instanceof ApiError
+      && isAuthRejection(error)
+      && this.config.accessKey
+      && this.config.secretKey
+    ) {
+      authState.retried = true
+      this.memoCache = null
+      // The sibling gangtise CLI shares the token cache file. If it refreshed
+      // while this request was in flight, adopt that token instead of logging in
+      // again — a new login supersedes the sibling's session server-side and
+      // would bounce its requests right back.
+      //
+      // 🔴 判据必须是「这个缓存**在本次请求期间**被写过」，不能只看「盘上的 token 与
+      // 刚失败的那个不同」。不同有两种来源，处置完全相反：
+      //   ① 兄弟进程刚刷新 → 采用它（本条优化的全部意义）。
+      //   ② 盘上本来就躺着一个**早已写入、按本地时钟还没过期、但服务端已失效**的旧
+      //      token（最典型的是配了 GANGTISE_TOKEN 时，磁盘缓存根本不是本次请求的凭据
+      //      来源）→ 采用它等于拿另一个死 token 重试一次，把每次请求仅有的一次自愈名
+      //      额白白烧掉，而真正该做的 AK/SK 登录再也不会发生。
+      // 两者的 token 都「不等于失败的那个」，只有写入时间能把它们分开。
+      // 归属比对在这里同样不能省：兄弟进程既可能是同账号的刷新（该采用），也可能是
+      // 另一个账号的登录（采用它就是换错身份重试一次，还把仅有的一次自愈名额烧掉）。
+      const { cache: fileCache, mtimeMs } = await readTokenCacheWithMtime(this.config.tokenCachePath)
+      const refreshedDuringThisRequest = mtimeMs >= authState.startedAt
+      if (
+        isTokenCacheValid(fileCache, undefined, this.expectedFingerprint())
+        && refreshedDuringThisRequest
+        && usedAuthorization !== undefined
+        && normalizeToken(fileCache!.accessToken) !== usedAuthorization
+      ) {
+        this.memoCache = fileCache
+      } else {
+        try {
+          await this.getAuthorizationHeader(true)
+        } catch {
+          // Refresh itself failed (bad keys / network) — surface the ORIGINAL api
+          // error to the caller (which re-throws it), not the secondary refresh error.
+          return
+        }
+      }
+      throw markRetryable(new ApiError(error.message, error.code, error.statusCode, error.details))
+    }
+  }
+
+  /** Parse a Retry-After header (delta-seconds or HTTP-date) into ms, or undefined. */
+  private parseRetryAfterMs(raw: string | string[] | undefined): number | undefined {
+    const value = Array.isArray(raw) ? raw[0] : raw
+    if (!value) return undefined
+    const seconds = Number(value)
+    if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000)
+    const date = Date.parse(value)
+    return Number.isFinite(date) ? Math.max(0, date - Date.now()) : undefined
+  }
+
+  private throwHttpError(parsed: unknown, statusCode: number, retryAfterMs?: number): never {
+    if (isEnvelope(parsed)) {
+      const code = parsed.code === undefined ? undefined : String(parsed.code)
+      throw new ApiError(parsed.msg || `API request failed (HTTP ${statusCode})`, code, statusCode, parsed, retryAfterMs)
+    }
+
+    throw new ApiError(`API request failed (HTTP ${statusCode})`, undefined, statusCode, parsed, retryAfterMs)
+  }
+
+  private async readLocalLookup(endpoint: EndpointDefinition) {
+    const keyMapping: Record<string, Parameters<typeof getLookupData>[0]> = {
+      "lookup.broker-orgs.list": "broker-orgs",
+      "lookup.meeting-orgs.list": "meeting-orgs",
+    }
+
+    const lookupKey = keyMapping[endpoint.key]
+    if (lookupKey) {
+      return getLookupData(lookupKey)
+    }
+
+    throw new ApiError(`Unsupported local lookup endpoint: ${endpoint.key}`)
+  }
+
+  async login() {
+    const authorization = await this.getAuthorizationHeader()
+    const cache = await readTokenCache(this.config.tokenCachePath)
+    return {
+      authorization,
+      cache,
+    }
+  }
+
+  async requestJson<T>(endpoint: EndpointDefinition, body?: unknown, useAuth = true): Promise<T> {
+    if (endpoint.path.startsWith('/guide/')) {
+      return this.readLocalLookup(endpoint) as Promise<T>
+    }
+
+    const dispatcher = getDispatcher()
+    const url = new URL(endpoint.path, this.config.baseUrl)
+    const authState = { retried: false, startedAt: Date.now() }
+    // Endpoint floor wins over the configured default, but an explicitly larger
+    // GANGTISE_TIMEOUT_MS still applies (slow synchronous AI generation would
+    // otherwise abort at 30s — billed, with the result thrown away).
+    const timeoutMs = Math.max(this.config.timeoutMs, endpoint.timeoutMs ?? 0)
+    // 登录（useAuth=false）刻意不挂取消信号：refreshPromise 是多个并发请求共享的，
+    // 让其中一个的取消把大家的登录一起中止，其余请求会平白失败。
+    const signal = useAuth ? currentSignal() : undefined
+
+    const attemptOnce = async (): Promise<T> => {
+      const headers: Record<string, string> = {
+        'content-type': 'application/json',
+        // undici does not auto-decompress; the gunzip below handles it. Server-side
+        // gzip cuts JSON payloads ~3-10x (CLI measured 3.6x on constant-list).
+        'accept-encoding': 'gzip',
+      }
+      if (useAuth) {
+        headers.Authorization = await this.getAuthorizationHeader()
+      }
+
+      const startedAt = Date.now()
+      const response = await request(url, {
+        method: endpoint.method,
+        headers,
+        body: endpoint.method === 'GET' ? undefined : JSON.stringify(body ?? {}),
+        headersTimeout: timeoutMs,
+        bodyTimeout: timeoutMs,
+        dispatcher,
+        signal,
+      })
+      // Only buffer + gunzip when the server actually compressed; an unencoded
+      // response reads as text directly.
+      const encodingHeader = response.headers['content-encoding']
+      const gzipped = (Array.isArray(encodingHeader) ? encodingHeader[0] : encodingHeader)?.toLowerCase().trim() === 'gzip'
+      let text: string
+      if (gzipped) {
+        const bytes = Buffer.from(await response.body.arrayBuffer())
+        try {
+          text = (await gunzipAsync(bytes)).toString('utf8')
+        } catch (error) {
+          // A proxy/middlebox can declare gzip and deliver garbage — surface it
+          // with request context instead of a bare zlib Z_DATA_ERROR.
+          const detail = error instanceof Error ? error.message : String(error)
+          throw new ApiError(`Failed to decode gzip response for ${endpoint.method} ${endpoint.path}: ${detail}`, undefined, response.statusCode)
+        }
+      } else {
+        text = await response.body.text()
+      }
+      logTiming(`${endpoint.method} ${endpoint.path}`, Date.now() - startedAt, `${response.statusCode}, ${text.length}B`)
+      // Parsed regardless of status: Gangtise also returns errors (including rate
+      // limits) inside HTTP 200 envelopes, and gating this on >= 400 dropped the
+      // server's backoff window on exactly those.
+      const retryAfterMs = this.parseRetryAfterMs(response.headers['retry-after'])
+
+      let parsed: Envelope<T>
+      try {
+        parsed = JSON.parse(text) as Envelope<T>
+      } catch {
+        const message = response.statusCode >= 400
+          ? `API request failed (HTTP ${response.statusCode})`
+          : 'Failed to parse API response'
+        const error = new ApiError(message, undefined, response.statusCode, text.slice(0, 500), retryAfterMs)
+        // 网关直接挡下的 401 可能根本不是 JSON（HTML / 空体）。它同样是「凭据被拒」，
+        // 要过一遍鉴权自愈——否则缓存里的失效 token 会一直用到本地时钟判它过期为止。
+        // 下载链路早已如此处理（见 failDownload），这里此前漏了。
+        await this.refreshAuthIfRecoverable(error, useAuth, authState, headers.Authorization)
+        throw error
+      }
+
+      try {
+        if (response.statusCode >= 400) {
+          this.throwHttpError(parsed, response.statusCode, retryAfterMs)
+        }
+        const payload = unwrapEnvelope(parsed, response.statusCode, retryAfterMs)
+        // 形状校验放在这里而不是工具层：`data: null` 挂不上信封的 traceId，下沉之后就报不出
+        // 可追溯的错。不带错误码、HTTP 200，不会被重试。
+        if (endpoint.expects && !hasExpectedShape(endpoint.expects, payload)) {
+          const got = payload === null ? "null" : Array.isArray(payload) ? "数组" : typeof payload === "object" ? "没有 list 的对象" : typeof payload
+          const want = endpoint.expects === "list" ? "列表（{…, list: [...]}）" : "数组"
+          throw new ResponseShapeError(`响应不是预期的${want}结构（收到${got}），形状可能已变更——请重试；持续出现请带上工具名与入参报障。`, response.statusCode, parsed, payload)
+        }
+        return payload as T
+      } catch (error) {
+        // Run through auth recovery for BOTH 4xx (e.g. 401 token-invalid) and
+        // 200-envelope auth errors, so a server-rejected cached token refreshes.
+        await this.refreshAuthIfRecoverable(error, useAuth, authState, headers.Authorization)
+        throw error
+      }
+    }
+
+    // The policy decides per error what is safe to resend: under "no-replay"
+    // only connect-phase failures, 429 and the token-self-heal mark retry — an
+    // auth-rejected request never reached the backend handler, so no separate
+    // replay path is needed.
+    // 每次尝试占一个全局名额，退避等待期间不占。登录（useAuth=false）不排队：在飞的请求
+    // 可能正等着它刷新 token，它再去排队就会在名额满时互相卡死。
+    return withRetry(() => (useAuth ? withGlobalSlot(attemptOnce, signal) : attemptOnce()), {
+      policy: endpoint.retry,
+      signal,
+      onRetry: (attempt: number, error: unknown, delay: number) => {
+        if (!isVerbose()) return
+        const msg = error instanceof Error ? error.message : String(error)
+        process.stderr.write(`[gangtise] retry ${attempt} after ${delay.toFixed(0)}ms: ${msg.slice(0, 120)}\n`)
+      },
+    })
+  }
+
+  async download(endpoint: EndpointDefinition, query: Record<string, string | number>, options?: { streamTo?: string }): Promise<DownloadResponse> {
+    // 下载专用 dispatcher：跟随 30x（见 getDownloadDispatcher）。
+    const dispatcher = getDownloadDispatcher()
+    const url = new URL(endpoint.path, this.config.baseUrl)
+    Object.entries(query).forEach(([key, value]) => {
+      url.searchParams.set(key, String(value))
+    })
+    const authState = { retried: false, startedAt: Date.now() }
+    const timeoutMs = Math.max(this.config.timeoutMs, endpoint.timeoutMs ?? 0)
+    const signal = currentSignal()
+    const maxBytes = this.config.maxDownloadBytes ?? DEFAULT_MAX_DOWNLOAD_BYTES
+
+    return withRetry(() => withGlobalSlot(async () => {
+      const authorization = await this.getAuthorizationHeader()
+      const startedAt = Date.now()
+      const response = await request(url, {
+        method: endpoint.method,
+        headers: { Authorization: authorization },
+        headersTimeout: timeoutMs,
+        bodyTimeout: timeoutMs,
+        dispatcher,
+        signal,
+      })
+
+      const contentType = Array.isArray(response.headers['content-type']) ? response.headers['content-type'][0] : response.headers['content-type']
+      const contentDisposition = Array.isArray(response.headers['content-disposition'])
+        ? response.headers['content-disposition'][0]
+        : response.headers['content-disposition']
+      const retryAfterMs = this.parseRetryAfterMs(response.headers['retry-after'])
+
+      /** 非信封形态的下载失败：构造错误 → **先过一次鉴权自愈** → 再抛。
+       *
+       * 🔴 自愈这一步不能只挂在信封分支上。下载响应有四种形态（JSON 信封、JSON 但解析
+       * 失败、text/html、二进制），只有第一种能解出 `code`；其余三种此前直接 throw，
+       * 401 就此穿过自愈逻辑。跟随 30x 落到对象存储域名之后，恰恰是后三种最常见。 */
+      const failDownload = async (text: string): Promise<never> => {
+        const error = new ApiError(
+          `Download failed (HTTP ${response.statusCode}): ${text.trim().slice(0, 200)}`,
+          undefined,
+          response.statusCode,
+          text,
+          retryAfterMs,
+        )
+        await this.refreshAuthIfRecoverable(error, true, authState, authorization)
+        throw error
+      }
+
+      // A JSON body carrying content-disposition is a real file attachment (e.g.
+      // a user-stored .json in the vault drive), not an API envelope — fall
+      // through to the binary path so its bytes are returned untouched.
+      if (contentType?.includes('application/json') && !contentDisposition) {
+        const text = await readTextCapped(response.body, maxBytes)
+        logTiming(`GET ${endpoint.path} (json)`, Date.now() - startedAt, `${response.statusCode}, ${text.length}B`)
+        let parsed: unknown
+        try {
+          parsed = JSON.parse(text)
+        } catch {
+          if (response.statusCode >= 400) await failDownload(text)
+          return { text, contentType }
+        }
+
+        let data: unknown
+        try {
+          if (response.statusCode >= 400) {
+            this.throwHttpError(parsed, response.statusCode, retryAfterMs)
+          }
+          data = unwrapEnvelope(parsed as Envelope<unknown>, response.statusCode, retryAfterMs)
+        } catch (error) {
+          await this.refreshAuthIfRecoverable(error, true, authState, authorization)
+          throw error
+        }
+        if (data && typeof data === 'object' && 'url' in (data as Record<string, unknown>) && typeof (data as Record<string, unknown>).url === 'string') {
+          return { url: String((data as Record<string, unknown>).url), contentType }
+        }
+        return { text: JSON.stringify(data), contentType }
+      }
+
+      // text/markdown 与 plain/html 同为正文：不认它会把一份 Markdown 研报当二进制落盘成
+      // download.bin，调用方拿到的是文件路径而不是正文。
+      if (contentType?.includes('text/plain') || contentType?.includes('text/html') || contentType?.includes('text/markdown')) {
+        const text = await readTextCapped(response.body, maxBytes)
+        logTiming(`GET ${endpoint.path} (text)`, Date.now() - startedAt, `${response.statusCode}, ${text.length}B`)
+        if (response.statusCode >= 400) await failDownload(text)
+        return { text, contentType }
+      }
+
+      if (response.statusCode >= 400) await failDownload(await readTextCapped(response.body, maxBytes))
+
+      const filenameMatch = contentDisposition?.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i)
+      // RFC 6266: plain filename= is not percent-encoded — a literal % (common
+      // in report titles like 盈利增长50%点评.pdf) makes decodeURIComponent
+      // throw, which must not fail the download; fall back to the raw name.
+      let filename: string | undefined
+      if (filenameMatch) {
+        const rawName = filenameMatch[1] || filenameMatch[2]
+        try {
+          filename = decodeURIComponent(rawName)
+        } catch {
+          filename = rawName
+        }
+      }
+
+      // Stream directly to disk when caller already knows the destination
+      if (options?.streamTo) {
+        // 🔴 落盘前先看 Content-Length：声明就超上限的直接拒，不浪费带宽也不碰磁盘。
+        const declared = Number(Array.isArray(response.headers['content-length']) ? response.headers['content-length'][0] : response.headers['content-length'])
+        if (Number.isFinite(declared) && declared > maxBytes) {
+          // 🔴 抛错之前必须**主动销毁响应体**。undici 的连接要么被读完、要么被 destroy
+          // 才会归还连接池；直接 throw 会把 socket 留在那儿，服务端还在推流而我们已经
+          // 不读了。连续几次超限下载就能占满连接池（`POOL_CONNECTIONS`），之后所有请求排队。
+          response.body.destroy()
+          throw new DownloadError(
+            `下载内容 ${(declared / 1048576).toFixed(0)} MB 超过单文件上限 ${(maxBytes / 1048576).toFixed(0)} MB，已拒绝以免占满临时磁盘。请改用返回下载直链的方式，或联系客户经理确认该资源是否应当这么大。`,
+          )
+        }
+        await fs.mkdir(path.dirname(options.streamTo), { recursive: true })
+        // 没有 Content-Length（chunked）时靠流式计数兜底：超限即中止，`pipeline` 会销毁
+        // 两端并把错误抛出来，上层 downloadToResult 随即删掉整个临时目录。
+        // 只做**事后清理**是不够的——那时磁盘已经被写满了。
+        await pipeline(response.body, capBytes(maxBytes), createWriteStream(options.streamTo), { signal })
+        logTiming(`GET ${endpoint.path} (stream)`, Date.now() - startedAt, `${response.statusCode}`)
+        return { contentType, filename, savedPath: options.streamTo }
+      }
+
+      const buffer = await response.body.arrayBuffer()
+      logTiming(`GET ${endpoint.path} (binary)`, Date.now() - startedAt, `${response.statusCode}, ${buffer.byteLength}B`)
+      return {
+        data: new Uint8Array(buffer),
+        contentType,
+        filename,
+      }
+    }, signal), {
+      policy: endpoint.retry,
+      signal,
+      onRetry: (attempt, error, delay) => {
+        if (!isVerbose()) return
+        const msg = error instanceof Error ? error.message : String(error)
+        process.stderr.write(`[gangtise] download retry ${attempt} after ${delay.toFixed(0)}ms: ${msg.slice(0, 120)}\n`)
+      },
+    })
+  }
+
+}

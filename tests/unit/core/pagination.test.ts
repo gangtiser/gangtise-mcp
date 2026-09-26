@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { createRowTracker, planRemainingPages } from "../../../src/core/client.js"
+import { createRowTracker, planRemainingPages } from "../../../src/core/paginate.js"
 
 describe("planRemainingPages", () => {
   it("splits the remaining range into maxPageSize chunks", () => {

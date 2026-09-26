@@ -1,11 +1,12 @@
 import { Agent, interceptors, type Dispatcher } from "undici"
 
-import { PAGE_CONCURRENCY } from "./config.js"
+import { GLOBAL_CONCURRENCY, PAGE_CONCURRENCY } from "./config.js"
 import { ApiError } from "./errors.js"
 
-/** 每个源的连接数。分页扇出 / 分片按 GANGTISE_PAGE_CONCURRENCY 并发，池子比它小时多出来的
- *  请求会在 undici 内部排队，调大并发等于没调；16 是并发取默认值时的下限。 */
-export const POOL_CONNECTIONS = Math.max(16, PAGE_CONCURRENCY)
+/** 每个源的连接数。分页扇出 / 分片按 GANGTISE_PAGE_CONCURRENCY 并发、全局按
+ *  GANGTISE_MCP_GLOBAL_CONCURRENCY 封顶，池子比它们小时多出来的请求会在 undici 内部排队，调大
+ *  并发等于没调；16 是两者取默认值时的下限。 */
+export const POOL_CONNECTIONS = Math.max(16, PAGE_CONCURRENCY, GLOBAL_CONCURRENCY)
 
 let cachedDispatcher: Dispatcher | null = null
 

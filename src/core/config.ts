@@ -52,6 +52,19 @@ export function resolvePageConcurrency(raw: string | undefined): number {
 // Read once at load, same static-const pattern as INLINE_MAX_BYTES above.
 export const PAGE_CONCURRENCY = resolvePageConcurrency(process.env.GANGTISE_PAGE_CONCURRENCY)
 
+/** 全局同时在飞的 HTTP 请求上限（跨所有 MCP 调用）。默认与连接池同大：max(16, 分页并发)。
+ *  上限 64——再大连接池也跟着变大，对服务端就不礼貌了。 */
+export const MAX_GLOBAL_CONCURRENCY = 64
+
+export function resolveGlobalConcurrency(raw: string | undefined, pageConcurrency: number): number {
+  const fallback = Math.max(16, pageConcurrency)
+  const n = raw ? Number(raw) : fallback
+  if (!Number.isFinite(n) || n < 1) return fallback
+  return Math.min(Math.floor(n), MAX_GLOBAL_CONCURRENCY)
+}
+
+export const GLOBAL_CONCURRENCY = resolveGlobalConcurrency(process.env.GANGTISE_MCP_GLOBAL_CONCURRENCY, PAGE_CONCURRENCY)
+
 // 单个下载文件的字节上限。总配额（tempCleanup 的 2 GiB）管「多份加起来」，这一条管
 // 「一份自己就把盘写满」——后者是总配额的 LRU 淘汰救不了的，因为淘汰只能删**别的**目录。
 // 1 GiB：研报 PDF / 原始音频再大也很少接近它；/tmp 很小的部署可以调低。
