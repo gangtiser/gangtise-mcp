@@ -57,7 +57,7 @@ export const referenceSpecs: JsonToolSpec[] = [
   {
     name: "gangtise_constant_category",
     description:
-      "查询常量分类列表：返回所有常量分类及每个分类适用于哪些接口的哪些参数（usageScopes）。当前分类：citicIndustry=中信一级行业 | swIndustry=申万一级行业 | gangtiseIndustry=Gangtise行业 | domesticCity=国内城市 | aShareAnnouncementCategory=A股公告分类 | hkShareAnnouncementCategory=港股公告分类 | usShareAnnouncementCategory=美股公告分类 | regionCategory=区域分类。",
+      "查询常量分类列表：返回全部分类代码与名称，及每个分类适用于哪些接口的哪些参数（usageScopes）。",
     endpointKey: "reference.constant-category",
     inputSchema: {},
   },
@@ -67,20 +67,10 @@ export const referenceSpecs: JsonToolSpec[] = [
       "查询某个常量分类下的全部常量值（constantId / constantName / level），树形分类（公告分类）的父节点含 children 嵌套。行业、城市、公告类别、区域等筛选参数的 ID 都从这里查。",
     endpointKey: "reference.constant-list",
     inputSchema: {
-      category: z
-        .enum([
-          "citicIndustry",
-          "swIndustry",
-          "gangtiseIndustry",
-          "domesticCity",
-          "aShareAnnouncementCategory",
-          "hkShareAnnouncementCategory",
-          "usShareAnnouncementCategory",
-          "regionCategory",
-        ])
-        .describe(
-          "分类代码（必填）：citicIndustry=中信一级行业 | swIndustry=申万一级行业 | gangtiseIndustry=Gangtise行业 | domesticCity=国内城市 | aShareAnnouncementCategory=A股公告分类 | hkShareAnnouncementCategory=港股公告分类 | usShareAnnouncementCategory=美股公告分类 | regionCategory=区域分类，完整清单见 gangtise_constant_category",
-        ),
+      // 不做本地闭集：服务端新增分类不该要发版才能查。非法取值服务端报 100005，不会静默返回别的分类。
+      category: nonEmptyString.describe(
+        "分类代码，以 gangtise_constant_category 返回为准。已知：citicIndustry=中信一级行业 | swIndustry=申万一级行业 | gangtiseIndustry=Gangtise行业 | domesticCity=国内城市 | aShareAnnouncementCategory / hkShareAnnouncementCategory / usShareAnnouncementCategory=A股 / 港股 / 美股公告分类 | regionCategory=区域 | nationalEconomicIndustry=国民经济行业 | bondType=债券类型 | interestRateType=利率类型 | interestFrequency=付息频率 | absUnderlyingAssetType=ABS基础资产类型 | ratingType=评级类型 | exchange=交易市场 | fundType=基金分类 | fundBondType=基金持仓券种类别",
+      ),
     },
   },
   {

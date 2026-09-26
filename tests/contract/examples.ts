@@ -37,7 +37,8 @@ export const EXAMPLES: Record<string, ContractExample[]> = {
   ],
   gangtise_constant_list: [
     { title: "闭集内的分类", args: { category: "citicIndustry" }, expect: { requests: [{ method: "POST", path: "/application/open-reference/constants/getList", body: { category: "citicIndustry" } }] } },
-    { title: "闭集外的分类本地拒绝", args: { category: "fundType" }, expect: { rejects: /Invalid enum value.*at category/ } },
+    { title: "分类不做本地闭集，新增分类原样下发", args: { category: "fundType" }, expect: { requests: [{ method: "POST", path: "/application/open-reference/constants/getList", body: { category: "fundType" } }] } },
+    { title: "空白分类本地拒绝", args: { category: " " }, expect: { rejects: /at category/ } },
   ],
   gangtise_concept_search: [
     { title: "按拼音首字母", args: { keyword: "jqr", top: 5 }, expect: { requests: [{ method: "POST", path: "/application/open-reference/concepts/search", body: { keyword: "jqr", top: 5 } }] } },

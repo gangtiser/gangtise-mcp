@@ -368,9 +368,14 @@ describe("MCP server integration", () => {
     expect(mockClient.call).not.toHaveBeenCalled()
   })
 
-  it("gangtise_constant_list rejects an unknown category before calling the API", async () => {
-    const result = await mcpClient.callTool({ name: "gangtise_constant_list", arguments: { category: "foo" } })
-    expect(result.isError).toBe(true)
+  // category 不做本地闭集：服务端新增分类（如债券、基金类的 9 类）不该要发版才能查；非法取值服务端报
+  // 100005，不会静默返回别的分类。空串仍在本地拒。
+  it("gangtise_constant_list forwards any category name and rejects a blank one locally", async () => {
+    await mcpClient.callTool({ name: "gangtise_constant_list", arguments: { category: "bondType" } })
+    expect(mockClient.call).toHaveBeenCalledWith("reference.constant-list", { category: "bondType" })
+    vi.mocked(mockClient.call).mockClear()
+    const blank = await mcpClient.callTool({ name: "gangtise_constant_list", arguments: { category: "  " } })
+    expect(blank.isError).toBe(true)
     expect(mockClient.call).not.toHaveBeenCalled()
   })
 
@@ -910,7 +915,6 @@ const CLOSED_SET_SNAPSHOT = [
     "securities_search.category",
     "institution_search.categoryList",
     "official_account_search.category",
-    "constant_list.category",
     "opinion_list.rankType",
     "opinion_list.llmTagList",
     "opinion_list.sourceList",

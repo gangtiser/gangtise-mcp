@@ -1,5 +1,5 @@
 tools: 102
-tools/list bytes: 148591
+tools/list bytes: 148389
 instructions bytes: 2468
 
    396  gangtise_current_date
@@ -8,8 +8,8 @@ instructions bytes: 2468
    636  gangtise_chiefs_search
   1466  gangtise_institution_search
   1125  gangtise_official_account_search
-   711  gangtise_constant_category
-  1116  gangtise_constant_list
+   405  gangtise_constant_category
+  1220  gangtise_constant_list
    865  gangtise_concept_search
    964  gangtise_sector_search
    860  gangtise_sector_constituents

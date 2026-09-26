@@ -212,7 +212,7 @@
   },
   {
     "name": "gangtise_constant_category",
-    "description": "查询常量分类列表：返回所有常量分类及每个分类适用于哪些接口的哪些参数（usageScopes）。当前分类：citicIndustry=中信一级行业 | swIndustry=申万一级行业 | gangtiseIndustry=Gangtise行业 | domesticCity=国内城市 | aShareAnnouncementCategory=A股公告分类 | hkShareAnnouncementCategory=港股公告分类 | usShareAnnouncementCategory=美股公告分类 | regionCategory=区域分类。【积分：单价以平台计费为准】",
+    "description": "查询常量分类列表：返回全部分类代码与名称，及每个分类适用于哪些接口的哪些参数（usageScopes）。【积分：单价以平台计费为准】",
     "inputSchema": {
       "type": "object",
       "properties": {},
@@ -234,17 +234,8 @@
       "properties": {
         "category": {
           "type": "string",
-          "enum": [
-            "citicIndustry",
-            "swIndustry",
-            "gangtiseIndustry",
-            "domesticCity",
-            "aShareAnnouncementCategory",
-            "hkShareAnnouncementCategory",
-            "usShareAnnouncementCategory",
-            "regionCategory"
-          ],
-          "description": "分类代码（必填）：citicIndustry=中信一级行业 | swIndustry=申万一级行业 | gangtiseIndustry=Gangtise行业 | domesticCity=国内城市 | aShareAnnouncementCategory=A股公告分类 | hkShareAnnouncementCategory=港股公告分类 | usShareAnnouncementCategory=美股公告分类 | regionCategory=区域分类，完整清单见 gangtise_constant_category"
+          "minLength": 1,
+          "description": "分类代码，以 gangtise_constant_category 返回为准。已知：citicIndustry=中信一级行业 | swIndustry=申万一级行业 | gangtiseIndustry=Gangtise行业 | domesticCity=国内城市 | aShareAnnouncementCategory / hkShareAnnouncementCategory / usShareAnnouncementCategory=A股 / 港股 / 美股公告分类 | regionCategory=区域 | nationalEconomicIndustry=国民经济行业 | bondType=债券类型 | interestRateType=利率类型 | interestFrequency=付息频率 | absUnderlyingAssetType=ABS基础资产类型 | ratingType=评级类型 | exchange=交易市场 | fundType=基金分类 | fundBondType=基金持仓券种类别"
         }
       },
       "required": [
