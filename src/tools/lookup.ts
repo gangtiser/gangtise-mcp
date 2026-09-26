@@ -3,7 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { GangtiseClient } from "../core/client.js"
 import { getLookupData, type LookupKey } from "../core/lookupData/index.js"
 import { toolHandler, contentResult } from "./helpers.js"
-import { buildToolContent } from "./registry.js"
+import { buildToolContent } from "../core/present.js"
 import { withBilling } from "./billing.js"
 
 const LOOKUP_TYPES = [

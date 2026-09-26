@@ -7,7 +7,7 @@ import type { GangtiseClient } from "../core/client.js"
 import { errorMessage, ValidationError } from "../core/errors.js"
 import { beginSpillRead, endSpillRead, isOwnedTempPath, touchOwnedTempDir } from "../core/tempCleanup.js"
 import { INLINE_MAX_BYTES } from "../core/config.js"
-import { alignSliceEnd, sampleDiagnostics } from "./registry.js"
+import { alignSliceEnd, sampleDiagnostics } from "../core/present.js"
 import { withBilling } from "./billing.js"
 
 const DEFAULT_LIMIT = 50

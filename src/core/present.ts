@@ -1,0 +1,486 @@
+import fs from "node:fs/promises"
+import path from "node:path"
+
+import type { DownloadResult } from "./download.js"
+import { createManagedTempDir, discardManagedTempDir, enforceOwnedTempQuota } from "./tempCleanup.js"
+import { INLINE_MAX_BYTES } from "./config.js"
+import { PARTIAL_DETAIL_KEYS, PER_PART_DETAIL_KEYS } from "./partial.js"
+
+/** 结果呈现：内联还是落盘、落盘后的预览与指针、诊断明细的采样。所有交给模型的 JSON / 文本
+ *  结果都经这里——单次响应的字节上限只在这一处执行。 */
+
+const PREVIEW_ITEMS = 20
+const TEXT_PREVIEW_CHARS = 4_000
+const AVAILABLE_FIELDS_MAX = 50
+
+/** 溢出文件的本地处理提示。仅在「server 与客户端共享文件系统 且 客户端获准访问该路径」
+ *  时适用；不直接给 shell 命令。远程 MCP / 容器隔离 / 无文件权限的客户端继续走
+ *  gangtise_read_response（read_response 自身的 owned-temp-path 校验不变；
+ *  本地直读不受该 guard 保护，安全性依赖客户端自己的文件权限）。 */
+const LOCAL_HINT_JSON =
+  "该路径存的是完整 JSON；若本机可直接读取，请在本地做投影/过滤/聚合后只取所需结果，不要把整个文件读进上下文。"
+const LOCAL_HINT_TEXT =
+  "该路径存的是完整正文；若本机可直接读取，请在本地搜索/分段定位所需片段，不要把整个文件读进上下文。"
+
+interface PaginatedShape {
+  list: unknown[]
+  [key: string]: unknown
+}
+
+function isPaginatedShape(value: unknown): value is PaginatedShape {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Array.isArray((value as Record<string, unknown>).list)
+  )
+}
+
+const EMPTY_RESULT_HINT =
+  "0 行结果：可能该条件下确无数据；也可能是参数不匹配——证券代码需含交易所后缀（600519.SH / 00700.HK / AAPL.O），可用 gangtise_securities_search 核实，并检查日期区间与市场是否匹配。"
+
+/** Empty results are the costliest silent error in research: the model can't tell
+ * "genuinely no data" from a param mismatch (missing code suffix / wrong market).
+ * Returns a hinted payload when the result is empty, else undefined. Empty payloads
+ * are tiny, so this always inlines and never spills. */
+function emptyResultHint(normalized: unknown, options?: BuildOptions): Record<string, unknown> | undefined {
+  const hint = options?.emptyHint ?? EMPTY_RESULT_HINT
+  // A null payload means zero rows on the few LIST endpoints known to answer that
+  // way — probed 2026-08-09: insight.foreign-opinion.list and
+  // insight.independent-opinion.list answer any `industryList` value (valid citic
+  // code, valid sw code, or garbage) with a literal `null`, which used to render as
+  // the bare text "null" with isError=false.
+  //
+  // Strictly OPT-IN (`nullMeansEmpty`). buildToolContent is shared by every JSON
+  // tool including single-object ones (concept-info, edb-data, AI content, lookup);
+  // turning their `null` into `{list: [], _hint: "…证券代码…日期区间…"}` would both
+  // answer a non-list question with a list and disguise a protocol anomaly as a
+  // normal empty result. Those must keep failing loudly instead.
+  if (options?.nullMeansEmpty && (normalized === null || normalized === undefined)) {
+    return { list: [], _hint: hint }
+  }
+  if (Array.isArray(normalized)) {
+    return normalized.length === 0 ? { list: [], _hint: hint } : undefined
+  }
+  if (normalized !== null && typeof normalized === "object") {
+    const list = (normalized as Record<string, unknown>).list
+    if (list === null || (Array.isArray(list) && list.length === 0)) {
+      return { ...(normalized as Record<string, unknown>), list: Array.isArray(list) ? list : [], _hint: hint }
+    }
+  }
+  return undefined
+}
+
+/** 采样前 PREVIEW_ITEMS 行汇总顶层字段名，供调用方决定 read_response 的 fields 投影。
+ *  这是**提示**，不是正确性判定：采样窗口外的稀疏字段可能漏列，代价只是提示不全。
+ *  read_response 的未知字段判定另扫全量 —— 两者刻意解耦，不要合并。
+ *
+ *  `_available_fields` 与 `_available_fields_sampled` **必须成对出现、缺一不可**：
+ *  读者靠 `_available_fields_sampled < _total_items` 判断字段清单可能不全。
+ *  一行字段都没采到时也返回 `[]` + 实际扫描行数（而不是两个都省略），以区分
+ *  「采了 N 行」与「压根没采」。注意 sampled 计的是**扫描行数（含非对象行）**：
+ *  `[]` + sampled:20 可能是 20 个空对象、也可能是 20 个非对象行，本提示不细分二者。 */
+function availableFieldsMeta(list: unknown[]): Record<string, unknown> {
+  const sampled = Math.min(PREVIEW_ITEMS, list.length)
+  const names: string[] = []
+  const seen = new Set<string>()
+  for (let i = 0; i < sampled; i += 1) {
+    const row = list[i]
+    if (!row || typeof row !== "object" || Array.isArray(row)) continue
+    for (const key of Object.keys(row as object)) {
+      if (!seen.has(key)) {
+        seen.add(key)
+        names.push(key)
+      }
+    }
+  }
+  const truncated = names.length > AVAILABLE_FIELDS_MAX
+  return {
+    _available_fields: truncated ? names.slice(0, AVAILABLE_FIELDS_MAX) : names,
+    _available_fields_sampled: sampled,
+    ...(truncated ? { _available_fields_truncated: true } : {}),
+  }
+}
+
+export interface BuildOptions {
+  /** Overrides the generic zero-row hint (EDE says the opposite of the default). */
+  emptyHint?: string
+  /** Opt in to treating a `null` payload as zero rows. List endpoints only. */
+  nullMeansEmpty?: boolean
+}
+
+/** 兜底：把预览压回字节预算。
+ *
+ * 🔴 上面的收缩只动 `list`。分页/分片层写进来的**诊断元数据**是原样 `...rest` 展开的，
+ * 而它们本身可以很大：`_failed_pages` 每页一条（上限 1000 页）、`_failed_shards` /
+ * `_malformed_shards` / `_truncated_shards` 每片一条（上限 180 片），每条都带一段错误
+ * 原文。实测一份 900 条 `_failed_pages` 的响应：`list` 已经被削成 0 条，指针仍有 257,748
+ * 字节，是 64KB 预算的 3.9 倍。**「把行删光」不等于「回到预算内」。**
+ *
+ * 处置是**采样并如实标注**，不是静默截断：每个超长的 `_` 诊断数组只留前几条，并写清
+ * 一共有多少条、这里显示了几条——诊断信息的用途是「哪几页/哪几天没取到」，前几条 + 总数
+ * 已经足够定位，而完整清单本来也在溢出文件里。 */
+const DIAGNOSTIC_SAMPLE = 5
+/** 单条诊断的字节上限。900 条 × 300 字节的错误原文就能把采样后的载荷再顶到 10 万字节，
+ * 所以只限条数不够，每条也要截。 */
+const DIAGNOSTIC_ENTRY_MAX = 400
+
+/** 可收缩的诊断字段**白名单**。
+ *
+ * 🔴 **必须是白名单，不能是「所有 `_` 开头的数组」。** 前一版按前缀扫，于是
+ * `_available_fields`（最多 50 个字段名）也会被采样，顺手把 `_available_fields_sampled`
+ * 从**数字**（采样行数）覆盖成 `{shown,total}` 对象 —— 那是一个已有契约：读者靠
+ * `_available_fields_sampled < _total_items` 判断字段清单可能不全。收缩逻辑不该有权
+ * 改写它不认识的字段。 */
+const SHRINKABLE = new Set(PER_PART_DETAIL_KEYS)
+
+/** 指针必须保留的最小信息：没有它们，这条回复就没法回读了。 */
+const POINTER_KEYS = new Set([
+  "_truncated", "_saved_to", "_local_hint", "_read_with", "_total_bytes", "_total_items",
+  "_preview_count", "has_more", "next_offset", "_partial", "_partial_reason",
+  // `_available_fields` 三件套是既有契约（读者靠 sampled < _total_items 判断字段清单
+  // 是否完整），收缩不能把它们丢掉——它们本身也很小（字段名上限 50 个）。
+  "_available_fields", "_available_fields_sampled", "_available_fields_truncated",
+])
+
+function clampEntry(entry: unknown): unknown {
+  if (typeof entry === "string") return entry.length > DIAGNOSTIC_ENTRY_MAX ? `${entry.slice(0, DIAGNOSTIC_ENTRY_MAX)}…` : entry
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return entry
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(entry as Record<string, unknown>)) out[k] = clampEntry(v)
+  return out
+}
+
+const bytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value), "utf8")
+
+/** 把预览压回字节预算 —— **硬上限，不是尽力而为**。
+ *
+ * 🔴 收缩只动 `list` 是不够的：分页/分片层写进来的诊断元数据是原样 `...rest` 展开的，
+ * 而它们可以很大（`_failed_pages` 每页一条、上限 1000 页；分片诊断每片一条、上限 180 片，
+ * 每条都带一段错误原文）。实测一份 900 条 `_failed_pages` 的响应，`list` 已经削成 0 条，
+ * 指针仍有 257,748 字节，是 64KB 预算的 3.9 倍。
+ *
+ * 三层，逐层收紧，**最后一层保证一定回到预算内**：
+ *  ① 白名单诊断数组采样到前几条 + 每条截断，并如实标注总数；
+ *  ② 仍超预算 → 丢掉非指针的自定义元数据（它们完整地在溢出文件里）；
+ *  ③ 仍超预算 → 只留指针本身。
+ * 「返回 24 万字节 + 一个 `_oversized: true`」不叫收敛：调用方的上下文已经被撑爆了，
+ * 那个标记来不及起作用。 */
+/** 只做收缩的第一层：把白名单里的诊断数组采样到前几条，并如实标注总数。
+ *
+ * 单独导出是因为 `gangtise_read_response` 的回读页也需要它。回读页会带上源响应的顶层
+ * 元数据（`_failed_pages` 每页一条这类），失败页多时单页就能超字节预算 —— 而那些字段
+ * **没有分页语义**，直接截断就是静默丢数据。采样不一样：它留下 `_..._sampled:
+ * {shown, total}`，读者一眼看得出清单不全、完整版在溢出文件里。
+ *
+ * 与 `shrinkDiagnostics` 的分工：那个函数在采样之后还会**丢字段**（②③ 两层），只适用于
+ * 初始指针（丢掉的东西完整地在溢出文件里、且指针刚生成）。回读页只用这一层。
+ *
+ * 🔴 `budget` 必须由调用方按**它最终要发出去的那个载荷**给，不能默认整份预算：回读页在
+ * 这些元数据之外还要装信封和行，`rest` 自己 65,358B「没超」而拼上信封 65,570B 已经超了 ——
+ * 采样按 65,536 判就一次都不会触发。 */
+export function sampleDiagnostics(preview: Record<string, unknown>, budget = INLINE_MAX_BYTES): Record<string, unknown> {
+  const out = { ...preview }
+  const shrinkable = Object.entries(out)
+    .filter((e): e is [string, unknown[]] => SHRINKABLE.has(e[0]) && Array.isArray(e[1]))
+    .sort((a, b) => bytes(b[1]) - bytes(a[1]))
+  for (const [key, value] of shrinkable) {
+    if (bytes(out) <= budget) break
+    out[key] = value.slice(0, DIAGNOSTIC_SAMPLE).map(clampEntry)
+    out[`${key}_sampled`] = { shown: Math.min(DIAGNOSTIC_SAMPLE, value.length), total: value.length, note: "完整清单见 _saved_to 指向的溢出文件" }
+  }
+  return out
+}
+
+function shrinkDiagnostics(preview: Record<string, unknown>): Record<string, unknown> {
+  if (bytes(preview) <= INLINE_MAX_BYTES) return preview
+  let out = { ...preview }
+
+  // ① 白名单诊断：从最大的开始削
+  out = sampleDiagnostics(out)
+  if (bytes(out) <= INLINE_MAX_BYTES) return out
+
+  // ② 丢掉非指针的自定义元数据（服务端回显的大字段、超大非数组诊断等）
+  const kept: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(out)) {
+    if (POINTER_KEYS.has(k) || k === "list" || k.endsWith("_sampled") || SHRINKABLE.has(k)) kept[k] = v
+  }
+  kept._metadata_dropped = "响应元数据超出字节预算，已省略；完整内容见 _saved_to 指向的溢出文件"
+  out = kept
+  if (bytes(out) <= INLINE_MAX_BYTES) return out
+
+  // ③ 最后兜底：只留指针，且**每个留下来的值都要有界**。
+  //
+  // 🔴 前一版这里把 POINTER_KEYS 原样搬过来就返回了，没有再量一次 —— 于是一个超长的
+  // `_partial_reason`（多原因逗号拼接）或一批超长字段名照样把载荷顶到 10 万字节以上，
+  // 而 CHANGELOG 里写着「保证回到预算内」。**一个自己没有验证过的保证就是假话。**
+  // 现在：丢掉 `_available_fields`（它只是提示，完整清单在溢出文件里）、把剩下的字符串
+  // 值截断，最后**无条件复核一次**，仍超就退到一个由常量拼出的骨架。
+  const minimal: Record<string, unknown> = {}
+  for (const k of POINTER_KEYS) {
+    if (!(k in out)) continue
+    if (k.startsWith("_available_fields")) continue
+    minimal[k] = clampEntry(out[k])
+  }
+  minimal.list = []
+  minimal._metadata_dropped = "响应元数据与预览行均超出字节预算，已全部省略；完整内容见 _saved_to 指向的溢出文件"
+  if (bytes(minimal) <= INLINE_MAX_BYTES) return minimal
+
+  // ④ 绝对兜底：只有回读所必需的三项 + 一句说明。这几项的长度都由本进程决定
+  //（临时目录路径 ~90 字符），不可能再超。走到这里说明上面某个假设不成立，
+  // 但**返回一个超预算的载荷永远不是可接受的结果**。
+  return {
+    _truncated: true,
+    _saved_to: typeof out._saved_to === "string" ? out._saved_to : "",
+    _read_with: "gangtise_read_response",
+    _partial: out._partial === true ? true : undefined,
+    list: [],
+    _metadata_dropped: "响应元数据超出字节预算，仅保留回读指针；完整内容见 _saved_to",
+  }
+}
+
+/** 「结果不完整」的明细键（取自 core/partial.ts 的 PARTIAL_DETAILS）。分页形状的预览靠 `...rest`
+ *  把顶层元数据整片带上，非列表大对象没有那条路——它的预览是**纯指针**，一个字段都不带。正文
+ *  沉进文件没关系，「这份结果完整吗」不能跟着沉下去：工具说明让调用方看 `_partial`，而它恰好是
+ *  唯一看不到的地方，一次部分失败就会被读成全部成功。 */
+
+/** 明细数组在指针里最多带几条。有界是硬要求：这些数组本身就可能是把载荷顶过阈值的
+ *  那个东西，整片搬进预览等于把刚落盘的内容又塞回上下文。 */
+const PARTIAL_DETAIL_PREVIEW = 5
+
+/** 从大对象里摘出不完整标记，供纯指针预览使用。完整明细仍在 `_saved_to` 的文件里。 */
+function partialMarkers(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {}
+  const rec = value as Record<string, unknown>
+  if (rec._partial !== true) return {}
+  const out: Record<string, unknown> = { _partial: true }
+  if (typeof rec._partial_reason === "string") out._partial_reason = rec._partial_reason
+  for (const key of PARTIAL_DETAIL_KEYS) {
+    const detail = rec[key]
+    if (detail === undefined) continue
+    if (!Array.isArray(detail)) {
+      out[key] = detail
+      continue
+    }
+    out[key] = detail.length > PARTIAL_DETAIL_PREVIEW
+      ? [...detail.slice(0, PARTIAL_DETAIL_PREVIEW), `…共 ${detail.length} 条，完整列表见 _saved_to`]
+      : detail
+  }
+  return out
+}
+
+export async function buildToolContent(payload: unknown, options?: BuildOptions): Promise<Array<{ type: "text"; text: string }>> {
+  // 没开 nullMeansEmpty 的端点收到 null/undefined = 协议异常，必须**响亮失败**。
+  // 此前它会被 JSON.stringify 成字面量 "null" 原样返回、且 isError=false，调用方分不清
+  // 「报错 / 无数据 / 坏了」——这正是 CHANGELOG 承诺「其余保持原样响亮暴露」时没做到的。
+  // 只有确认以 null 表示零行的**列表**端点才 opt-in（目前是两个外资观点列表）。
+  if (!options?.nullMeansEmpty && (payload === null || payload === undefined)) {
+    // 有意**不**让调用方「带上 trace」：走到这里时信封已被剥掉，而 attachEnvelopeTraceId
+    // 挂不到 null 上，所以这条路径根本没有 traceId 可给——要一个不存在的东西只会让人白找。
+    throw new Error("本接口返回了空响应体（null），而它不以 null 表示零行——这是一次异常响应。请重试；持续出现请带上工具名与入参报障。")
+  }
+  let normalized = payload
+  const empty = emptyResultHint(normalized, options)
+  if (empty !== undefined) {
+    const text = JSON.stringify(empty)
+    if (Buffer.byteLength(text, "utf8") <= INLINE_MAX_BYTES) {
+      return [{ type: "text" as const, text }]
+    }
+    // 零行不等于小：分页 / 分片层挂上的诊断数组（每失败一页 / 一片一条）能把一份空表
+    // 顶到预算的几倍。带着 _hint 走正常的落盘 + 收缩路径，字节上限对零行同样成立。
+    normalized = empty
+  }
+  const json = JSON.stringify(normalized)
+  const byteLength = Buffer.byteLength(json, "utf8")
+
+  if (byteLength <= INLINE_MAX_BYTES) {
+    return [{ type: "text" as const, text: json }]
+  }
+
+  const tempDir = await createManagedTempDir()
+  const savedPath = path.join(tempDir, "response.json")
+  try {
+    await fs.writeFile(savedPath, json, "utf8")
+  } catch (err) {
+    await discardManagedTempDir(tempDir)
+    throw err
+  }
+  // 写完才知道真实体积——配额必须在这里再执行一次（创建时目录还是空的）。
+  await enforceOwnedTempQuota(tempDir)
+
+  let preview: Record<string, unknown>
+
+  if (isPaginatedShape(normalized)) {
+    const { list, ...rest } = normalized
+    const previewList = list.slice(0, PREVIEW_ITEMS)
+    preview = {
+      ...rest,
+      list: previewList,
+      _truncated: true,
+      _saved_to: savedPath,
+      _local_hint: LOCAL_HINT_JSON,
+      ...availableFieldsMeta(list),
+      _read_with: "gangtise_read_response",
+      _total_bytes: byteLength,
+      _total_items: list.length,
+      _preview_count: previewList.length,
+      has_more: list.length > PREVIEW_ITEMS,
+      next_offset: list.length > PREVIEW_ITEMS ? previewList.length : null,
+    }
+  } else if (Array.isArray(normalized)) {
+    const previewList = normalized.slice(0, PREVIEW_ITEMS)
+    preview = {
+      list: previewList,
+      _truncated: true,
+      _saved_to: savedPath,
+      _local_hint: LOCAL_HINT_JSON,
+      ...availableFieldsMeta(normalized),
+      _read_with: "gangtise_read_response",
+      _total_bytes: byteLength,
+      _total_items: normalized.length,
+      _preview_count: previewList.length,
+      has_more: normalized.length > PREVIEW_ITEMS,
+      next_offset: normalized.length > PREVIEW_ITEMS ? previewList.length : null,
+    }
+  } else {
+    // 非列表大对象：本条只是**指针**，一行内容都没带。
+    // 🔴 `has_more` 必须是 true、`next_offset` 必须是 0 —— read_response 对这种形状按
+    // 字符分片、从 offset 0 开始回读（见 response.ts 的 `_json_chunk` 分支）。写
+    // `has_more: false` 与同一条里的 `_truncated: true` / `_read_with` 直接矛盾，而
+    // 「还有没有」这一格才是调用方决定要不要回读的依据：它会就此停手，整份载荷丢在盘上。
+    preview = {
+      // 不完整标记排在最前，且**先于**指针字段 —— 它是调用方要做决定的那一格。
+      ...partialMarkers(normalized),
+      _truncated: true,
+      _saved_to: savedPath,
+      _local_hint: LOCAL_HINT_JSON,
+      _read_with: "gangtise_read_response",
+      _total_bytes: byteLength,
+      _preview_count: 0,
+      has_more: true,
+      next_offset: 0,
+    }
+  }
+
+  // Guard: if the preview itself exceeds the byte cap (large rows), shrink the
+  // sample by halving until it fits, so the model still gets a few example rows to
+  // learn field names and plan paging — instead of an all-or-nothing empty list.
+  // The spill file still holds every item; has_more/next_offset point past the
+  // sample so the reader continues via gangtise_read_response.
+  if (Array.isArray(preview.list) && Buffer.byteLength(JSON.stringify(preview), "utf8") > INLINE_MAX_BYTES) {
+    const fullPreviewList = preview.list as unknown[]
+    let sample = fullPreviewList
+    while (
+      sample.length > 0 &&
+      Buffer.byteLength(JSON.stringify({ ...preview, list: sample, _preview_count: sample.length }), "utf8") > INLINE_MAX_BYTES
+    ) {
+      sample = sample.slice(0, Math.floor(sample.length / 2))
+    }
+    const totalItems = preview._total_items
+    if (sample.length > 0) {
+      const more = typeof totalItems === "number" && totalItems > sample.length
+      preview = { ...preview, list: sample, _preview_count: sample.length, has_more: more, next_offset: more ? sample.length : null }
+    } else {
+      // Even one row exceeds the budget — fall back to metadata-only. Field names
+      // still reach the model via _available_fields (capped at 50 + a
+      // _available_fields_truncated flag), which survives the ...metaOnly spread.
+      // We deliberately do NOT re-dump the first row's keys here: an unbounded
+      // Object.keys(row) can itself blow the byte budget on a pathologically wide
+      // row — the exact case this fallback handles — and it only duplicates the
+      // (bounded) _available_fields anyway.
+      const { list: _dropped, ...metaOnly } = preview as Record<string, unknown> & { list?: unknown }
+      const anyLeft = typeof totalItems === "number" && totalItems > 0
+      preview = { ...metaOnly, _preview_count: 0, has_more: anyLeft, next_offset: anyLeft ? 0 : null }
+    }
+  }
+
+  return [{ type: "text" as const, text: JSON.stringify(shrinkDiagnostics(preview)) }]
+}
+
+/**
+ * Like buildToolContent but for plain text payloads (Markdown/HTML from AI
+ * tools, downloads, etc.). Small text is returned inline; oversized text is
+ * streamed to a temp .md file with a preview pointer so the MCP response never
+ * blows the context window. Page the rest with gangtise_read_response.
+ */
+export async function buildTextResult(text: string): Promise<Array<{ type: "text"; text: string }>> {
+  if (Buffer.byteLength(text, "utf8") <= INLINE_MAX_BYTES) {
+    return [{ type: "text" as const, text }]
+  }
+  const meta = await spillTextMeta(text)
+  return [{ type: "text" as const, text: JSON.stringify(meta) }]
+}
+
+/** Trims a slice end that would land inside a surrogate pair (4-byte chars like
+ * emoji), which would emit an unpaired surrogate — mojibake or a hard parse
+ * error for strict UTF-8 consumers. Shared with the read-back tool. */
+export function alignSliceEnd(text: string, end: number): number {
+  if (end > 0 && end < text.length) {
+    const code = text.charCodeAt(end - 1)
+    if (code >= 0xd800 && code <= 0xdbff) return end - 1
+  }
+  return end
+}
+
+/** 溢出正文的指针元数据。预览按**序列化后的字节**收敛，不按字符数：4000 个中文字符是
+ *  12KB，`JSON.stringify` 还会把控制字符转义成 6 字节 —— 预算调到下限 8KB 时，按字符切的
+ *  预览自己就超预算了，而这条路径的存在意义正是「不超预算」。
+ *
+ *  `budget` 显式传入而不是直接读常量：默认预算下这个收缩基本不触发，写死常量的测试
+ *  等于没钉住它（`GANGTISE_INLINE_MAX_BYTES` 在模块加载时读一次，测试改不动）。 */
+export function buildTextPointer(text: string, savedPath: string, budget = INLINE_MAX_BYTES): Record<string, unknown> {
+  const build = (end: number) => {
+    const preview = text.slice(0, end)
+    return {
+      _truncated: true,
+      _saved_to: savedPath,
+      _local_hint: LOCAL_HINT_TEXT,
+      _read_with: "gangtise_read_response",
+      _total_bytes: Buffer.byteLength(text, "utf8"),
+      _total_chars: text.length,
+      _preview_chars: preview.length,
+      has_more: text.length > preview.length,
+      next_offset: text.length > preview.length ? preview.length : null,
+      _preview: preview,
+    }
+  }
+  let end = alignSliceEnd(text, Math.min(TEXT_PREVIEW_CHARS, text.length))
+  let meta = build(end)
+  // 折半到装得下为止。end 严格递减且有下界 0，必然终止；预览削到空仍超预算，说明
+  // 光是指针本身（临时目录路径 + 固定说明）就超了预算，那时也没有别的可削。
+  while (end > 0 && Buffer.byteLength(JSON.stringify(meta), "utf8") > budget) {
+    end = alignSliceEnd(text, Math.floor(end / 2))
+    meta = build(end)
+  }
+  return meta
+}
+
+/** Writes oversized text to a temp .md file and returns the truncation-pointer metadata. */
+async function spillTextMeta(text: string): Promise<Record<string, unknown>> {
+  const tempDir = await createManagedTempDir()
+  const savedPath = path.join(tempDir, "response.md")
+  try {
+    await fs.writeFile(savedPath, text, "utf8")
+  } catch (err) {
+    await discardManagedTempDir(tempDir)
+    throw err
+  }
+  await enforceOwnedTempQuota(tempDir)
+  return buildTextPointer(text, savedPath)
+}
+
+/**
+ * Serializes a DownloadResult for the MCP response. Oversized text payloads
+ * (Markdown research reports, HTML opinions, ASR transcripts) are spilled to a
+ * temp file with a preview pointer — same contract as buildTextResult — while
+ * url/savedPath metadata stays inline untouched.
+ */
+export async function buildDownloadContent(result: DownloadResult): Promise<Array<{ type: "text"; text: string }>> {
+  const json = JSON.stringify(result)
+  if (result.text === undefined || Buffer.byteLength(json, "utf8") <= INLINE_MAX_BYTES) {
+    return [{ type: "text" as const, text: json }]
+  }
+  const { text, ...rest } = result
+  const meta = await spillTextMeta(text)
+  return [{ type: "text" as const, text: JSON.stringify({ ...rest, ...meta }) }]
+}
