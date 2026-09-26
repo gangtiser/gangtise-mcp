@@ -1,5 +1,6 @@
-/** 契约示例：每个工具至少一条，钉「入参 → 发到服务端的 HTTP 请求序列」。示例写在工具 spec 上，
- *  由 tests/contract/request-bodies.test.ts 走真实的 MCP 校验路径逐条执行。 */
+/** 契约示例：每个工具至少一条，钉「入参 → 发到服务端的 HTTP 请求序列」。示例写在族旁的
+ *  `tools/<族>.examples.ts`，由 tests/contract/request-bodies.test.ts 走真实的 MCP 校验路径逐条执行。
+ *  `*.examples.ts` 只给测试用，不编译进发布包（tsconfig 的 exclude）。 */
 
 /** 一条发到服务端的 HTTP 请求。`body` 是 JSON 解析后的请求体，`query` 是 GET 的查询串
  *  （值一律是字符串——线上就是字符串）。比较时整条序列按规范化字符串排序，因为分页扇出 /
@@ -37,6 +38,9 @@ export interface ContractExample {
 }
 
 export type Examples = [ContractExample, ...ContractExample[]]
+
+/** 工具名 → 该工具的示例。 */
+export type ToolExamples = Record<string, Examples>
 
 /** 分页端点：按请求体里的 from/size 切一段 `total` 行的虚拟数据集。 */
 export function paged(total: number, only?: string): ExampleResponder {

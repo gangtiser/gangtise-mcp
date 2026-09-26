@@ -13,7 +13,6 @@ const tool = (name: string, tier: ToolSpec["tier"]): ToolSpec => ({
   billingLabel: { kind: "free" },
   description: name,
   input: {},
-  examples: [{ title: "t", args: {}, expect: { requests: [] } }],
   run: async () => ({ content: [] }),
 })
 

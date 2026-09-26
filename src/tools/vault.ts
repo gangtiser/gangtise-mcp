@@ -26,9 +26,6 @@ export const listSpecs: JsonToolSpec[] = [
       startTime: dateTimeString.optional(),
       endTime: dateTimeString.optional(),
     },
-    examples: [
-      { title: "文件类型 + 空间", args: { keyword: "纪要", fileTypeList: [1], spaceTypeList: [2] }, expect: { requests: [{ method: "POST", path: "/application/open-vault/drive/getList", body: { keyword: "纪要", fileTypeList: [1], spaceTypeList: [2], size: 20, from: 0 } }] } },
-    ],
   },
   {
     name: "gangtise_record_list",
@@ -44,9 +41,6 @@ export const listSpecs: JsonToolSpec[] = [
       startTime: dateTimeString.optional(),
       endTime: dateTimeString.optional(),
     },
-    examples: [
-      { title: "来源类别", args: { categoryList: ["upload", "pc"], spaceTypeList: [1] }, expect: { requests: [{ method: "POST", path: "/application/open-vault/record/getList", body: { categoryList: ["upload", "pc"], spaceTypeList: [1], size: 20, from: 0 } }] } },
-    ],
   },
   {
     name: "gangtise_my_conference_list",
@@ -65,9 +59,6 @@ export const listSpecs: JsonToolSpec[] = [
       startTime: dateTimeString.optional(),
       endTime: dateTimeString.optional(),
     },
-    examples: [
-      { title: "来源 + 类别", args: { sourceList: [1], categoryList: ["earningsCall"] }, expect: { requests: [{ method: "POST", path: "/application/open-vault/my-conference/getList", body: { categoryList: ["earningsCall"], sourceList: [1], size: 20, from: 0 } }] } },
-    ],
   },
   {
     name: "gangtise_wechat_message_list",
@@ -86,11 +77,6 @@ export const listSpecs: JsonToolSpec[] = [
       startTime: dateTimeString.optional(),
       endTime: dateTimeString.optional(),
     },
-    examples: [
-      { title: "from 越过偏移窗口本地拒绝", args: { from: 10000, keyword: "AI" }, expect: { rejects: /只能按偏移取到第 10000 行/ } },
-      { title: "首页不跨偏移窗口", args: { from: 9990, keyword: "AI", fetchAll: true }, expect: { requests: [{ method: "POST", path: "/application/open-vault/wechatgroupmsg/list", body: { from: 9990, keyword: "AI", size: 10 } }] } },
-      { title: "群 + 标签", args: { wechatGroupIdList: ["g-1"], tagList: ["research"], industryIdList: ["100800119"] }, expect: { requests: [{ method: "POST", path: "/application/open-vault/wechatgroupmsg/list", body: { wechatGroupIdList: ["g-1"], industryIdList: ["100800119"], tagList: ["research"], size: 20, from: 0 } }] } },
-    ],
   },
   {
     name: "gangtise_stock_pool_list",
@@ -99,9 +85,6 @@ export const listSpecs: JsonToolSpec[] = [
     endpointKey: "vault.stock-pool.list",
     paginated: false,
     inputSchema: {},
-    examples: [
-      { title: "无参", args: {}, expect: { requests: [{ method: "POST", path: "/application/open-vault/stock-pool/getPoolList", body: {} }] } },
-    ],
   },
 ]
 
@@ -114,9 +97,6 @@ export const downloadSpecs: DownloadToolSpec[] = [
     inputSchema: {
       fileId: nonEmptyString.describe("文件 ID，来自 gangtise_drive_list"),
     },
-    examples: [
-      { title: "fileId", args: { fileId: "file-1" }, expect: { requests: [{ method: "GET", path: "/application/open-vault/drive/download/file", query: { fileId: "file-1" } }] } },
-    ],
   },
   {
     name: "gangtise_record_download",
@@ -127,9 +107,6 @@ export const downloadSpecs: DownloadToolSpec[] = [
       recordId: nonEmptyString.describe("录音 ID，来自 gangtise_record_list"),
       contentType: z.enum(["original", "asr", "summary"]).describe("original=原始音频 | asr=语音转文字 | summary=AI摘要（必填）"),
     },
-    examples: [
-      { title: "recordId + contentType", args: { recordId: "rec-1", contentType: "asr" }, expect: { requests: [{ method: "GET", path: "/application/open-vault/record/download/file", query: { recordId: "rec-1", contentType: "asr" } }] } },
-    ],
   },
   {
     name: "gangtise_my_conference_download",
@@ -140,10 +117,6 @@ export const downloadSpecs: DownloadToolSpec[] = [
       conferenceId: nonEmptyString.describe("会议 ID，来自 gangtise_my_conference_list"),
       contentType: z.enum(["asr", "summary"]).describe("asr=语音转文字 | summary=AI摘要（必填，不支持原始音频）"),
     },
-    examples: [
-      { title: "conferenceId + contentType", args: { conferenceId: "conf-1", contentType: "summary" }, expect: { requests: [{ method: "GET", path: "/application/open-vault/my-conference/download/file", query: { conferenceId: "conf-1", contentType: "summary" } }] } },
-      { title: "不支持原始音频", args: { conferenceId: "conf-1", contentType: "original" }, expect: { rejects: /at contentType/ } },
-    ],
   },
 ]
 
@@ -194,9 +167,6 @@ export const vaultFamily: FamilyModule = {
         const result = await client.call("vault.wechat-chatroom.list", body)
         return contentResult(await buildToolContent(normalizeRows(result)))
       },
-      examples: [
-        { title: "roomName 逗号拼接；省略 size 拉全部", args: { roomName: ["医药", "消费"] }, expect: { requests: [{ method: "POST", path: "/application/open-vault/wechatgroupmsg/chatroomId", body: { roomName: "医药,消费", from: 0, size: 50 } }] } },
-      ],
     }),
     defineTool({
       name: "gangtise_stock_pool_stocks",
@@ -214,10 +184,6 @@ export const vaultFamily: FamilyModule = {
         const result = await client.call("vault.stock-pool.stocks", { poolIdList })
         return contentResult(await buildToolContent(normalizeRows(result)))
       },
-      examples: [
-        { title: "缺省为 ['all']", args: {}, expect: { requests: [{ method: "POST", path: "/application/open-vault/stock-pool/getStockList", body: { poolIdList: ["all"] } }] } },
-        { title: "空数组本地拒绝", args: { poolIdList: [] }, expect: { rejects: /不能为空数组/ } },
-      ],
     }),
     defineWriteTool({
       name: "gangtise_stock_pool_create",
@@ -227,9 +193,6 @@ export const vaultFamily: FamilyModule = {
       endpointKey: "vault.stock-pool.create",
       description: "新建自选股池（写操作，只动当前账号本人的自选股）。返回 {poolId, poolName}。每账号最多 30 个池。⚠️ **不重放**：池名不许重复，超时后自动重发会撞重名、把一次已经成功的创建报成失败。所以超时请先用 gangtise_stock_pool_list 查一眼建成没有，不要直接重试。",
       inputSchema: { poolName },
-      examples: [
-        { title: "池名不 trim、原样下发", args: { poolName: " 我的池 " }, expect: { requests: [{ method: "POST", path: "/application/open-vault/stock-pool/createPool", body: { poolName: " 我的池 " } }] } },
-      ],
     }),
     defineWriteTool({
       name: "gangtise_stock_pool_rename",
@@ -239,9 +202,6 @@ export const vaultFamily: FamilyModule = {
       endpointKey: "vault.stock-pool.rename",
       description: "自选股池改名（写操作）。返回 {poolId, poolName}。改回自己当前的名字算成功；用了别的池的名字报 230006。",
       inputSchema: { poolId, poolName },
-      examples: [
-        { title: "poolId + poolName", args: { poolId: "pool-1", poolName: "新名字" }, expect: { requests: [{ method: "POST", path: "/application/open-vault/stock-pool/updatePool", body: { poolId: "pool-1", poolName: "新名字" } }] } },
-      ],
     }),
     defineWriteTool({
       name: "gangtise_stock_pool_add_stock",
@@ -251,9 +211,6 @@ export const vaultFamily: FamilyModule = {
       endpointKey: "vault.stock-pool.add-stock",
       description: "把证券加进指定的自选股池（写操作）。重复加已在池内的证券算幂等成功。返回 {successList, failList}；🔴 单条失败（如代码写错）**不会**让整次调用报错，只标 _partial + failedItems——拿到结果先看有没有这个标记，否则会以为传进去的都加成功了。",
       inputSchema: { poolId, securityCodeList },
-      examples: [
-        { title: "poolId + securityCodeList", args: { poolId: "pool-1", securityCodeList: ["600519.SH", "00700.HK"] }, expect: { requests: [{ method: "POST", path: "/application/open-vault/stock-pool/addStock", body: { poolId: "pool-1", securityCodeList: ["600519.SH", "00700.HK"] } }] } },
-      ],
     }),
     defineWriteTool({
       name: "gangtise_stock_pool_remove_stock",
@@ -263,9 +220,6 @@ export const vaultFamily: FamilyModule = {
       endpointKey: "vault.stock-pool.remove-stock",
       description: "把证券移出指定的自选股池（写操作）。移除本来就不在池内的证券算幂等成功；只动池内的关注关系，不删池。返回与单条失败标记同 gangtise_stock_pool_add_stock。",
       inputSchema: { poolId, securityCodeList },
-      examples: [
-        { title: "poolId + securityCodeList", args: { poolId: "pool-1", securityCodeList: ["600519.SH"] }, expect: { requests: [{ method: "POST", path: "/application/open-vault/stock-pool/deleteStock", body: { poolId: "pool-1", securityCodeList: ["600519.SH"] } }] } },
-      ],
     }),
     defineWriteTool({
       name: "gangtise_stock_pool_delete",
@@ -285,10 +239,6 @@ export const vaultFamily: FamilyModule = {
           .optional()
           .describe("必须显式传 true 才会发出请求。这是不可恢复操作的二次确认：请先向用户复述将被删除的池名并得到同意，不要仅因为被拒绝过就补上这个参数重试"),
       },
-      examples: [
-        { title: "confirm=true 才下发，confirm 不进 body", args: { poolIdList: ["pool-1"], confirm: true }, expect: { requests: [{ method: "POST", path: "/application/open-vault/stock-pool/deletePool", body: { poolIdList: ["pool-1"] } }] } },
-        { title: "未确认零请求拒绝", args: { poolIdList: ["pool-1"] }, expect: { rejects: /confirm 置为 true/ } },
-      ],
     }),
   ],
 }

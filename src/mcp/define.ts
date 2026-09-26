@@ -5,7 +5,6 @@ import { downloadToResult } from "../core/download.js"
 import { ValidationError } from "../core/errors.js"
 import { buildDownloadContent, buildToolContent } from "../core/present.js"
 import type { Billing } from "./billing.js"
-import type { Examples } from "./examples.js"
 import type { ToolTextResult } from "./handler.js"
 import type { CallContext } from "./invoke.js"
 
@@ -28,7 +27,6 @@ export interface ToolSpec {
   description: string
   /** raw shape 会被收成 strict 对象；完整对象 schema 用来表达顶层互斥。 */
   input: ZodShape | z.AnyZodObject
-  examples: Examples
   run: (ctx: CallContext, args: Record<string, unknown>) => Promise<ToolTextResult>
 }
 
@@ -53,7 +51,6 @@ interface SpecBase {
   description: string
   endpointKey: string
   inputSchema: ZodShape
-  examples: Examples
 }
 
 export interface JsonToolSpec extends SpecBase {
@@ -129,7 +126,6 @@ export function defineJsonTool(spec: JsonToolSpec): ToolSpec {
     endpoint: spec.endpointKey,
     description: spec.description,
     input,
-    examples: spec.examples,
     run: async (ctx, args) => {
       const { fetchAll, ...rest } = args
       const sanitized = sanitizeArgs(rest, { paginated: spec.paginated, fetchAll: Boolean(fetchAll) })
@@ -151,7 +147,6 @@ export function defineDownloadTool(spec: DownloadToolSpec): ToolSpec {
     endpoint: spec.endpointKey,
     description: spec.description,
     input: spec.inputSchema,
-    examples: spec.examples,
     run: async (ctx, args) => {
       const result = await downloadToResult(ctx.client, endpoint, args as Record<string, string | number>)
       return { content: await buildDownloadContent(result) }
@@ -170,7 +165,6 @@ export function defineWriteTool(spec: WriteToolSpec): ToolSpec {
     endpoint: spec.endpointKey,
     description: spec.description,
     input: spec.inputSchema,
-    examples: spec.examples,
     run: async (ctx, args) => {
       const { confirm: _confirm, ...body } = args
       const result = await ctx.client.call(spec.endpointKey, body)

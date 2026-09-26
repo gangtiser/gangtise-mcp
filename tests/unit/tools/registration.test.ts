@@ -5,7 +5,6 @@ import { createGangtiseMcpServer } from "../../../src/server.js"
 import { ENDPOINTS } from "../../../src/core/endpoints.js"
 import type { GangtiseClient } from "../../../src/core/client.js"
 import { defineDownloadTool, defineJsonTool } from "../../../src/mcp/define.js"
-import type { Examples } from "../../../src/mcp/examples.js"
 import { createFamilies } from "../../../src/tools/index.js"
 
 // 工具都声明在各族里（tools/index.ts 的 createFamilies），这里遍历它，不再手工汇总 spec 数组。
@@ -49,8 +48,7 @@ describe("families ↔ ENDPOINTS consistency", () => {
 })
 
 describe("factory guards", () => {
-  const examples: Examples = [{ title: "t", args: {}, expect: { requests: [] } }]
-  const base = { name: "gangtise_x", tier: "core" as const, description: "x", inputSchema: {}, examples }
+  const base = { name: "gangtise_x", tier: "core" as const, description: "x", inputSchema: {} }
 
   it("rejects an unknown endpoint key", () => {
     expect(() => defineJsonTool({ ...base, endpointKey: "insight.nope.list" })).toThrow(/unknown endpoint/)

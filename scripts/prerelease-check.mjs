@@ -67,6 +67,11 @@ for (const word of BANNED) {
 const commentLines = distText.split("\n").filter((l) => /^\s*(\/\/|\*|\/\*)/.test(l)).length
 check("② 错误提示", "dist 无源码注释", commentLines === 0, commentLines ? `${commentLines} 行` : "")
 
+// 契约示例（src/**/*.examples.ts）只给测试用，由 tsconfig 的 exclude 挡在构建之外；进了 dist 就是
+// 白白加大安装包、拖慢每次启动的解析。
+const exampleFiles = distFiles.filter((f) => f.endsWith("examples.js"))
+check("② 错误提示", "dist 不含契约示例", exampleFiles.length === 0, exampleFiles.join(", "))
+
 // ── ③ README / CHANGELOG（在 tarball 内）──────────────────────────────
 // 这两份是公开分发的。最容易犯的两类：
 //   a) 把本机验证账号的权限档位写成平台事实（客户按具体年数写死逻辑必错）

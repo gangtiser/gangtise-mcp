@@ -1,6 +1,5 @@
 import { z } from "zod"
 import { defineDownloadTool, defineJsonTool, defineTool, type DownloadToolSpec, type FamilyModule, type JsonToolSpec, type ToolSpec } from "../mcp/define.js"
-import type { Examples } from "../mcp/examples.js"
 import { buildTextResult, buildToolContent } from "../core/present.js"
 import { textResult, contentResult } from "../mcp/handler.js"
 import { pollAsyncContent, isAsyncFailed, isAsyncPending } from "../core/asyncContent.js"
@@ -84,10 +83,6 @@ export const jsonSpecs: JsonToolSpec[] = [
           "证券代码列表（A股/港股，如 ['600519.SH','00700.HK']，单次最多 6000 个）。必填，且**只接受具体代码**——本工具不支持全市场关键字。⚠️ 本工具按条计费，成本随实际返回条数增长，别为了省调用次数一次性铺满 6000 个代码",
         ),
     },
-    examples: [
-      { title: "具体代码批量", args: { securityList: ["600519.SH", "00700.HK"] }, expect: { requests: [{ method: "POST", path: "/application/open-ai/stock-summary/getList", body: { securityList: ["600519.SH", "00700.HK"] } }] } },
-      { title: "全市场关键字本地拒绝", args: { securityList: ["aShares"] }, expect: { rejects: /全市场关键字/ } },
-    ],
   },
   {
     name: "gangtise_knowledge_batch",
@@ -104,10 +99,6 @@ export const jsonSpecs: JsonToolSpec[] = [
       endTime: knowledgeTime.optional().describe("YYYY-MM-DD HH:mm:ss，或 epoch 时间戳（10 位秒 / 13 位毫秒）"),
     },
     transformBody: knowledgeBatchTransform,
-    examples: [
-      { title: "时间转 +08:00 毫秒，秒级补到毫秒", args: { queries: ["AI 算力"], resourceTypes: [10, 60], startTime: "2026-07-01 00:00:00", endTime: 1782921600 }, expect: { requests: [{ method: "POST", path: "/application/open-data/ai/search/knowledge/batch", body: { queries: ["AI 算力"], resourceTypes: [10, 60], startTime: 1782835200000, endTime: 1782921600000 } }] } },
-      { title: "纯日期不收", args: { queries: ["AI"], endTime: "2026-07-01" }, expect: { rejects: /at endTime/ } },
-    ],
   },
   {
     name: "gangtise_security_clue_list",
@@ -122,9 +113,6 @@ export const jsonSpecs: JsonToolSpec[] = [
       gtsCodeList: nonEmptyList().optional().describe("个股代码（如 600519.SH）或申万行业代码（801xxx.SWI，如 801780.SWI 申万银行）列表。全量 31 个行业代码用 gangtise_sector_constituents sectorId=2000000014；单个行业可用 gangtise_securities_search（如 keyword=申万银行 category=['index']）"),
       source: enumList(z.enum(["researchReport", "conference", "announcement", "view"])).optional().describe("researchReport=研报 | conference=会议 | announcement=公告 | view=观点"),
     },
-    examples: [
-      { title: "按个股", args: { startTime: "2026-09-01 00:00:00", endTime: "2026-09-07 23:59:59", queryMode: "bySecurity", gtsCodeList: ["600519.SH"], source: ["researchReport"] }, expect: { requests: [{ method: "POST", path: "/application/open-ai/security-clue/getList", body: { startTime: "2026-09-01 00:00:00", endTime: "2026-09-07 23:59:59", queryMode: "bySecurity", gtsCodeList: ["600519.SH"], source: ["researchReport"], size: 20, from: 0 } }] } },
-    ],
   },
   {
     name: "gangtise_hot_topic",
@@ -139,9 +127,6 @@ export const jsonSpecs: JsonToolSpec[] = [
       withRelatedSecurities: z.boolean().optional().describe("是否返回话题关联证券（默认 true；只需话题清单时传 false 精简响应）"),
       withCloseReading: z.boolean().optional().describe("是否返回话题精读长文（默认 true；传 false 可大幅减小响应体积）"),
     },
-    examples: [
-      { title: "版别 + 精简开关", args: { startDate: "2026-09-01", endDate: "2026-09-05", categoryList: ["morningBriefing"], withCloseReading: false }, expect: { requests: [{ method: "POST", path: "/application/open-ai/hot-topic/getList", body: { startDate: "2026-09-01", endDate: "2026-09-05", categoryList: ["morningBriefing"], withCloseReading: false, size: 20, from: 0 } }] } },
-    ],
   },
   {
     name: "gangtise_management_discuss_announcement",
@@ -154,10 +139,6 @@ export const jsonSpecs: JsonToolSpec[] = [
       reportDate: quarterEndDate("06-30", "12-31").describe("xxxx-06-30（中报）或 xxxx-12-31（年报）"),
       discussionDimension: z.enum(["businessOperation", "financialPerformance", "developmentAndRisk", "all"]).describe("businessOperation=经营情况 | financialPerformance=财务表现 | developmentAndRisk=发展与风险 | all=全部维度（必填）"),
     },
-    examples: [
-      { title: "年报", args: { securityCode: "600519.SH", reportDate: "2025-12-31", discussionDimension: "all" }, expect: { requests: [{ method: "POST", path: "/application/open-ai/management-discuss/from-announcement", body: { securityCode: "600519.SH", reportDate: "2025-12-31", discussionDimension: "all" } }] } },
-      { title: "一季报日期本地拒绝", args: { securityCode: "600519.SH", reportDate: "2025-03-31", discussionDimension: "all" }, expect: { rejects: /季末日/ } },
-    ],
   },
   {
     name: "gangtise_management_discuss_earnings_call",
@@ -170,9 +151,6 @@ export const jsonSpecs: JsonToolSpec[] = [
       reportDate: quarterEndDate("03-31", "06-30", "09-30", "12-31").describe("xxxx-03-31 | xxxx-06-30 | xxxx-09-30 | xxxx-12-31"),
       discussionDimension: z.enum(["businessOperation", "financialPerformance", "developmentAndRisk"]).describe("businessOperation=经营情况 | financialPerformance=财务表现 | developmentAndRisk=发展与风险（必填）"),
     },
-    examples: [
-      { title: "三季度", args: { securityCode: "600519.SH", reportDate: "2025-09-30", discussionDimension: "businessOperation" }, expect: { requests: [{ method: "POST", path: "/application/open-ai/management-discuss/from-earningsCall", body: { securityCode: "600519.SH", reportDate: "2025-09-30", discussionDimension: "businessOperation" } }] } },
-    ],
   },
 ]
 
@@ -186,9 +164,6 @@ export const downloadSpecs: DownloadToolSpec[] = [
       resourceType: intLiteralEnum([10, 11, 20, 40, 50, 51, 60, 70, 80, 90]).describe("资源类型（必填）：10=研报 | 11=外资研报 | 20=内部 | 40=观点 | 50=公告 | 51=港股公告 | 60=纪要 | 70=调研 | 80=网络纪要 | 90=公众号"),
       sourceId: nonEmptyString.describe("资源 ID，来自 gangtise_knowledge_batch 返回结果（必填）"),
     },
-    examples: [
-      { title: "resourceType + sourceId", args: { resourceType: 10, sourceId: "src-1" }, expect: { requests: [{ method: "GET", path: "/application/open-data/ai/resource/download", query: { resourceType: "10", sourceId: "src-1" } }] } },
-    ],
   },
 ]
 
@@ -215,8 +190,6 @@ function defineAsyncPair(
     submitIdField: string
     checkName: string
     checkDescription: string
-    examples: Examples
-    checkExamples: Examples
   },
 ): ToolSpec[] {
   // Submit + poll tool
@@ -234,7 +207,6 @@ function defineAsyncPair(
       // 默认值来自 GANGTISE_MCP_ASYNC_TIMEOUT_MS，写死「55」在改过该环境变量的部署上就是假的。
       waitSeconds: z.number().int().min(0).max(180).optional().describe(`最长等待秒数（默认 ${Math.round(opts.asyncTimeoutMs / 1000)}，最大 180）；超时返回 dataId，用对应 *_check 工具续查`),
     },
-    examples: config.examples,
     run: async ({ client }, args) => {
       // Absolute deadline from the tool call's start: submit itself can take up
       // to the request timeout (~30s), and that time must count against the wait
@@ -282,7 +254,6 @@ function defineAsyncPair(
     endpoint: config.pollEndpoint,
     description: config.checkDescription + `dataId 来自 ${config.name} 的超时/错误响应；pending 表示仍在生成，间隔 1-3 分钟再查。`,
     input: { dataId: nonEmptyString.describe("异步任务 ID，来自对应提交工具的超时/错误响应") },
-    examples: config.checkExamples,
     run: async ({ client }, args) => {
       const { dataId } = args as { dataId: string }
       try {
@@ -346,10 +317,6 @@ export function aiFamily(opts: AiToolOptions): FamilyModule {
           const result = await client.call("ai.theme-tracking", body)
           return contentResult(await buildToolContent(normalizeRows(result)))
         },
-        examples: [
-          { title: "单个 type 包成数组", args: { themeId: "121000130", date: "2026-09-01", type: "morning" }, expect: { requests: [{ method: "POST", path: "/application/open-ai/agent/theme-tracking", body: { date: "2026-09-01", themeId: "121000130", type: ["morning"] } }] } },
-          { title: "未来日期本地拒绝", args: { themeId: "121000130", date: "2099-01-01" }, expect: { rejects: /不能晚于当前日期/ } },
-        ],
       }),
       ...downloadSpecs.map(defineDownloadTool),
       // Synchronous AI tools: fetch pre-generated content (returns it directly).
@@ -361,9 +328,6 @@ export function aiFamily(opts: AiToolOptions): FamilyModule {
         description: "获取指定证券的 AI 一页纸投资摘要，返回 Markdown 内容。",
         input: { securityCode: nonEmptyString.describe("A 股或港股证券代码") },
         run: aiContentRun("ai.one-pager"),
-        examples: [
-          { title: "securityCode", args: { securityCode: "600519.SH" }, expect: { requests: [{ method: "POST", path: "/application/open-ai/agent/one-pager", body: { securityCode: "600519.SH" } }] } },
-        ],
       }),
       defineTool({
         name: "gangtise_investment_logic",
@@ -373,9 +337,6 @@ export function aiFamily(opts: AiToolOptions): FamilyModule {
         description: "获取指定证券的 AI 投资逻辑梳理报告，返回 Markdown 内容。",
         input: { securityCode: nonEmptyString.describe("A 股或港股证券代码") },
         run: aiContentRun("ai.investment-logic"),
-        examples: [
-          { title: "securityCode", args: { securityCode: "00700.HK" }, expect: { requests: [{ method: "POST", path: "/application/open-ai/agent/investment-logic", body: { securityCode: "00700.HK" } }] } },
-        ],
       }),
       defineTool({
         name: "gangtise_peer_comparison",
@@ -385,9 +346,6 @@ export function aiFamily(opts: AiToolOptions): FamilyModule {
         description: "获取指定证券的 AI 同业竞争格局对比报告，返回 Markdown 内容。",
         input: { securityCode: nonEmptyString.describe("A 股或港股证券代码") },
         run: aiContentRun("ai.peer-comparison"),
-        examples: [
-          { title: "securityCode", args: { securityCode: "600519.SH" }, expect: { requests: [{ method: "POST", path: "/application/open-ai/agent/peer-comparison", body: { securityCode: "600519.SH" } }] } },
-        ],
       }),
       defineTool({
         name: "gangtise_research_outline",
@@ -397,9 +355,6 @@ export function aiFamily(opts: AiToolOptions): FamilyModule {
         description: "获取指定证券的 AI 生成公司研究提纲，返回 Markdown 内容。",
         input: { securityCode: nonEmptyString.describe("仅支持 A 股证券代码") },
         run: aiContentRun("ai.research-outline"),
-        examples: [
-          { title: "securityCode", args: { securityCode: "600519.SH" }, expect: { requests: [{ method: "POST", path: "/application/open-ai/agent/research-outline", body: { securityCode: "600519.SH" } }] } },
-        ],
       }),
       // Async tools: earnings-review
       ...defineAsyncPair(opts, {
@@ -415,17 +370,6 @@ export function aiFamily(opts: AiToolOptions): FamilyModule {
         submitIdField: "dataId",
         checkName: "gangtise_earnings_review_check",
         checkDescription: "按 dataId 查询业绩点评任务的生成状态。",
-        examples: [
-          { title: "提交后立即轮询；waitSeconds 不进 body", args: { securityCode: "600519.SH", period: "2025q3", waitSeconds: 5 }, expect: { requests: [
-              { method: "POST", path: "/application/open-ai/agent/earnings-review-getcontent", body: { dataId: "mock-data-id" } },
-              { method: "POST", path: "/application/open-ai/agent/earnings-review-getid", body: { securityCode: "600519.SH", period: "2025q3" } },
-            ] } },
-          { title: "waitSeconds=0 只提交不轮询", args: { securityCode: "600519.SH", period: "2025annual", waitSeconds: 0 }, expect: { requests: [{ method: "POST", path: "/application/open-ai/agent/earnings-review-getid", body: { securityCode: "600519.SH", period: "2025annual" } }] } },
-          { title: "报告期格式本地拒绝", args: { securityCode: "600519.SH", period: "2025Q3" }, expect: { rejects: /at period/ } },
-        ],
-        checkExamples: [
-          { title: "dataId", args: { dataId: "data-1" }, expect: { requests: [{ method: "POST", path: "/application/open-ai/agent/earnings-review-getcontent", body: { dataId: "data-1" } }] } },
-        ],
       }),
       // Async tools: viewpoint-debate
       ...defineAsyncPair(opts, {
@@ -440,15 +384,6 @@ export function aiFamily(opts: AiToolOptions): FamilyModule {
         submitIdField: "dataId",
         checkName: "gangtise_viewpoint_debate_check",
         checkDescription: "按 dataId 查询多空辩论任务的生成状态。",
-        examples: [
-          { title: "提交后立即轮询", args: { viewpoint: "白酒行业将在 2027 年触底", waitSeconds: 5 }, expect: { requests: [
-              { method: "POST", path: "/application/open-ai/agent/viewpoint-debate-getcontent", body: { dataId: "mock-data-id" } },
-              { method: "POST", path: "/application/open-ai/agent/viewpoint-debate-getid", body: { viewpoint: "白酒行业将在 2027 年触底" } },
-            ] } },
-        ],
-        checkExamples: [
-          { title: "dataId", args: { dataId: "data-2" }, expect: { requests: [{ method: "POST", path: "/application/open-ai/agent/viewpoint-debate-getcontent", body: { dataId: "data-2" } }] } },
-        ],
       }),
     ],
   }

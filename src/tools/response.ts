@@ -473,9 +473,6 @@ export const responseFamily: FamilyModule = {
           endSpillRead()
         }
       },
-      examples: [
-        { title: "非本进程临时文件拒读", args: { saved_to: "/etc/hosts" }, expect: { rejects: /gangtise-mcp- temp file/ } },
-      ],
     }),
   ],
 }

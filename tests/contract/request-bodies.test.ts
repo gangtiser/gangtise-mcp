@@ -3,7 +3,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 import { clearCalendarTypeCacheForTests } from "../../src/core/calendarType.js"
 import { startHarness, type Harness } from "../helpers/harness.js"
 import type { RecordedRequest } from "../helpers/mockUpstream.js"
-import type { ExpectedRequest } from "../../src/mcp/examples.js"
+import type { ExpectedRequest } from "../../src/mcp/contract.examples.js"
+import { EXAMPLES } from "../../src/tools/index.examples.js"
 import { createFamilies } from "../../src/tools/index.js"
 
 /** 请求黄金用例：每个工具的每条 example 走**真正的 MCP 校验路径**（strict schema、handler、
@@ -46,16 +47,18 @@ function normalize(requests: RecordedRequest[] | ExpectedRequest[]): ExpectedReq
 }
 
 describe("contract examples cover every tool", () => {
-  it("已注册的工具恰好是各族声明的工具，且每个都带 example", async () => {
+  // 示例在族旁的 *.examples.ts（不进发布包）。工具与示例两边对账：缺示例、或示例指向不存在的工具都红。
+  it("已注册的工具恰好是各族声明的工具，每个都带 example，且没有多余的 example", async () => {
     const names = (await harness.mcp.listTools()).tools.map((tool) => tool.name).sort()
     expect(TOOLS.map((tool) => tool.name).sort()).toEqual(names)
-    expect(TOOLS.filter((tool) => tool.examples.length === 0).map((tool) => tool.name)).toEqual([])
+    expect(names.filter((name) => !EXAMPLES[name]?.length)).toEqual([])
+    expect(Object.keys(EXAMPLES).filter((name) => !names.includes(name))).toEqual([])
   })
 })
 
 for (const tool of TOOLS) {
   describe(tool.name, () => {
-    for (const example of tool.examples) {
+    for (const example of EXAMPLES[tool.name] ?? []) {
       it(example.title, async () => {
         harness.upstream.setResponder(example.upstream)
         const outcome = await harness.call(tool.name, example.args)

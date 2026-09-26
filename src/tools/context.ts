@@ -16,9 +16,6 @@ export const contextFamily: FamilyModule = {
       run: async () => ({
         content: [{ type: "text" as const, text: JSON.stringify(currentDateContext(), null, 2) }],
       }),
-      examples: [
-        { title: "本地工具不发请求", args: {}, expect: { requests: [] } },
-      ],
     }),
   ],
 }

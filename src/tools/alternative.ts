@@ -24,9 +24,6 @@ export const specs: JsonToolSpec[] = [
       keyword: nonEmptyString.describe("搜索关键词，如 '空调'、'PMI'（必填）"),
       limit: z.number().int().min(1).max(200).optional().describe("最大返回数量（默认 100，最大 200）"),
     },
-    examples: [
-      { title: "关键词 + limit", args: { keyword: "PMI", limit: 10 }, expect: { requests: [{ method: "POST", path: "/application/open-alternative/EDB/search", body: { keyword: "PMI", limit: 10 } }] } },
-    ],
   },
   {
     name: "gangtise_concept_info",
@@ -40,10 +37,6 @@ export const specs: JsonToolSpec[] = [
       conceptId: nonEmptyString.describe("题材指数 ID，如 '121000130'（机器人）。来自 gangtise_concept_search（必填）"),
       full: z.boolean().optional().describe("默认 true 含催化事件 keyEvents（价见标签）；false 不含，50 积分/次"),
     },
-    examples: [
-      { title: "缺省 full：完整画像端点", args: { conceptId: "121000130" }, expect: { requests: [{ method: "POST", path: "/application/open-alternative/concept/info", body: { conceptId: "121000130" } }] } },
-      { title: "full=false 走低价端点，开关不进 body", args: { conceptId: "121000130", full: false }, expect: { requests: [{ method: "POST", path: "/application/open-alternative/concept/v2/info", body: { conceptId: "121000130" } }] } },
-    ],
   },
   {
     name: "gangtise_concept_securities",
@@ -57,10 +50,6 @@ export const specs: JsonToolSpec[] = [
       conceptId: nonEmptyString.describe("题材指数 ID，如 '121000130'（机器人）。来自 gangtise_concept_search（必填）"),
       full: z.boolean().optional().describe("默认 true 每只带 isKey（是否重点）与 inclusionReason（纳入理由），价见标签；false 不带，50 积分/次"),
     },
-    examples: [
-      { title: "缺省 full：带重点标记的端点", args: { conceptId: "121000130" }, expect: { requests: [{ method: "POST", path: "/application/open-alternative/concept/securities", body: { conceptId: "121000130" } }] } },
-      { title: "full=false 走低价端点", args: { conceptId: "121000130", full: false }, expect: { requests: [{ method: "POST", path: "/application/open-alternative/concept/v2/securities", body: { conceptId: "121000130" } }] } },
-    ],
   },
 ]
 
@@ -94,9 +83,6 @@ export const alternativeFamily: FamilyModule = {
         }
         return contentResult(await buildToolContent(normalizeRows(normalized)))
       },
-      examples: [
-        { title: "指标 + 区间", args: { indicatorIdList: ["edb-1", "edb-2"], startDate: "2025-01-01", endDate: "2026-06-30" }, expect: { requests: [{ method: "POST", path: "/application/open-alternative/EDB/getData", body: { indicatorIdList: ["edb-1", "edb-2"], startDate: "2025-01-01", endDate: "2026-06-30" } }] } },
-      ],
     }),
   ],
 }

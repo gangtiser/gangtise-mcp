@@ -28,10 +28,6 @@ export const lookupFamily: FamilyModule = {
         ),
       },
       run: async (_ctx, args) => contentResult(await buildToolContent(await getLookupData(args.type as LookupKey))),
-      examples: [
-        { title: "本地码表不发请求", args: { type: "broker-orgs" }, expect: { requests: [] } },
-        { title: "未知 type 本地拒绝", args: { type: "bogus" }, expect: { rejects: /Invalid enum value.*at type/ } },
-      ],
     }),
   ],
 }
