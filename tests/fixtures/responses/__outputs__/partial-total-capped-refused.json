@@ -1,0 +1,35 @@
+{
+  "isError": false,
+  "result": {
+    "total": 7,
+    "_partial": true,
+    "_partial_reason": "total_capped",
+    "_total_capped": {
+      "reportedTotal": 7,
+      "note": "本接口拒绝返回 total 之后的那一行，多半是 total 处有偏移窗口：窗口外可能还有行，既取不到也数不到。请缩小查询范围（如缩短时间区间）分段拉取"
+    },
+    "list": [
+      {
+        "id": "row-0"
+      },
+      {
+        "id": "row-1"
+      },
+      {
+        "id": "row-2"
+      },
+      {
+        "id": "row-3"
+      },
+      {
+        "id": "row-4"
+      },
+      {
+        "id": "row-5"
+      },
+      {
+        "id": "row-6"
+      }
+    ]
+  }
+}

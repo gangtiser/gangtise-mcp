@@ -351,6 +351,8 @@ export const EXAMPLES: Record<string, ContractExample[]> = {
     { title: "来源 + 类别", args: { sourceList: [1], categoryList: ["earningsCall"] }, expect: { requests: [{ method: "POST", path: "/application/open-vault/my-conference/getList", body: { categoryList: ["earningsCall"], sourceList: [1], size: 20, from: 0 } }] } },
   ],
   gangtise_wechat_message_list: [
+    { title: "from 越过偏移窗口本地拒绝", args: { from: 10000, keyword: "AI" }, expect: { rejects: /只能按偏移取到第 10000 行/ } },
+    { title: "首页不跨偏移窗口", args: { from: 9990, keyword: "AI", fetchAll: true }, expect: { requests: [{ method: "POST", path: "/application/open-vault/wechatgroupmsg/list", body: { from: 9990, keyword: "AI", size: 10 } }] } },
     { title: "群 + 标签", args: { wechatGroupIdList: ["g-1"], tagList: ["research"], industryIdList: ["100800119"] }, expect: { requests: [{ method: "POST", path: "/application/open-vault/wechatgroupmsg/list", body: { wechatGroupIdList: ["g-1"], industryIdList: ["100800119"], tagList: ["research"], size: 20, from: 0 } }] } },
   ],
   gangtise_wechat_chatroom_list: [

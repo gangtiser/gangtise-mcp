@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { createWriteStream } from "node:fs"
 import fs from "node:fs/promises"
 import path from "node:path"
@@ -133,6 +134,78 @@ export interface DownloadResponse {
 
 const TOTAL_CAPPED_NOTE =
   "服务端返回的 total 是上限值而非真实计数，实际条数更多；本次只取到了上限内的部分"
+
+/** 列表端点拒绝越界偏移时用的两个码：群消息列表回 140002，声明了 maxWindow 的 insight 列表回
+ *  100006。封顶探针被这两个码拒绝，说明 total 处有一道没声明的偏移窗口；其他失败（重试耗尽的
+ *  503、断连）对 total 什么也说明不了，照旧不标。 */
+const OFFSET_REFUSAL_CODES = new Set(["140002", "100006"])
+
+/** `total` 可能是上限值时写进结果的详情。三种来源各有自己的说明。 */
+function totalCappedDetail(kind: "rows_beyond" | "refused" | "window", total: number, maxWindow?: number): Record<string, unknown> {
+  if (kind === "rows_beyond") return { reportedTotal: total, note: TOTAL_CAPPED_NOTE }
+  if (kind === "refused") {
+    return { reportedTotal: total, note: "本接口拒绝返回 total 之后的那一行，多半是 total 处有偏移窗口：窗口外可能还有行，既取不到也数不到。请缩小查询范围（如缩短时间区间）分段拉取" }
+  }
+  return { reportedTotal: total, maxWindow, note: `本接口只能按偏移取到前 ${maxWindow} 行，total 已触及这个窗口：窗口外可能还有行，既取不到也数不到。请缩小查询范围（如缩短时间区间）分段拉取` }
+}
+
+/** 与字段顺序无关的序列化：对象键排序、数组保持原序。同一行的两次返回字段顺序可能不同，
+ *  直接 `JSON.stringify` 会把内容相同的两行判成两个版本。 */
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`
+  if (value && typeof value === "object") {
+    const obj = value as Record<string, unknown>
+    return `{${Object.keys(obj).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(obj[key])}`).join(",")}}`
+  }
+  return JSON.stringify(value) ?? "null"
+}
+
+/** 翻页的跨页重复 / 变动检测（端点声明了 `rowId` 才生效）。
+ *
+ *  按非唯一键（`msgTime` / `publishTime`）排序的列表，同一时间点的一组行在两次翻页请求之间会
+ *  换顺序：相邻两页各拿到其中一部分，于是有的行出现两次、有的一次都没出现，总行数却仍等于 total。
+ *
+ *  - 同一 ID 再次出现且与**已见过的任一版本**整行相同 → 重复，丢掉（`duplicate_rows`）。少掉的
+ *    行数就是漏掉的行数。只比第一版会漏：v1 → v2 → v2 时第三行与第二行重复。
+ *  - 同一 ID 在**后面的页**上出现新版本 → 翻页期间列表在变，各版都留（`changed_rows`）。
+ *  - 同一 ID 在**同一页**里出现两版 → 这个字段不是本列表的行主键，此后不再报变动行。
+ *  - 没有该字段、或值为 null 的行一律保留。只存 ID 与各版本的摘要，不存整行；摘要与字段顺序无关。 */
+export function createRowTracker(rowId: string | undefined) {
+  const seen = rowId ? new Map<string, Set<string>>() : undefined
+  const state = { duplicateRows: 0, changedRows: 0, idIsRowKey: true }
+  const filter = (rows: unknown[]): unknown[] => {
+    if (!seen || !rowId) return rows
+    // 本页每个 ID 出现过的版本。「同一页里一个 ID 有两版」要先于跨页去重单独判：两版都是已见过的
+    // 版本时它们都会被当重复去掉，但这一页仍然证明了这个字段不是行主键。
+    const onThisPage = new Map<string, Set<string>>()
+    return rows.filter((row) => {
+      const id = row && typeof row === "object" ? (row as Record<string, unknown>)[rowId] : undefined
+      if (id === undefined || id === null) return true
+      const digest = createHash("sha1").update(stableStringify(row)).digest("base64")
+      const key = String(id)
+      const pageVersions = onThisPage.get(key)
+      if (pageVersions === undefined) onThisPage.set(key, new Set([digest]))
+      else {
+        if (!pageVersions.has(digest)) state.idIsRowKey = false
+        pageVersions.add(digest)
+      }
+      const versions = seen.get(key)
+      if (versions === undefined) {
+        seen.set(key, new Set([digest]))
+        return true
+      }
+      if (versions.has(digest)) {
+        state.duplicateRows++
+        return false
+      }
+      // 本页已出现过这个 ID 的新版本不算「后面的页上变了」——那是同页两版，上面已判过。
+      if (pageVersions === undefined) state.changedRows++
+      versions.add(digest)
+      return true
+    })
+  }
+  return { filter, state }
+}
 
 export class GangtiseClient {
   private refreshPromise: Promise<string> | null = null
@@ -342,7 +415,7 @@ export class GangtiseClient {
     endpoint: EndpointDefinition,
     initialBody: Record<string, unknown>,
     total: number,
-  ): Promise<"capped" | "drift" | "clean"> {
+  ): Promise<"capped" | "refused" | "drift" | "clean"> {
     // ⚠️ 别按 `retry === "no-replay"` 跳过本探针。两个理由：`no-replay` 治的是「重放一个
     // 服务端可能已执行的请求」，而探针是一次**新**请求，不是重放；且唯一同时分页 + no-replay
     // 的 ai.hot-topic 在 BILLING_CATALOG 里是 fixed(50, "article") —— 与 insight.opinion*
@@ -360,8 +433,11 @@ export class GangtiseClient {
       // 又会把「真计数」误标成封顶。两个维度都要看。
       if (beyond.total !== total) return "drift"
       return this.pageRows(beyond).length > 0 ? "capped" : "clean"
-    } catch {
-      // 探针失败不能反过来污染主结果：宁可不标，也不要因为一次网络抖动就把
+    } catch (error) {
+      // 服务端**拒绝**了 total 之后那一行，与请求没送达不是一回事：total 之前的行都给了，
+      // 恰好在 total 处被拒，这是没声明的偏移窗口的样子——按封顶保守处理。
+      if (error instanceof ApiError && error.code !== undefined && OFFSET_REFUSAL_CODES.has(error.code)) return "refused"
+      // 其他失败不能反过来污染主结果：宁可不标，也不要因为一次网络抖动就把
       // 一份完整数据标成 partial。
       return "clean"
     }
@@ -404,9 +480,16 @@ export class GangtiseClient {
     const startFrom = typeof initialBody.from === 'number' && Number.isFinite(initialBody.from) ? initialBody.from : 0
     const requestedSize = typeof initialBody.size === 'number' && Number.isFinite(initialBody.size) ? initialBody.size : undefined
     const maxPageSize = endpoint.pagination?.maxPageSize ?? requestedSize ?? 20
+    // 偏移窗口：服务端拒绝 from + size 超过它的任何一页，与 total 多大无关。页只在窗口内规划——
+    // 跨窗口的那一页会让整段尾巴失败；窗口外的行取不到，结果标 window_cut。
+    const maxWindow = endpoint.pagination?.maxWindow
+    if (maxWindow !== undefined && startFrom >= maxWindow) {
+      throw new ValidationError(`本接口只能按偏移取到第 ${maxWindow} 行为止（from + size ≤ ${maxWindow}），from=${startFrom} 已越过：请缩小查询范围（如缩短时间区间）分段拉取，而不是继续往后翻页。`)
+    }
+    const windowRoom = maxWindow === undefined ? Number.POSITIVE_INFINITY : maxWindow - startFrom
 
     // First page: serial — we need total before deciding how many more requests to fan out.
-    const firstPageSize = requestedSize === undefined ? maxPageSize : Math.min(maxPageSize, requestedSize)
+    const firstPageSize = Math.min(requestedSize === undefined ? maxPageSize : Math.min(maxPageSize, requestedSize), windowRoom)
     const firstPage = await this.requestJson<Record<string, unknown>>(endpoint, {
       ...initialBody,
       from: startFrom,
@@ -420,7 +503,53 @@ export class GangtiseClient {
     firstPage.list = firstRows
 
     const total = firstPage.total
-    const collected: unknown[] = [...firstRows]
+    const tracker = createRowTracker(endpoint.rowId)
+    const collected: unknown[] = tracker.filter(firstRows)
+    const available = Math.max(total - startFrom, 0)
+    const wanted = requestedSize === undefined ? available : Math.min(requestedSize, available)
+    const target = Math.min(wanted, windowRoom)
+    // total 触及窗口时探针那一行本身就在窗口外，服务端必拒——不必花这个请求。
+    const probeFits = maxWindow === undefined || total + 1 <= maxWindow
+
+    /** total 是不是上限值：窗口已知时直接判，否则探一行。返回要追加的原因与详情。 */
+    const checkTotalCap = async (): Promise<{ reason: "total_capped" | "total_drift"; detail?: Record<string, unknown> } | undefined> => {
+      if (!probeFits) return { reason: "total_capped", detail: totalCappedDetail("window", total, maxWindow) }
+      const verdict = await this.probeBeyondTotal(endpoint, initialBody, total)
+      if (verdict === "capped") return { reason: "total_capped", detail: totalCappedDetail("rows_beyond", total) }
+      if (verdict === "refused") return { reason: "total_capped", detail: totalCappedDetail("refused", total) }
+      if (verdict === "drift") return { reason: "total_drift" }
+      return undefined
+    }
+
+    /** 本轮新增的三种不完整原因，排在各路径既有原因之后。 */
+    const flagRowIssues = (reasons: string[], details: Record<string, unknown>): void => {
+      if (target < wanted) {
+        reasons.push("window_cut")
+        details._window_cut = {
+          maxWindow,
+          requestedRows: wanted,
+          fetchableRows: target,
+          note: `本接口只能按偏移取到第 ${maxWindow} 行为止，请求的行里有 ${wanted - target} 行在窗口之外、未取回：请缩小查询范围（如缩短时间区间）分段拉取`,
+        }
+      }
+      const { duplicateRows, changedRows, idIsRowKey } = tracker.state
+      if (duplicateRows > 0) {
+        reasons.push("duplicate_rows")
+        details._duplicate_rows = {
+          count: duplicateRows,
+          rowId: endpoint.rowId,
+          note: "同一行在相邻两页各出现一次（翻页排序键不唯一，同一时间点的一组行在两次请求间换了顺序）：重复的已去掉，同样多的行一次都没出现、未取回。缩短时间范围后重查可以取全",
+        }
+      }
+      if (changedRows > 0 && idIsRowKey && !endpoint.rowIdUnverified) {
+        reasons.push("changed_rows")
+        details._changed_rows = {
+          count: changedRows,
+          rowId: endpoint.rowId,
+          note: "同一 ID 在后面的页上内容变了：翻页期间列表在变化，两版都已保留（按 ID 去重会只剩一版），相邻的行也可能漏了。重查一次可取到一致的结果",
+        }
+      }
+    }
 
     // Last page reached on first request
     if (firstRows.length < firstPageSize) {
@@ -437,9 +566,13 @@ export class GangtiseClient {
         typeof total === "number" ? Math.max(total - startFrom, 0) : returned,
         requestedSize ?? Number.POSITIVE_INFINITY,
       )
-      if (returned < expectable) {
-        shortResult._partial = true
-        shortResult._partial_reason = "short_page"
+      const reasons: string[] = []
+      const details: Record<string, unknown> = {}
+      // 被当成重复丢掉的行不算短页：服务端把行都给了，只是有的给了两遍（见 duplicate_rows）。
+      if (returned + tracker.state.duplicateRows < expectable) {
+        reasons.push("short_page")
+        flagRowIssues(reasons, details)
+        Object.assign(shortResult, { _partial: true, _partial_reason: reasons.join(",") }, details)
         return shortResult
       }
       // 短页**恰好覆盖了 reported total** = 调用方以为拿到了全部，和下面「取满 target」
@@ -450,20 +583,18 @@ export class GangtiseClient {
       const coversReportedEnd =
         requestedSize === undefined || (typeof total === "number" && startFrom + requestedSize >= total)
       if (coversReportedEnd && typeof total === "number" && total > 0) {
-        const verdict = await this.probeBeyondTotal(endpoint, initialBody, total)
-        if (verdict !== "clean") {
-          shortResult._partial = true
-          shortResult._partial_reason = verdict === "capped" ? "total_capped" : "total_drift"
-          if (verdict === "capped") shortResult._total_capped = { reportedTotal: total, note: TOTAL_CAPPED_NOTE }
+        const cap = await checkTotalCap()
+        if (cap) {
+          reasons.push(cap.reason)
+          if (cap.detail) details._total_capped = cap.detail
         }
       }
+      flagRowIssues(reasons, details)
+      if (reasons.length > 0) Object.assign(shortResult, { _partial: true, _partial_reason: reasons.join(",") }, details)
       return shortResult
     }
 
-    const available = Math.max(total - startFrom, 0)
-    const target = requestedSize === undefined ? available : Math.min(requestedSize, available)
-
-    if (collected.length >= target) {
+    if (firstRows.length >= target) {
       const early: Record<string, unknown> = {
         ...firstPage,
         total,
@@ -473,14 +604,18 @@ export class GangtiseClient {
       // （size 小于剩余量）才不探，因为那种调用方本来就没声称取全。
       // 注意 size 大小本身说明不了问题：size=200/total=100 覆盖到了，
       // size=20/total=10 也覆盖到了，两者都要探。
-      if ((requestedSize === undefined || startFrom + requestedSize >= total) && total > 0) {
-        const verdict = await this.probeBeyondTotal(endpoint, initialBody, total)
-        if (verdict !== "clean") {
-          early._partial = true
-          early._partial_reason = verdict === "capped" ? "total_capped" : "total_drift"
-          if (verdict === "capped") early._total_capped = { reportedTotal: total, note: TOTAL_CAPPED_NOTE }
+      // 窗口截掉了请求的行时不探：那种结果已经标了 window_cut，探针也只会落在窗口外。
+      const reasons: string[] = []
+      const details: Record<string, unknown> = {}
+      if ((requestedSize === undefined || startFrom + requestedSize >= total) && total > 0 && target === wanted) {
+        const cap = await checkTotalCap()
+        if (cap) {
+          reasons.push(cap.reason)
+          if (cap.detail) details._total_capped = cap.detail
         }
       }
+      flagRowIssues(reasons, details)
+      if (reasons.length > 0) Object.assign(early, { _partial: true, _partial_reason: reasons.join(",") }, details)
       return early
     }
 
@@ -524,9 +659,10 @@ export class GangtiseClient {
       }
     }, signal)
 
+    // 按页序合并，去重也按页序做：「后面的页」才谈得上变动行。
     for (const list of pages) {
       if (list.length === 0) continue
-      collected.push(...list)
+      collected.push(...tracker.filter(list))
     }
 
     if (unexpectedShape && isVerbose()) {
@@ -555,13 +691,14 @@ export class GangtiseClient {
     if (unexpectedShape) partialReasons.push("unexpected_page_shape")
     if (totalDrift) partialReasons.push("total_drift")
     // total 封顶：翻页目标是按 total 算的，封顶时会「正好取满」而不触发任何其他标记。
-    // 只在真的把 target 取满（= 调用方以为拿到了全部）时才探。
-    if ((requestedSize === undefined || startFrom + requestedSize >= total) && total > 0 && returnedList.length >= target && failedPages.length === 0) {
-      const verdict = await this.probeBeyondTotal(endpoint, initialBody, total)
-      if (verdict === "capped") {
+    // 只在真的把 target 取满（= 调用方以为拿到了全部）时才探；只因去重而少了的也算取满。
+    const shortByRepeatsOnly = returnedList.length < target && returnedList.length + tracker.state.duplicateRows >= target
+    if ((requestedSize === undefined || startFrom + requestedSize >= total) && total > 0 && target === wanted && (returnedList.length >= target || shortByRepeatsOnly) && failedPages.length === 0) {
+      const cap = await checkTotalCap()
+      if (cap?.reason === "total_capped") {
         partialReasons.push("total_capped")
-        response._total_capped = { reportedTotal: total, note: TOTAL_CAPPED_NOTE }
-      } else if (verdict === "drift" && !partialReasons.includes("total_drift")) {
+        response._total_capped = cap.detail
+      } else if (cap?.reason === "total_drift" && !partialReasons.includes("total_drift")) {
         partialReasons.push("total_drift")
       }
     }
@@ -571,7 +708,10 @@ export class GangtiseClient {
     }
     // Pages all succeeded and no cap was hit, yet fewer rows than target arrived
     // — the server under-filled pages. Same loud-partial contract.
-    if (partialReasons.length === 0 && returnedList.length < target) partialReasons.push("short_page")
+    if (partialReasons.length === 0 && returnedList.length < target && !shortByRepeatsOnly) partialReasons.push("short_page")
+    const details: Record<string, unknown> = {}
+    flagRowIssues(partialReasons, details)
+    Object.assign(response, details)
     if (partialReasons.length > 0) {
       response._partial = true
       response._partial_reason = partialReasons.join(",")

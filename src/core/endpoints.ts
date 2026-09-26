@@ -7,7 +7,17 @@ export interface EndpointDefinition {
   pagination?: {
     enabled: true
     maxPageSize: number
+    /** 偏移窗口：服务端拒绝 `from + size` 超过它的任何一页（与 total 无关）。页只在窗口内规划，
+     *  需要窗口外的行时结果标 `window_cut`，`from` 本身越过窗口则本地拒绝。 */
+    maxWindow?: number
   }
+  /** 分页列表的行主键字段，供跨页去重与变动检测（见 client.ts 的 createRowTracker）。按非唯一键
+   *  排序的列表，同一时间点的一组行会在两次翻页请求间换顺序，相邻两页各拿到一部分——行数仍等于
+   *  total，却有行重复、有行缺失。没有该字段的行一律保留。 */
+  rowId?: string
+  /** `rowId` 只来自接口文档、未在真实响应里确认过是主键：整行重复照样去掉，但「同 ID 异内容」不报
+   *  `changed_rows`（一个不唯一的字段只要重复对跨页出现，就会把每次拉取都误标）。 */
+  rowIdUnverified?: true
   /** "no-replay": never resend a request the server may have executed — set
    * where a transport-level replay re-bills or duplicates a job. This is a
    * REPLAY-SAFETY marker, not a billing-model one: ai.hot-topic carries it and
@@ -82,6 +92,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     kind: "json",
     description: "List summaries",
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "summaryId",
   },
   "insight.summary.download": {
     key: "insight.summary.download",
@@ -98,6 +109,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     kind: "json",
     description: "List Pamirs expert summaries (requires the expert-summary database)",
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "summaryId",
   },
   "insight.pamirs-summary.download": {
     key: "insight.pamirs-summary.download",
@@ -118,6 +130,8 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     kind: "json",
     description: "List roadshows",
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "id",
+    rowIdUnverified: true,
   },
   "insight.site-visit.list": {
     key: "insight.site-visit.list",
@@ -126,6 +140,8 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     kind: "json",
     description: "List site visits",
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "id",
+    rowIdUnverified: true,
   },
   "insight.strategy.list": {
     key: "insight.strategy.list",
@@ -134,6 +150,8 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     kind: "json",
     description: "List strategy meetings",
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "id",
+    rowIdUnverified: true,
   },
   "insight.forum.list": {
     key: "insight.forum.list",
@@ -142,6 +160,8 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     kind: "json",
     description: "List forums",
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "id",
+    rowIdUnverified: true,
   },
   "insight.performance-calendar.list": {
     key: "insight.performance-calendar.list",
@@ -150,6 +170,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     kind: "json",
     description: "List earnings calendar events (forecast / express / announcement)",
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "performanceReportId",
   },
   "insight.performance-calendar.download": {
     key: "insight.performance-calendar.download",
@@ -165,6 +186,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     kind: "json",
     description: "List broker research reports",
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "reportId",
   },
   "insight.research.download": {
     key: "insight.research.download",
@@ -180,6 +202,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     kind: "json",
     description: "List foreign reports",
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "reportId",
   },
   "insight.foreign-report.download": {
     key: "insight.foreign-report.download",
@@ -196,6 +219,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     kind: "json",
     description: "List A-share announcements",
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "announcementId",
   },
   "insight.announcement.download": {
     key: "insight.announcement.download",
@@ -211,6 +235,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     kind: "json",
     description: "List HK announcements",
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "announcementId",
   },
   "insight.announcement-hk.download": {
     key: "insight.announcement-hk.download",
@@ -226,6 +251,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     kind: "json",
     description: "List US announcements",
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "announcementId",
   },
   "insight.announcement-us.download": {
     key: "insight.announcement-us.download",
@@ -249,6 +275,8 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     kind: "json",
     description: "List foreign independent analyst opinions",
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "independentOpinionId",
+    rowIdUnverified: true,
   },
   "insight.independent-opinion.download": {
     key: "insight.independent-opinion.download",
@@ -264,6 +292,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     kind: "json",
     description: "List WeChat official account articles",
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "articleId",
   },
   "insight.official-account.download": {
     key: "insight.official-account.download",
@@ -668,6 +697,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     kind: "json",
     description: "List vault drive files",
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "fileId",
   },
   "vault.drive.download": {
     key: "vault.drive.download",
@@ -683,6 +713,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     kind: "json",
     description: "List voice recording transcriptions",
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "recordId",
   },
   "vault.record.download": {
     key: "vault.record.download",
@@ -698,6 +729,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     kind: "json",
     description: "List my conferences",
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "conferenceId",
   },
   "vault.my-conference.download": {
     key: "vault.my-conference.download",
@@ -713,7 +745,8 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-vault/wechatgroupmsg/list",
     kind: "json",
     description: "List WeChat group messages",
-    pagination: { enabled: true, maxPageSize: 50 },
+    pagination: { enabled: true, maxPageSize: 50, maxWindow: 10_000 },
+    rowId: "msgId",
   },
   "vault.wechat-chatroom.list": {
     key: "vault.wechat-chatroom.list",
@@ -722,6 +755,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     kind: "json",
     description: "List WeChat group chatroom IDs",
     pagination: { enabled: true, maxPageSize: 50 },
+    rowId: "chatroomId",
   },
   "vault.stock-pool.list": {
     key: "vault.stock-pool.list",

@@ -74,6 +74,43 @@ const SCENARIOS: Scenario[] = [
   // 1000 页 × 50 行的上限：fetchAll 面对 6 万行会停在第 1000 页。约 1000 个本机请求，结果落盘。
   { name: "partial-page-cap", tool: "gangtise_research_list", args: { keyword: "AI", fetchAll: true }, upstream: paged(60_000), timeoutMs: 30_000 },
   { name: "partial-unexpected-page-shape", tool: "gangtise_research_list", args: { keyword: "AI" }, upstream: on("insight.research.list", () => ({ data: [{ id: "row-0" }] })) },
+  // 翻页排序键不唯一：第二页开头重复了第一页最后一行（整行相同），第 99 行一次都没出现。
+  { name: "partial-duplicate-rows", tool: "gangtise_research_list", args: { keyword: "AI", fetchAll: true }, upstream: on("insight.research.list", (req) => {
+    const { from = 0, size = 20 } = bodyOf(req) as { from?: number; size?: number }
+    if (from >= 100) return { data: { total: 100, list: [] } }
+    const ids = from === 0 ? Array.from({ length: 50 }, (_, i) => i) : Array.from({ length: size }, (_, i) => from - 1 + i)
+    return { data: { total: 100, list: ids.map((i) => ({ reportId: `r-${i}`, title: `标题 ${i}` })) } }
+  }) },
+  // 同一 reportId 在后面的页上内容变了：两版都留。
+  { name: "partial-changed-rows", tool: "gangtise_research_list", args: { keyword: "AI", fetchAll: true }, upstream: on("insight.research.list", (req) => {
+    const { from = 0, size = 20 } = bodyOf(req) as { from?: number; size?: number }
+    if (from >= 100) return { data: { total: 100, list: [] } }
+    const rows = Array.from({ length: Math.min(size, 100 - from) }, (_, i) => ({ reportId: `r-${from + i}`, title: `标题 ${from + i}` }))
+    if (from === 50) rows[0] = { reportId: "r-10", title: "标题 10（已更新）" }
+    return { data: { total: 100, list: rows } }
+  }) },
+  // rowId 只来自文档的端点（日程）：整行重复照样去掉，但同 ID 异内容不报 changed_rows。
+  { name: "present-changed-rows-unverified-rowid", tool: "gangtise_roadshow_list", args: { keyword: "AI", fetchAll: true }, upstream: on("insight.roadshow.list", (req) => {
+    const { from = 0, size = 20 } = bodyOf(req) as { from?: number; size?: number }
+    if (from >= 100) return { data: { total: 100, list: [] } }
+    const rows = Array.from({ length: Math.min(size, 100 - from) }, (_, i) => ({ id: `s-${from + i}`, title: `日程 ${from + i}` }))
+    if (from === 50) rows[0] = { id: "s-10", title: "日程 10（另一场）" }
+    return { data: { total: 100, list: rows } }
+  }) },
+  // rowId 只来自文档的端点：s-10 在三页里依次是 v1、v2、v2。第三次与第二版整行相同，照样按重复去掉。
+  { name: "partial-duplicate-rows-after-update", tool: "gangtise_roadshow_list", args: { keyword: "AI", fetchAll: true }, upstream: on("insight.roadshow.list", (req) => {
+    const { from = 0, size = 20 } = bodyOf(req) as { from?: number; size?: number }
+    if (from >= 150) return { data: { total: 150, list: [] } }
+    const rows = Array.from({ length: Math.min(size, 150 - from) }, (_, i) => ({ id: `s-${from + i}`, title: `日程 ${from + i}` }))
+    if (from === 50 || from === 100) rows[0] = { id: "s-10", title: "日程 10（改期）" }
+    return { data: { total: 150, list: rows } }
+  }) },
+  // total 触及声明的偏移窗口：不发探针，直接按封顶标。
+  { name: "partial-total-capped-window", tool: "gangtise_wechat_message_list", args: { keyword: "AI", from: 9960, fetchAll: true }, upstream: paged(10_000) },
+  // 请求的行越过偏移窗口：只取窗口内的，标 window_cut。
+  { name: "partial-window-cut", tool: "gangtise_wechat_message_list", args: { keyword: "AI", from: 9990, fetchAll: true }, upstream: paged(20_000) },
+  // 越过 total 的探针被 100006 拒绝：按未声明的偏移窗口保守判封顶。
+  { name: "partial-total-capped-refused", tool: "gangtise_research_list", args: { keyword: "AI" }, upstream: (req) => (bodyOf(req).from === 7 ? errorEnvelope("100006", "超出查询范围") : paged(7)(req, 0)) },
   { name: "partial-limit-truncated", tool: "gangtise_day_kline", args: { security: "600519.SH", startDate: "2026-09-01", endDate: "2026-09-03", limit: 3 }, upstream: on("quote.day-kline", () => ({ data: fixture("kline-columnar") })) },
   { name: "partial-failed-shards", tool: "gangtise_day_kline", args: { security: "aShares", startDate: "2026-09-07", endDate: "2026-09-09" }, upstream: shardRows("quote.day-kline", { "2026-09-08": errorEnvelope("100005", "参数错误") }) },
   { name: "partial-malformed-shards", tool: "gangtise_day_kline", args: { security: "aShares", startDate: "2026-09-07", endDate: "2026-09-09" }, upstream: shardRows("quote.day-kline", { "2026-09-08": { data: { total: 5 } } }) },

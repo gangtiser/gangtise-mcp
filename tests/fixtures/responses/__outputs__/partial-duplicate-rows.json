@@ -1,0 +1,411 @@
+{
+  "isError": false,
+  "result": {
+    "total": 100,
+    "_duplicate_rows": {
+      "count": 1,
+      "rowId": "reportId",
+      "note": "同一行在相邻两页各出现一次（翻页排序键不唯一，同一时间点的一组行在两次请求间换了顺序）：重复的已去掉，同样多的行一次都没出现、未取回。缩短时间范围后重查可以取全"
+    },
+    "_partial": true,
+    "_partial_reason": "duplicate_rows",
+    "list": [
+      {
+        "reportId": "r-0",
+        "title": "标题 0"
+      },
+      {
+        "reportId": "r-1",
+        "title": "标题 1"
+      },
+      {
+        "reportId": "r-2",
+        "title": "标题 2"
+      },
+      {
+        "reportId": "r-3",
+        "title": "标题 3"
+      },
+      {
+        "reportId": "r-4",
+        "title": "标题 4"
+      },
+      {
+        "reportId": "r-5",
+        "title": "标题 5"
+      },
+      {
+        "reportId": "r-6",
+        "title": "标题 6"
+      },
+      {
+        "reportId": "r-7",
+        "title": "标题 7"
+      },
+      {
+        "reportId": "r-8",
+        "title": "标题 8"
+      },
+      {
+        "reportId": "r-9",
+        "title": "标题 9"
+      },
+      {
+        "reportId": "r-10",
+        "title": "标题 10"
+      },
+      {
+        "reportId": "r-11",
+        "title": "标题 11"
+      },
+      {
+        "reportId": "r-12",
+        "title": "标题 12"
+      },
+      {
+        "reportId": "r-13",
+        "title": "标题 13"
+      },
+      {
+        "reportId": "r-14",
+        "title": "标题 14"
+      },
+      {
+        "reportId": "r-15",
+        "title": "标题 15"
+      },
+      {
+        "reportId": "r-16",
+        "title": "标题 16"
+      },
+      {
+        "reportId": "r-17",
+        "title": "标题 17"
+      },
+      {
+        "reportId": "r-18",
+        "title": "标题 18"
+      },
+      {
+        "reportId": "r-19",
+        "title": "标题 19"
+      },
+      {
+        "reportId": "r-20",
+        "title": "标题 20"
+      },
+      {
+        "reportId": "r-21",
+        "title": "标题 21"
+      },
+      {
+        "reportId": "r-22",
+        "title": "标题 22"
+      },
+      {
+        "reportId": "r-23",
+        "title": "标题 23"
+      },
+      {
+        "reportId": "r-24",
+        "title": "标题 24"
+      },
+      {
+        "reportId": "r-25",
+        "title": "标题 25"
+      },
+      {
+        "reportId": "r-26",
+        "title": "标题 26"
+      },
+      {
+        "reportId": "r-27",
+        "title": "标题 27"
+      },
+      {
+        "reportId": "r-28",
+        "title": "标题 28"
+      },
+      {
+        "reportId": "r-29",
+        "title": "标题 29"
+      },
+      {
+        "reportId": "r-30",
+        "title": "标题 30"
+      },
+      {
+        "reportId": "r-31",
+        "title": "标题 31"
+      },
+      {
+        "reportId": "r-32",
+        "title": "标题 32"
+      },
+      {
+        "reportId": "r-33",
+        "title": "标题 33"
+      },
+      {
+        "reportId": "r-34",
+        "title": "标题 34"
+      },
+      {
+        "reportId": "r-35",
+        "title": "标题 35"
+      },
+      {
+        "reportId": "r-36",
+        "title": "标题 36"
+      },
+      {
+        "reportId": "r-37",
+        "title": "标题 37"
+      },
+      {
+        "reportId": "r-38",
+        "title": "标题 38"
+      },
+      {
+        "reportId": "r-39",
+        "title": "标题 39"
+      },
+      {
+        "reportId": "r-40",
+        "title": "标题 40"
+      },
+      {
+        "reportId": "r-41",
+        "title": "标题 41"
+      },
+      {
+        "reportId": "r-42",
+        "title": "标题 42"
+      },
+      {
+        "reportId": "r-43",
+        "title": "标题 43"
+      },
+      {
+        "reportId": "r-44",
+        "title": "标题 44"
+      },
+      {
+        "reportId": "r-45",
+        "title": "标题 45"
+      },
+      {
+        "reportId": "r-46",
+        "title": "标题 46"
+      },
+      {
+        "reportId": "r-47",
+        "title": "标题 47"
+      },
+      {
+        "reportId": "r-48",
+        "title": "标题 48"
+      },
+      {
+        "reportId": "r-49",
+        "title": "标题 49"
+      },
+      {
+        "reportId": "r-50",
+        "title": "标题 50"
+      },
+      {
+        "reportId": "r-51",
+        "title": "标题 51"
+      },
+      {
+        "reportId": "r-52",
+        "title": "标题 52"
+      },
+      {
+        "reportId": "r-53",
+        "title": "标题 53"
+      },
+      {
+        "reportId": "r-54",
+        "title": "标题 54"
+      },
+      {
+        "reportId": "r-55",
+        "title": "标题 55"
+      },
+      {
+        "reportId": "r-56",
+        "title": "标题 56"
+      },
+      {
+        "reportId": "r-57",
+        "title": "标题 57"
+      },
+      {
+        "reportId": "r-58",
+        "title": "标题 58"
+      },
+      {
+        "reportId": "r-59",
+        "title": "标题 59"
+      },
+      {
+        "reportId": "r-60",
+        "title": "标题 60"
+      },
+      {
+        "reportId": "r-61",
+        "title": "标题 61"
+      },
+      {
+        "reportId": "r-62",
+        "title": "标题 62"
+      },
+      {
+        "reportId": "r-63",
+        "title": "标题 63"
+      },
+      {
+        "reportId": "r-64",
+        "title": "标题 64"
+      },
+      {
+        "reportId": "r-65",
+        "title": "标题 65"
+      },
+      {
+        "reportId": "r-66",
+        "title": "标题 66"
+      },
+      {
+        "reportId": "r-67",
+        "title": "标题 67"
+      },
+      {
+        "reportId": "r-68",
+        "title": "标题 68"
+      },
+      {
+        "reportId": "r-69",
+        "title": "标题 69"
+      },
+      {
+        "reportId": "r-70",
+        "title": "标题 70"
+      },
+      {
+        "reportId": "r-71",
+        "title": "标题 71"
+      },
+      {
+        "reportId": "r-72",
+        "title": "标题 72"
+      },
+      {
+        "reportId": "r-73",
+        "title": "标题 73"
+      },
+      {
+        "reportId": "r-74",
+        "title": "标题 74"
+      },
+      {
+        "reportId": "r-75",
+        "title": "标题 75"
+      },
+      {
+        "reportId": "r-76",
+        "title": "标题 76"
+      },
+      {
+        "reportId": "r-77",
+        "title": "标题 77"
+      },
+      {
+        "reportId": "r-78",
+        "title": "标题 78"
+      },
+      {
+        "reportId": "r-79",
+        "title": "标题 79"
+      },
+      {
+        "reportId": "r-80",
+        "title": "标题 80"
+      },
+      {
+        "reportId": "r-81",
+        "title": "标题 81"
+      },
+      {
+        "reportId": "r-82",
+        "title": "标题 82"
+      },
+      {
+        "reportId": "r-83",
+        "title": "标题 83"
+      },
+      {
+        "reportId": "r-84",
+        "title": "标题 84"
+      },
+      {
+        "reportId": "r-85",
+        "title": "标题 85"
+      },
+      {
+        "reportId": "r-86",
+        "title": "标题 86"
+      },
+      {
+        "reportId": "r-87",
+        "title": "标题 87"
+      },
+      {
+        "reportId": "r-88",
+        "title": "标题 88"
+      },
+      {
+        "reportId": "r-89",
+        "title": "标题 89"
+      },
+      {
+        "reportId": "r-90",
+        "title": "标题 90"
+      },
+      {
+        "reportId": "r-91",
+        "title": "标题 91"
+      },
+      {
+        "reportId": "r-92",
+        "title": "标题 92"
+      },
+      {
+        "reportId": "r-93",
+        "title": "标题 93"
+      },
+      {
+        "reportId": "r-94",
+        "title": "标题 94"
+      },
+      {
+        "reportId": "r-95",
+        "title": "标题 95"
+      },
+      {
+        "reportId": "r-96",
+        "title": "标题 96"
+      },
+      {
+        "reportId": "r-97",
+        "title": "标题 97"
+      },
+      {
+        "reportId": "r-98",
+        "title": "标题 98"
+      }
+    ]
+  }
+}

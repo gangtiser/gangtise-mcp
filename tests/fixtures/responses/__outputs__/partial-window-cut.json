@@ -1,0 +1,46 @@
+{
+  "isError": false,
+  "result": {
+    "total": 20000,
+    "_partial": true,
+    "_partial_reason": "window_cut",
+    "_window_cut": {
+      "maxWindow": 10000,
+      "requestedRows": 10010,
+      "fetchableRows": 10,
+      "note": "本接口只能按偏移取到第 10000 行为止，请求的行里有 10000 行在窗口之外、未取回：请缩小查询范围（如缩短时间区间）分段拉取"
+    },
+    "list": [
+      {
+        "id": "row-9990"
+      },
+      {
+        "id": "row-9991"
+      },
+      {
+        "id": "row-9992"
+      },
+      {
+        "id": "row-9993"
+      },
+      {
+        "id": "row-9994"
+      },
+      {
+        "id": "row-9995"
+      },
+      {
+        "id": "row-9996"
+      },
+      {
+        "id": "row-9997"
+      },
+      {
+        "id": "row-9998"
+      },
+      {
+        "id": "row-9999"
+      }
+    ]
+  }
+}
