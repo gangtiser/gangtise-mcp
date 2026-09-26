@@ -20,6 +20,8 @@ export interface ToolSpec {
   access: "read" | "write" | "destructive"
   /** 写操作声明了才发 destructiveHint / idempotentHint。 */
   idempotent?: boolean
+  /** 本工具的结果会指引调用方去调的工具（如异步提交超时后的 `_check`）：选中本工具时一并启用。 */
+  requires?: string[]
   /** 固定端点时填；积分标签由它派生。 */
   endpoint?: string
   /** 本地工具、多端点工具的标签。与 `endpoint` 二者必有其一，给了就优先。 */

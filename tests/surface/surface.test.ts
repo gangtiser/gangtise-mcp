@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import { startHarness, type Harness } from "../helpers/harness.js"
+import { missingToolRefs } from "../helpers/instructionRefs.js"
 
 /** 对外表面快照：`tools/list` 与 `initialize.instructions` 是每次请求原样进客户模型上下文
  *  的两段字节。快照钉的是**措辞**——内部重构时它必须逐字节不变；有意改动时 `-u` 更新，
@@ -50,23 +51,7 @@ describe("surface snapshot (default profile)", () => {
   it("every tool the instructions refer to exists", async () => {
     const names = ((await harness.rawToolsList()) as Array<{ name: string }>).map((t) => t.name)
     const text = harness.instructions() ?? ""
-    const missing: string[] = []
-    // 完整工具名
-    for (const [name] of text.matchAll(/gangtise_[a-z_]+/g)) {
-      if (!names.includes(name)) missing.push(name)
-    }
-    // 省略了 gangtise_ 前缀的简称与通配（`qa_list`、`drive_*`、`indicator_*`）
-    for (const match of text.matchAll(/(?<![\w*])([a-z]+(?:_[a-z]+)+)(_\*)?(?![\w])/g)) {
-      const [, stem, wildcard] = match
-      if (stem.startsWith("gangtise_")) continue
-      const full = `gangtise_${stem}`
-      const ok = wildcard ? names.some((n) => n.startsWith(`${full}_`)) : names.some((n) => n === full || n.startsWith(`${full}_`))
-      if (!ok) missing.push(`${stem}${wildcard ?? ""}`)
-    }
-    // `indicator_*` / `edb_*` 这类单段词根的通配
-    for (const [, stem] of text.matchAll(/(?<![\w*])([a-z]+)_\*/g)) {
-      if (!names.some((n) => n.startsWith(`gangtise_${stem}_`))) missing.push(`${stem}_*`)
-    }
+    const missing = missingToolRefs(text, names)
     expect(missing).toEqual([])
   })
 })

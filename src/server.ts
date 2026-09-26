@@ -7,7 +7,8 @@ import { dateContextInstruction } from "./core/dateContext.js"
 import { getPackageVersion } from "./core/version.js"
 import { registerFamilies } from "./mcp/register.js"
 import { createFamilies } from "./tools/index.js"
-import { parseProfile, type Profile } from "./profile.js"
+import { FOUNDATION_TOOLS, parseProfile, type Profile } from "./profile.js"
+import { assembleRouting, type RoutingClause } from "./routing.js"
 import type { FamilyModule } from "./mcp/define.js"
 
 /**
@@ -22,24 +23,56 @@ import type { FamilyModule } from "./mcp/define.js"
  * 所以预算不是「越小越好」，是**看杠杆**：一句话进来的成本 = 它的字节数，省下的 =
  * 字节数 × (出现次数 - 1)。低于 10 次的别往里搬，locality 更值钱。
  *
- * 预算：dateContextInstruction() 168B + 下面两段常量 2,304B = 2,472B，上限 2,500B（各族的
+ * 预算：dateContextInstruction() 168B + 下面的路由行与计费行 2,304B = 2,472B，上限 2,500B（各族的
  * routingHint 也算在内）。
  * ⚠️ **只剩 28B 余量**——下一次往这里加东西基本一定要先从别处腾。腾不出来再抬上限，
  * 并在 commit 里说明换掉了 schema 侧多少字节；别为了塞进去而把上限悄悄调大。
  * 改动前先量字节，别手推；这两个数由 scripts/prerelease-check.mjs 的 ⑤ 一节钉住，
  * 改了忘同步注释不会报错，所以量完顺手把上面两个数字一起改掉。
  */
-const ROUTING_HEAD = `以下为全局默认，**工具/参数自带描述时以其为准**。*Date=YYYY-MM-DD，*Time=YYYY-MM-DD HH:mm:ss。取数窗口随账号权限变化，不做本地拦截。
-遇 _truncated:true：同机可读本地文件时按 _local_hint，否则用 gangtise_read_response；宽表优先传 fields。
-代码带后缀 .SH/.SZ/.BJ=A股 .HK=港股 .O/.N/.A=美股；只知名称先 gangtise_securities_search。ID/List 按描述指定的 search/constant 工具解析，勿猜编码。
-通用参数（工具描述不再重复，是否数组见 schema 的 type）：from=0-based 偏移(默认0)；size=总行数上限(默认20)；fetchAll=true 拉全部页并忽略 size（慢、响应大）；**付费列表按实际返回条目计费**——size/fetchAll 调大即等比放大费用；rankType=1 综合排序(默认，有 keyword 时取相关度子集，可能不含最新)/2 时间倒序——两档返回都按时间倒序**排列**，看不出本参数是否生效，要「最新 N 条」必须显式传 2；reportType(三表口径,数组)=consolidated 合并/standalone 母公司，带 Restated 后缀为调整后。
-①行情/财务：日K/realtime 各一个工具覆盖三市场+指数；三表按市场用 _hk/_us；资金流仅 A 股。单票财务/估值/盈利预测/股东/主营用专用工具；多证券财务/估值指标优先 indicator_*(EDE) 截面/时序，长尾同；宏观行业 edb_*。
-②内容：研报/观点/纪要/公告/公众号/问答 qa_list/研报图表 report_image 用对应 *_list；跨类语义检索用 knowledge_batch；roadshow/site_visit/strategy/forum 只查日程、正文用 summary_list。研报与独立观点有专用下载工具，机构观点无（见其描述）。
-③AI：除 earnings_review/viewpoint_debate 外均取平台已生成的内容，直接调即可；这两个是异步提交，超时只用对应 *_check 续查、勿重提（重提再计费）。
-④其他：drive_*/record_*/my_conference_*/wechat_* 查云盘/录音/会议/群消息；stock_pool_* 查/改股票池；名称与 ID 解析用 *_search/concept_*/sector_*/constant_*/lookup。
-`
-/** 各族的 routingHint 插在这里（见 routingInstructions）。 */
-const ROUTING_TAIL = `计费见各工具【积分】标签，未标注即免费（最终以账户权限与平台计费规则为准）；除①批量外，优先免费/低价，慎用全市场/超大 size/fetchAll。`
+/** 路由总则，按分句写：精简了 GANGTISE_MCP_TOOLS 时，点名了未启用工具的分句不输出（见 routing.ts）。
+ *  分句拼起来就是完整一行；文字里认不出来的工具（中文说法）写在 `refs` 里。 */
+const ROUTING_LINES: Array<{ prefix?: string; clauses: RoutingClause[] }> = [
+  { clauses: [`以下为全局默认，**工具/参数自带描述时以其为准**。*Date=YYYY-MM-DD，*Time=YYYY-MM-DD HH:mm:ss。取数窗口随账号权限变化，不做本地拦截。`] },
+  { clauses: [`遇 _truncated:true：同机可读本地文件时按 _local_hint，否则用 gangtise_read_response；宽表优先传 fields。`] },
+  { clauses: [`代码带后缀 .SH/.SZ/.BJ=A股 .HK=港股 .O/.N/.A=美股；只知名称先 gangtise_securities_search。ID/List 按描述指定的 search/constant 工具解析，勿猜编码。`] },
+  { clauses: [`通用参数（工具描述不再重复，是否数组见 schema 的 type）：from=0-based 偏移(默认0)；size=总行数上限(默认20)；fetchAll=true 拉全部页并忽略 size（慢、响应大）；**付费列表按实际返回条目计费**——size/fetchAll 调大即等比放大费用；rankType=1 综合排序(默认，有 keyword 时取相关度子集，可能不含最新)/2 时间倒序——两档返回都按时间倒序**排列**，看不出本参数是否生效，要「最新 N 条」必须显式传 2；reportType(三表口径,数组)=consolidated 合并/standalone 母公司，带 Restated 后缀为调整后。`] },
+  {
+    prefix: "①行情/财务：",
+    clauses: [
+      { text: `日K/realtime 各一个工具覆盖三市场+指数；`, refs: ["day_kline"] },
+      { text: `三表按市场用 _hk/_us；`, refs: ["income_statement_hk", "income_statement_us", "balance_sheet_hk", "balance_sheet_us", "cash_flow_hk", "cash_flow_us"] },
+      { text: `资金流仅 A 股。`, refs: ["fund_flow"] },
+      { text: `单票财务/估值/盈利预测/股东/主营用专用工具；`, refs: ["income_statement", "valuation_analysis", "earning_forecast", "top_holders", "main_business"] },
+      `多证券财务/估值指标优先 indicator_*(EDE) 截面/时序，长尾同；`,
+      `宏观行业 edb_*。`,
+    ],
+  },
+  {
+    prefix: "②内容：",
+    clauses: [
+      { text: `研报/观点/纪要/公告/公众号/问答 qa_list/研报图表 report_image 用对应 *_list；`, refs: ["research_list", "opinion_list", "summary_list", "announcement_list", "official_account_list"] },
+      `跨类语义检索用 knowledge_batch；`,
+      { text: `roadshow/site_visit/strategy/forum 只查日程、正文用 summary_list。`, refs: ["roadshow_list", "strategy_list", "forum_list"] },
+      { text: `研报与独立观点有专用下载工具，机构观点无（见其描述）。`, refs: ["research_download", "independent_opinion_download", "opinion_list"] },
+    ],
+  },
+  { prefix: "③AI：", clauses: [`除 earnings_review/viewpoint_debate 外均取平台已生成的内容，直接调即可；这两个是异步提交，超时只用对应 *_check 续查、勿重提（重提再计费）。`] },
+  {
+    prefix: "④其他：",
+    clauses: [
+      `drive_*/record_*/my_conference_*/wechat_* 查云盘/录音/会议/群消息；`,
+      `stock_pool_* 查/改股票池；`,
+      `名称与 ID 解析用 *_search/concept_*/sector_*/constant_*/lookup。`,
+    ],
+  },
+]
+/** 各族的 routingHint 插在路由总则之后、这一行之前。 */
+const ROUTING_TAIL: RoutingClause[] = [
+  `计费见各工具【积分】标签，未标注即免费（最终以账户权限与平台计费规则为准）；`,
+  { text: `除①批量外，`, refs: ["indicator_*"] },
+  `优先免费/低价，慎用全市场/超大 size/fetchAll。`,
+]
 
 
 /** 把每个工具的 raw-shape `inputSchema` 收成 **strict** ZodObject：未声明的键**报错**，
@@ -161,12 +194,17 @@ function normalizePublishedSchemas(server: McpServer): McpServer {
   return server
 }
 
-/** 路由总则 + 已列出工具所在族的 routingHint（每族一行，按族顺序）。一个工具都没列出的族不拼。 */
+/** 路由总则 + 已加载族的 routingHint（每族一行，按族顺序）。只输出点名的工具全部已启用的分句；
+ *  一个非基础工具都没列出的族，它的 routingHint 不输出。 */
 export function routingInstructions(families: FamilyModule[], profile: Profile): string {
+  const all = families.flatMap((family) => family.tools)
+  const toolNames = all.map((tool) => tool.name)
+  const enabled = new Set(all.filter((tool) => profile.advertised(tool)).map((tool) => tool.name))
   const hints = families
-    .filter((family) => family.routingHint && family.tools.some((tool) => profile.advertised(tool)))
-    .map((family) => `${family.routingHint}\n`)
-  return ROUTING_HEAD + hints.join("") + ROUTING_TAIL
+    // 基础工具总在，不算作加载了它所在的族。
+    .filter((family) => family.routingHint && family.tools.some((tool) => !FOUNDATION_TOOLS.has(tool.name) && enabled.has(tool.name)))
+    .map((family) => ({ clauses: [family.routingHint as string] }))
+  return `${assembleRouting([...ROUTING_LINES, ...hints, { clauses: ROUTING_TAIL }], toolNames, enabled)}`
 }
 
 export interface McpServerOptions {
