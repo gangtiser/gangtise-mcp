@@ -2,7 +2,10 @@ import { z } from "zod"
 
 export const CURRENT_TIMEZONE = "Asia/Shanghai"
 
-const FMT_DATE_TIME = new Intl.DateTimeFormat("en-US", {
+// 首次用到时才构造：指定时区的格式化器要加载时区数据，放在模块顶层会让每次启动多等二十多毫秒，
+// 而不少会话根本不换算日期。
+let fmtDateTime: Intl.DateTimeFormat | undefined
+const dateTimeFormat = () => (fmtDateTime ??= new Intl.DateTimeFormat("en-US", {
   timeZone: CURRENT_TIMEZONE,
   year: "numeric",
   month: "2-digit",
@@ -11,7 +14,7 @@ const FMT_DATE_TIME = new Intl.DateTimeFormat("en-US", {
   minute: "2-digit",
   second: "2-digit",
   hourCycle: "h23",
-})
+}))
 
 interface DateTimeParts {
   year: string
@@ -31,7 +34,7 @@ export interface CurrentDateContext {
 
 function dateTimeParts(date: Date): DateTimeParts {
   const parts = Object.fromEntries(
-    FMT_DATE_TIME.formatToParts(date)
+    dateTimeFormat().formatToParts(date)
       .filter(part => part.type !== "literal")
       .map(part => [part.type, part.value]),
   ) as Partial<DateTimeParts>

@@ -71,10 +71,13 @@ function stableStringify(value: unknown): string {
  *  按 JSON 数组拼成一个串，任一字段取不到即整行取不到。 */
 function rowKeyOf(rowId: RowId, row: Record<string, unknown>): string | undefined {
   if (typeof rowId === "function") return rowId(row)
-  const fields = typeof rowId === "string" ? [rowId] : rowId
-  const values = fields.map((field) => row[field])
-  if (values.some((value) => value === undefined || value === null)) return undefined
-  return typeof rowId === "string" ? String(values[0]) : JSON.stringify(values)
+  // 单键是绝大多数端点的写法、每行都走，别为它分配数组。
+  if (typeof rowId === "string") {
+    const value = row[rowId]
+    return value === undefined || value === null ? undefined : String(value)
+  }
+  const values = rowId.map((field) => row[field])
+  return values.some((value) => value === undefined || value === null) ? undefined : JSON.stringify(values)
 }
 
 /** 翻页的跨页重复 / 变动检测（端点声明了 `rowId` 才生效）。
@@ -86,37 +89,53 @@ function rowKeyOf(rowId: RowId, row: Record<string, unknown>): string | undefine
  *    行数就是漏掉的行数。只比第一版会漏：v1 → v2 → v2 时第三行与第二行重复。
  *  - 同一 ID 在**后面的页**上出现新版本 → 翻页期间列表在变，各版都留（`changed_rows`）。
  *  - 同一 ID 在**同一页**里出现两版 → 这个字段不是本列表的行主键，此后不再报变动行。
- *  - 没有该字段、或值为 null 的行一律保留。只存 ID 与各版本的摘要，不存整行；摘要与字段顺序无关。 */
+ *  - 没有该字段、或值为 null 的行一律保留。摘要与字段顺序无关。
+ *
+ *  摘要只在 ID 第二次出现时才算：绝大多数 ID 只出现一次，逐行 `stableStringify + sha1` 的开销全花在
+ *  永远用不上的摘要上。每个 ID 先只登记第一行（它本来就在结果里）；一旦重复，就把这个 ID 升级成
+ *  摘要集合——同一 ID 下有成千上万个不同版本时，逐个比对会退化成平方级，集合查找始终是常数级。 */
 export function createRowTracker(rowId: RowId | undefined) {
-  const seen = rowId ? new Map<string, Set<string>>() : undefined
+  interface Version {
+    row: unknown
+    digest?: string
+  }
+  interface Entry {
+    first: Version
+    digests?: Set<string>
+  }
+  const digestOf = (version: Version) => (version.digest ??= createHash("sha1").update(stableStringify(version.row)).digest("base64"))
+  const digestsOf = (entry: Entry) => (entry.digests ??= new Set([digestOf(entry.first)]))
+  const seen = rowId ? new Map<string, Entry>() : undefined
   const state = { duplicateRows: 0, changedRows: 0, idIsRowKey: true }
   const filter = (rows: unknown[]): unknown[] => {
     if (!seen || !rowId) return rows
     // 本页每个 ID 出现过的版本。「同一页里一个 ID 有两版」要先于跨页去重单独判：两版都是已见过的
     // 版本时它们都会被当重复去掉，但这一页仍然证明了这个字段不是行主键。
-    const onThisPage = new Map<string, Set<string>>()
+    const onThisPage = new Map<string, Entry>()
     return rows.filter((row) => {
       const key = row && typeof row === "object" ? rowKeyOf(rowId, row as Record<string, unknown>) : undefined
       if (key === undefined) return true
-      const digest = createHash("sha1").update(stableStringify(row)).digest("base64")
-      const pageVersions = onThisPage.get(key)
-      if (pageVersions === undefined) onThisPage.set(key, new Set([digest]))
+      const current: Version = { row }
+      const pageEntry = onThisPage.get(key)
+      if (pageEntry === undefined) onThisPage.set(key, { first: current })
       else {
-        if (!pageVersions.has(digest)) state.idIsRowKey = false
-        pageVersions.add(digest)
+        const pageDigests = digestsOf(pageEntry)
+        if (!pageDigests.has(digestOf(current))) state.idIsRowKey = false
+        pageDigests.add(digestOf(current))
       }
-      const versions = seen.get(key)
-      if (versions === undefined) {
-        seen.set(key, new Set([digest]))
+      const entry = seen.get(key)
+      if (entry === undefined) {
+        seen.set(key, { first: current })
         return true
       }
-      if (versions.has(digest)) {
+      const digests = digestsOf(entry)
+      if (digests.has(digestOf(current))) {
         state.duplicateRows++
         return false
       }
       // 本页已出现过这个 ID 的新版本不算「后面的页上变了」——那是同页两版，上面已判过。
-      if (pageVersions === undefined) state.changedRows++
-      versions.add(digest)
+      if (pageEntry === undefined) state.changedRows++
+      digests.add(digestOf(current))
       return true
     })
   }

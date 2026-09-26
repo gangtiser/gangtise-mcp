@@ -167,3 +167,81 @@ describe("createRowTracker", () => {
     expect(t.state).toEqual({ duplicateRows: 1, changedRows: 0, idIsRowKey: true })
   })
 })
+
+// 0.2.10 的逐行摘要实现，原样作参照：新实现只改了「什么时候算摘要、摘要存在哪」，
+// 保留哪些行、三个计数都必须与它逐一相同。
+function referenceTracker(rowId: string) {
+  const stable = (value: unknown): string => {
+    if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`
+    if (value && typeof value === "object") {
+      const obj = value as Record<string, unknown>
+      return `{${Object.keys(obj).sort().map((key) => `${JSON.stringify(key)}:${stable(obj[key])}`).join(",")}}`
+    }
+    return JSON.stringify(value) ?? "null"
+  }
+  const seen = new Map<string, Set<string>>()
+  const state = { duplicateRows: 0, changedRows: 0, idIsRowKey: true }
+  const filter = (rows: unknown[]) => {
+    const onThisPage = new Map<string, Set<string>>()
+    return rows.filter((row) => {
+      const id = (row as Record<string, unknown>)[rowId]
+      if (id === undefined || id === null) return true
+      const digest = stable(row)
+      const key = String(id)
+      const pageVersions = onThisPage.get(key)
+      if (pageVersions === undefined) onThisPage.set(key, new Set([digest]))
+      else {
+        if (!pageVersions.has(digest)) state.idIsRowKey = false
+        pageVersions.add(digest)
+      }
+      const versions = seen.get(key)
+      if (versions === undefined) {
+        seen.set(key, new Set([digest]))
+        return true
+      }
+      if (versions.has(digest)) {
+        state.duplicateRows++
+        return false
+      }
+      if (pageVersions === undefined) state.changedRows++
+      versions.add(digest)
+      return true
+    })
+  }
+  return { filter, state }
+}
+
+describe("createRowTracker against the per-row reference", () => {
+  // 小 ID 池 + 少量内容取值 + 随机字段顺序 + 偶尔缺 ID：重复、同页两版、后页变动、字段顺序无关都会大量出现。
+  let seed = 20260926
+  const random = () => ((seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31)
+  const pick = <T,>(items: T[]) => items[Math.floor(random() * items.length)]
+  const makeRow = (): Record<string, unknown> => {
+    const fields: Array<[string, unknown]> = [["title", pick(["a", "b", "c"])], ["score", pick([1, 2])], ["tags", pick([["x"], ["x", "y"]])]]
+    if (random() > 0.05) fields.push(["reportId", pick(["r1", "r2", "r3", "r4", "r5", 6, 7])])
+    fields.sort(() => random() - 0.5)
+    return Object.fromEntries(fields)
+  }
+
+  it("keeps exactly the same rows and counts on 300 random fetches", () => {
+    for (let fetch = 0; fetch < 300; fetch++) {
+      const pages = Array.from({ length: 1 + Math.floor(random() * 6) }, () => Array.from({ length: Math.floor(random() * 12) }, makeRow))
+      const actual = createRowTracker("reportId")
+      const expected = referenceTracker("reportId")
+      for (const page of pages) expect(actual.filter(page)).toEqual(expected.filter(page))
+      expect(actual.state).toEqual(expected.state)
+    }
+  })
+
+  // 同一 ID 下大量不同版本：逐个比对会退化成平方级（2 万行要几十秒），摘要集合是线性的。
+  it("stays linear when one id carries thousands of distinct versions", () => {
+    const t = createRowTracker("reportId")
+    const started = performance.now()
+    for (let page = 0; page < 400; page++) {
+      t.filter(Array.from({ length: 50 }, (_, i) => ({ reportId: "same", n: page * 50 + i })))
+    }
+    expect(performance.now() - started).toBeLessThan(3_000)
+    expect(t.state.changedRows).toBe(399)
+    expect(t.state.idIsRowKey).toBe(false)
+  })
+})

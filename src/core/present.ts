@@ -291,16 +291,18 @@ export async function buildToolContent(payload: unknown, options?: BuildOptions)
     normalized = empty
   }
   const json = JSON.stringify(normalized)
-  const byteLength = Buffer.byteLength(json, "utf8")
-
-  if (byteLength <= INLINE_MAX_BYTES) {
+  // UTF-8 字节数不小于字符数：字符数已超上限时必然落盘，直接编码一次写出，不再为量长度先扫一遍
+  // （十万行级的结果是十几 MB）。
+  if (json.length <= INLINE_MAX_BYTES && Buffer.byteLength(json, "utf8") <= INLINE_MAX_BYTES) {
     return [{ type: "text" as const, text: json }]
   }
+  const encoded = Buffer.from(json, "utf8")
+  const byteLength = encoded.length
 
   const tempDir = await createManagedTempDir()
   const savedPath = path.join(tempDir, "response.json")
   try {
-    await fs.writeFile(savedPath, json, "utf8")
+    await fs.writeFile(savedPath, encoded)
   } catch (err) {
     await discardManagedTempDir(tempDir)
     throw err

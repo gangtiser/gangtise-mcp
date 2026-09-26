@@ -59,6 +59,12 @@ export function normalizeRows(value: unknown): unknown {
         `响应 fieldList 有重复列名（${dupes.join("、")}）——按位置拍平时后一列会覆盖前一列，已拒绝输出。返回结构可能已变更，请重试；持续出现请带上工具名与入参报障。`,
       )
     }
+    // 列名碰上 Object.prototype 上的名字（`__proto__`、`constructor`……）时用无原型对象：`fieldList`
+    // 是**调用方可控**的，而普通对象上 `out["__proto__"] = v` 走的是原型 setter —— 值为非对象时整格
+    // 静默消失（该列在输出里不存在），值为对象时改的是原型。其余情况用普通对象：同一张表的行共享
+    // 一个隐藏类，拍平与之后的序列化都快两三倍（十万行级的全市场结果差出一百多毫秒）。
+    const plain = names.every((name) => !(name in Object.prototype))
+    const width = names.length
     const normalizedList = record.list.map((row) => {
       if (!Array.isArray(row)) return row
       // 部分接口（主营构成、估值分析）对「fieldList 里有不存在的字段名」的处理是：值只按
@@ -70,13 +76,9 @@ export function normalizeRows(value: unknown): unknown {
           `响应字段数与请求 fieldList 不匹配（fieldList ${fields.length} 项、该行返回 ${row.length} 个值）——通常是 fieldList 里含该接口不存在的字段名：此时只返回有效字段的值、字段名却按请求回显，按位置拍平会把值贴到错误的字段上。请只传该工具实际支持的字段名；不确定就不传 fieldList（=返回全量字段，最稳）。`,
         )
       }
-      // Object.create(null)：`fieldList` 是**调用方可控**的，而普通对象字面量上
-      // `acc["__proto__"] = v` 走的是原型 setter —— 值为非对象时整格静默消失（该列在
-      // 输出里不存在），值为对象时改的是原型。用无原型对象后它就只是个普通自有属性。
-      return fields.reduce<Record<string, unknown>>((acc, field, index) => {
-        acc[String(field)] = row[index]
-        return acc
-      }, Object.create(null) as Record<string, unknown>)
+      const out: Record<string, unknown> = plain ? {} : Object.create(null)
+      for (let i = 0; i < width; i++) out[names[i]] = row[i]
+      return out
     })
     const { fieldList, list, ...meta } = record
     return wrapList(meta, normalizedList)
