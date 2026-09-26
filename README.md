@@ -6,14 +6,15 @@
 
 README 仅列最近 5 个版本的一行摘要，完整明细见 [CHANGELOG.md](CHANGELOG.md)：
 
+- **0.2.11 — 2026-09-26**：内部重构，工具与参数同 0.2.10。列式行情结果整理与落盘提速约四分之一（全市场分片内存峰值降约四成），ID 不重复时翻页去重几乎不再占开销，启动约快 5%；大结果落盘指针保留全部不完整明细。新增可选环境变量 `GANGTISE_MCP_TOOLS`（按工具组或工具名选择、禁用工具，基础工具始终启用）与 `GANGTISE_MCP_GLOBAL_CONCURRENCY`（跨调用的在飞请求总数上限，查询与下载各自计数）。
 - **0.2.10 — 2026-09-26**：部分同步 CLI v0.41.1–v0.43.0，不传新参数时返回与价格不变。🔴 翻页结果去掉跨页重复行并标 `duplicate_rows` / `changed_rows`，`total` 封顶判定补偏移窗口与越界被拒两种情形；`valuation_analysis` 显式下发 `limit`（默认 2000），撞满标 `limit_truncated`（缺的是区间开头）；`index_day_kline` 不再收 `all`（该接口对 `all` 返空）。新增 `gangtise_opinion_detail`，观点列表加 `withContent`、题材加 `full` 两个低价档开关；`constant_list` 的 `category` 放开到接口现有的 17 类。`stock_summary` / `earning_forecast` / 带正文的观点列表不再自动重发。
 - **0.2.9 — 2026-09-20**：健壮性修复，无工具/参数/字段增删。🔴 并发下载不再被临时目录回收误删（此前下载收尾报「文件不存在」，在计费接口上等于已付过费的内容拿不到）；异步生成（`earnings_review` / `viewpoint_debate`）等待到期后不再继续重发请求，`dataId` 仍可用 `*_check` 取回。临时目录清理失败不再让一次已成功的直链下载报错，下载失败时抛出的也始终是下载本身的错误；大响应落盘失败后目录能正常回收。
 - **0.2.8 — 2026-09-19**：同步 CLI v0.40.0–v0.40.1。**新增 5 个自选股池写工具**（建池 / 改名 / 加股 / 移除 / 删池，本服务仅有的写操作，全部免费）：删池须显式 `confirm: true` 且不可恢复，逐条失败标 `_partial` + `failedItems`。🔴 token 缓存改为绑定凭证——**换过 `GANGTISE_ACCESS_KEY` 的请复核换号前后取到的数据**，此前会继续使用上一个账号未过期的 token 且不报错。🔴 `indicator_time_series` 的 `calendarType` 不传时按指标类型自动选轴，接口默认是 `ND` 不是 `TD`；给报告期类指标传 `TD` 会整片返 `null` 且不报错。EDE 截面 / 时序单次 3 万单元格上限。
 - **0.2.7 — 2026-09-13**：同步 CLI v0.39.0，无工具/参数/字段增删。`stock_summary` 的 `securityList` 单次上限 5000 → 6000（接口上限），全 A 股可一次提交完；无看点的证券不在返回列表里，返回行数少于提交数是正常的。
-- **0.2.6 — 2026-09-06**：同步 CLI v0.38.0。🔴 修六处静默错数：`valuation_analysis` 的 `skipNull`+`fieldList` 会把正常数据全过滤成 0 行、全市场分片按位置合并可致开收盘价互换、正文续读误判格式会丢掉后半段、重复列名静默少一列。客户端取消后不再继续发分页/分片请求。行情 `fieldList` 缺列改为标 `missingFields`，且**只返回点名的列、不自动附带身份列**。新增沪深 ETF 与 20 个全球指数；`realtime` 新增 `tradeStatus`、**不再返回 `turnoverRate`/`volumeRatio`**；`stock_summary` 上限收到 5000。另修两处：分片合并会丢掉后一份多出来的列、临时目录配额把下载中途的大小当成最终值（于是超出配额的占用一路放行）。**`volume` 的单位是「股」不是「手」**，三处行情描述已写明。
 
 ### 历史里程碑
 
+- **0.2.6**：修六处静默错数（`valuation_analysis` 的 `skipNull`+`fieldList` 会把正常数据全过滤成 0 行、全市场分片按位置合并可致开收盘价互换等）；行情 `fieldList` 只返回点名的列、缺列标 `missingFields`；`volume` 的单位是「股」不是「手」。
 - **0.2.4**：三处静默丢数据（分页空页、首包裸数组、全市场分片缺 `list`）改为归一或显式标记；发布的 `inputSchema` 改为自包含（客户端无需解引用）。输入校验收紧：空白值、空列表、重复 `fieldList`、冲突参数、倒置日期区间改为本地拒绝。
 - **0.2.0**：同步 CLI v0.33.0–v0.34.1。🔴 破坏性：日 K 全市场关键字由 `all` 改为 `aShares`/`hkStocks`/`usStocks`（须单独传）；三大报表时点对齐改用 `earliestAnncDate`。
 - **0.1.52**：打包与文案表述统一，无取数逻辑或参数契约变更——`dist/` 不再输出源码注释（体积约 −24%）。
@@ -196,8 +197,10 @@ Get-ChildItem "$env:LOCALAPPDATA\npm-cache\_npx" -Recurse -Filter package.json |
 | `GANGTISE_MCP_ASYNC_TIMEOUT_MS` | `55000` | 异步 AI 任务默认等待超时（毫秒）；保持在 MCP 客户端请求超时（约 60s）以下，超时返回 dataId 供 `*_check` 续查。需更长等待可调高本值或按调用传 `waitSeconds`（最大 180） |
 | `GANGTISE_TOKEN_CACHE_PATH` | `~/.config/gangtise/token.json` | Token 缓存文件路径 |
 | `GANGTISE_PAGE_CONCURRENCY` | `5` | 分页、全市场分片与逐只请求的并发数（1–32）；连接池随之放大，至少 16 |
+| `GANGTISE_MCP_GLOBAL_CONCURRENCY` | `max(16, 分页并发)` | 同时在飞的请求总数上限，跨所有调用共享，查询与下载各自计数（1–64）；默认与连接池同大，单次调用不受影响，只在多个调用同时分页 / 分片时封顶总量 |
 | `GANGTISE_INLINE_MAX_BYTES` | `65536` | 工具结果内联字节上限；超过则落盘为临时文件并返回可翻页的预览指针。默认 64KB（约 1.5–2 万 token）控制单次响应体积；批量导出可调大（最低 8192） |
 | `GANGTISE_MAX_DOWNLOAD_BYTES` | `1073741824` | 单个下载文件的字节上限（默认 1 GiB）。超出时在落盘前拒绝（有 `Content-Length`）或流式中止（无该头），避免一次超大下载占满临时磁盘。`/tmp` 较小的部署可调低（最低 1 MB） |
+| `GANGTISE_MCP_TOOLS` | `core` | 列出并启用哪些工具，逗号分隔取并集：`core` / `all`、工具组名（`context` `lookup` `reference` `insight` `quote` `fundamental` `ai` `vault` `alternative` `indicator` `response`）或工具名；前加 `-` 禁用该组或该工具（不列出，也调不到），如 `core,-vault`。`gangtise_current_date` / `gangtise_read_response` / `gangtise_securities_search` 始终启用，选了异步提交工具时其 `*_check` 一并启用。写错名字、禁用基础工具时启动即报错。目前全部工具都在 `core` |
 | `GANGTISE_VERBOSE` | — | 设为 `1` 开启请求耗时日志（输出到 stderr） |
 
 认证优先级：`GANGTISE_TOKEN` > Token 缓存文件 > `GANGTISE_ACCESS_KEY` + `GANGTISE_SECRET_KEY`（自动换取并缓存 Token）。
@@ -264,6 +267,7 @@ npm test         # 运行测试（含 tools/list 快照、逐工具请求契约�
 npm run lint
 npm run build && npm run check:release   # 发版门禁：对外措辞、dist 无注释、上下文预算
 node --expose-gc --import tsx scripts/bench/run.ts   # 性能基线（本机假服务端，不进 CI）
+node scripts/upstream-diff.mjs   # 与 gangtise-openapi-cli 的端点契约对比（先 build；同一比对也在 npm test 里）
 ```
 
 ## 发布维护
