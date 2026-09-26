@@ -19,8 +19,13 @@ describe("parseSecurityCode", () => {
     ["885001.GT", "GT"],
     ["801780.SWI", "SWI"],
     ["SPX.SPI", "SPI"],
-    ["600519", ""],
+    ["600519", "600519"],
   ])("leaves %s without a market", (code, codeSpace) => {
     expect(parseSecurityCode(code)).toEqual({ market: undefined, codeSpace })
+  })
+
+  // 单独一个市场字面量读作那个市场，让市场专用工具能在本地拒绝它，而不是照发、拿回一个空列表。
+  it.each([["HK", "hk"], ["a", "us"], ["SH", "cn"]])("reads a bare market literal %s as its market", (code, market) => {
+    expect(parseSecurityCode(code).market).toBe(market)
   })
 })
