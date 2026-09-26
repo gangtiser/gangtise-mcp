@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
-import { callKlinePerSecurity, callKlineWithSharding, estimateTradingDays } from "../../src/core/quoteSharding.js"
-import { ResponseShapeError } from "../../src/core/errors.js"
+import { callKlinePerSecurity, callKlineWithSharding, estimateTradingDays, fullMarketOf } from "../../../src/core/batch.js"
+import { ResponseShapeError } from "../../../src/core/errors.js"
 
 describe("callKlineWithSharding", () => {
   it("injects API-max limit (10000) for security='all' when user didn't set limit", async () => {
@@ -641,5 +641,36 @@ describe("全市场单请求路径的形状护栏", () => {
     )
     expect(r).toEqual({ list: [] })
     expect(call).not.toHaveBeenCalled()
+  })
+})
+
+describe("BatchStrategy", () => {
+  const strategy = { fullMarketKeywords: { aShares: 1, hkStocks: 2 }, calendar: "workday" as const, cap: 10_000 }
+
+  it("resolves a whole-market keyword to its shard size, and nothing else", () => {
+    expect(fullMarketOf(["hkStocks"], strategy)).toEqual({ keyword: "hkStocks", shardDays: 2 })
+    expect(fullMarketOf(["aShares", "600519.SH"], strategy)).toBeUndefined()
+    expect(fullMarketOf(["600519.SH"], strategy)).toBeUndefined()
+    expect(fullMarketOf(["aShares"], { ...strategy, fullMarketKeywords: {} })).toBeUndefined()
+  })
+
+  // 2026-09-04 周五 → 09-07 周一。workday 跳过两个单日周末片；natural 一天都不跳。
+  it.each([
+    ["workday", ["2026-09-04", "2026-09-07"]],
+    ["natural", ["2026-09-04", "2026-09-05", "2026-09-06", "2026-09-07"]],
+  ] as const)("%s calendar shards Fri–Mon into %j", async (calendar, days) => {
+    const seen: string[] = []
+    const call = vi.fn(async (_key: string, body: unknown) => {
+      seen.push((body as { startDate: string }).startDate)
+      return { total: 0, list: [] }
+    })
+    await callKlineWithSharding({ call }, "quote.day-kline", { securityList: ["aShares"], startDate: "2026-09-04", endDate: "2026-09-07" }, { shardDays: 1, fullMarketValue: "aShares", calendar })
+    expect(seen.sort()).toEqual(days)
+  })
+
+  it("lifts the whole-market limit to the strategy's cap", async () => {
+    const call = vi.fn(async () => ({ total: 0, list: [] }))
+    await callKlineWithSharding({ call }, "quote.day-kline", { securityList: ["aShares"], startDate: "2026-09-04", endDate: "2026-09-04" }, { shardDays: 1, fullMarketValue: "aShares", cap: 8_000 })
+    expect(call).toHaveBeenCalledWith("quote.day-kline", expect.objectContaining({ limit: 8_000 }))
   })
 })

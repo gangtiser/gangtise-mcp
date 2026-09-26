@@ -7,7 +7,7 @@ import { normalizeRows } from "../core/normalize.js"
 import { unwrapPayload } from "../core/shape.js"
 import { markPartial, type PartialReason } from "../core/partial.js"
 import { resolveCalendarType } from "../core/calendarType.js"
-import { estimateTradingDays } from "../core/quoteSharding.js"
+import { estimateTradingDays } from "../core/batch.js"
 import {
   requireIndicatorMatrix,
   isEmptyMatrix,

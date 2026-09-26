@@ -24,7 +24,7 @@ async function connect(client: GangtiseClient) {
 }
 
 // A malformed date used to slip past the bare z.string() schema, then fail
-// parseDate() inside quoteSharding, which silently fell back to a single capped
+// parseDate() inside batch.ts, which silently fell back to a single capped
 // request for security='all' — losing market rows with no _partial marker.
 describe("gangtise_day_kline date validation", () => {
   it("rejects a non-zero-padded date for security='all' without calling the API", async () => {

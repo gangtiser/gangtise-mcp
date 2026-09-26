@@ -33,7 +33,7 @@ export function resolveInlineMaxBytes(raw: string | undefined): number {
 export const INLINE_MAX_BYTES = resolveInlineMaxBytes(process.env.GANGTISE_INLINE_MAX_BYTES)
 
 // Request fan-out concurrency: how many paginated page requests (client.ts) or
-// full-market day shards (quoteSharding.ts) run at once. One knob tunes all fan-out.
+// full-market day shards (batch.ts) run at once. One knob tunes all fan-out.
 export const DEFAULT_PAGE_CONCURRENCY = 5
 // Hard ceiling: a huge override (typo or misguided "go faster") would open that
 // many sockets per origin and hammer the upstream API — well past any real

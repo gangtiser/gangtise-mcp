@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { parseProfile } from "../../src/profile.js"
-import { createGangtiseMcpServer } from "../../src/server.js"
+import { createGangtiseMcpServer, routingInstructions } from "../../src/server.js"
 import type { GangtiseClient } from "../../src/core/client.js"
 import type { FamilyModule, ToolSpec } from "../../src/mcp/define.js"
 
@@ -93,5 +93,31 @@ describe("GANGTISE_MCP_TOOLS on the real server", () => {
 
   it("refuses to start on a misspelled item", () => {
     expect(() => createGangtiseMcpServer(stubClient, { tools: "core,gangtise_realtme" })).toThrow(/gangtise_realtme/)
+  })
+})
+
+describe("routingInstructions", () => {
+  const withHints: FamilyModule[] = [
+    { ...FAMILIES[0], routingHint: "⑤alpha：alpha 族的路由。" },
+    { ...FAMILIES[1], routingHint: "⑥beta：beta 族的路由。" },
+  ]
+
+  it("adds a family's hint only while one of its tools is listed, before the billing line", () => {
+    const text = routingInstructions(withHints, parseProfile("core,-beta", withHints))
+    expect(text).toContain("⑤alpha：alpha 族的路由。\n计费见各工具")
+    expect(text).not.toContain("⑥beta")
+    expect(routingInstructions(withHints, parseProfile("core", withHints))).toContain("⑤alpha：alpha 族的路由。\n⑥beta：beta 族的路由。\n计费见各工具")
+  })
+
+  it("is unchanged by families without a hint", () => {
+    expect(routingInstructions(FAMILIES, parseProfile(undefined, FAMILIES))).toBe(routingInstructions([], parseProfile(undefined, [])))
+  })
+
+  it("names only tools that the default profile lists", async () => {
+    const client = await connect(undefined)
+    const listed = new Set((await client.listTools()).tools.map((t) => t.name))
+    const named = [...(client.getInstructions() ?? "").matchAll(/gangtise_[a-z_]+/g)].map((m) => m[0])
+    expect(named.length).toBeGreaterThan(0)
+    expect(named.filter((name) => !listed.has(name))).toEqual([])
   })
 })

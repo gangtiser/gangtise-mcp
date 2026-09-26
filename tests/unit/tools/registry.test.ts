@@ -719,7 +719,7 @@ describe("spilled non-list objects keep their incompleteness markers", () => {
 
   // 🔴 钉法必须与**真实产生这些键的代码**交叉验证。只用正则把表里的字面量读出来再跟
   // 手抄的期望比一遍，等于让这张表给自己作证：`_malformed_securities` 就是这样漏掉还
-  // 全绿的（quoteSharding 真实产生它，表里却只有对称的 `_malformed_shards`）。
+  // 全绿的（batch.ts 真实产生它，表里却只有对称的 `_malformed_shards`）。
   //
   // 下划线族（`_failed_*` / `_truncated_*` / `_malformed_*` / `_dropped_*`）命名有规律，
   // 直接从源码穷举出来，要求表是它的超集——将来新增一个就会自动被抓到。

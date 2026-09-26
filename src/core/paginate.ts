@@ -410,7 +410,7 @@ export async function requestPaginated(http: PageFetcher, endpoint: EndpointDefi
       // 根本不会被返回（`clientCancel.test.ts` 钉住这条）。
       // Collect the failure instead of fail-fasting the whole batch: return the
       // pages we did get, flagged _partial — same loud-partial contract as
-      // quoteSharding, so a dropped page never masquerades as complete data.
+      // batch.ts, so a dropped page never masquerades as complete data.
       failedPages.push({ from: req.from, size: req.size, error: errorMessage(err) })
       return [] as unknown[]
     }

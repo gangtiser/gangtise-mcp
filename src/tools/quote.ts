@@ -1,8 +1,9 @@
 import { z } from "zod"
 import { flagMissingFields, normalizeRows } from "../core/normalize.js"
 import { ValidationError } from "../core/errors.js"
-import { callKlinePerSecurity, callKlineWithSharding, estimateTradingDays, flagLimitTruncated, type KlineBody } from "../core/quoteSharding.js"
+import { callKlinePerSecurity, callKlineWithSharding, estimateTradingDays, flagLimitTruncated, fullMarketOf, type BatchStrategy, type KlineBody } from "../core/batch.js"
 import { dateString, dateTimeString } from "../core/dateContext.js"
+import { parseSecurityCode, type Market } from "../core/securityCode.js"
 import { assertDateOrder, defineTool, type FamilyModule, type ToolSpec } from "../mcp/define.js"
 import { buildToolContent } from "../core/present.js"
 import { contentResult } from "../mcp/handler.js"
@@ -93,15 +94,6 @@ function canonicalizeKeywords(securityList: string[] | undefined, accepted: read
   return securityList.map((s) => (typeof s === "string" ? accepted.find((a) => matchesKeyword(s, a)) ?? s : s))
 }
 
-/** Which whole-market keyword (if any) this body asks for, and at what shard size.
- * Each market shards at its own granularity — a whole-market HK pull tolerates 2-day
- * windows where A-share and US pulls need one day each. */
-function resolveFullMarket(securityList: string[] | undefined, markets: Record<string, number>): { keyword: string; shardDays: number } | undefined {
-  if (!securityList || securityList.length !== 1) return undefined
-  const keyword = Object.keys(markets).find((k) => securityList[0] === k)
-  return keyword ? { keyword, shardDays: markets[keyword] } : undefined
-}
-
 function buildKlineBody(args: Record<string, unknown>): KlineBody {
   const body: KlineBody = {}
   if (args.security) {
@@ -114,10 +106,7 @@ function buildKlineBody(args: Record<string, unknown>): KlineBody {
   return body
 }
 
-const SUFFIX_MARKET: Record<string, "cn" | "hk" | "us"> = {
-  SH: "cn", SZ: "cn", BJ: "cn", HK: "hk", O: "us", N: "us", A: "us",
-}
-const MARKET_LABEL: Record<"cn" | "hk" | "us", string> = { cn: "A股", hk: "港股", us: "美股" }
+const MARKET_LABEL: Record<Market, string> = { cn: "A股", hk: "港股", us: "美股" }
 
 /** Reject an obvious market/tool mismatch (e.g. an .HK code sent to a US-only tool)
  * before it hits upstream and returns a silent empty list that reads as "no data" —
@@ -130,13 +119,13 @@ const MARKET_LABEL: Record<"cn" | "hk" | "us", string> = { cn: "A股", hk: "港�
  * indices in one call, so a suffix check there would reject valid queries. */
 function assertMarketMatch(
   securityList: readonly unknown[] | undefined,
-  market: "cn" | "hk" | "us",
-  opts: { message?: (code: string, codeMarket: "cn" | "hk" | "us") => string } = {},
+  market: Market,
+  opts: { message?: (code: string, codeMarket: Market) => string } = {},
 ): void {
   if (!securityList) return
   for (const code of securityList) {
     if (typeof code !== "string" || MARKET_KEYWORDS.has(code.toLowerCase())) continue
-    const codeMarket = SUFFIX_MARKET[code.split(".").pop()?.toUpperCase() ?? ""]
+    const codeMarket = parseSecurityCode(code).market
     if (codeMarket && codeMarket !== market) {
       throw new ValidationError(
         opts.message?.(code, codeMarket) ?? `'${code}' 是${MARKET_LABEL[codeMarket]}代码，请改用 gangtise_day_kline（单接口覆盖 A股/港股/美股与指数）。`,
@@ -148,18 +137,18 @@ function assertMarketMatch(
 function klineRun(
   endpointKey: string,
   tool: string,
-  markets: Record<string, number>,
-  market?: "cn" | "hk" | "us",
+  strategy: BatchStrategy,
+  market?: Market,
   noKeywordReason?: string,
 ): ToolSpec["run"] {
   return async ({ client }, args) => {
     assertDateOrder(args)
     const body = buildKlineBody(args)
-    const accepted = Object.keys(markets)
+    const accepted = Object.keys(strategy.fullMarketKeywords)
     assertMarketKeywords(body.securityList, accepted, tool, noKeywordReason)
     body.securityList = canonicalizeKeywords(body.securityList, accepted)
     if (market) assertMarketMatch(body.securityList, market)
-    const fullMarket = resolveFullMarket(body.securityList, markets)
+    const fullMarket = fullMarketOf(body.securityList, strategy)
     if (fullMarket) {
       // All-market goes through the sharding helper: it lifts the cap to 10K, shards
       // the range, and carries its own per-shard failure/truncation markers.
@@ -167,6 +156,8 @@ function klineRun(
         shardDays: fullMarket.shardDays,
         fullMarketValue: fullMarket.keyword,
         tool,
+        calendar: strategy.calendar,
+        cap: strategy.cap,
       })
       return contentResult(await buildToolContent(normalizeRows(flagMissingFields(result, body.fieldList))))
     }
@@ -200,18 +191,22 @@ const CODE_IDENTITY_WARNING =
   "② 美股写错代码可能命中另一只名字相近的**真实**证券（BRK.N 实为 RBRK.N，另一家公司）；" +
   "③ 搜得到 ≠ 查得到（B 股 900938.SH 搜索有、行情报「证券代码无效」），判据是行情接口返不返数据。"
 
-/** Shard granularity per whole-market keyword on the unified day K-line endpoint.
- * Sized from the per-trading-day row counts (A股 ~5.5K, 美股 ~5.9K, 港股 ~2.8K) so a
- * single shard stays under the 10000-row API cap: A/US one day each, HK two. */
-const KLINE_MARKETS: Record<string, number> = { aShares: 1, hkStocks: 2, usStocks: 1 }
+/** 行情族的拆分策略：交易所周六日休市（calendar: workday），全市场请求抬到 10000 行上限。
+ *  每片天数按单个交易日的行数定（A股 ~5.5K、美股 ~5.9K、港股 ~2.8K），保证单片不超上限：
+ *  A/US 一天一片，HK 两天。 */
+const quoteStrategy = (fullMarketKeywords: Record<string, number>): BatchStrategy => ({ fullMarketKeywords, calendar: "workday", cap: 10_000 })
+const DAY_KLINE = quoteStrategy({ aShares: 1, hkStocks: 2, usStocks: 1 })
 /** The market-specific day K-line tools still take the historical `all` keyword. */
-const LEGACY_ALL = (shardDays: number): Record<string, number> => ({ all: shardDays })
+const LEGACY_ALL = (shardDays: number) => quoteStrategy({ all: shardDays })
+/** 指数日 K 没有全市场关键字。 */
+const NO_FULL_MARKET = quoteStrategy({})
 /** Realtime takes the same keywords as the unified day K-line but returns one snapshot
  * per security, so there is nothing to shard — the map exists only to declare which
  * keywords are accepted. */
 const REALTIME_MARKETS = ["aShares", "hkStocks", "usStocks"]
 /** Fund flow is A-share only, so `aShares` is its sole whole-market keyword. */
-const FUND_FLOW_MARKETS = ["aShares"]
+const FUND_FLOW = quoteStrategy({ aShares: 1 })
+const FUND_FLOW_MARKETS = Object.keys(FUND_FLOW.fullMarketKeywords)
 
 export const quoteFamily: FamilyModule = {
   name: "quote",
@@ -232,7 +227,7 @@ export const quoteFamily: FamilyModule = {
           "或传市场关键字 'aShares'（A股全市场）/ 'hkStocks'（港股全市场）/ 'usStocks'（美股全市场）",
         )),
       },
-      run: klineRun("quote.day-kline", "gangtise_day_kline", KLINE_MARKETS),
+      run: klineRun("quote.day-kline", "gangtise_day_kline", DAY_KLINE),
       examples: [
         { title: "单只：钉住 limit=6000", args: { security: "600519.SH", startDate: "2026-09-01", endDate: "2026-09-05", fieldList: ["securityCode", "tradeDate", "close"] }, expect: { requests: [{ method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["600519.SH"], startDate: "2026-09-01", endDate: "2026-09-05", fieldList: ["securityCode", "tradeDate", "close"], limit: 6000 } }] } },
         { title: "多只且单请求装不下（4 只 × 约 1695 个交易日 > 6000）：逐只请求", args: { security: ["600519.SH", "000858.SZ", "00700.HK", "AAPL.O"], startDate: "2020-01-01", endDate: "2026-06-30" }, upstream: oneQuoteRow(), expect: { requests: [
@@ -293,7 +288,7 @@ export const quoteFamily: FamilyModule = {
       description: "查询指数日 K 线数据（沪深京交易所指数如 000001.SH 上证指数、399001.SZ 深成指，也支持概念指数 .GT 与行业指数 .CI/.SWI）。gangtise_day_kline 收同样的指数代码、还能与个股混查。返回不含指数名称，名称用 gangtise_securities_search（category=['index']）查 gtsName。本工具没有全市场关键字，多个指数逐个列出代码。⚠️ 本工具只收指数代码：传个股代码（哪怕是有效的，如 600519.SH）返回空列表而不报错，别把它读成「这只票没数据」；无效代码同样返空。核对代码请用 gangtise_securities_search 按公司名/简称查，并同时核对返回的 gtsName 与 gtsCode 后缀（A+H 两地上市名字逐字相同，只有后缀能区分）。",
       input: { ...commonKlineSchema, security: z.union([nonEmptyString, nonEmptyList()]).optional().describe("指数代码，单个或多个，如 '000001.SH'（上证指数）/ '399001.SZ'（深成指）/ '821026.CI'（中信行业）/ '801780.SWI'（申万银行）") },
       // 不收任何全市场关键字：本端点对 'all' 返回 000000 + 空列表（不报错），读起来像「没有数据」。
-      run: klineRun("quote.index-day-kline", "gangtise_index_day_kline", {}, undefined, "本接口对 'all' 返回空结果而不报错。请逐个传指数代码。"),
+      run: klineRun("quote.index-day-kline", "gangtise_index_day_kline", NO_FULL_MARKET, undefined, "本接口对 'all' 返回空结果而不报错。请逐个传指数代码。"),
       examples: [
         { title: "单个指数", args: { security: "000001.SH", startDate: "2026-09-01", endDate: "2026-09-05" }, expect: { requests: [{ method: "POST", path: "/application/open-quote/index/kline/daily", body: { securityList: ["000001.SH"], startDate: "2026-09-01", endDate: "2026-09-05", limit: 6000 } }] } },
         { title: "all 本地拒绝（本端点对 all 返回空结果）", args: { security: "all", startDate: "2026-08-01", endDate: "2026-08-31" }, expect: { rejects: /没有全市场关键字/ } },
@@ -402,7 +397,7 @@ export const quoteFamily: FamilyModule = {
           if (!body.startDate || !body.endDate) {
             throw new ValidationError("security='aShares' 全市场资金流向须同时提供 startDate 和 endDate（按日分片拉取）")
           }
-          const result = await callKlineWithSharding(client, "quote.fund-flow", body, { shardDays: 1, fullMarketValue: "aShares", tool: "gangtise_fund_flow" })
+          const result = await callKlineWithSharding(client, "quote.fund-flow", body, { shardDays: FUND_FLOW.fullMarketKeywords.aShares, fullMarketValue: "aShares", tool: "gangtise_fund_flow", calendar: FUND_FLOW.calendar, cap: FUND_FLOW.cap })
           return contentResult(await buildToolContent(normalizeRows(flagMissingFields(result, body.fieldList))))
         }
         // Pin the row cap so limit-truncation detection is exact (mirrors CLI DEFAULT_QUOTE_LIMIT).

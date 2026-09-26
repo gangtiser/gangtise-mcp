@@ -14,9 +14,31 @@ export interface KlineBody {
   [key: string]: unknown
 }
 
+/** 拆分策略：由调用族给出，本模块按它拆分、并发执行、按列名合并。 */
+export interface BatchStrategy {
+  /** 全市场关键字 → 每片天数（按单日行数定，保证单片不超 `cap`）。空表 = 没有全市场关键字。 */
+  fullMarketKeywords: Record<string, number>
+  /** 哪些日子会有数据。"workday"：周六日休市，单日片落在周末直接跳过；多日片整片保留（边界上
+   *  可能多一个空请求，但不会丢交易日）。"natural"：每天都可能有数据，一天都不跳。 */
+  calendar: "workday" | "natural"
+  /** 全市场请求把 limit 抬到的单请求行数上限。 */
+  cap: number
+}
+
+/** 请求的是不是某个全市场关键字，是的话每片几天。只认按策略写法拼写的关键字（调用方先归一大小写）。 */
+export function fullMarketOf(securityList: string[] | undefined, strategy: BatchStrategy): { keyword: string; shardDays: number } | undefined {
+  if (!securityList || securityList.length !== 1) return undefined
+  const keyword = Object.keys(strategy.fullMarketKeywords).find((k) => securityList[0] === k)
+  return keyword ? { keyword, shardDays: strategy.fullMarketKeywords[keyword] } : undefined
+}
+
 interface ShardConfig {
   /** Days per shard. Picked so each request stays under the 10K-row API cap. */
   shardDays: number
+  /** 缺省 "workday"（见 BatchStrategy）。 */
+  calendar?: BatchStrategy["calendar"]
+  /** 缺省 10000。 */
+  cap?: number
   concurrency?: number
   /** 报错文案里的工具名。单请求路径要靠它给出与 quote.ts 各端点一致的提示。 */
   tool?: string
@@ -94,7 +116,7 @@ export function estimateTradingDays(startDate?: string, endDate?: string): numbe
   return days
 }
 
-function buildShards(start: Date, end: Date, shardDays: number): Array<{ startDate: string; endDate: string }> {
+function buildShards(start: Date, end: Date, shardDays: number, calendar: BatchStrategy["calendar"]): Array<{ startDate: string; endDate: string }> {
   const shards: Array<{ startDate: string; endDate: string }> = []
   let cursor = start.getTime()
   const endTime = end.getTime()
@@ -107,7 +129,7 @@ function buildShards(start: Date, end: Date, shardDays: number): Array<{ startDa
     // a 2-day shard starting on a Saturday is Sat+Sun and returns nothing. That
     // costs one wasted request at a range boundary and never drops a trading day,
     // whereas filtering multi-day windows correctly means walking each window.
-    if (!(shardDays === 1 && isWeekend(cursor))) {
+    if (!(calendar === "workday" && shardDays === 1 && isWeekend(cursor))) {
       shards.push({
         startDate: formatDate(new Date(cursor)),
         endDate: formatDate(new Date(shardEnd)),
@@ -277,8 +299,10 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   // cap to the API max so single-shard requests aren't silently truncated. This
   // must apply even when a date is missing (no sharding possible then, but the
   // single request still needs the lifted cap).
-  const allMarketBody: KlineBody = { ...body, limit: body.limit ?? ALL_MARKET_LIMIT }
-  const perShardLimit = allMarketBody.limit ?? ALL_MARKET_LIMIT
+  const cap = config.cap ?? ALL_MARKET_LIMIT
+  const calendar = config.calendar ?? "workday"
+  const allMarketBody: KlineBody = { ...body, limit: body.limit ?? cap }
+  const perShardLimit = allMarketBody.limit ?? cap
 
   // A single full-market request (missing/unparseable dates, or a range that fits
   // one shard) skips the merge loop below, so it needs the same limit-truncation
@@ -301,13 +325,13 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   if (totalDays <= config.shardDays) {
     // Same weekend rule as the sharded path below: with 1-day shards the window
     // is exactly one day here, and a Sat/Sun day is a guaranteed-empty request.
-    if (config.shardDays === 1 && isWeekend(start.getTime())) {
+    if (calendar === "workday" && config.shardDays === 1 && isWeekend(start.getTime())) {
       return { list: [] }
     }
     return callSingle()
   }
 
-  const shards = buildShards(start, end, config.shardDays)
+  const shards = buildShards(start, end, config.shardDays, calendar)
   // Every day in the range was a skipped weekend: markets closed, nothing to fetch.
   if (shards.length === 0) {
     return { list: [] }
