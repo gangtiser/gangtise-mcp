@@ -2,7 +2,8 @@ import { describe, it, expect, vi } from "vitest"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
-import { registerVaultTools } from "../../../src/tools/vault.js"
+import { vaultFamily } from "../../../src/tools/vault.js"
+import { registerFamilies } from "../../../src/mcp/register.js"
 import type { GangtiseClient } from "../../../src/core/client.js"
 
 // v0.23: the chatroom endpoint now returns `{ total, list }` and is a standard
@@ -18,7 +19,7 @@ function makeChatroomClient(total: number) {
 
 async function connect(client: GangtiseClient) {
   const server = new McpServer({ name: "test", version: "0.0.0" })
-  registerVaultTools(server, client)
+  registerFamilies(server, client, [vaultFamily])
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
   await server.connect(serverTransport)
   const mcp = new Client({ name: "test", version: "0.0.1" })

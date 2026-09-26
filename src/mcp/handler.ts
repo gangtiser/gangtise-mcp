@@ -35,11 +35,11 @@ export function errorResult(err: unknown): ToolTextResult {
  * once the client gives up, no further page / shard / retry / poll is issued.
  */
 export function toolHandler<A>(
-  fn: (args: A) => Promise<ToolTextResult>,
+  fn: (args: A, extra?: HandlerExtra) => Promise<ToolTextResult>,
 ): (args: A, extra?: HandlerExtra) => Promise<ToolTextResult> {
   return async (args: A, extra?: HandlerExtra) => {
     try {
-      return await runWithRequestContext(extra?.signal, () => fn(args))
+      return await runWithRequestContext(extra?.signal, () => fn(args, extra))
     } catch (err) {
       if (extra?.signal?.aborted) return errorResult(new Error("请求已被客户端取消，未再发出后续的分页 / 分片 / 轮询请求。"))
       return errorResult(err)

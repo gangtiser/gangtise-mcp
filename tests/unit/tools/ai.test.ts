@@ -2,7 +2,8 @@ import { describe, it, expect, vi } from "vitest"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
-import { registerAiTools } from "../../../src/tools/ai.js"
+import { aiFamily } from "../../../src/tools/ai.js"
+import { registerFamilies } from "../../../src/mcp/register.js"
 import { ApiError } from "../../../src/core/errors.js"
 import type { GangtiseClient } from "../../../src/core/client.js"
 
@@ -21,7 +22,7 @@ function makeClient(poll: (body: Record<string, unknown>) => Promise<unknown>) {
 
 async function connect(client: GangtiseClient) {
   const server = new McpServer({ name: "test", version: "0.0.0" })
-  registerAiTools(server, client, { asyncTimeoutMs: 5_000 })
+  registerFamilies(server, client, [aiFamily({ asyncTimeoutMs: 5_000 })])
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
   await server.connect(serverTransport)
   const mcp = new Client({ name: "test", version: "0.0.1" })

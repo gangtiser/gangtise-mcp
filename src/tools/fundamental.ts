@@ -1,14 +1,12 @@
 import { z } from "zod"
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
-import type { GangtiseClient } from "../core/client.js"
-import { registerJsonTool, type JsonToolSpec } from "./registry.js"
+import { assertDateOrder, defineJsonTool, defineTool, type FamilyModule, type JsonToolSpec } from "../mcp/define.js"
 import { buildToolContent } from "../core/present.js"
-import { toolHandler, contentResult } from "../mcp/handler.js"
-import { assertDateOrder } from "./registry.js"
+import { contentResult } from "../mcp/handler.js"
 import { normalizeRows } from "../core/normalize.js"
 import { markPartial } from "../core/partial.js"
 import { dateString } from "../core/dateContext.js"
 import { nonEmptyString, uniqueFieldList, enumList } from "../mcp/schemas.js"
+import { fundamentalEndpoints } from "./fundamental.endpoints.js"
 
 const periodEnum = enumList(z.enum(["q1", "interim", "q3", "annual", "latest"])).optional().describe("q1=一季报 | interim=中报 | q3=三季报 | annual=年报 | latest=最新")
 const quarterlyPeriodEnum = enumList(z.enum(["q1", "q2", "q3", "q4", "latest"])).optional().describe("q1 | q2 | q3 | q4 | latest")
@@ -97,6 +95,7 @@ const PIT_NOTE = "做 point-in-time / 时点对齐时，announcementDate 是当�
 export const specs: JsonToolSpec[] = [
   {
     name: "gangtise_income_statement",
+    tier: "core",
     description: `查询A股利润表（累计口径），支持期间、财年、报告类型筛选。${PIT_NOTE}`,
     endpointKey: "fundamental.income-statement",
     paginated: false,
@@ -108,9 +107,14 @@ export const specs: JsonToolSpec[] = [
       reportType: reportTypeEnum,
       fieldList,
     },
+    examples: [
+      { title: "A 股累计", args: { securityCode: "600519.SH", fiscalYear: [2024, 2025], period: ["annual"], reportType: ["consolidated"], fieldList: ["announcementDate", "opRevenue"] }, expect: { requests: [{ method: "POST", path: "/application/open-fundamental/financial-report/income-statement/accumulated", body: { securityCode: "600519.SH", fiscalYear: [2024, 2025], period: ["annual"], reportType: ["consolidated"], fieldList: ["announcementDate", "opRevenue"] } }] } },
+      { title: "港股期间 h1 本地拒绝", args: { securityCode: "600519.SH", period: ["h1"] }, expect: { rejects: /at period/ } },
+    ],
   },
   {
     name: "gangtise_income_statement_quarterly",
+    tier: "core",
     description: `查询A股单季利润表。${PIT_NOTE}本工具的 companyType 返回的是未映射的数字码，要读公司类型请取累计口径报表的同名字段。`,
     endpointKey: "fundamental.income-statement-quarterly",
     paginated: false,
@@ -122,9 +126,13 @@ export const specs: JsonToolSpec[] = [
       reportType: reportTypeEnum,
       fieldList,
     },
+    examples: [
+      { title: "A 股单季", args: { securityCode: "600519.SH", period: ["q2"], startDate: "2024-01-01", endDate: "2025-12-31" }, expect: { requests: [{ method: "POST", path: "/application/open-fundamental/financial-report/income-statement/quarterly", body: { securityCode: "600519.SH", startDate: "2024-01-01", endDate: "2025-12-31", period: ["q2"] } }] } },
+    ],
   },
   {
     name: "gangtise_balance_sheet",
+    tier: "core",
     description: `查询A股资产负债表，支持期间、财年、报告类型筛选。${PIT_NOTE}`,
     endpointKey: "fundamental.balance-sheet",
     paginated: false,
@@ -136,9 +144,13 @@ export const specs: JsonToolSpec[] = [
       reportType: reportTypeEnum,
       fieldList,
     },
+    examples: [
+      { title: "A 股", args: { securityCode: "600519.SH", period: ["interim"], reportType: ["standalone"] }, expect: { requests: [{ method: "POST", path: "/application/open-fundamental/financial-report/balance-sheet/accumulated", body: { securityCode: "600519.SH", period: ["interim"], reportType: ["standalone"] } }] } },
+    ],
   },
   {
     name: "gangtise_cash_flow",
+    tier: "core",
     description: `查询A股现金流量表（累计口径），支持期间、财年、报告类型筛选。${PIT_NOTE}`,
     endpointKey: "fundamental.cash-flow",
     paginated: false,
@@ -150,9 +162,13 @@ export const specs: JsonToolSpec[] = [
       reportType: reportTypeEnum,
       fieldList,
     },
+    examples: [
+      { title: "A 股累计", args: { securityCode: "600519.SH", fiscalYear: [2025], period: ["q3"] }, expect: { requests: [{ method: "POST", path: "/application/open-fundamental/financial-report/cash-flow-statement/accumulated", body: { securityCode: "600519.SH", fiscalYear: [2025], period: ["q3"] } }] } },
+    ],
   },
   {
     name: "gangtise_cash_flow_quarterly",
+    tier: "core",
     description: `查询A股单季现金流量表。${PIT_NOTE}本工具的 companyType 返回的是未映射的数字码，要读公司类型请取累计口径报表的同名字段。`,
     endpointKey: "fundamental.cash-flow-quarterly",
     paginated: false,
@@ -164,9 +180,13 @@ export const specs: JsonToolSpec[] = [
       reportType: reportTypeEnum,
       fieldList,
     },
+    examples: [
+      { title: "A 股单季", args: { securityCode: "600519.SH", period: ["q4", "latest"] }, expect: { requests: [{ method: "POST", path: "/application/open-fundamental/financial-report/cash-flow-statement/quarterly", body: { securityCode: "600519.SH", period: ["q4", "latest"] } }] } },
+    ],
   },
   {
     name: "gangtise_main_business",
+    tier: "core",
     description: "查询主营业务构成（按产品、行业或地区拆分）。",
     endpointKey: "fundamental.main-business",
     paginated: false,
@@ -177,9 +197,13 @@ export const specs: JsonToolSpec[] = [
       periodList: enumList(z.enum(["interim", "annual"])).optional().describe("interim=中报 | annual=年报"),
       fieldList: mainBusinessFieldList,
     },
+    examples: [
+      { title: "按产品", args: { securityCode: "600519.SH", breakdown: "product", periodList: ["annual"], fieldList: ["periodName", "opRevenue"] }, expect: { requests: [{ method: "POST", path: "/application/open-fundamental/main-business", body: { securityCode: "600519.SH", breakdown: "product", periodList: ["annual"], fieldList: ["periodName", "opRevenue"] } }] } },
+    ],
   },
   {
     name: "gangtise_top_holders",
+    tier: "core",
     description: "查询前十大股东或前十大流通股东。",
     endpointKey: "fundamental.top-holders",
     paginated: false,
@@ -190,9 +214,13 @@ export const specs: JsonToolSpec[] = [
       fiscalYear,
       period: periodEnum,
     },
+    examples: [
+      { title: "前十大股东", args: { securityCode: "600519.SH", holderType: "top10", fiscalYear: [2025], period: ["interim"] }, expect: { requests: [{ method: "POST", path: "/application/open-fundamental/capital-structure/top-holders", body: { securityCode: "600519.SH", holderType: "top10", fiscalYear: [2025], period: ["interim"] } }] } },
+    ],
   },
   {
     name: "gangtise_earning_forecast",
+    tier: "core",
     description: "查询盈利预测一致预期（EPS、PE、净利润、ROE 等）。roe 的单位是百分比（35.6 即 35.6%），不要再做 ÷100 换算——换算后的数字看着仍像个 ROE，不会报错。",
     endpointKey: "fundamental.earning-forecast",
     paginated: false,
@@ -201,9 +229,13 @@ export const specs: JsonToolSpec[] = [
       ...dateRange,
       consensusList: enumList(z.enum(["netIncome", "netIncomeYoy", "eps", "pe", "bps", "pb", "peg", "roe", "ps"])).optional().describe("netIncome=净利润 | netIncomeYoy=净利润增速 | eps | pe | bps | pb | peg | roe | ps"),
     },
+    examples: [
+      { title: "一致预期", args: { securityCode: "600519.SH", consensusList: ["eps", "pe"], startDate: "2026-01-01", endDate: "2026-09-01" }, expect: { requests: [{ method: "POST", path: "/application/open-fundamental/earning-forecast", body: { securityCode: "600519.SH", startDate: "2026-01-01", endDate: "2026-09-01", consensusList: ["eps", "pe"] } }] } },
+    ],
   },
   {
     name: "gangtise_income_statement_hk",
+    tier: "core",
     description: "查询港股利润表（中国会计准则），支持期间、财年、报告类型筛选。",
     endpointKey: "fundamental.income-statement-hk",
     paginated: false,
@@ -215,9 +247,13 @@ export const specs: JsonToolSpec[] = [
       reportType: reportTypeEnum,
       fieldList,
     },
+    examples: [
+      { title: "港股：reportType 照常下发", args: { securityCode: "00700.HK", period: ["h1"], reportType: ["consolidatedRestated"] }, expect: { requests: [{ method: "POST", path: "/application/open-fundamental/financial-report/income-statement/hk", body: { securityCode: "00700.HK", period: ["h1"], reportType: ["consolidatedRestated"] } }] } },
+    ],
   },
   {
     name: "gangtise_balance_sheet_hk",
+    tier: "core",
     description: "查询港股资产负债表（中国会计准则），支持期间、财年、报告类型筛选。",
     endpointKey: "fundamental.balance-sheet-hk",
     paginated: false,
@@ -229,9 +265,13 @@ export const specs: JsonToolSpec[] = [
       reportType: reportTypeEnum,
       fieldList,
     },
+    examples: [
+      { title: "港股", args: { securityCode: "00700.HK", period: ["annual"], reportType: ["consolidated"] }, expect: { requests: [{ method: "POST", path: "/application/open-fundamental/financial-report/balance-sheet/hk", body: { securityCode: "00700.HK", period: ["annual"], reportType: ["consolidated"] } }] } },
+    ],
   },
   {
     name: "gangtise_cash_flow_hk",
+    tier: "core",
     description: "查询港股现金流量表（中国会计准则），支持期间、财年、报告类型筛选。",
     endpointKey: "fundamental.cash-flow-hk",
     paginated: false,
@@ -243,9 +283,13 @@ export const specs: JsonToolSpec[] = [
       reportType: reportTypeEnum,
       fieldList,
     },
+    examples: [
+      { title: "港股", args: { securityCode: "00700.HK", period: ["h2"], fiscalYear: [2025] }, expect: { requests: [{ method: "POST", path: "/application/open-fundamental/financial-report/cash-flow-statement/hk", body: { securityCode: "00700.HK", fiscalYear: [2025], period: ["h2"] } }] } },
+    ],
   },
   {
     name: "gangtise_income_statement_us",
+    tier: "core",
     description: "查询美股利润表，支持期间、财年、报告类型筛选。证券代码如 'TSLA.O'。",
     endpointKey: "fundamental.income-statement-us",
     paginated: false,
@@ -257,9 +301,13 @@ export const specs: JsonToolSpec[] = [
       reportType: reportTypeEnum,
       fieldList,
     },
+    examples: [
+      { title: "美股：reportType 照常下发", args: { securityCode: "TSLA.O", period: ["nsd"], reportType: ["standaloneRestated"] }, expect: { requests: [{ method: "POST", path: "/application/open-fundamental/financial-report/income-statement/us", body: { securityCode: "TSLA.O", period: ["nsd"], reportType: ["standaloneRestated"] } }] } },
+    ],
   },
   {
     name: "gangtise_balance_sheet_us",
+    tier: "core",
     description: "查询美股资产负债表，支持期间、财年、报告类型筛选。证券代码如 'TSLA.O'。",
     endpointKey: "fundamental.balance-sheet-us",
     paginated: false,
@@ -271,9 +319,13 @@ export const specs: JsonToolSpec[] = [
       reportType: reportTypeEnum,
       fieldList,
     },
+    examples: [
+      { title: "美股", args: { securityCode: "TSLA.O", period: ["annual"], reportType: ["consolidated"] }, expect: { requests: [{ method: "POST", path: "/application/open-fundamental/financial-report/balance-sheet/us", body: { securityCode: "TSLA.O", period: ["annual"], reportType: ["consolidated"] } }] } },
+    ],
   },
   {
     name: "gangtise_cash_flow_us",
+    tier: "core",
     description: "查询美股现金流量表，支持期间、财年、报告类型筛选。证券代码如 'TSLA.O'。",
     endpointKey: "fundamental.cash-flow-us",
     paginated: false,
@@ -285,19 +337,24 @@ export const specs: JsonToolSpec[] = [
       reportType: reportTypeEnum,
       fieldList,
     },
+    examples: [
+      { title: "美股", args: { securityCode: "TSLA.O", period: ["q1"], fieldList: ["announcementDate"] }, expect: { requests: [{ method: "POST", path: "/application/open-fundamental/financial-report/cash-flow-statement/us", body: { securityCode: "TSLA.O", period: ["q1"], fieldList: ["announcementDate"] } }] } },
+    ],
   },
 ]
 
-export function registerFundamentalTools(server: McpServer, client: GangtiseClient): void {
-  for (const spec of specs) {
-    registerJsonTool(server, client, spec)
-  }
-
-  server.registerTool(
-    "gangtise_valuation_analysis",
-    {
+export const fundamentalFamily: FamilyModule = {
+  name: "fundamental",
+  endpoints: fundamentalEndpoints,
+  tools: [
+    ...specs.map(defineJsonTool),
+    defineTool({
+      name: "gangtise_valuation_analysis",
+      tier: "core",
+      access: "read",
+      endpoint: "fundamental.valuation-analysis",
       description: "查询估值指标及历史分位数，支持 PE、PB、PEG、PS、PCF、EM。",
-      inputSchema: {
+      input: {
         securityCode,
         indicator: z.enum(["peTtm", "pbMrq", "peg", "psTtm", "pcfTtm", "em"]).describe("peTtm | pbMrq | peg | psTtm | pcfTtm | em（必填）"),
         ...dateRange,
@@ -305,33 +362,37 @@ export function registerFundamentalTools(server: McpServer, client: GangtiseClie
         skipNull: z.boolean().optional().describe("过滤掉 value 或 percentileRank 为空的行（客户端后处理；传了 fieldList 时只按其中请求到的那几列判空）"),
         fieldList: valuationFieldList,
       },
-      annotations: { readOnlyHint: true, openWorldHint: false },
-    },
-    toolHandler(async (args: Record<string, unknown>) => {
-      assertDateOrder(args)
-      const { skipNull, ...rest } = args
-      const limit = (rest.limit as number | undefined) ?? VALUATION_DEFAULT_LIMIT
-      const body: Record<string, unknown> = { ...rest, limit }
-      const raw = await client.call("fundamental.valuation-analysis", body)
-      // 截断判定在 skipNull 之前：过滤掉空值行之后行数就不再能说明撞没撞满。
-      const normalized = flagValuationRange(normalizeRows(raw), limit, rest.startDate)
-      let result: unknown = normalized
-      // 只按**请求到的**列判空。fieldList 投影掉 percentileRank 时那一列在行里根本不存在，
-      // 把「没查」当「为空」会把一份正常数据整个过滤成零行且不报错。
-      const requested = Array.isArray(body.fieldList) ? new Set(body.fieldList as string[]) : undefined
-      const nullKeys = ["value", "percentileRank"].filter((key) => !requested || requested.has(key))
-      if (skipNull && nullKeys.length > 0 && normalized && typeof normalized === "object" && !Array.isArray(normalized)) {
-        const rec = normalized as Record<string, unknown>
-        if (Array.isArray(rec.list)) {
-          const filtered = rec.list.filter((row): row is Record<string, unknown> => {
-            if (!row || typeof row !== "object") return false
-            const r = row as Record<string, unknown>
-            return nullKeys.every((key) => r[key] != null)
-          })
-          result = { ...rec, list: filtered, total: filtered.length }
+      run: async ({ client }, args) => {
+        assertDateOrder(args)
+        const { skipNull, ...rest } = args
+        const limit = (rest.limit as number | undefined) ?? VALUATION_DEFAULT_LIMIT
+        const body: Record<string, unknown> = { ...rest, limit }
+        const raw = await client.call("fundamental.valuation-analysis", body)
+        // 截断判定在 skipNull 之前：过滤掉空值行之后行数就不再能说明撞没撞满。
+        const normalized = flagValuationRange(normalizeRows(raw), limit, rest.startDate)
+        let result: unknown = normalized
+        // 只按**请求到的**列判空。fieldList 投影掉 percentileRank 时那一列在行里根本不存在，
+        // 把「没查」当「为空」会把一份正常数据整个过滤成零行且不报错。
+        const requested = Array.isArray(body.fieldList) ? new Set(body.fieldList as string[]) : undefined
+        const nullKeys = ["value", "percentileRank"].filter((key) => !requested || requested.has(key))
+        if (skipNull && nullKeys.length > 0 && normalized && typeof normalized === "object" && !Array.isArray(normalized)) {
+          const rec = normalized as Record<string, unknown>
+          if (Array.isArray(rec.list)) {
+            const filtered = rec.list.filter((row): row is Record<string, unknown> => {
+              if (!row || typeof row !== "object") return false
+              const r = row as Record<string, unknown>
+              return nullKeys.every((key) => r[key] != null)
+            })
+            result = { ...rec, list: filtered, total: filtered.length }
+          }
         }
-      }
-      return contentResult(await buildToolContent(result))
+        return contentResult(await buildToolContent(result))
+      },
+      examples: [
+        { title: "skipNull 不进 body；limit 缺省时显式发 2000", args: { securityCode: "600519.SH", indicator: "peTtm", startDate: "2021-01-01", endDate: "2026-09-01", skipNull: true }, expect: { requests: [{ method: "POST", path: "/application/open-fundamental/valuation-analysis", body: { securityCode: "600519.SH", indicator: "peTtm", startDate: "2021-01-01", endDate: "2026-09-01", limit: 2000 } }] } },
+        { title: "显式 limit 原样下发", args: { securityCode: "600519.SH", indicator: "pbMrq", startDate: "2016-01-01", endDate: "2026-09-01", limit: 3900 }, expect: { requests: [{ method: "POST", path: "/application/open-fundamental/valuation-analysis", body: { securityCode: "600519.SH", indicator: "pbMrq", startDate: "2016-01-01", endDate: "2026-09-01", limit: 3900 } }] } },
+        { title: "fieldList 不收 tradeDate", args: { securityCode: "600519.SH", indicator: "pbMrq", fieldList: ["tradeDate", "value"] }, expect: { rejects: /at fieldList/ } },
+      ],
     }),
-  )
+  ],
 }

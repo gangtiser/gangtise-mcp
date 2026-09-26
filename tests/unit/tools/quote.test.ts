@@ -2,7 +2,8 @@ import { describe, it, expect, vi } from "vitest"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
-import { registerQuoteTools } from "../../../src/tools/quote.js"
+import { quoteFamily } from "../../../src/tools/quote.js"
+import { registerFamilies } from "../../../src/mcp/register.js"
 import type { GangtiseClient } from "../../../src/core/client.js"
 
 function makeMockClient() {
@@ -14,7 +15,7 @@ function makeMockClient() {
 
 async function connect(client: GangtiseClient) {
   const server = new McpServer({ name: "test", version: "0.0.0" })
-  registerQuoteTools(server, client)
+  registerFamilies(server, client, [quoteFamily])
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
   await server.connect(serverTransport)
   const mcp = new Client({ name: "test", version: "0.0.1" })
@@ -214,7 +215,9 @@ describe("quote market keywords", () => {
   ])("rejects a keyword mixed with other securities on %s", async (tool, security) => {
     const client = makeMockClient()
     const mcp = await connect(client)
-    const result = await mcp.callTool({ name: tool, arguments: { security, startDate: "2026-04-01", endDate: "2026-04-30" } })
+    // realtime 没有日期参数（入参是 strict 的，多传会先被拒）。
+    const dates = tool === "gangtise_realtime" ? {} : { startDate: "2026-04-01", endDate: "2026-04-30" }
+    const result = await mcp.callTool({ name: tool, arguments: { security, ...dates } })
     expect(result.isError).toBe(true)
     expect((result.content as Array<{ text: string }>)[0].text).toContain("单独传")
     expect(client.call).not.toHaveBeenCalled()

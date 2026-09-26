@@ -3,13 +3,14 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import {
-  registerIndicatorTools,
+  indicatorFamily,
   EDE_NULL_ONLY,
   EDE_999999_HINT,
   EDE_EMPTY_HINT,
   PARAM_NAME_HARD_FAIL,
   PARAM_VALUE_SILENT,
 } from "../../../src/tools/indicator.js"
+import { registerFamilies } from "../../../src/mcp/register.js"
 import type { GangtiseClient } from "../../../src/core/client.js"
 import { ApiError } from "../../../src/core/errors.js"
 import { unwrapEnvelope } from "../../../src/core/envelope.js"
@@ -37,7 +38,7 @@ function makeMockClient(response: unknown = emptyMatrix()) {
 
 async function connect(client: GangtiseClient) {
   const server = new McpServer({ name: "test", version: "0.0.0" })
-  registerIndicatorTools(server, client)
+  registerFamilies(server, client, [indicatorFamily])
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
   await server.connect(serverTransport)
   const mcp = new Client({ name: "test", version: "0.0.1" })
@@ -713,10 +714,11 @@ describe("gangtise_indicator_screener", () => {
     // 就是在比「≥500 元」恒真。这是根级 scale 被删后剩下的那半个坑。
     expect(schema).toContain("量纲")
 
-    await mcp.callTool({ name: "gangtise_indicator_screener", arguments: { ...SCREENER_ARGS, currency: "USD", scale: "8" } })
-    const body = bodyOf(client)
-    expect(body).not.toHaveProperty("currency")
-    expect(body).not.toHaveProperty("scale")
+    // 入参是 strict 的：根级 currency / scale 在发请求之前就被拒，不会被静默剥掉后照常下发。
+    const result = await mcp.callTool({ name: "gangtise_indicator_screener", arguments: { ...SCREENER_ARGS, currency: "USD", scale: "8" } })
+    expect(result.isError).toBe(true)
+    expect((result.content as Array<{ text: string }>)[0].text).toMatch(/Unrecognized key.*currency/)
+    expect(client.call).not.toHaveBeenCalled()
   })
 
   // 零命中的判据必须是「结构性全空」而不是 securityCodeList.length：后者把缺失/非数组的

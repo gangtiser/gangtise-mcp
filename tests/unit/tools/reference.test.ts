@@ -2,7 +2,8 @@ import { describe, it, expect, vi } from "vitest"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
-import { registerReferenceTools } from "../../../src/tools/reference.js"
+import { referenceFamily } from "../../../src/tools/reference.js"
+import { registerFamilies } from "../../../src/mcp/register.js"
 import type { GangtiseClient } from "../../../src/core/client.js"
 
 function makeClient() {
@@ -11,7 +12,7 @@ function makeClient() {
 
 async function connect(client: GangtiseClient) {
   const server = new McpServer({ name: "test", version: "0.0.0" })
-  registerReferenceTools(server, client)
+  registerFamilies(server, client, [referenceFamily])
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
   await server.connect(serverTransport)
   const mcp = new Client({ name: "test", version: "0.0.1" })

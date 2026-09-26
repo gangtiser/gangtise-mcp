@@ -8,7 +8,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 import { clearCalendarTypeCacheForTests } from "../../src/core/calendarType.js"
 import { startHarness, type Harness } from "../helpers/harness.js"
 import { edeInner, type RecordedRequest, type Responder, type UpstreamReply } from "../helpers/mockUpstream.js"
-import { paged } from "./upstream.js"
+import { paged } from "../../src/mcp/examples.js"
 
 /** 响应 fixture：代表性的服务端响应形状 → 工具最终交给模型的结果，逐字钉住。
  *

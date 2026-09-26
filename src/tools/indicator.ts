@@ -1,9 +1,8 @@
 import { z } from "zod"
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { GangtiseClient } from "../core/client.js"
-import { assertDateOrder } from "./registry.js"
+import { assertDateOrder, defineTool, type FamilyModule } from "../mcp/define.js"
 import { buildToolContent } from "../core/present.js"
-import { toolHandler, contentResult } from "../mcp/handler.js"
+import { contentResult } from "../mcp/handler.js"
 import { normalizeRows } from "../core/normalize.js"
 import { unwrapPayload } from "../core/shape.js"
 import { markPartial, type PartialReason } from "../core/partial.js"
@@ -21,7 +20,7 @@ import { screenerExpressionFields, SCREENER_FIELD } from "../core/screenerExpres
 import { nonEmptyString } from "../mcp/schemas.js"
 import { dateDesc, dateString } from "../core/dateContext.js"
 import { ApiError, ValidationError } from "../core/errors.js"
-import { withBilling } from "../mcp/billing.js"
+import { indicatorEndpoints } from "./indicator.endpoints.js"
 
 // The EDE FETCH endpoints (cross-section/time-series/screener) used to answer a
 // no-data query with HTTP 500 + 999999. They stopped on 2026-08-01, and since
@@ -470,13 +469,17 @@ const indicatorParamListWith = (guidance: string, noDateOptOut = false) => {
   return z.array(z.object(shape).strict()).optional().describe("分指标专属参数。" + guidance)
 }
 
-export function registerIndicatorTools(server: McpServer, client: GangtiseClient): void {
-  server.registerTool(
-    "gangtise_indicator_search",
-    {
-      description:
-        "按名称搜索证券级数据指标（EDE），返回 indicatorCode、scopeList（覆盖市场，附 usageRestriction）及 parameterList（含 required 必填标记与枚举）。取数前必先用本工具拿 code，并核对 indicatorName/description 语义、scopeList 是否覆盖目标市场、parameterList 取值——任一不符即回退专用工具。scopeList 是声明不是保证，usageRestriction（如「不支持指标时间序列接口」）也不是硬约束、按「口径可能不对」理解，均以实际抽查为准。基础行情（开高低收/成交量额/换手/涨跌幅）虽可搜到仍优先 realtime/day_kline，但**总市值 qte_mkt_cptl 这两个专用工具都没有、单票也走 EDE**（A/港/美股均已有数，默认「元」，用 scale 缩放）；同样只有 EDE 才有的还包括融资融券 mgn_*（两融余额/融资/融券及其区间变体，仅 A 股；区间变体的 changePeriod 是可选的）；⚠️ **个股资金流向 flow_*（仅 A 股）与 gangtise_fund_flow 返回的是同一套数（逐位相同）**，而后者还多给各档占比字段、并支持全市场——除非要与其他 EDE 指标同批取，否则一律用 gangtise_fund_flow（两边的计价档见各自标签）与所属行业：通用的 scr_indu（一个指标覆盖申万/中信/恒生/GICS 四套，必填 industryType+industryLevel，体系要与市场配对），以及把体系写进编码、只需可选 industryLevel 的 scr_indu_citic / scr_indu_sw / scr_indu_gics；单票完整报表、盈利预测(一致预期)、估值历史分位仍用专用工具（当前 EDE 搜索未覆盖后两类）；EDE 批量优先仅针对多证券取一批已实现财务/估值指标。宏观/行业数据（产量、价格、PMI 等）请改用 gangtise_edb_search，不要猜编码。",
-      inputSchema: {
+export const indicatorFamily: FamilyModule = {
+  name: "indicator",
+  endpoints: indicatorEndpoints,
+  tools: [
+    defineTool({
+      name: "gangtise_indicator_search",
+      tier: "core",
+      access: "read",
+      endpoint: "indicator.search",
+      description: "按名称搜索证券级数据指标（EDE），返回 indicatorCode、scopeList（覆盖市场，附 usageRestriction）及 parameterList（含 required 必填标记与枚举）。取数前必先用本工具拿 code，并核对 indicatorName/description 语义、scopeList 是否覆盖目标市场、parameterList 取值——任一不符即回退专用工具。scopeList 是声明不是保证，usageRestriction（如「不支持指标时间序列接口」）也不是硬约束、按「口径可能不对」理解，均以实际抽查为准。基础行情（开高低收/成交量额/换手/涨跌幅）虽可搜到仍优先 realtime/day_kline，但**总市值 qte_mkt_cptl 这两个专用工具都没有、单票也走 EDE**（A/港/美股均已有数，默认「元」，用 scale 缩放）；同样只有 EDE 才有的还包括融资融券 mgn_*（两融余额/融资/融券及其区间变体，仅 A 股；区间变体的 changePeriod 是可选的）；⚠️ **个股资金流向 flow_*（仅 A 股）与 gangtise_fund_flow 返回的是同一套数（逐位相同）**，而后者还多给各档占比字段、并支持全市场——除非要与其他 EDE 指标同批取，否则一律用 gangtise_fund_flow（两边的计价档见各自标签）与所属行业：通用的 scr_indu（一个指标覆盖申万/中信/恒生/GICS 四套，必填 industryType+industryLevel，体系要与市场配对），以及把体系写进编码、只需可选 industryLevel 的 scr_indu_citic / scr_indu_sw / scr_indu_gics；单票完整报表、盈利预测(一致预期)、估值历史分位仍用专用工具（当前 EDE 搜索未覆盖后两类）；EDE 批量优先仅针对多证券取一批已实现财务/估值指标。宏观/行业数据（产量、价格、PMI 等）请改用 gangtise_edb_search，不要猜编码。",
+      input: {
         keyword: z
           .string()
           .trim()
@@ -484,22 +487,21 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
           .describe("搜索词，如 '收盘价' '成交量' '营业收入'（用具体指标名，非整句白话）"),
         limit: z.number().int().min(1).max(100).optional().describe("最大返回条数（默认 50，上限 100）"),
       },
-      annotations: { readOnlyHint: true, openWorldHint: false },
-    },
-    toolHandler(async (args: Record<string, unknown>) => {
-      const data = await callIndicator(client, "indicator.search", args)
-      return contentResult(await buildToolContent(normalizeRows(data)))
+      run: async ({ client }, args) => {
+        const data = await callIndicator(client, "indicator.search", args)
+        return contentResult(await buildToolContent(normalizeRows(data)))
+      },
+      examples: [
+        { title: "关键词 + limit", args: { keyword: "收盘价", limit: 5 }, expect: { requests: [{ method: "POST", path: "/application/open-indicator/EDE/search", body: { keyword: "收盘价", limit: 5 } }] } },
+      ],
     }),
-  )
-
-  server.registerTool(
-    "gangtise_indicator_cross_section",
-    {
-      description: withBilling(
-        "查询指标截面数据（多指标 × 多证券，单日快照）。返回宽表：每证券一行、每指标一列（无 date 列——查询日期挂在每个指标自己的参数上，各列可以是不同日期）。指标代码来自 gangtise_indicator_search。多证券取同一批已实现财务/估值指标的首选（一次拉取，免去逐只调用专用工具）。财务科目分公司类型，公司类型不匹配时返 null（≠指标坏）。指标代码、证券代码、参数名写错都会被接口拒绝并指名出错的那一个，照 msg 改即可。**取不到数时保留整行整列**（不是缺行），" + EDE_NULL_ONLY + "，既不报错也不标 _partial。所以 `null` 有三种读法——「该证券确实没有这项数据」「日期或口径不对导致取不到」「该指标不覆盖这个市场或证券类型」（覆盖面见 gangtise_indicator_search 的 scopeList），从结果本身分不出来；结论要紧时请用专用报表工具单查该证券核对。结果若标了 _partial + omittedIndicators/omittedSecurities，说明那几个 code 没进入结果，先核对该指标/标的的权限与证券后缀（美股是 .O/.N，不是 .US）。",
-        "indicator.cross-section",
-      ),
-      inputSchema: {
+    defineTool({
+      name: "gangtise_indicator_cross_section",
+      tier: "core",
+      access: "read",
+      endpoint: "indicator.cross-section",
+      description: "查询指标截面数据（多指标 × 多证券，单日快照）。返回宽表：每证券一行、每指标一列（无 date 列——查询日期挂在每个指标自己的参数上，各列可以是不同日期）。指标代码来自 gangtise_indicator_search。多证券取同一批已实现财务/估值指标的首选（一次拉取，免去逐只调用专用工具）。财务科目分公司类型，公司类型不匹配时返 null（≠指标坏）。指标代码、证券代码、参数名写错都会被接口拒绝并指名出错的那一个，照 msg 改即可。**取不到数时保留整行整列**（不是缺行），" + EDE_NULL_ONLY + "，既不报错也不标 _partial。所以 `null` 有三种读法——「该证券确实没有这项数据」「日期或口径不对导致取不到」「该指标不覆盖这个市场或证券类型」（覆盖面见 gangtise_indicator_search 的 scopeList），从结果本身分不出来；结论要紧时请用专用报表工具单查该证券核对。结果若标了 _partial + omittedIndicators/omittedSecurities，说明那几个 code 没进入结果，先核对该指标/标的的权限与证券后缀（美股是 .O/.N，不是 .US）。",
+      input: {
         indicatorCodeList,
         securityCodeList,
         date: dateString.describe(
@@ -510,38 +512,39 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
         scale,
         indicatorParamList: indicatorParamListWith(PARAM_GUIDANCE_DATED, true),
       },
-      annotations: { readOnlyHint: true, openWorldHint: false },
-    },
-    toolHandler(async (args: Record<string, unknown>) => {
-      const indicators = dedupeCodes(args.indicatorCodeList as string[])
-      const securities = dedupeCodes(args.securityCodeList as string[])
-      assertParamCodesBound(args.indicatorParamList as ParamGroup[] | undefined, indicators)
-      assertCellBudget(indicators, securities, "gangtise_indicator_cross_section")
-      const body = {
-        indicatorCodeList: indicators,
-        // The 2026-08-01 revision renamed this field; the old securityCodeList is
-        // a hard 100001 now.
-        universe: securities,
-        currency: args.currency,
-        scale: args.scale,
-        // stripNoQueryDate：noQueryDate 是本地开关，不能进 body。
-        indicatorParamList: stripNoQueryDate(withQueryDate(args.indicatorParamList as ParamGroup[] | undefined, indicators, args.date as string)),
-      }
-      const data = await callMatrix(client, "indicator.cross-section", body)
-      if (isEmptyMatrix(data)) return contentResult(await buildToolContent({ list: [], total: 0 }, { emptyHint: EDE_EMPTY_HINT }))
-      const flattened = flattenCrossSection(data)
-      return contentResult(await buildToolContent(flagOmitted(flattened, droppedFromMatrix(data, securities, indicators))))
+      run: async ({ client }, args) => {
+        const indicators = dedupeCodes(args.indicatorCodeList as string[])
+        const securities = dedupeCodes(args.securityCodeList as string[])
+        assertParamCodesBound(args.indicatorParamList as ParamGroup[] | undefined, indicators)
+        assertCellBudget(indicators, securities, "gangtise_indicator_cross_section")
+        const body = {
+          indicatorCodeList: indicators,
+          // The 2026-08-01 revision renamed this field; the old securityCodeList is
+          // a hard 100001 now.
+          universe: securities,
+          currency: args.currency,
+          scale: args.scale,
+          // stripNoQueryDate：noQueryDate 是本地开关，不能进 body。
+          indicatorParamList: stripNoQueryDate(withQueryDate(args.indicatorParamList as ParamGroup[] | undefined, indicators, args.date as string)),
+        }
+        const data = await callMatrix(client, "indicator.cross-section", body)
+        if (isEmptyMatrix(data)) return contentResult(await buildToolContent({ list: [], total: 0 }, { emptyHint: EDE_EMPTY_HINT }))
+        const flattened = flattenCrossSection(data)
+        return contentResult(await buildToolContent(flagOmitted(flattened, droppedFromMatrix(data, securities, indicators))))
+      },
+      examples: [
+        { title: "证券键名是 universe；去重；按指标注入 tradeDate", args: { indicatorCodeList: ["qte_close", "qte_mkt_cptl", "qte_close"], securityCodeList: ["600519.SH", "600519.SH", "00700.HK"], date: "2026-09-25", scale: "8", indicatorParamList: [{ indicatorCode: "qte_close", parameters: [{ paramKey: "adjustType", paramValue: "2" }] }] }, expect: { requests: [{ method: "POST", path: "/application/open-indicator/EDE/cross-section", body: { indicatorCodeList: ["qte_close", "qte_mkt_cptl"], universe: ["600519.SH", "00700.HK"], scale: "8", indicatorParamList: [{ indicatorCode: "qte_close", parameters: [{ paramKey: "adjustType", paramValue: "2" }, { paramKey: "tradeDate", paramValue: "2026-09-25" }] }, { indicatorCode: "qte_mkt_cptl", parameters: [{ paramKey: "tradeDate", paramValue: "2026-09-25" }] }] } }] } },
+        { title: "reportDate 已声明则不注入；noQueryDate 不进 body", args: { indicatorCodeList: ["is_opr", "div_cash_yr"], securityCodeList: ["600519.SH"], date: "2026-09-25", indicatorParamList: [{ indicatorCode: "is_opr", parameters: [{ paramKey: "reportDate", paramValue: "2025/12/31" }] }, { indicatorCode: "div_cash_yr", parameters: [{ paramKey: "fiscalYear", paramValue: "2025" }], noQueryDate: true }] }, expect: { requests: [{ method: "POST", path: "/application/open-indicator/EDE/cross-section", body: { indicatorCodeList: ["is_opr", "div_cash_yr"], universe: ["600519.SH"], indicatorParamList: [{ indicatorCode: "is_opr", parameters: [{ paramKey: "reportDate", paramValue: "2025-12-31" }] }, { indicatorCode: "div_cash_yr", parameters: [{ paramKey: "fiscalYear", paramValue: "2025" }] }] } }] } },
+        { title: "同一参数两个取值本地拒绝", args: { indicatorCodeList: ["qte_close"], securityCodeList: ["600519.SH"], date: "2026-09-25", indicatorParamList: [{ indicatorCode: "qte_close", parameters: [{ paramKey: "adjustType", paramValue: "2" }] }, { indicatorCode: "qte_close", parameters: [{ paramKey: "adjustType", paramValue: "3" }] }] }, expect: { rejects: /两个不同的值/ } },
+      ],
     }),
-  )
-
-  server.registerTool(
-    "gangtise_indicator_time_series",
-    {
-      description: withBilling(
-        "查询指标时间序列（多指标 × 单证券 或 单指标 × 多证券，按区间）。返回宽表：每日期一行。指标代码来自 gangtise_indicator_search。单指标 × 多证券即批量取财务/估值历史序列的首选；多指标 × 多证券不支持，需拆分——注意传 1 个 sectorId（板块）算多证券（服务端展开成 N 只成分股），所以板块只能配单指标。🔴 **财务/报告期类指标按日返回，但只有报告期末那几行是真值**——" + EDE_NULL_ONLY + "，其余每一行都是占位。**不要对整列直接做均值/求和/比率**：聚合函数通常跳过 null，但**行数不变**——手工「整列求和 ÷ 行数」会把占位行算进分母（茅台 is_dnrpnp 五个月区间 104 行里只有 2 行有值：真值均值 361.2 亿，而整列求和 ÷ 104 得到 6.9 亿——差 52 倍，且看着像个正常数字）。本端点**无法**只取报告期末——parameters 里传 tradeDate/reportDate 会被硬拒，calendarType 也只有 ND/TD/WD——所以要么自行只取报告期末那几行，要么改用 gangtise_indicator_cross_section 按报告期逐期取。整列都是 `null` 时先查 gangtise_indicator_search 的 scopeList——该指标可能不覆盖这个市场或证券类型，那与「这段区间没有数据」从结果里分不出来。指标代码或证券代码写错会被接口拒绝并指名，照 msg 改即可；结果若标了 _partial，说明有 code 没进入结果，查该指标/标的的权限与后缀。",
-        "indicator.time-series",
-      ),
-      inputSchema: {
+    defineTool({
+      name: "gangtise_indicator_time_series",
+      tier: "core",
+      access: "read",
+      endpoint: "indicator.time-series",
+      description: "查询指标时间序列（多指标 × 单证券 或 单指标 × 多证券，按区间）。返回宽表：每日期一行。指标代码来自 gangtise_indicator_search。单指标 × 多证券即批量取财务/估值历史序列的首选；多指标 × 多证券不支持，需拆分——注意传 1 个 sectorId（板块）算多证券（服务端展开成 N 只成分股），所以板块只能配单指标。🔴 **财务/报告期类指标按日返回，但只有报告期末那几行是真值**——" + EDE_NULL_ONLY + "，其余每一行都是占位。**不要对整列直接做均值/求和/比率**：聚合函数通常跳过 null，但**行数不变**——手工「整列求和 ÷ 行数」会把占位行算进分母（茅台 is_dnrpnp 五个月区间 104 行里只有 2 行有值：真值均值 361.2 亿，而整列求和 ÷ 104 得到 6.9 亿——差 52 倍，且看着像个正常数字）。本端点**无法**只取报告期末——parameters 里传 tradeDate/reportDate 会被硬拒，calendarType 也只有 ND/TD/WD——所以要么自行只取报告期末那几行，要么改用 gangtise_indicator_cross_section 按报告期逐期取。整列都是 `null` 时先查 gangtise_indicator_search 的 scopeList——该指标可能不覆盖这个市场或证券类型，那与「这段区间没有数据」从结果里分不出来。指标代码或证券代码写错会被接口拒绝并指名，照 msg 改即可；结果若标了 _partial，说明有 code 没进入结果，查该指标/标的的权限与后缀。",
+      input: {
         indicatorCodeList,
         securityCodeList,
         startDate: dateString,
@@ -556,78 +559,82 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
         scale,
         indicatorParamList: indicatorParamListWith(PARAM_GUIDANCE_RANGE),
       },
-      annotations: { readOnlyHint: true, openWorldHint: false },
-    },
-    toolHandler(async (args: Record<string, unknown>) => {
-      // Time-series flattens along exactly one varying dimension. With both >1
-      // the [series][date] matrix is ambiguous and one of the two identities
-      // would be silently dropped — reject before hitting the API (the server
-      // rejects it too, with 100003, but only after a billed round trip).
-      assertDateOrder(args)
-      const indicators = dedupeCodes(args.indicatorCodeList as string[])
-      const securities = dedupeCodes(args.securityCodeList as string[])
-      if (indicators.length > 1 && securities.length > 1) {
-        throw new ValidationError(
-          "时间序列仅支持「多指标 × 单证券」或「单指标 × 多证券」，indicatorCodeList 与 securityCodeList 不能同时多于 1 个；请拆分为多次查询，或改用 gangtise_indicator_cross_section（单日多指标 × 多证券）。",
+      run: async ({ client }, args) => {
+        // Time-series flattens along exactly one varying dimension. With both >1
+        // the [series][date] matrix is ambiguous and one of the two identities
+        // would be silently dropped — reject before hitting the API (the server
+        // rejects it too, with 100003, but only after a billed round trip).
+        assertDateOrder(args)
+        const indicators = dedupeCodes(args.indicatorCodeList as string[])
+        const securities = dedupeCodes(args.securityCodeList as string[])
+        if (indicators.length > 1 && securities.length > 1) {
+          throw new ValidationError(
+            "时间序列仅支持「多指标 × 单证券」或「单指标 × 多证券」，indicatorCodeList 与 securityCodeList 不能同时多于 1 个；请拆分为多次查询，或改用 gangtise_indicator_cross_section（单日多指标 × 多证券）。",
+          )
+        }
+        assertParamCodesBound(args.indicatorParamList as ParamGroup[] | undefined, indicators)
+        // A sector ID expands server-side into N constituents, so it is a
+        // multi-security request no matter that it is one entry — and the endpoint
+        // does not support that alongside multiple indicators.
+        if (indicators.length > 1 && securities.some((entry) => !entry.includes("."))) {
+          throw new ValidationError(
+            "securityCodeList 里含板块 ID（sectorId）时只能配单个指标：板块由服务端展开成全部成分股，即「多证券」，与多指标同时使用不被支持。请改为单指标，或把板块换成具体证券代码。",
+          )
+        }
+        // 先按**所有轴里最小的可能值**预检（`TD` 算不准、按 1 计，就是那个最小值）：连它
+        // 都超就没有任何日历救得了，直接拒绝，连挑轴的探针都不必花。
+        assertCellBudget(indicators, securities, "gangtise_indicator_time_series", axisDays(args.startDate, args.endDate, "TD"))
+        // 过了预检才去挑轴。显式传了就完全按给的发；没传才探——免费的 search，去重后每码一次。
+        const calendarType = (args.calendarType as "ND" | "TD" | "WD" | undefined) ?? (await resolveCalendarType(client, indicators))
+        // 再按真正会发出去的那条轴收紧（`ND` / `WD` 精确可算；`TD` 仍按 1，不拿它拒绝）。
+        assertCellBudget(
+          indicators,
+          securities,
+          "gangtise_indicator_time_series",
+          axisDays(args.startDate, args.endDate, calendarType),
+          MAX_EDE_CELLS,
+          // 轴是本服务替调用方挑的时候要说明白，否则「按证券分批」读起来像唯一出路，
+          // 而显式传 `TD` 往往就够了。
+          args.calendarType === undefined ? (calendarType ?? "ND") : undefined,
         )
-      }
-      assertParamCodesBound(args.indicatorParamList as ParamGroup[] | undefined, indicators)
-      // A sector ID expands server-side into N constituents, so it is a
-      // multi-security request no matter that it is one entry — and the endpoint
-      // does not support that alongside multiple indicators.
-      if (indicators.length > 1 && securities.some((entry) => !entry.includes("."))) {
-        throw new ValidationError(
-          "securityCodeList 里含板块 ID（sectorId）时只能配单个指标：板块由服务端展开成全部成分股，即「多证券」，与多指标同时使用不被支持。请改为单指标，或把板块换成具体证券代码。",
-        )
-      }
-      // 先按**所有轴里最小的可能值**预检（`TD` 算不准、按 1 计，就是那个最小值）：连它
-      // 都超就没有任何日历救得了，直接拒绝，连挑轴的探针都不必花。
-      assertCellBudget(indicators, securities, "gangtise_indicator_time_series", axisDays(args.startDate, args.endDate, "TD"))
-      // 过了预检才去挑轴。显式传了就完全按给的发；没传才探——免费的 search，去重后每码一次。
-      const calendarType = (args.calendarType as "ND" | "TD" | "WD" | undefined) ?? (await resolveCalendarType(client, indicators))
-      // 再按真正会发出去的那条轴收紧（`ND` / `WD` 精确可算；`TD` 仍按 1，不拿它拒绝）。
-      assertCellBudget(
-        indicators,
-        securities,
-        "gangtise_indicator_time_series",
-        axisDays(args.startDate, args.endDate, calendarType),
-        MAX_EDE_CELLS,
-        // 轴是本服务替调用方挑的时候要说明白，否则「按证券分批」读起来像唯一出路，
-        // 而显式传 `TD` 往往就够了。
-        args.calendarType === undefined ? (calendarType ?? "ND") : undefined,
-      )
-      const body = {
-        indicatorCodeList: indicators,
-        universe: securities,
-        startDate: args.startDate,
-        endDate: args.endDate,
-        calendarType,
-        currency: args.currency,
-        scale: args.scale,
-        // Merge repeated codes (see mergeParamGroups) but do NOT inject a
-        // tradeDate the way cross-section does: here the window is governed by
-        // startDate/endDate, so an injected per-indicator date would fight it.
-        // The endpoint requires the key even with nothing to configure.
-        indicatorParamList: mergeParamGroups(args.indicatorParamList as ParamGroup[] | undefined),
-      }
-      const data = await callMatrix(client, "indicator.time-series", body)
-      // `dates` is a required axis here, so an answer that dropped it is broken
-      // rather than empty — require it so such a payload reaches flattenTimeSeries
-      // and fails loudly instead of returning a clean empty table.
-      if (isEmptyMatrix(data, { requireDates: true })) return contentResult(await buildToolContent({ list: [], total: 0 }, { emptyHint: EDE_EMPTY_HINT }))
-      const flattened = flattenTimeSeries(data, securities)
-      return contentResult(await buildToolContent(flagOmitted(flattened, droppedFromMatrix(data, securities, indicators))))
+        const body = {
+          indicatorCodeList: indicators,
+          universe: securities,
+          startDate: args.startDate,
+          endDate: args.endDate,
+          calendarType,
+          currency: args.currency,
+          scale: args.scale,
+          // Merge repeated codes (see mergeParamGroups) but do NOT inject a
+          // tradeDate the way cross-section does: here the window is governed by
+          // startDate/endDate, so an injected per-indicator date would fight it.
+          // The endpoint requires the key even with nothing to configure.
+          indicatorParamList: mergeParamGroups(args.indicatorParamList as ParamGroup[] | undefined),
+        }
+        const data = await callMatrix(client, "indicator.time-series", body)
+        // `dates` is a required axis here, so an answer that dropped it is broken
+        // rather than empty — require it so such a payload reaches flattenTimeSeries
+        // and fails loudly instead of returning a clean empty table.
+        if (isEmptyMatrix(data, { requireDates: true })) return contentResult(await buildToolContent({ list: [], total: 0 }, { emptyHint: EDE_EMPTY_HINT }))
+        const flattened = flattenTimeSeries(data, securities)
+        return contentResult(await buildToolContent(flagOmitted(flattened, droppedFromMatrix(data, securities, indicators))))
+      },
+      examples: [
+        { title: "未传 calendarType：先免费探指标元数据再取数", args: { indicatorCodeList: ["qte_close"], securityCodeList: ["600519.SH", "000858.SZ"], startDate: "2026-09-01", endDate: "2026-09-25" }, expect: { requests: [
+            { method: "POST", path: "/application/open-indicator/EDE/search", body: { keyword: "qte_close", limit: 100 } },
+            { method: "POST", path: "/application/open-indicator/EDE/time-series", body: { indicatorCodeList: ["qte_close"], universe: ["600519.SH", "000858.SZ"], startDate: "2026-09-01", endDate: "2026-09-25", indicatorParamList: [] } },
+          ] } },
+        { title: "显式 TD 不探针", args: { indicatorCodeList: ["qte_close", "qte_open"], securityCodeList: ["600519.SH"], startDate: "2026-09-01", endDate: "2026-09-25", calendarType: "TD", currency: "USD" }, expect: { requests: [{ method: "POST", path: "/application/open-indicator/EDE/time-series", body: { indicatorCodeList: ["qte_close", "qte_open"], universe: ["600519.SH"], startDate: "2026-09-01", endDate: "2026-09-25", calendarType: "TD", currency: "USD", indicatorParamList: [] } }] } },
+        { title: "多指标 × 多证券本地拒绝", args: { indicatorCodeList: ["qte_close", "qte_open"], securityCodeList: ["600519.SH", "000858.SZ"], startDate: "2026-09-01", endDate: "2026-09-25" }, expect: { rejects: /不能同时多于 1 个/ } },
+      ],
     }),
-  )
-
-  server.registerTool(
-    "gangtise_indicator_screener",
-    {
-      description: withBilling(
-        "条件选股：把变量绑到指标（F1=某指标、F2=另一指标），再用 expression 组合筛选，从证券/板块范围里筛出命中的股票。返回宽表：每命中证券一行、每绑定指标一列（无 date 列）。指标代码来自 gangtise_indicator_search。这是唯一能按指标数值筛股的工具（专用工具都不支持），典型用法：给 securityCodeList 传一个板块 sectorId（服务端展开为全部成分股）再按市值/PE 筛。支持数值比较（>= <= > < == !=）与文本匹配 contains/notcontains（仅 dataType: string 的指标）。零命中返回空表，不是报错。🔴 **但空表有两种同形的假阴性，载荷与「确实没有股票符合条件」逐字相同**：① **日期没落在报告期末**——报告期类指标在非期末日期上整列是 `null`；② **该指标不覆盖所查市场或证券类型**——覆盖面见 gangtise_indicator_search 返回的 scopeList（如预测类 frcst_* 只覆盖 A 股，用它筛港股/美股就是这种情形）。两种情形整列都是占位（" + EDE_NULL_ONLY + "），而 **null 不满足任何数值比较**，条件因此恒假。判别方法二选一：把表达式**反向再跑一次**（`F1 > 0` 与 `F1 < 一个极大值` 同时返 0 行 = 恒假，不是真无匹配），或先用 gangtise_indicator_cross_section 取回该列看是不是全 `null`。🔴 **报告期类指标（营收/净利等）必须按变量传 reportDate 且值为报告期末**：它们拒收 date 下发的 tradeDate 并直接报错，补 { indicatorCode: 'F1', parameters: [{ paramKey: 'reportDate', ... }] } 即可。",
-        "indicator.screener",
-      ),
-      inputSchema: {
+    defineTool({
+      name: "gangtise_indicator_screener",
+      tier: "core",
+      access: "read",
+      endpoint: "indicator.screener",
+      description: "条件选股：把变量绑到指标（F1=某指标、F2=另一指标），再用 expression 组合筛选，从证券/板块范围里筛出命中的股票。返回宽表：每命中证券一行、每绑定指标一列（无 date 列）。指标代码来自 gangtise_indicator_search。这是唯一能按指标数值筛股的工具（专用工具都不支持），典型用法：给 securityCodeList 传一个板块 sectorId（服务端展开为全部成分股）再按市值/PE 筛。支持数值比较（>= <= > < == !=）与文本匹配 contains/notcontains（仅 dataType: string 的指标）。零命中返回空表，不是报错。🔴 **但空表有两种同形的假阴性，载荷与「确实没有股票符合条件」逐字相同**：① **日期没落在报告期末**——报告期类指标在非期末日期上整列是 `null`；② **该指标不覆盖所查市场或证券类型**——覆盖面见 gangtise_indicator_search 返回的 scopeList（如预测类 frcst_* 只覆盖 A 股，用它筛港股/美股就是这种情形）。两种情形整列都是占位（" + EDE_NULL_ONLY + "），而 **null 不满足任何数值比较**，条件因此恒假。判别方法二选一：把表达式**反向再跑一次**（`F1 > 0` 与 `F1 < 一个极大值` 同时返 0 行 = 恒假，不是真无匹配），或先用 gangtise_indicator_cross_section 取回该列看是不是全 `null`。🔴 **报告期类指标（营收/净利等）必须按变量传 reportDate 且值为报告期末**：它们拒收 date 下发的 tradeDate 并直接报错，补 { indicatorCode: 'F1', parameters: [{ paramKey: 'reportDate', ... }] } 即可。",
+      input: {
         indicatorList: z
           .array(
             z.object({
@@ -665,97 +672,100 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
         // 描述），而表达式拿原始值比较 → 筛选条件静默失效。也不能改成「把根级值塞进每个
         // 绑定」——那会复刻截面那个根级 scale 把 qte_close 缩成 0 的污染语义。
       },
-      annotations: { readOnlyHint: true, openWorldHint: false },
-    },
-    toolHandler(async (args: Record<string, unknown>) => {
-      const bindings = args.indicatorList as { field: string; indicatorCode: string; parameters?: { paramKey: string; paramValue: string }[]; noQueryDate?: boolean }[]
-      const expression = args.expression as string
-      const securities = dedupeCodes(args.securityCodeList as string[])
+      run: async ({ client }, args) => {
+        const bindings = args.indicatorList as { field: string; indicatorCode: string; parameters?: { paramKey: string; paramValue: string }[]; noQueryDate?: boolean }[]
+        const expression = args.expression as string
+        const securities = dedupeCodes(args.securityCodeList as string[])
 
-      const seen = new Set<string>()
-      for (const binding of bindings) {
-        if (seen.has(binding.field)) {
-          throw new ValidationError(`indicatorList 里变量 ${binding.field} 重复绑定：每个变量只能绑定一个指标。`)
+        const seen = new Set<string>()
+        for (const binding of bindings) {
+          if (seen.has(binding.field)) {
+            throw new ValidationError(`indicatorList 里变量 ${binding.field} 重复绑定：每个变量只能绑定一个指标。`)
+          }
+          seen.add(binding.field)
         }
-        seen.add(binding.field)
-      }
-      // The server accepts a variable the expression never uses while still
-      // billing its column, and rejects the reverse (100003) only after a round
-      // trip — so catch the reverse locally.
-      for (const ref of screenerExpressionFields(expression)) {
-        if (!seen.has(ref)) {
-          throw new ValidationError(`expression 引用了变量 ${ref}，但 indicatorList 没有绑定它。`)
+        // The server accepts a variable the expression never uses while still
+        // billing its column, and rejects the reverse (100003) only after a round
+        // trip — so catch the reverse locally.
+        for (const ref of screenerExpressionFields(expression)) {
+          if (!seen.has(ref)) {
+            throw new ValidationError(`expression 引用了变量 ${ref}，但 indicatorList 没有绑定它。`)
+          }
         }
-      }
-      // One indicatorCode under two variables (same indicator, different
-      // parameters — e.g. the same price on two dates) is intended by the API
-      // spec. The server used to mis-resolve it — every such binding answered
-      // from the EARLIEST date among them, the one value landing in the first of
-      // their columns — so this tool rejected it locally while the CLI merely
-      // warned. Re-probed 2026-08-08 and it is FIXED: F1@08-07 + F2@08-06 return
-      // 1309.22 / 1308.55, each on its own date, stable across repeat runs. The
-      // local block is gone; keeping it would refuse a working query.
-      assertCellBudget(bindings.map((b) => b.indicatorCode), securities, "gangtise_indicator_screener", 1, MAX_SCREENER_CELLS)
-      const body = {
-        universe: securities,
-        expression,
-        // Every variable gets a date unless it opts out with `noQueryDate` — the
-        // same escape hatch the cross-section has, and for the same reason:
-        // indicators whose parameterList declares no date key answer `100003
-        // 不支持参数 tradeDate` for the WHOLE request. `noQueryDate` is a local
-        // marker and must never reach the body (see stripNoQueryDate).
-        //
-        // Sending `parameters: []` is how those indicators are reached here.
-        // Until 2026-08-16 the server silently DROPPED such bindings (200, no
-        // code, the entry gone from `indicatorList`, and a payload byte-identical
-        // to a genuine no-match), which is why this tool used to inject
-        // unconditionally. Re-probed 2026-08-17: the binding survives and its
-        // condition applies — `scr_exchg_sctr contains '创业板'` picks 300750.SZ
-        // out of a four-stock universe while `contains '不存在的板'` returns none.
-        indicatorList: bindings.map((binding) => {
-          // 变量绑定不走 mergeParamGroups，同名 paramKey 的口径歧义要在这里各自拦一次。
-          const parameters = dedupeParameters(binding.indicatorCode, binding.parameters ?? [])
-          return binding.noQueryDate || parameters.some((param) => DATE_PARAM_KEYS.has(param.paramKey))
-            ? { field: binding.field, indicatorCode: binding.indicatorCode, parameters }
-            : {
-                field: binding.field,
-                indicatorCode: binding.indicatorCode,
-                parameters: [...parameters, { paramKey: "tradeDate", paramValue: args.date as string }],
-              }
-        }),
-      }
-      const data = await callMatrix(client, "indicator.screener", body)
-      // Gate on the STRUCTURAL emptiness, not on `securityCodeList.length`: the
-      // latter counts a missing or non-array axis as "zero matched", which would
-      // hand back a clean empty table for a malformed payload and bypass every
-      // shape guard below. A genuine zero-match answers with four empty arrays
-      // (probed 2026-08-03), so this is strictly tighter and loses nothing. A
-      // response with zero securities but a populated indicatorList falls through
-      // and flattens to an empty list anyway — same output, shape still checked.
-      //
-      // Deliberately NOT given EDE_EMPTY_HINT: for the screener a zero-row answer
-      // is the ordinary "nothing matched the filter" outcome, so telling the caller
-      // their codes were unrecognised would be wrong most of the time. The generic
-      // registry hint (check suffixes / date range) fits this endpoint.
-      if (isEmptyMatrix(data)) return contentResult(await buildToolContent({ list: [], total: 0 }))
-      // Validate the bindings BEFORE flattening: the `field` each column came
-      // back under is the only thing tying it to the filter it came from, and a
-      // swapped one renders as a perfectly ordinary table.
-      const missing = checkScreenerBindings(data, bindings, expression)
-      const flattened = flattenCrossSection(data)
-      return contentResult(
-        await buildToolContent(
-          flagOmitted(flattened, {
-            // A security missing from a SCREENER result is one the filter
-            // excluded — that is the point of screening, not a data gap. Only a
-            // missing indicator COLUMN is a real omission here.
-            securities: [],
-            // Report the missing bindings by their indicator code, matching what
-            // the caller asked for.
-            indicators: missing.map((field) => bindings.find((binding) => binding.field === field)?.indicatorCode ?? field),
+        // One indicatorCode under two variables (same indicator, different
+        // parameters — e.g. the same price on two dates) is intended by the API
+        // spec. The server used to mis-resolve it — every such binding answered
+        // from the EARLIEST date among them, the one value landing in the first of
+        // their columns — so this tool rejected it locally while the CLI merely
+        // warned. Re-probed 2026-08-08 and it is FIXED: F1@08-07 + F2@08-06 return
+        // 1309.22 / 1308.55, each on its own date, stable across repeat runs. The
+        // local block is gone; keeping it would refuse a working query.
+        assertCellBudget(bindings.map((b) => b.indicatorCode), securities, "gangtise_indicator_screener", 1, MAX_SCREENER_CELLS)
+        const body = {
+          universe: securities,
+          expression,
+          // Every variable gets a date unless it opts out with `noQueryDate` — the
+          // same escape hatch the cross-section has, and for the same reason:
+          // indicators whose parameterList declares no date key answer `100003
+          // 不支持参数 tradeDate` for the WHOLE request. `noQueryDate` is a local
+          // marker and must never reach the body (see stripNoQueryDate).
+          //
+          // Sending `parameters: []` is how those indicators are reached here.
+          // Until 2026-08-16 the server silently DROPPED such bindings (200, no
+          // code, the entry gone from `indicatorList`, and a payload byte-identical
+          // to a genuine no-match), which is why this tool used to inject
+          // unconditionally. Re-probed 2026-08-17: the binding survives and its
+          // condition applies — `scr_exchg_sctr contains '创业板'` picks 300750.SZ
+          // out of a four-stock universe while `contains '不存在的板'` returns none.
+          indicatorList: bindings.map((binding) => {
+            // 变量绑定不走 mergeParamGroups，同名 paramKey 的口径歧义要在这里各自拦一次。
+            const parameters = dedupeParameters(binding.indicatorCode, binding.parameters ?? [])
+            return binding.noQueryDate || parameters.some((param) => DATE_PARAM_KEYS.has(param.paramKey))
+              ? { field: binding.field, indicatorCode: binding.indicatorCode, parameters }
+              : {
+                  field: binding.field,
+                  indicatorCode: binding.indicatorCode,
+                  parameters: [...parameters, { paramKey: "tradeDate", paramValue: args.date as string }],
+                }
           }),
-        ),
-      )
+        }
+        const data = await callMatrix(client, "indicator.screener", body)
+        // Gate on the STRUCTURAL emptiness, not on `securityCodeList.length`: the
+        // latter counts a missing or non-array axis as "zero matched", which would
+        // hand back a clean empty table for a malformed payload and bypass every
+        // shape guard below. A genuine zero-match answers with four empty arrays
+        // (probed 2026-08-03), so this is strictly tighter and loses nothing. A
+        // response with zero securities but a populated indicatorList falls through
+        // and flattens to an empty list anyway — same output, shape still checked.
+        //
+        // Deliberately NOT given EDE_EMPTY_HINT: for the screener a zero-row answer
+        // is the ordinary "nothing matched the filter" outcome, so telling the caller
+        // their codes were unrecognised would be wrong most of the time. The generic
+        // registry hint (check suffixes / date range) fits this endpoint.
+        if (isEmptyMatrix(data)) return contentResult(await buildToolContent({ list: [], total: 0 }))
+        // Validate the bindings BEFORE flattening: the `field` each column came
+        // back under is the only thing tying it to the filter it came from, and a
+        // swapped one renders as a perfectly ordinary table.
+        const missing = checkScreenerBindings(data, bindings, expression)
+        const flattened = flattenCrossSection(data)
+        return contentResult(
+          await buildToolContent(
+            flagOmitted(flattened, {
+              // A security missing from a SCREENER result is one the filter
+              // excluded — that is the point of screening, not a data gap. Only a
+              // missing indicator COLUMN is a real omission here.
+              securities: [],
+              // Report the missing bindings by their indicator code, matching what
+              // the caller asked for.
+              indicators: missing.map((field) => bindings.find((binding) => binding.field === field)?.indicatorCode ?? field),
+            }),
+          ),
+        )
+      },
+      examples: [
+        { title: "按变量注入 tradeDate；证券键名是 universe", args: { indicatorList: [{ field: "F1", indicatorCode: "qte_mkt_cptl", parameters: [{ paramKey: "scale", paramValue: "8" }] }, { field: "F2", indicatorCode: "scr_exchg_sctr", noQueryDate: true }], expression: "F1 >= 500 && F2 contains '创业板'", securityCodeList: ["2000000014"], date: "2026-09-25" }, expect: { requests: [{ method: "POST", path: "/application/open-indicator/screener", body: { universe: ["2000000014"], expression: "F1 >= 500 && F2 contains '创业板'", indicatorList: [{ field: "F1", indicatorCode: "qte_mkt_cptl", parameters: [{ paramKey: "scale", paramValue: "8" }, { paramKey: "tradeDate", paramValue: "2026-09-25" }] }, { field: "F2", indicatorCode: "scr_exchg_sctr", parameters: [] }] } }] } },
+        { title: "表达式引用未绑定变量本地拒绝", args: { indicatorList: [{ field: "F1", indicatorCode: "qte_close" }], expression: "F2 > 0", securityCodeList: ["600519.SH"], date: "2026-09-25" }, expect: { rejects: /引用了变量 F2/ } },
+      ],
     }),
-  )
+  ],
 }

@@ -2,13 +2,14 @@ import { describe, it, expect, vi } from "vitest"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
-import { registerAlternativeTools } from "../../../src/tools/alternative.js"
+import { alternativeFamily } from "../../../src/tools/alternative.js"
+import { registerFamilies } from "../../../src/mcp/register.js"
 import type { GangtiseClient } from "../../../src/core/client.js"
 
 async function connect(call: () => Promise<unknown>) {
   const client = { call: vi.fn(call), download: vi.fn() } as unknown as GangtiseClient
   const server = new McpServer({ name: "test", version: "0.0.0" })
-  registerAlternativeTools(server, client)
+  registerFamilies(server, client, [alternativeFamily])
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
   await server.connect(serverTransport)
   const mcp = new Client({ name: "test", version: "0.0.1" })

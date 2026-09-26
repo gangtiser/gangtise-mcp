@@ -1,16 +1,16 @@
 import { z } from "zod"
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { GangtiseClient } from "../core/client.js"
-import { assertDateOrder, registerJsonTool, registerDownloadTool, sanitizeArgs, type JsonToolSpec, type DownloadToolSpec } from "./registry.js"
+import { assertDateOrder, defineDownloadTool, defineJsonTool, defineTool, sanitizeArgs, type DownloadToolSpec, type FamilyModule, type JsonToolSpec } from "../mcp/define.js"
 import { buildToolContent } from "../core/present.js"
-import { toolHandler, contentResult } from "../mcp/handler.js"
+import { contentResult } from "../mcp/handler.js"
+import { paged, type Examples } from "../mcp/examples.js"
 import { normalizeRows } from "../core/normalize.js"
 import { ValidationError } from "../core/errors.js"
 import { dateString, dateTimeString } from "../core/dateContext.js"
 import { nonEmptyString, nonEmptyList, intLiteralEnum, enumList } from "../mcp/schemas.js"
-import { withBilling } from "../mcp/billing.js"
 import { fetchOpinionDetails } from "../core/opinionDetail.js"
 import { markPartial } from "../core/partial.js"
+import { insightEndpoints } from "./insight.endpoints.js"
 
 // insight.qa.list accepts either a plain date or a full datetime; the string is
 // passed through to the API as-is (no timestamp conversion).
@@ -85,19 +85,22 @@ function scheduleInputSchema(fields: ScheduleFields): Record<string, z.ZodTypeAn
   return schema
 }
 
-function scheduleSpec(name: string, label: string, endpointKey: string, fields: ScheduleFields, extra = ""): JsonToolSpec {
+function scheduleSpec(name: string, label: string, endpointKey: string, fields: ScheduleFields, extra: string, examples: Examples): JsonToolSpec {
   return {
     name,
+    tier: "core",
     description: `查询${label}活动日程安排（时间、主办机构、地点等，不含会议内容正文）。${extra}`,
     endpointKey,
     paginated: true,
     inputSchema: scheduleInputSchema(fields),
+    examples,
   }
 }
 
 export const listSpecs: JsonToolSpec[] = [
   {
     name: "gangtise_opinion_list",
+    tier: "core",
     description: "查询国内机构首席观点列表，支持按证券、券商、研究方向、行业、时间范围、语义标签等筛选。正文见 withContent。",
     endpointKey: "insight.opinion.list-with-content",
     resolve: opinionListResolve("insight.opinion.list-with-content", "insight.opinion.list"),
@@ -118,9 +121,16 @@ export const listSpecs: JsonToolSpec[] = [
       sourceList: enumList(z.enum(["realTime", "openSource"])).optional().describe("realTime=实时 | openSource=公开"),
       withContent: z.boolean().optional().describe("默认 true 带正文（价见标签），标题与正文在 contentList.title / .content，顶层无 title / brief；false 只回标题 + 200 字 brief，1 积分/条，全文用 gangtise_opinion_detail"),
     },
+    examples: [
+      { title: "默认注入 size=20、from 原样", args: { securityList: ["600519.SH"], rankType: 2 }, expect: { requests: [{ method: "POST", path: "/application/open-insight/chief-opinion/getList", body: { rankType: 2, securityList: ["600519.SH"], size: 20, from: 0 } }] } },
+      { title: "withContent=false 走只回 brief 的端点，开关不进 body", args: { securityList: ["600519.SH"], withContent: false }, expect: { requests: [{ method: "POST", path: "/application/open-insight/chief-opinion/v2/getList", body: { securityList: ["600519.SH"], size: 20, from: 0 } }] } },
+      { title: "withContent=true 与缺省同端点", args: { securityList: ["600519.SH"], withContent: true }, expect: { requests: [{ method: "POST", path: "/application/open-insight/chief-opinion/getList", body: { securityList: ["600519.SH"], size: 20, from: 0 } }] } },
+      { title: "显式 size 与 from", args: { keyword: "机器人", from: 40, size: 5, llmTagList: ["strongRcmd"], sourceList: ["realTime"] }, expect: { requests: [{ method: "POST", path: "/application/open-insight/chief-opinion/getList", body: { from: 40, keyword: "机器人", llmTagList: ["strongRcmd"], sourceList: ["realTime"], size: 5 } }] } },
+    ],
   },
   {
     name: "gangtise_summary_list",
+    tier: "core",
     description: "查询会议纪要列表（业绩会、路演、专家访谈、调研纪要等），支持按证券、机构、类别、时间范围筛选。",
     endpointKey: "insight.summary.list",
     paginated: true,
@@ -139,6 +149,9 @@ export const listSpecs: JsonToolSpec[] = [
       participantRoleList: enumList(z.enum(["management", "expert"])).optional().describe("management=管理层 | expert=专家"),
       sourceList: enumList(intLiteralEnum([1, 2])).optional().describe("1=实时 | 2=公开"),
     },
+    examples: [
+      { title: "sourceList 发数字", args: { securityList: ["600519.SH"], categoryList: ["earningsCall"], searchType: 2, sourceList: [1], marketList: ["aShares"] }, expect: { requests: [{ method: "POST", path: "/application/open-insight/summary/v2/getList", body: { searchType: 2, securityList: ["600519.SH"], categoryList: ["earningsCall"], marketList: ["aShares"], sourceList: [1], size: 20, from: 0 } }] } },
+    ],
   },
   {
     // ⚠️ 标签字段的结论一度写成「conceptList 恒为空」，那是个**取样太薄**的绝对断言
@@ -156,6 +169,7 @@ export const listSpecs: JsonToolSpec[] = [
     // 所以「不认识的字段一律静默丢弃」不成立，别据此推断某个字段安全 —— 一种给全量、
     // 一种给空集，两种都是错的结果。只声明本端点 spec 支持的字段。
     name: "gangtise_pamirs_summary_list",
+    tier: "core",
     description:
       "查询帕米尔专家纪要列表（独立的专家纪要库，需单独购买该数据库）。与 gangtise_summary_list 是两个库、不是它的子集：只有明确点名「帕米尔 / Pamirs」时才用本工具，泛指的会议纪要/专家访谈仍用 gangtise_summary_list。筛选项比 summary 少：没有 sourceList / institutionList / participantRoleList。⚠️ 标签字段（categoryList / marketList / conceptList）**稀疏且不保证完整**：是否回填随记录与筛选条件而变，不带筛选时经常整条为空。所以不要拉全量再按这些字段本地分组——要按类别或市场分组就直接传对应筛选；也不要因为某条记录标签为空就断定它没有该属性。本接口没有概念筛选参数，conceptList 只能按返回值使用。",
     endpointKey: "insight.pamirs-summary.list",
@@ -177,27 +191,41 @@ export const listSpecs: JsonToolSpec[] = [
       categoryList: enumList(z.enum(["companyAnalysis", "industryAnalysis"])).optional().describe("companyAnalysis=公司分析 | industryAnalysis=行业分析（本端点只有这两类）"),
       marketList: enumList(z.enum(["aShares", "hkStocks", "usChinaConcept", "usStocks"])).optional().describe("aShares=A股 | hkStocks=港股 | usChinaConcept=中概 | usStocks=美股"),
     },
+    examples: [
+      { title: "行业码 + 类别", args: { researchAreaList: ["100800119"], categoryList: ["companyAnalysis"] }, expect: { requests: [{ method: "POST", path: "/application/open-insight/pamirs-summary/getList", body: { researchAreaList: ["100800119"], categoryList: ["companyAnalysis"], size: 20, from: 0 } }] } },
+      { title: "summary 独有的 sourceList 被 strict 拒绝", args: { sourceList: [1] }, expect: { rejects: /Unrecognized key.*sourceList/ } },
+    ],
   },
   scheduleSpec("gangtise_roadshow_list", "路演", "insight.roadshow.list", {
     researchArea: true, institution: true, security: true, location: true,
     category: [["earningsCall", "strategyMeeting", "companyAnalysis", "industryAnalysis", "fundRoadshow"], "路演类型：earningsCall=业绩会 | strategyMeeting=策略会 | companyAnalysis=公司分析 | industryAnalysis=行业分析 | fundRoadshow=基金路演"],
     market: [["aShares", "hkStocks", "usChinaConcept", "usStocks"], "市场：aShares=A股 | hkStocks=港股 | usChinaConcept=中概 | usStocks=美股"],
     participantRole: true, brokerType: true, permission: true,
-  }, "要路演的会后纪要内容用 gangtise_summary_list categoryList=['fundRoadshow']。"),
+  }, "要路演的会后纪要内容用 gangtise_summary_list categoryList=['fundRoadshow']。", [
+    { title: "时间窗 + 市场 + 权限", args: { startTime: "2026-09-01 00:00:00", endTime: "2026-09-07 23:59:59", marketList: ["aShares"], permission: [1], brokerTypeList: ["cnBroker"] }, expect: { requests: [{ method: "POST", path: "/application/open-insight/schedule/roadshow/getList", body: { startTime: "2026-09-01 00:00:00", endTime: "2026-09-07 23:59:59", marketList: ["aShares"], brokerTypeList: ["cnBroker"], permission: [1], size: 20, from: 0 } }] } },
+  ]),
   scheduleSpec("gangtise_site_visit_list", "调研", "insight.site-visit.list", {
     researchArea: true, institution: true, security: true, location: true, object: true,
     category: [["single", "series"], "调研形式：single=单场 | series=系列"],
     market: [["aShares", "hkStocks", "usChinaConcept"], "市场：aShares=A股 | hkStocks=港股 | usChinaConcept=中概（调研无美股）"],
     permission: true,
-  }, "要调研的会后纪要内容用 gangtise_summary_list（按 keyword/机构 检索；其 categoryList 无独立调研类别）。"),
+  }, "要调研的会后纪要内容用 gangtise_summary_list（按 keyword/机构 检索；其 categoryList 无独立调研类别）。", [
+    { title: "调研对象 + 形式", args: { objectList: ["company"], categoryList: ["single"], marketList: ["hkStocks"] }, expect: { requests: [{ method: "POST", path: "/application/open-insight/schedule/site-visit/getList", body: { objectList: ["company"], categoryList: ["single"], marketList: ["hkStocks"], size: 20, from: 0 } }] } },
+  ]),
   scheduleSpec("gangtise_strategy_list", "策略会", "insight.strategy.list", {
     institution: true, location: true,
-  }, "要策略会的会后纪要内容用 gangtise_summary_list categoryList=['strategyMeeting']。"),
+  }, "要策略会的会后纪要内容用 gangtise_summary_list categoryList=['strategyMeeting']。", [
+    { title: "机构 + 地点", args: { institutionList: ["inst-1"], locationList: ["loc-1"] }, expect: { requests: [{ method: "POST", path: "/application/open-insight/schedule/strategy-meeting/getList", body: { institutionList: ["inst-1"], locationList: ["loc-1"], size: 20, from: 0 } }] } },
+    { title: "本端点不收 researchAreaList", args: { researchAreaList: ["100800119"] }, expect: { rejects: /Unrecognized key.*researchAreaList/ } },
+  ]),
   scheduleSpec("gangtise_forum_list", "论坛", "insight.forum.list", {
     researchArea: true, location: true,
-  }, "指线下行业论坛/峰会活动，非网络论坛帖子。"),
+  }, "指线下行业论坛/峰会活动，非网络论坛帖子。", [
+    { title: "方向码", args: { researchAreaList: ["122000001"], keyword: "新能源" }, expect: { requests: [{ method: "POST", path: "/application/open-insight/schedule/forum/getList", body: { keyword: "新能源", researchAreaList: ["122000001"], size: 20, from: 0 } }] } },
+  ]),
   {
     name: "gangtise_research_list",
+    tier: "core",
     description: "查询券商研报列表，支持按证券、券商、行业、类别、评级、时间范围筛选。",
     endpointKey: "insight.research.list",
     paginated: true,
@@ -222,9 +250,28 @@ export const listSpecs: JsonToolSpec[] = [
       maxReportPages: z.number().int().min(0).optional(),
       sourceList: enumList(z.enum(["1", "2"])).optional().describe("数字字符串，1=PDF研报 | 2=公众号"),
     },
+    examples: [
+      { title: "筛选项原样下发", args: { ratingList: ["buy"], ratingChangeList: ["upgrade"], minReportPages: 10, sourceList: ["1"], categoryList: ["company"] }, expect: { requests: [{ method: "POST", path: "/application/open-insight/broker-report/getList", body: { categoryList: ["company"], ratingList: ["buy"], ratingChangeList: ["upgrade"], minReportPages: 10, sourceList: ["1"], size: 20, from: 0 } }] } },
+      { title: "size 大于单页：首页串行、其余按 50 一页扇出", args: { keyword: "AI", size: 120 }, upstream: paged(300), expect: { requests: [
+          { method: "POST", path: "/application/open-insight/broker-report/getList", body: { keyword: "AI", size: 20, from: 100 } },
+          { method: "POST", path: "/application/open-insight/broker-report/getList", body: { keyword: "AI", size: 50, from: 0 } },
+          { method: "POST", path: "/application/open-insight/broker-report/getList", body: { keyword: "AI", size: 50, from: 50 } },
+        ] } },
+      { title: "fetchAll 拉到 total 为止，不带 size", args: { keyword: "AI", fetchAll: true }, upstream: paged(75), expect: { requests: [
+          { method: "POST", path: "/application/open-insight/broker-report/getList", body: { keyword: "AI", from: 0, size: 50 } },
+          { method: "POST", path: "/application/open-insight/broker-report/getList", body: { keyword: "AI", from: 50, size: 25 } },
+          { method: "POST", path: "/application/open-insight/broker-report/getList", body: { keyword: "AI", from: 75, size: 1 } },
+        ] } },
+      { title: "短页覆盖到 total 时探一行 from=total", args: { keyword: "AI", size: 20 }, upstream: paged(7), expect: { requests: [
+          { method: "POST", path: "/application/open-insight/broker-report/getList", body: { keyword: "AI", size: 1, from: 7 } },
+          { method: "POST", path: "/application/open-insight/broker-report/getList", body: { keyword: "AI", size: 20, from: 0 } },
+        ] } },
+      { title: "负页数本地拒绝", args: { minReportPages: -1 }, expect: { rejects: /at minReportPages/ } },
+    ],
   },
   {
     name: "gangtise_foreign_report_list",
+    tier: "core",
     description: "查询外资机构研报列表，支持按证券、地区、行业、券商、评级、时间范围、关键词等筛选。",
     endpointKey: "insight.foreign-report.list",
     paginated: true,
@@ -246,9 +293,14 @@ export const listSpecs: JsonToolSpec[] = [
       minReportPages: z.number().int().min(0).optional(),
       maxReportPages: z.number().int().min(0).optional(),
     },
+    examples: [
+      { title: "地区闭集", args: { regionList: ["cnHk"], categoryList: ["company"], searchType: 1 }, expect: { requests: [{ method: "POST", path: "/application/open-insight/foreign-report/getList", body: { searchType: 1, regionList: ["cnHk"], categoryList: ["company"], size: 20, from: 0 } }] } },
+      { title: "码表外的地区本地拒绝", args: { regionList: ["hk"] }, expect: { rejects: /Invalid enum value.*at regionList/ } },
+    ],
   },
   {
     name: "gangtise_announcement_list",
+    tier: "core",
     description: "查询 A 股公告列表，支持按证券、公告分类、时间范围筛选。",
     endpointKey: "insight.announcement.list",
     paginated: true,
@@ -262,9 +314,13 @@ export const listSpecs: JsonToolSpec[] = [
       securityList: nonEmptyList().optional(),
       categoryList: nonEmptyList().optional().describe("公告分类 ID，来自 gangtise_constant_list category=aShareAnnouncementCategory"),
     },
+    examples: [
+      { title: "A 股公告", args: { securityList: ["600519.SH"], categoryList: ["cat-1"], startTime: "2026-01-01 00:00:00", endTime: "2026-06-30 23:59:59" }, expect: { requests: [{ method: "POST", path: "/application/open-insight/announcement/getList", body: { startTime: "2026-01-01 00:00:00", endTime: "2026-06-30 23:59:59", securityList: ["600519.SH"], categoryList: ["cat-1"], size: 20, from: 0 } }] } },
+    ],
   },
   {
     name: "gangtise_announcement_hk_list",
+    tier: "core",
     description: "查询港股公告列表，支持按证券、类别、时间范围筛选。",
     endpointKey: "insight.announcement-hk.list",
     paginated: true,
@@ -278,9 +334,13 @@ export const listSpecs: JsonToolSpec[] = [
       securityList: nonEmptyList().optional(),
       categoryList: nonEmptyList().optional().describe("公告类别 ID，来自 gangtise_constant_list category=hkShareAnnouncementCategory"),
     },
+    examples: [
+      { title: "港股公告", args: { securityList: ["00700.HK"], keyword: "业绩" }, expect: { requests: [{ method: "POST", path: "/application/open-insight/announcement-hk/getList", body: { keyword: "业绩", securityList: ["00700.HK"], size: 20, from: 0 } }] } },
+    ],
   },
   {
     name: "gangtise_announcement_us_list",
+    tier: "core",
     description: "查询美股公告列表，支持按证券、类别、时间范围筛选。",
     endpointKey: "insight.announcement-us.list",
     paginated: true,
@@ -294,9 +354,13 @@ export const listSpecs: JsonToolSpec[] = [
       securityList: nonEmptyList().optional().describe("证券代码列表，如 ['TSLA.O']"),
       categoryList: nonEmptyList().optional().describe("公告类别 ID，来自 gangtise_constant_list category=usShareAnnouncementCategory"),
     },
+    examples: [
+      { title: "美股公告", args: { securityList: ["TSLA.O"], rankType: 2 }, expect: { requests: [{ method: "POST", path: "/application/open-insight/announcement-us/getList", body: { rankType: 2, securityList: ["TSLA.O"], size: 20, from: 0 } }] } },
+    ],
   },
   {
     name: "gangtise_foreign_opinion_list",
+    tier: "core",
     // brokerList 传错码系的机构 ID 返 0 行且不报错（见该参数描述），是本端点唯一
     // 仍会静默返空的入参。通用空结果文案只会指向证券后缀 / 日期区间 / 市场，
     // 全不沾边，模型拿到 0 行后未必回头读参数描述。
@@ -320,9 +384,14 @@ export const listSpecs: JsonToolSpec[] = [
       ratingChangeList: enumList(RATING_CHANGE_ENUM).optional().describe(RATING_CHANGE_DESC),
       withContent: z.boolean().optional().describe("默认 true 带正文（价见标签），在顶层 content / contentTranslate，无 brief；false 只回标题 + 200 字 brief 及其译文，1 积分/条，全文用 gangtise_opinion_detail"),
     },
+    examples: [
+      { title: "申万码 + 外资观点机构", args: { industryList: ["104340000"], brokerList: ["F-1"], regionList: ["us"] }, expect: { requests: [{ method: "POST", path: "/application/open-insight/foreign-opinion/getList", body: { regionList: ["us"], industryList: ["104340000"], brokerList: ["F-1"], size: 20, from: 0 } }] } },
+      { title: "withContent=false 走只回 brief 的端点", args: { securityList: ["AAPL.O"], withContent: false }, expect: { requests: [{ method: "POST", path: "/application/open-insight/foreign-opinion/v2/getList", body: { securityList: ["AAPL.O"], size: 20, from: 0 } }] } },
+    ],
   },
   {
     name: "gangtise_independent_opinion_list",
+    tier: "core",
     description: "查询境外独立研究员观点列表，支持按证券、行业、评级、时间范围筛选。",
     endpointKey: "insight.independent-opinion.list",
     paginated: true,
@@ -337,9 +406,13 @@ export const listSpecs: JsonToolSpec[] = [
       ratingList: enumList(RATING_ENUM).optional().describe(RATING_DESC),
       ratingChangeList: enumList(RATING_CHANGE_ENUM).optional().describe(RATING_CHANGE_DESC),
     },
+    examples: [
+      { title: "评级变动", args: { ratingChangeList: ["upgrade"], securityList: ["AAPL.O"] }, expect: { requests: [{ method: "POST", path: "/application/open-insight/independent-opinion/getList", body: { securityList: ["AAPL.O"], ratingChangeList: ["upgrade"], size: 20, from: 0 } }] } },
+    ],
   },
   {
     name: "gangtise_official_account_list",
+    tier: "core",
     description: "查询产业公众号资讯列表，支持按公众号、证券、文章类型、行业、时间范围、关键词筛选；返回含模型摘要及关联行业/题材/证券列表。",
     endpointKey: "insight.official-account.list",
     paginated: true,
@@ -355,9 +428,13 @@ export const listSpecs: JsonToolSpec[] = [
       categoryList: enumList(z.enum(["news", "law", "report", "view", "data", "event", "meeting", "notice", "recruit", "investEdu", "brand", "notes", "other"])).optional().describe("文章类型：news=新闻资讯 | law=法律法规 | report=报告类 | view=个人观点 | data=产业数据 | event=日程活动 | meeting=会议纪要 | notice=通知 | recruit=招聘 | investEdu=投资科普 | brand=品牌宣传 | notes=个人随笔 | other=其他"),
       industryList: nonEmptyList().optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx，全场景首选）"),
     },
+    examples: [
+      { title: "公众号 + 文章类型", args: { accountIdList: ["acc-1"], categoryList: ["news"], searchType: 1 }, expect: { requests: [{ method: "POST", path: "/application/open-insight/officialAccount/getList", body: { searchType: 1, accountIdList: ["acc-1"], categoryList: ["news"], size: 20, from: 0 } }] } },
+    ],
   },
   {
     name: "gangtise_qa_list",
+    tier: "core",
     description:
       "按证券提取投资者问答 QA（互动平台/电话会议/调研纪要中的提问与回答，含回答方身份 member 与问题分类）。",
     endpointKey: "insight.qa.list",
@@ -378,9 +455,13 @@ export const listSpecs: JsonToolSpec[] = [
         .optional()
         .describe("答案是否涉及重要信息：[1]=只取重要 | [0]=只取不重要；省略或 [0,1]=不按此维度筛选"),
     },
+    examples: [
+      { title: "日期与日期时间都原样直传", args: { securityCode: "601012.SH", startTime: "2026-01-01", endTime: "2026-06-30 23:59:59", source: ["interactive"], answerImportant: [1] }, expect: { requests: [{ method: "POST", path: "/application/open-insight/Q&A-data/getList", body: { securityCode: "601012.SH", startTime: "2026-01-01", endTime: "2026-06-30 23:59:59", source: ["interactive"], answerImportant: [1], size: 20, from: 0 } }] } },
+    ],
   },
   {
     name: "gangtise_report_image_list",
+    tier: "core",
     description:
       "按关键词搜索研报图表，返回 chunkId 及元数据（标题/券商/页码/图注/该页 OCR 文本）；原图用 gangtise_report_image_download 按 chunkId 下载。",
     endpointKey: "insight.report-image.list",
@@ -392,106 +473,155 @@ export const listSpecs: JsonToolSpec[] = [
       startTime: dateTimeString.optional(),
       endTime: dateTimeString.optional(),
     },
+    examples: [
+      { title: "非分页，不注入 size", args: { keyword: "AI", top: 5, startTime: "2026-01-01 00:00:00" }, expect: { requests: [{ method: "POST", path: "/application/open-insight/report-image/getList", body: { keyword: "AI", top: 5, startTime: "2026-01-01 00:00:00" } }] } },
+    ],
   },
 ]
 
 export const downloadSpecs: DownloadToolSpec[] = [
   {
     name: "gangtise_summary_download",
+    tier: "core",
     description: "按 summaryId 下载会议纪要文件，返回文本内容或文件路径。",
     endpointKey: "insight.summary.download",
     inputSchema: {
       summaryId: nonEmptyString.describe("纪要 ID，来自 gangtise_summary_list"),
       fileType: intLiteralEnum([1, 2]).optional().describe("1=原始文件（默认）| 2=HTML（仅限会议平台纪要）"),
     },
+    examples: [
+      { title: "summaryId + fileType", args: { summaryId: "sum-1", fileType: 2 }, expect: { requests: [{ method: "GET", path: "/application/open-insight/summary/v2/download/file", query: { summaryId: "sum-1", fileType: "2" } }] } },
+    ],
   },
   {
     name: "gangtise_pamirs_summary_download",
+    tier: "core",
     description: "按 summaryId 下载帕米尔专家纪要文件，返回文本内容或文件路径。",
     endpointKey: "insight.pamirs-summary.download",
     inputSchema: {
       summaryId: nonEmptyString.describe("纪要 ID，来自 gangtise_pamirs_summary_list"),
       fileType: intLiteralEnum([1, 2]).optional().describe("1=原始文件（默认）| 2=HTML"),
     },
+    examples: [
+      { title: "summaryId", args: { summaryId: "pam-1" }, expect: { requests: [{ method: "GET", path: "/application/open-insight/pamirs-summary/download/file", query: { summaryId: "pam-1" } }] } },
+    ],
   },
   {
     name: "gangtise_research_download",
+    tier: "core",
     description: "按 reportId 下载券商研报，返回 Markdown 文本或 PDF 文件路径。",
     endpointKey: "insight.research.download",
     inputSchema: {
       reportId: nonEmptyString.describe("研报 ID，来自 gangtise_research_list"),
       fileType: intLiteralEnum([1, 2]).optional().describe("1=PDF（默认）| 2=Markdown"),
     },
+    examples: [
+      { title: "reportId + fileType", args: { reportId: "rep-1", fileType: 2 }, expect: { requests: [{ method: "GET", path: "/application/open-insight/broker-report/download/file", query: { reportId: "rep-1", fileType: "2" } }] } },
+    ],
   },
   {
     name: "gangtise_foreign_report_download",
+    tier: "core",
     description: "下载外资研报，支持原文 PDF、Markdown、中文 PDF 和中文 Markdown 格式。",
     endpointKey: "insight.foreign-report.download",
     inputSchema: {
       reportId: nonEmptyString.describe("研报 ID，来自 gangtise_foreign_report_list"),
       fileType: intLiteralEnum([1, 2, 3, 4]).optional().describe("1=PDF | 2=Markdown | 3=中文PDF | 4=中文Markdown"),
     },
+    examples: [
+      { title: "中文 Markdown", args: { reportId: "frep-1", fileType: 4 }, expect: { requests: [{ method: "GET", path: "/application/open-insight/foreign-report/download/file", query: { reportId: "frep-1", fileType: "4" } }] } },
+      { title: "fileType 闭集外本地拒绝", args: { reportId: "frep-1", fileType: 5 }, expect: { rejects: /at fileType/ } },
+    ],
   },
   {
     name: "gangtise_announcement_download",
+    tier: "core",
     description: "按 announcementId 下载 A 股公告文件。",
     endpointKey: "insight.announcement.download",
     inputSchema: {
       announcementId: nonEmptyString.describe("公告 ID，来自 gangtise_announcement_list"),
       fileType: intLiteralEnum([1, 2]).optional().describe("1=PDF（默认）| 2=Markdown"),
     },
+    examples: [
+      { title: "announcementId", args: { announcementId: "ann-1", fileType: 2 }, expect: { requests: [{ method: "GET", path: "/application/open-insight/announcement/download/file", query: { announcementId: "ann-1", fileType: "2" } }] } },
+    ],
   },
   {
     name: "gangtise_announcement_hk_download",
+    tier: "core",
     description: "下载港股公告文件。",
     endpointKey: "insight.announcement-hk.download",
     inputSchema: {
       announcementId: nonEmptyString.describe("公告 ID，来自 gangtise_announcement_hk_list"),
       fileType: intLiteralEnum([1, 2]).optional().describe("1=原始（默认）| 2=Markdown"),
     },
+    examples: [
+      { title: "announcementId", args: { announcementId: "annhk-1" }, expect: { requests: [{ method: "GET", path: "/application/open-insight/announcement-hk/download/file", query: { announcementId: "annhk-1" } }] } },
+    ],
   },
   {
     name: "gangtise_announcement_us_download",
+    tier: "core",
     description: "下载美股公告文件。",
     endpointKey: "insight.announcement-us.download",
     inputSchema: {
       announcementId: nonEmptyString.describe("公告 ID，来自 gangtise_announcement_us_list"),
       fileType: intLiteralEnum([1, 2]).optional().describe("1=原始 PDF（默认）| 2=Markdown"),
     },
+    examples: [
+      { title: "announcementId", args: { announcementId: "annus-1", fileType: 1 }, expect: { requests: [{ method: "GET", path: "/application/open-insight/announcement-us/download/file", query: { announcementId: "annus-1", fileType: "1" } }] } },
+    ],
   },
   {
     name: "gangtise_independent_opinion_download",
+    tier: "core",
     description: "下载境外独立研究员观点文件，返回 HTML 内容（原文或中文翻译）。",
     endpointKey: "insight.independent-opinion.download",
     inputSchema: {
       independentOpinionId: nonEmptyString.describe("观点 ID，来自 gangtise_independent_opinion_list 的 independentOpinionId 字段"),
       fileType: intLiteralEnum([1, 2]).describe("1=原文 HTML | 2=中文翻译 HTML（必填）"),
     },
+    examples: [
+      { title: "参数名是 independentOpinionId", args: { independentOpinionId: "io-1", fileType: 2 }, expect: { requests: [{ method: "GET", path: "/application/open-insight/independent-opinion/download/file", query: { independentOpinionId: "io-1", fileType: "2" } }] } },
+      { title: "fileType 必填", args: { independentOpinionId: "io-1" }, expect: { rejects: /at fileType/ } },
+    ],
   },
   {
     name: "gangtise_official_account_download",
+    tier: "core",
     description: "按 articleId 下载产业公众号文章，返回 txt 文本或 HTML。",
     endpointKey: "insight.official-account.download",
     inputSchema: {
       articleId: nonEmptyString.describe("文章 ID，来自 gangtise_official_account_list"),
       fileType: intLiteralEnum([1, 2]).optional().describe("1=txt（默认）| 2=HTML"),
     },
+    examples: [
+      { title: "articleId", args: { articleId: "art-1", fileType: 2 }, expect: { requests: [{ method: "GET", path: "/application/open-insight/officialAccount/download/file", query: { articleId: "art-1", fileType: "2" } }] } },
+    ],
   },
   {
     name: "gangtise_report_image_download",
+    tier: "core",
     description: "按 chunkId 下载研报图表原图（JPEG 二进制）。chunkId 来自 gangtise_report_image_list。",
     endpointKey: "insight.report-image.download",
     inputSchema: {
       chunkId: nonEmptyString.describe("图片唯一标识，来自 gangtise_report_image_list 的 chunkId"),
     },
+    examples: [
+      { title: "chunkId", args: { chunkId: "chunk-1" }, expect: { requests: [{ method: "GET", path: "/application/open-insight/report-image/download/file", query: { chunkId: "chunk-1" } }] } },
+    ],
   },
   {
     name: "gangtise_performance_calendar_download",
+    tier: "core",
     description: "按 performanceReportId 下载业绩报告原文 PDF。仅 gangtise_performance_calendar_list 中 hasAttachment=true 的记录可下载。",
     endpointKey: "insight.performance-calendar.download",
     inputSchema: {
       performanceReportId: nonEmptyString.describe("业绩报告 ID，来自 gangtise_performance_calendar_list"),
     },
+    examples: [
+      { title: "performanceReportId", args: { performanceReportId: "perf-1" }, expect: { requests: [{ method: "GET", path: "/application/open-insight/schedule/performance-calendar/download/file", query: { performanceReportId: "perf-1" } }] } },
+    ],
   },
 ]
 
@@ -540,46 +670,47 @@ async function probeFilteredTotal(client: GangtiseClient, body: Record<string, u
   }
 }
 
-export function registerInsightTools(server: McpServer, client: GangtiseClient): void {
-  for (const spec of listSpecs) {
-    registerJsonTool(server, client, spec)
-  }
-  for (const spec of downloadSpecs) {
-    registerDownloadTool(server, client, spec)
-  }
-
-  // 按 ID 分批取正文：多批串行、部分失败保留已付费正文，registerJsonTool 表达不了。
-  server.registerTool(
-    "gangtise_opinion_detail",
-    {
-      description: withBilling(
-        "按 ID 取观点全文。⚠️ 没有正文的 ID 被跳过而不报错（ID 错、超出取数窗口、刚发布都可能），结果标 _partial 并列在 missingIds；某批失败时已取到的正文照常返回，未取的列在 unfetchedIds，只重跑这几个。",
-        "insight.opinion.detail",
-      ),
-      inputSchema: {
+export const insightFamily: FamilyModule = {
+  name: "insight",
+  endpoints: insightEndpoints,
+  tools: [
+    ...listSpecs.map(defineJsonTool),
+    ...downloadSpecs.map(defineDownloadTool),
+    // 按 ID 分批取正文：多批串行、部分失败保留已付费正文，defineJsonTool 表达不了。
+    defineTool({
+      name: "gangtise_opinion_detail",
+      tier: "core",
+      access: "read",
+      endpoint: "insight.opinion.detail",
+      description: "按 ID 取观点全文。⚠️ 没有正文的 ID 被跳过而不报错（ID 错、超出取数窗口、刚发布都可能），结果标 _partial 并列在 missingIds；某批失败时已取到的正文照常返回，未取的列在 unfetchedIds，只重跑这几个。",
+      input: {
         kind: z.enum(["domestic", "foreign"]).describe("domestic=内资 chiefOpinionId | foreign=外资 foreignOpinionId（另有 contentTranslate）"),
         ids: nonEmptyList().describe("观点 ID，20 个一批串行请求"),
       },
-      annotations: { readOnlyHint: true, openWorldHint: false },
-    },
-    toolHandler(async ({ kind, ids }: Record<string, unknown>) => {
-      const result = kind === "foreign"
-        ? await fetchOpinionDetails(client, "insight.foreign-opinion.detail", "foreignOpinionIdList", "foreignOpinionId", ids as string[])
-        : await fetchOpinionDetails(client, "insight.opinion.detail", "chiefOpinionIdList", "chiefOpinionId", ids as string[])
-      return contentResult(await buildToolContent(result))
+      run: async ({ client }, { kind, ids }) => {
+        const result = kind === "foreign"
+          ? await fetchOpinionDetails(client, "insight.foreign-opinion.detail", "foreignOpinionIdList", "foreignOpinionId", ids as string[])
+          : await fetchOpinionDetails(client, "insight.opinion.detail", "chiefOpinionIdList", "chiefOpinionId", ids as string[])
+        return contentResult(await buildToolContent(result))
+      },
+      examples: [
+        { title: "内资：按 20 个一批串行、重复 ID 只取一次", args: { kind: "domestic", ids: Array.from({ length: 21 }, (_, i) => `co-${i}`).concat(["co-0"]) }, upstream: (req) => (req.endpoint === "insight.opinion.detail" ? { data: [] } : undefined), expect: { requests: [
+            { method: "POST", path: "/application/open-insight/chief-opinion/getDetail", body: { chiefOpinionIdList: Array.from({ length: 20 }, (_, i) => `co-${i}`) } },
+            { method: "POST", path: "/application/open-insight/chief-opinion/getDetail", body: { chiefOpinionIdList: ["co-20"] } },
+          ] } },
+        { title: "外资：ID 列表键是 foreignOpinionIdList", args: { kind: "foreign", ids: ["fo-1"] }, upstream: (req) => (req.endpoint === "insight.foreign-opinion.detail" ? { data: [] } : undefined), expect: { requests: [{ method: "POST", path: "/application/open-insight/foreign-opinion/getDetail", body: { foreignOpinionIdList: ["fo-1"] } }] } },
+        { title: "第一批就有不是对象的元素时整次报错", args: { kind: "domestic", ids: ["co-1"] }, upstream: (req) => (req.endpoint === "insight.opinion.detail" ? { data: [null] } : undefined), expect: { rejects: /不是对象的元素/, requests: [{ method: "POST", path: "/application/open-insight/chief-opinion/getDetail", body: { chiefOpinionIdList: ["co-1"] } }] } },
+        { title: "返回不是数组时整次报错（第一批）", args: { kind: "domestic", ids: ["co-1"] }, upstream: (req) => (req.endpoint === "insight.opinion.detail" ? { data: { list: [] } } : undefined), expect: { rejects: /不是预期的数组结构/, requests: [{ method: "POST", path: "/application/open-insight/chief-opinion/getDetail", body: { chiefOpinionIdList: ["co-1"] } }] } },
+      ],
     }),
-  )
-
-  // 直接注册而非走 registerJsonTool：fetchAll 需要「必须有真实约束」的前置校验，
-  // 而 registerJsonTool 没有留出这个钩子。
-  server.registerTool(
-    "gangtise_performance_calendar_list",
-    {
-      description: withBilling(
-        "查询财报日历：业绩预告 / 业绩快报 / 业绩公告三类事件的发布日程（含未来已排期）。按 publishDate 过滤，返回 performanceReportId（下载用）、securityCodeList（A+H 同时上市会有多个码）、securityName、category、publishDate、title、hasAttachment。查「某公司何时披露财报」用 securityList，查「某段时间谁要出业绩」用 startDate+endDate。本工具只给排期与标题，公告全文请用 gangtise_announcement_list / _download 系列。",
-        "insight.performance-calendar.list",
-      ),
-      inputSchema: {
+    // 不走 defineJsonTool：fetchAll 需要「必须有真实约束」的前置校验，defineJsonTool 没有留出这个钩子。
+    defineTool({
+      name: "gangtise_performance_calendar_list",
+      tier: "core",
+      access: "read",
+      endpoint: "insight.performance-calendar.list",
+      description: "查询财报日历：业绩预告 / 业绩快报 / 业绩公告三类事件的发布日程（含未来已排期）。按 publishDate 过滤，返回 performanceReportId（下载用）、securityCodeList（A+H 同时上市会有多个码）、securityName、category、publishDate、title、hasAttachment。查「某公司何时披露财报」用 securityList，查「某段时间谁要出业绩」用 startDate+endDate。本工具只给排期与标题，公告全文请用 gangtise_announcement_list / _download 系列。",
+      input: {
         from: z.number().int().min(0).optional(),
         // 通用语义（默认 20）在 server.instructions；这里只留本端点独有的两档行数封顶。
         size: z.number().int().min(1).optional().describe(`无筛选时最多 ${UNFILTERED_MAX_ROWS} 行（超出本地拒绝）；仅用 securityList 筛选时封顶 ${SECURITY_ONLY_ROW_CAP} 行`),
@@ -590,106 +721,115 @@ export function registerInsightTools(server: McpServer, client: GangtiseClient):
         marketList: enumList(PERFORMANCE_MARKET_ENUM).optional().describe("aShares=A股 | hkStocks=港股 | usChinaConcept=美股中概 | usStocks=美股"),
         categoryList: enumList(PERFORMANCE_CATEGORY_ENUM).optional().describe("performanceForecast=业绩预告 | performanceExpress=业绩快报 | performanceAnnouncement=业绩公告"),
       },
-      annotations: { readOnlyHint: true, openWorldHint: false },
-    },
-    toolHandler(async (args: Record<string, unknown>) => {
-      const { fetchAll, ...rest } = args
-      assertDateOrder(rest)
-      // 🔴 「给了一对日期」不等于「加了约束」。`1900-01-01 → 2099-12-31` 在形式上是一个
-      // 完整区间，实际上一条记录都没排除掉，却足以把行数上限整个放开 —— 与 `securityList:
-      // [""]` 是同一种洞：**名义上的约束，实际不约束任何东西**。
-      //
-      // 判据落在「这个区间还筛不筛得掉东西」上，不是「你只能查 N 天」：本库含未来排期，
-      // 跨度超过它的全部时间范围的区间等于没筛。**这不是把取数窗口写死**（那与
-      // server.instructions 的「取数窗口随账号权限变化，MCP 不硬编码拦截」冲突）——
-      // 超界不拒绝查询，只是不把它当成放开行数上限的理由，调用方补个真区间即可。
-      const hasDateRange = Boolean(rest.startDate && rest.endDate)
-      const hasSecurity = Array.isArray(rest.securityList) && rest.securityList.length > 0
-      // 两个概念必须分开，混用会两头出错（2026-08-09 修正）：
-      //
-      //  hasStrongBound —— 够不够把行数放开。只有「完整日期区间」或 securityList 算数。
-      //    marketList / categoryList 虽然**确实在筛**，但筛完仍是万级（aShares 64419、
-      //    业绩预告 11891，基线 128414），按 0.1/条 放开行数上限依然是几千积分。
-      //
-      //  hasAnyEffectiveFilter —— 结果到底筛没筛过，决定要不要提示「这是全库切片」。
-      //    单边日期、marketList、categoryList 都真实过滤（单 startDate 9946、单 endDate
-      //    119005），把它们说成「未加任何生效的筛选」是**误报**，会让调用方怀疑一份好数据。
-      const nonEmpty = (v: unknown) => (Array.isArray(v) ? v.length > 0 : Boolean(v))
-      const hasStrongBound = hasDateRange || hasSecurity
-      const hasAnyEffectiveFilter =
-        hasStrongBound || nonEmpty(rest.startDate) || nonEmpty(rest.endDate) || nonEmpty(rest.marketList) || nonEmpty(rest.categoryList)
-      // 闸门必须按「实际要取多少行」判，不能只看 fetchAll：client.requestPaginated
-      // 把 size 当作**总目标行数**按 total 自动翻页，所以 size:50000 与 fetchAll 是
-      // 同一件事（都能拉满 MAX_PAGES × 50 = 5 万行 ≈ 5000 积分）。
-      const requestedRows = fetchAll
-        ? Number.POSITIVE_INFINITY
-        : (typeof rest.size === "number" ? rest.size : DEFAULT_ROWS)
+      run: async ({ client }, args) => {
+        const { fetchAll, ...rest } = args
+        assertDateOrder(rest)
+        // 🔴 「给了一对日期」不等于「加了约束」。`1900-01-01 → 2099-12-31` 在形式上是一个
+        // 完整区间，实际上一条记录都没排除掉，却足以把行数上限整个放开 —— 与 `securityList:
+        // [""]` 是同一种洞：**名义上的约束，实际不约束任何东西**。
+        //
+        // 判据落在「这个区间还筛不筛得掉东西」上，不是「你只能查 N 天」：本库含未来排期，
+        // 跨度超过它的全部时间范围的区间等于没筛。**这不是把取数窗口写死**（那与
+        // server.instructions 的「取数窗口随账号权限变化，MCP 不硬编码拦截」冲突）——
+        // 超界不拒绝查询，只是不把它当成放开行数上限的理由，调用方补个真区间即可。
+        const hasDateRange = Boolean(rest.startDate && rest.endDate)
+        const hasSecurity = Array.isArray(rest.securityList) && rest.securityList.length > 0
+        // 两个概念必须分开，混用会两头出错（2026-08-09 修正）：
+        //
+        //  hasStrongBound —— 够不够把行数放开。只有「完整日期区间」或 securityList 算数。
+        //    marketList / categoryList 虽然**确实在筛**，但筛完仍是万级（aShares 64419、
+        //    业绩预告 11891，基线 128414），按 0.1/条 放开行数上限依然是几千积分。
+        //
+        //  hasAnyEffectiveFilter —— 结果到底筛没筛过，决定要不要提示「这是全库切片」。
+        //    单边日期、marketList、categoryList 都真实过滤（单 startDate 9946、单 endDate
+        //    119005），把它们说成「未加任何生效的筛选」是**误报**，会让调用方怀疑一份好数据。
+        const nonEmpty = (v: unknown) => (Array.isArray(v) ? v.length > 0 : Boolean(v))
+        const hasStrongBound = hasDateRange || hasSecurity
+        const hasAnyEffectiveFilter =
+          hasStrongBound || nonEmpty(rest.startDate) || nonEmpty(rest.endDate) || nonEmpty(rest.marketList) || nonEmpty(rest.categoryList)
+        // 闸门必须按「实际要取多少行」判，不能只看 fetchAll：client.requestPaginated
+        // 把 size 当作**总目标行数**按 total 自动翻页，所以 size:50000 与 fetchAll 是
+        // 同一件事（都能拉满 MAX_PAGES × 50 = 5 万行 ≈ 5000 积分）。
+        const requestedRows = fetchAll
+          ? Number.POSITIVE_INFINITY
+          : (typeof rest.size === "number" ? rest.size : DEFAULT_ROWS)
 
-      // 不加筛选时 total 是十万量级（实测 2026-07-26 为 126683，含未来排期），
-      // 按 0.1/条计费。marketList / categoryList 都不算约束（单个 aShares 实测仍有
-      // 64327 条）。这里拒而不截断：加个筛选就能解决，静默返 1000 行会被读成全部。
-      if (!hasStrongBound && requestedRows > UNFILTERED_MAX_ROWS) {
-        throw new ValidationError(
-          `缺少强约束时最多只能取 ${UNFILTERED_MAX_ROWS} 行（本接口十万量级、按 0.1/条计费）：请同时给出 startDate 与 endDate，或给出 securityList，或把 size 降到 ${UNFILTERED_MAX_ROWS} 以内（fetchAll 视为不限行数）。marketList / categoryList 确实会过滤，但筛完仍是万级，不足以放开行数上限。`,
-        )
-      }
-      // 🔴 只靠日期区间放开闸门时，先确认这个区间**真的筛掉了东西**。
-      // 「给了一对日期」不等于「加了约束」：一个覆盖全库的完整区间在形式上无可挑剔，
-      // 实际一条都没排除。判据不猜跨度，直接问服务端要 total（见 probeFilteredTotal）。
-      if (hasDateRange && !hasSecurity && requestedRows > UNFILTERED_MAX_ROWS) {
-        const filteredTotal = await probeFilteredTotal(client, rest)
-        if (filteredTotal === undefined || filteredTotal > UNFILTERED_MAX_ROWS) {
+        // 不加筛选时 total 是十万量级（实测 2026-07-26 为 126683，含未来排期），
+        // 按 0.1/条计费。marketList / categoryList 都不算约束（单个 aShares 实测仍有
+        // 64327 条）。这里拒而不截断：加个筛选就能解决，静默返 1000 行会被读成全部。
+        if (!hasStrongBound && requestedRows > UNFILTERED_MAX_ROWS) {
           throw new ValidationError(
-            `该日期区间没有把结果收窄到 ${UNFILTERED_MAX_ROWS} 行以内（${filteredTotal === undefined ? "探测失败" : `实际 ${filteredTotal} 行`}，按 0.1/条计费）：区间覆盖了本库的大部分排期，等于没筛。请缩小日期区间、补上 securityList，或把 size 降到 ${UNFILTERED_MAX_ROWS} 以内（fetchAll 视为不限行数）。`,
+            `缺少强约束时最多只能取 ${UNFILTERED_MAX_ROWS} 行（本接口十万量级、按 0.1/条计费）：请同时给出 startDate 与 endDate，或给出 securityList，或把 size 降到 ${UNFILTERED_MAX_ROWS} 以内（fetchAll 视为不限行数）。marketList / categoryList 确实会过滤，但筛完仍是万级，不足以放开行数上限。`,
           )
         }
-      }
-      const body = sanitizeArgs(rest, { paginated: true, fetchAll: Boolean(fetchAll) })
-      // securityList 单约束（无日期区间）时封顶。走到这里 requestedRows > 上限就意味着
-      // hasSecurity 为真（否则上面已拒），fetchAll 与显式大 size 一视同仁。
-      const capped = !hasDateRange && requestedRows > SECURITY_ONLY_ROW_CAP
-      if (capped) body.size = SECURITY_ONLY_ROW_CAP
-
-      let result = await client.call("insight.performance-calendar.list", body)
-
-      // 取满上限且 total 显示还有剩余 = securityList 过滤可能已失效，屏上这批
-      // 是整本日历的一段切片而非某公司的日历。判据用 total 而非只看行数：
-      // 恰好 1000 行且 from+行数 >= total 是完整结果，不能误标 _partial。
-      if (capped && result && typeof result === "object" && !Array.isArray(result)) {
-        const rec = result as Record<string, unknown>
-        const list = rec.list
-        const from = typeof body.from === "number" ? body.from : 0
-        if (Array.isArray(list) && list.length >= SECURITY_ONLY_ROW_CAP) {
-          const total = typeof rec.total === "number" ? rec.total : undefined
-          if (total === undefined || from + list.length < total) {
-            // 分页层可能已经写入 page_cap / total_drift / failed_pages 等原因，markPartial 追加、不覆盖。
-            result = markPartial(rec, "security_only_row_cap", { _hint: `securityList 是唯一约束时最多取 ${SECURITY_ONLY_ROW_CAP} 行，且结果已取满、total=${String(rec.total)} 显示还有剩余 —— 该筛选可能未生效，请改用 startDate+endDate 重查。` })
+        // 🔴 只靠日期区间放开闸门时，先确认这个区间**真的筛掉了东西**。
+        // 「给了一对日期」不等于「加了约束」：一个覆盖全库的完整区间在形式上无可挑剔，
+        // 实际一条都没排除。判据不猜跨度，直接问服务端要 total（见 probeFilteredTotal）。
+        if (hasDateRange && !hasSecurity && requestedRows > UNFILTERED_MAX_ROWS) {
+          const filteredTotal = await probeFilteredTotal(client, rest)
+          if (filteredTotal === undefined || filteredTotal > UNFILTERED_MAX_ROWS) {
+            throw new ValidationError(
+              `该日期区间没有把结果收窄到 ${UNFILTERED_MAX_ROWS} 行以内（${filteredTotal === undefined ? "探测失败" : `实际 ${filteredTotal} 行`}，按 0.1/条计费）：区间覆盖了本库的大部分排期，等于没筛。请缩小日期区间、补上 securityList，或把 size 降到 ${UNFILTERED_MAX_ROWS} 以内（fetchAll 视为不限行数）。`,
+            )
           }
         }
-      }
+        const body = sanitizeArgs(rest, { paginated: true, fetchAll: Boolean(fetchAll) })
+        // securityList 单约束（无日期区间）时封顶。走到这里 requestedRows > 上限就意味着
+        // hasSecurity 为真（否则上面已拒），fetchAll 与显式大 size 一视同仁。
+        const capped = !hasDateRange && requestedRows > SECURITY_ONLY_ROW_CAP
+        if (capped) body.size = SECURITY_ONLY_ROW_CAP
 
-      // 没有任何生效筛选时，返回的是十万量级全库日历的头 N 行任意切片——它长得和
-      // 一份真正的排期查询一模一样，模型据此答「本周这些公司披露」就是错的。
-      //
-      // 只有**一条**路径会落到这里：调用方一个筛选都没传。
-      //
-      // 两类容易误以为会落到这里、其实不会的：
-      //  - `marketList` / `categoryList`：它们**确实在筛**（aShares 64419、业绩预告
-      //    11891，基线 128414），所以计入 hasAnyEffectiveFilter、**不触发本提示**。
-      //    它们只是不够强、进不了 hasStrongBound（筛完仍是万级，放开行数上限依然是
-      //    几千积分）——那是闸门的事，两件事别混。
-      //  - 旧参数名 `startTime`/`endTime`：**被根级 strict 直接拒**（server.ts 的
-      //    enforceStrictInput），到不了这里。加 strict 之前它们会被静默 strip 成
-      //    「无筛选」并触发本提示，那是 2026-08-09 之前的行为。
-      if (!hasAnyEffectiveFilter && result && typeof result === "object" && !Array.isArray(result)) {
-        const rec = result as Record<string, unknown>
-        if (Array.isArray(rec.list) && rec.list.length > 0) {
-          rec._hint =
-            "本次查询未加任何筛选条件，返回的是全库日历的前若干条切片，**不代表某段时间的排期，也不代表某家公司的日程**。按时间查请传 startDate + endDate（注意本工具用 *Date，不是其他 insight 工具的 startTime/endTime），按公司查请传 securityList。marketList / categoryList 也会过滤，但筛完仍是万级，要精确排期仍需日期或证券。"
+        let result = await client.call("insight.performance-calendar.list", body)
+
+        // 取满上限且 total 显示还有剩余 = securityList 过滤可能已失效，屏上这批
+        // 是整本日历的一段切片而非某公司的日历。判据用 total 而非只看行数：
+        // 恰好 1000 行且 from+行数 >= total 是完整结果，不能误标 _partial。
+        if (capped && result && typeof result === "object" && !Array.isArray(result)) {
+          const rec = result as Record<string, unknown>
+          const list = rec.list
+          const from = typeof body.from === "number" ? body.from : 0
+          if (Array.isArray(list) && list.length >= SECURITY_ONLY_ROW_CAP) {
+            const total = typeof rec.total === "number" ? rec.total : undefined
+            if (total === undefined || from + list.length < total) {
+              // 分页层可能已经写入 page_cap / total_drift / failed_pages 等原因，markPartial 追加、不覆盖。
+              result = markPartial(rec, "security_only_row_cap", { _hint: `securityList 是唯一约束时最多取 ${SECURITY_ONLY_ROW_CAP} 行，且结果已取满、total=${String(rec.total)} 显示还有剩余 —— 该筛选可能未生效，请改用 startDate+endDate 重查。` })
+            }
+          }
         }
-      }
 
-      return contentResult(await buildToolContent(normalizeRows(result)))
+        // 没有任何生效筛选时，返回的是十万量级全库日历的头 N 行任意切片——它长得和
+        // 一份真正的排期查询一模一样，模型据此答「本周这些公司披露」就是错的。
+        //
+        // 只有**一条**路径会落到这里：调用方一个筛选都没传。
+        //
+        // 两类容易误以为会落到这里、其实不会的：
+        //  - `marketList` / `categoryList`：它们**确实在筛**（aShares 64419、业绩预告
+        //    11891，基线 128414），所以计入 hasAnyEffectiveFilter、**不触发本提示**。
+        //    它们只是不够强、进不了 hasStrongBound（筛完仍是万级，放开行数上限依然是
+        //    几千积分）——那是闸门的事，两件事别混。
+        //  - 旧参数名 `startTime`/`endTime`：**被根级 strict 直接拒**（mcp/register.ts 的
+        //    strictInput），到不了这里。加 strict 之前它们会被静默 strip 成
+        //    「无筛选」并触发本提示，那是 2026-08-09 之前的行为。
+        if (!hasAnyEffectiveFilter && result && typeof result === "object" && !Array.isArray(result)) {
+          const rec = result as Record<string, unknown>
+          if (Array.isArray(rec.list) && rec.list.length > 0) {
+            rec._hint =
+              "本次查询未加任何筛选条件，返回的是全库日历的前若干条切片，**不代表某段时间的排期，也不代表某家公司的日程**。按时间查请传 startDate + endDate（注意本工具用 *Date，不是其他 insight 工具的 startTime/endTime），按公司查请传 securityList。marketList / categoryList 也会过滤，但筛完仍是万级，要精确排期仍需日期或证券。"
+          }
+        }
+
+        return contentResult(await buildToolContent(normalizeRows(result)))
+      },
+      examples: [
+        { title: "日期键是 startDate/endDate", args: { startDate: "2026-07-20", endDate: "2026-07-26", categoryList: ["performanceForecast"] }, expect: { requests: [{ method: "POST", path: "/application/open-insight/schedule/performance-calendar/getList", body: { startDate: "2026-07-20", endDate: "2026-07-26", categoryList: ["performanceForecast"], size: 20, from: 0 } }] } },
+        { title: "旧键 startTime 被 strict 拒绝", args: { startTime: "2026-07-20" }, expect: { rejects: /Unrecognized key.*startTime/ } },
+        { title: "无强约束 fetchAll 本地拒绝", args: { marketList: ["aShares"], fetchAll: true }, expect: { rejects: /缺少强约束/ } },
+        { title: "仅 securityList + fetchAll 放行（1000 行封顶由响应 fixture 覆盖）", args: { securityList: ["600519.SH"], fetchAll: true }, expect: { requests: [{ method: "POST", path: "/application/open-insight/schedule/performance-calendar/getList", body: { securityList: ["600519.SH"], size: 50, from: 0 } }] } },
+        { title: "仅日期区间 + fetchAll 先探 total 再取", args: { startDate: "2026-07-20", endDate: "2026-07-26", fetchAll: true }, expect: { requests: [
+            { method: "POST", path: "/application/open-insight/schedule/performance-calendar/getList", body: { startDate: "2026-07-20", endDate: "2026-07-26", from: 0, size: 1 } },
+            { method: "POST", path: "/application/open-insight/schedule/performance-calendar/getList", body: { startDate: "2026-07-20", endDate: "2026-07-26", from: 0, size: 50 } },
+          ] } },
+      ],
     }),
-  )
+  ],
 }

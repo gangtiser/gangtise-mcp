@@ -1,14 +1,14 @@
 import { z } from "zod"
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
-import type { GangtiseClient } from "../core/client.js"
 import { flagMissingFields, normalizeRows } from "../core/normalize.js"
 import { ValidationError } from "../core/errors.js"
 import { callKlinePerSecurity, callKlineWithSharding, estimateTradingDays, flagLimitTruncated, type KlineBody } from "../core/quoteSharding.js"
 import { dateString, dateTimeString } from "../core/dateContext.js"
-import { assertDateOrder } from "./registry.js"
+import { assertDateOrder, defineTool, type FamilyModule, type ToolSpec } from "../mcp/define.js"
 import { buildToolContent } from "../core/present.js"
-import { toolHandler, contentResult, type HandlerExtra } from "../mcp/handler.js"
+import { contentResult } from "../mcp/handler.js"
+import { oneQuoteRow } from "../mcp/examples.js"
 import { MARKET_KEYWORDS, matchesKeyword, nonEmptyString, nonEmptyList, uniqueFieldList } from "../mcp/schemas.js"
+import { quoteEndpoints } from "./quote.endpoints.js"
 
 
 /** Upstream default per-request row cap on the limit-capped quote endpoints
@@ -145,15 +145,14 @@ function assertMarketMatch(
   }
 }
 
-function klineHandler(
-  client: GangtiseClient,
+function klineRun(
   endpointKey: string,
   tool: string,
   markets: Record<string, number>,
   market?: "cn" | "hk" | "us",
   noKeywordReason?: string,
-) {
-  return toolHandler(async (args: Record<string, unknown>) => {
+): ToolSpec["run"] {
+  return async ({ client }, args) => {
     assertDateOrder(args)
     const body = buildKlineBody(args)
     const accepted = Object.keys(markets)
@@ -184,7 +183,7 @@ function klineHandler(
     }
     const result = flagLimitTruncated(await client.call(endpointKey, { ...body, limit }), limit)
     return contentResult(await buildToolContent(normalizeRows(flagMissingFields(result, body.fieldList))))
-  })
+  }
 }
 
 /** 「拿到的是不是你要的那只票」——四条会直接导致错数据的识别指引。
@@ -214,12 +213,17 @@ const REALTIME_MARKETS = ["aShares", "hkStocks", "usStocks"]
 /** Fund flow is A-share only, so `aShares` is its sole whole-market keyword. */
 const FUND_FLOW_MARKETS = ["aShares"]
 
-export function registerQuoteTools(server: McpServer, client: GangtiseClient): void {
-  server.registerTool(
-    "gangtise_day_kline",
-    {
+export const quoteFamily: FamilyModule = {
+  name: "quote",
+  endpoints: quoteEndpoints,
+  tools: [
+    defineTool({
+      name: "gangtise_day_kline",
+      tier: "core",
+      access: "read",
+      endpoint: "quote.day-kline",
       description: "查询历史日 K 线数据，单接口覆盖 A股/港股/美股个股 + 沪深 ETF + 交易所指数（沪深京）+ 概念指数（.GT）+ 申万行业指数（.SWI）+ 中信行业指数（.CI）+ 20 个全球指数，可在一次请求里混着传（仅历史；盘中实时请用 gangtise_realtime）。security 传市场关键字 'aShares' / 'hkStocks' / 'usStocks' 配合 startDate/endDate 可拉取该市场全部个股（自动分片）；关键字只覆盖个股——**aShares 不含 ETF**，ETF 与各类指数都要逐个传代码。⚠️ **港股部分标的有人民币柜台**：代码首位换成 8、名字带 -R 或 -WR（中国移动港币 00941.HK / 人民币 80941.HK；阿里 09988.HK / 89988.HK）。两者**后缀相同、exchange 字段也相同、返回里没有币种字段**，价差约等于汇率、看着完全正常——要港币报价就别用 8 开头的那只（不是每只港股都有柜台）。⚠️ **本接口查指数只返代码、不返 securityName**；指数名称用 gangtise_securities_search（category=['index']）查 gtsName。返回字段含 adjustFactor 复权因子（个股与 ETF 有，指数为 null）。⚠️ **volume 的单位是「股」**（ETF 为「份」），不是「手」——按手换算会差 100 倍，而数字看着仍像个成交量、不会报错。全球指数：amount 为 null、volume 正常，tradeDate 是交易所当地日期。" + CODE_IDENTITY_WARNING,
-      inputSchema: {
+      input: {
         ...commonKlineSchema,
         // 统一工具的全市场关键字是三个市场名，不是 `all`，所以走 securityDesc 的双参形式
         // 而不是 marketSecurity（后者固定给「传 'all'」）。
@@ -228,143 +232,193 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
           "或传市场关键字 'aShares'（A股全市场）/ 'hkStocks'（港股全市场）/ 'usStocks'（美股全市场）",
         )),
       },
-      annotations: { readOnlyHint: true, openWorldHint: false },
-    },
-    async (args, extra) => klineHandler(client, "quote.day-kline", "gangtise_day_kline", KLINE_MARKETS)(args as Record<string, unknown>, extra as HandlerExtra),
-  )
-
-  server.registerTool(
-    "gangtise_day_kline_hk",
-    {
+      run: klineRun("quote.day-kline", "gangtise_day_kline", KLINE_MARKETS),
+      examples: [
+        { title: "单只：钉住 limit=6000", args: { security: "600519.SH", startDate: "2026-09-01", endDate: "2026-09-05", fieldList: ["securityCode", "tradeDate", "close"] }, expect: { requests: [{ method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["600519.SH"], startDate: "2026-09-01", endDate: "2026-09-05", fieldList: ["securityCode", "tradeDate", "close"], limit: 6000 } }] } },
+        { title: "多只且单请求装不下（4 只 × 约 1695 个交易日 > 6000）：逐只请求", args: { security: ["600519.SH", "000858.SZ", "00700.HK", "AAPL.O"], startDate: "2020-01-01", endDate: "2026-06-30" }, upstream: oneQuoteRow(), expect: { requests: [
+            { method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["000858.SZ"], startDate: "2020-01-01", endDate: "2026-06-30", limit: 6000 } },
+            { method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["00700.HK"], startDate: "2020-01-01", endDate: "2026-06-30", limit: 6000 } },
+            { method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["600519.SH"], startDate: "2020-01-01", endDate: "2026-06-30", limit: 6000 } },
+            { method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["AAPL.O"], startDate: "2020-01-01", endDate: "2026-06-30", limit: 6000 } },
+          ] } },
+        { title: "多只但装得下：一个请求", args: { security: ["600519.SH", "00700.HK"], startDate: "2026-09-01", endDate: "2026-09-30" }, expect: { requests: [{ method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["600519.SH", "00700.HK"], startDate: "2026-09-01", endDate: "2026-09-30", limit: 6000 } }] } },
+        { title: "aShares 全市场：1 天/片、跳周末、limit=10000", args: { security: "aShares", startDate: "2026-09-04", endDate: "2026-09-08" }, upstream: oneQuoteRow(), expect: { requests: [
+            { method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["aShares"], startDate: "2026-09-04", endDate: "2026-09-04", limit: 10000 } },
+            { method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["aShares"], startDate: "2026-09-07", endDate: "2026-09-07", limit: 10000 } },
+            { method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["aShares"], startDate: "2026-09-08", endDate: "2026-09-08", limit: 10000 } },
+          ] } },
+        { title: "hkStocks 全市场：2 天/片，关键字大小写归一", args: { security: "HKSTOCKS", startDate: "2026-09-07", endDate: "2026-09-10" }, upstream: oneQuoteRow(), expect: { requests: [
+            { method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["hkStocks"], startDate: "2026-09-07", endDate: "2026-09-08", limit: 10000 } },
+            { method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["hkStocks"], startDate: "2026-09-09", endDate: "2026-09-10", limit: 10000 } },
+          ] } },
+        { title: "全市场关键字与代码混传本地拒绝", args: { security: ["aShares", "600519.SH"], startDate: "2026-09-01", endDate: "2026-09-02" }, expect: { rejects: /全市场关键字必须单独传/ } },
+        { title: "all 不是本工具的关键字", args: { security: "all", startDate: "2026-09-01", endDate: "2026-09-02" }, expect: { rejects: /'all' 不是 gangtise_day_kline 的全市场关键字/ } },
+      ],
+    }),
+    defineTool({
+      name: "gangtise_day_kline_hk",
+      tier: "core",
+      access: "read",
+      endpoint: "quote.day-kline-hk",
       description: "【已被 gangtise_day_kline 覆盖，改用它】港股历史日 K 线。gangtise_day_kline 的 'hkStocks' 等价于本工具的 'all'，行数、字段与代码集合完全相同，且能与其他市场混查并对不合法后缀明确报错——没有必须用本工具的场景。",
-      inputSchema: { ...commonKlineSchema, fieldList: legacyFieldList, security: marketSecurity("港股代码，如 '00700.HK' 或 ['00700.HK','09988.HK']（5 位数字前补零）") },
-      annotations: { readOnlyHint: true, openWorldHint: false },
-    },
-    async (args, extra) => klineHandler(client, "quote.day-kline-hk", "gangtise_day_kline_hk", LEGACY_ALL(2), "hk")(args as Record<string, unknown>, extra as HandlerExtra),
-  )
-
-  server.registerTool(
-    "gangtise_day_kline_us",
-    {
+      input: { ...commonKlineSchema, fieldList: legacyFieldList, security: marketSecurity("港股代码，如 '00700.HK' 或 ['00700.HK','09988.HK']（5 位数字前补零）") },
+      run: klineRun("quote.day-kline-hk", "gangtise_day_kline_hk", LEGACY_ALL(2), "hk"),
+      examples: [
+        { title: "港股代码", args: { security: "00700.HK", startDate: "2026-09-01", endDate: "2026-09-05" }, expect: { requests: [{ method: "POST", path: "/application/open-quote/kline-hk/daily", body: { securityList: ["00700.HK"], startDate: "2026-09-01", endDate: "2026-09-05", limit: 6000 } }] } },
+        { title: "all：2 天/片", args: { security: "all", startDate: "2026-09-07", endDate: "2026-09-10" }, upstream: oneQuoteRow(), expect: { requests: [
+            { method: "POST", path: "/application/open-quote/kline-hk/daily", body: { securityList: ["all"], startDate: "2026-09-07", endDate: "2026-09-08", limit: 10000 } },
+            { method: "POST", path: "/application/open-quote/kline-hk/daily", body: { securityList: ["all"], startDate: "2026-09-09", endDate: "2026-09-10", limit: 10000 } },
+          ] } },
+        { title: "美股代码本地拒绝", args: { security: "AAPL.O" }, expect: { rejects: /是美股代码/ } },
+      ],
+    }),
+    defineTool({
+      name: "gangtise_day_kline_us",
+      tier: "core",
+      access: "read",
+      endpoint: "quote.day-kline-us",
       description: "【已被 gangtise_day_kline 覆盖，改用它】美股历史日 K 线（NYSE/NASDAQ/AMEX）。gangtise_day_kline 的 'usStocks' 等价于本工具的 'all'，行数、字段与代码集合完全相同，且能与其他市场混查并对不合法后缀明确报错——没有必须用本工具的场景。",
-      inputSchema: { ...commonKlineSchema, fieldList: legacyFieldList, security: marketSecurity("美股代码，如 'AAPL.O' 或 ['AAPL.O','BRK_B.N']（.O=NASDAQ / .N=NYSE / .A=AMEX）。⚠️ **多股份类别的写法不统一，别自己拼**：有的把类别字母并进 ticker（福克斯 = FOXA.O / FOX.O），有的用下划线（伯克希尔 = BRK_A.N / BRK_B.N），**还有的 A 类根本不带标记**（Bio-Rad A = BIO.N、B = BIO_B.N）。拼错**不一定返空**——也可能命中同一家公司的另一个类别（哈弗蒂 HVT.N 与 HVT_A.N 都真实存在、价格不同），拿到一个完全合理的错数。按公司名查确切代码见下") },
-      annotations: { readOnlyHint: true, openWorldHint: false },
-    },
-    async (args, extra) => klineHandler(client, "quote.day-kline-us", "gangtise_day_kline_us", LEGACY_ALL(1), "us")(args as Record<string, unknown>, extra as HandlerExtra),
-  )
-
-  server.registerTool(
-    "gangtise_index_day_kline",
-    {
+      input: { ...commonKlineSchema, fieldList: legacyFieldList, security: marketSecurity("美股代码，如 'AAPL.O' 或 ['AAPL.O','BRK_B.N']（.O=NASDAQ / .N=NYSE / .A=AMEX）。⚠️ **多股份类别的写法不统一，别自己拼**：有的把类别字母并进 ticker（福克斯 = FOXA.O / FOX.O），有的用下划线（伯克希尔 = BRK_A.N / BRK_B.N），**还有的 A 类根本不带标记**（Bio-Rad A = BIO.N、B = BIO_B.N）。拼错**不一定返空**——也可能命中同一家公司的另一个类别（哈弗蒂 HVT.N 与 HVT_A.N 都真实存在、价格不同），拿到一个完全合理的错数。按公司名查确切代码见下") },
+      run: klineRun("quote.day-kline-us", "gangtise_day_kline_us", LEGACY_ALL(1), "us"),
+      examples: [
+        { title: "美股代码", args: { security: "AAPL.O", startDate: "2026-09-01", endDate: "2026-09-05", limit: 100 }, expect: { requests: [{ method: "POST", path: "/application/open-quote/kline-us/daily", body: { securityList: ["AAPL.O"], startDate: "2026-09-01", endDate: "2026-09-05", limit: 100 } }] } },
+        { title: "港股代码本地拒绝", args: { security: "00700.HK" }, expect: { rejects: /是港股代码/ } },
+      ],
+    }),
+    defineTool({
+      name: "gangtise_index_day_kline",
+      tier: "core",
+      access: "read",
+      endpoint: "quote.index-day-kline",
       description: "查询指数日 K 线数据（沪深京交易所指数如 000001.SH 上证指数、399001.SZ 深成指，也支持概念指数 .GT 与行业指数 .CI/.SWI）。gangtise_day_kline 收同样的指数代码、还能与个股混查。返回不含指数名称，名称用 gangtise_securities_search（category=['index']）查 gtsName。本工具没有全市场关键字，多个指数逐个列出代码。⚠️ 本工具只收指数代码：传个股代码（哪怕是有效的，如 600519.SH）返回空列表而不报错，别把它读成「这只票没数据」；无效代码同样返空。核对代码请用 gangtise_securities_search 按公司名/简称查，并同时核对返回的 gtsName 与 gtsCode 后缀（A+H 两地上市名字逐字相同，只有后缀能区分）。",
-      inputSchema: { ...commonKlineSchema, security: z.union([nonEmptyString, nonEmptyList()]).optional().describe("指数代码，单个或多个，如 '000001.SH'（上证指数）/ '399001.SZ'（深成指）/ '821026.CI'（中信行业）/ '801780.SWI'（申万银行）") },
-      annotations: { readOnlyHint: true, openWorldHint: false },
-    },
-    // 不收任何全市场关键字：本端点对 'all' 返回 000000 + 空列表（不报错），读起来像「没有数据」。
-    async (args, extra) => klineHandler(client, "quote.index-day-kline", "gangtise_index_day_kline", {}, undefined, "本接口对 'all' 返回空结果而不报错。请逐个传指数代码。")(args as Record<string, unknown>, extra as HandlerExtra),
-  )
-
-  server.registerTool(
-    "gangtise_minute_kline",
-    {
+      input: { ...commonKlineSchema, security: z.union([nonEmptyString, nonEmptyList()]).optional().describe("指数代码，单个或多个，如 '000001.SH'（上证指数）/ '399001.SZ'（深成指）/ '821026.CI'（中信行业）/ '801780.SWI'（申万银行）") },
+      // 不收任何全市场关键字：本端点对 'all' 返回 000000 + 空列表（不报错），读起来像「没有数据」。
+      run: klineRun("quote.index-day-kline", "gangtise_index_day_kline", {}, undefined, "本接口对 'all' 返回空结果而不报错。请逐个传指数代码。"),
+      examples: [
+        { title: "单个指数", args: { security: "000001.SH", startDate: "2026-09-01", endDate: "2026-09-05" }, expect: { requests: [{ method: "POST", path: "/application/open-quote/index/kline/daily", body: { securityList: ["000001.SH"], startDate: "2026-09-01", endDate: "2026-09-05", limit: 6000 } }] } },
+        { title: "all 本地拒绝（本端点对 all 返回空结果）", args: { security: "all", startDate: "2026-08-01", endDate: "2026-08-31" }, expect: { rejects: /没有全市场关键字/ } },
+      ],
+    }),
+    defineTool({
+      name: "gangtise_minute_kline",
+      tier: "core",
+      access: "read",
+      endpoint: "quote.minute-kline",
       description: "查询分钟级 K 线数据：A 股个股、沪深 ETF、各类指数（含 20 个全球指数，其 volume / amount 为 null、tradeTime 是交易所当地时间）。security 可传多只（逐只请求后按传入顺序合并，每只各自受 limit 约束，撞上限的证券标 _partial + _truncated_securities）。⚠️ **volume 的单位是「股」**（ETF 为「份」），不是「手」——按手换算会差 100 倍且不报错。",
-      inputSchema: {
+      input: {
         security: z.union([nonEmptyString, nonEmptyList()]).describe("证券代码，单只（'600519.SH'）或多只（['600519.SH','512800.SH','SPX.SPI']）"),
         startTime: dateTimeString.optional(),
         endTime: dateTimeString.optional(),
         limit: z.number().int().min(1).max(10_000).optional().describe("最大返回行数（默认 6000，最大 10000）。返回行数撞上限时结果标 _partial（可能被截断）；多只时作用于每一只"),
         fieldList: uniqueFieldList(`指定返回字段，如 ['securityCode','tradeTime','open','close','volume']。${FIELD_LIST_NOTE("securityCode / tradeTime")}`),
       },
-      annotations: { readOnlyHint: true, openWorldHint: false },
-    },
-    toolHandler(async ({ security, startTime, endTime, limit, fieldList }: Record<string, unknown>) => {
-      assertDateOrder({ startTime, endTime })
-      const body: Record<string, unknown> = {}
-      if (startTime) body.startTime = startTime
-      if (endTime) body.endTime = endTime
-      // Pin the row cap so limit-truncation detection is exact regardless of any
-      // server-default drift (mirrors CLI DEFAULT_QUOTE_LIMIT).
-      const effLimit = (limit as number | undefined) ?? DEFAULT_QUOTE_LIMIT
-      body.limit = effLimit
-      if (fieldList) body.fieldList = fieldList
-      const securities = Array.isArray(security) ? (security as string[]) : [security as string]
-      // 接口一次只收一只（securityCode），多只在本地逐只请求再合并。
-      const result = securities.length > 1
-        ? await callKlinePerSecurity(client, "quote.minute-kline", securities, (code) => ({ ...body, securityCode: code }), effLimit)
-        : flagLimitTruncated(await client.call("quote.minute-kline", { ...body, securityCode: securities[0] }), effLimit)
-      return contentResult(await buildToolContent(normalizeRows(flagMissingFields(result, fieldList))))
+      run: async ({ client }, { security, startTime, endTime, limit, fieldList }) => {
+        assertDateOrder({ startTime, endTime })
+        const body: Record<string, unknown> = {}
+        if (startTime) body.startTime = startTime
+        if (endTime) body.endTime = endTime
+        // Pin the row cap so limit-truncation detection is exact regardless of any
+        // server-default drift (mirrors CLI DEFAULT_QUOTE_LIMIT).
+        const effLimit = (limit as number | undefined) ?? DEFAULT_QUOTE_LIMIT
+        body.limit = effLimit
+        if (fieldList) body.fieldList = fieldList
+        const securities = Array.isArray(security) ? (security as string[]) : [security as string]
+        // 接口一次只收一只（securityCode），多只在本地逐只请求再合并。
+        const result = securities.length > 1
+          ? await callKlinePerSecurity(client, "quote.minute-kline", securities, (code) => ({ ...body, securityCode: code }), effLimit)
+          : flagLimitTruncated(await client.call("quote.minute-kline", { ...body, securityCode: securities[0] }), effLimit)
+        return contentResult(await buildToolContent(normalizeRows(flagMissingFields(result, fieldList))))
+      },
+      examples: [
+        { title: "单只：securityCode 标量", args: { security: "600519.SH", startTime: "2026-09-01 09:30:00", endTime: "2026-09-01 15:00:00" }, expect: { requests: [{ method: "POST", path: "/application/open-quote/kline/minute", body: { startTime: "2026-09-01 09:30:00", endTime: "2026-09-01 15:00:00", limit: 6000, securityCode: "600519.SH" } }] } },
+        { title: "多只：逐只请求", args: { security: ["600519.SH", "512800.SH"], startTime: "2026-09-01 09:30:00", endTime: "2026-09-01 15:00:00", limit: 500 }, upstream: oneQuoteRow(), expect: { requests: [
+            { method: "POST", path: "/application/open-quote/kline/minute", body: { startTime: "2026-09-01 09:30:00", endTime: "2026-09-01 15:00:00", limit: 500, securityCode: "512800.SH" } },
+            { method: "POST", path: "/application/open-quote/kline/minute", body: { startTime: "2026-09-01 09:30:00", endTime: "2026-09-01 15:00:00", limit: 500, securityCode: "600519.SH" } },
+          ] } },
+      ],
     }),
-  )
-
-  server.registerTool(
-    "gangtise_realtime",
-    {
+    defineTool({
+      name: "gangtise_realtime",
+      tier: "core",
+      access: "read",
+      endpoint: "quote.realtime",
       description: "查询实时行情快照，单接口覆盖 A 股 / 港股 / 美股个股 + 沪深 ETF + 各类指数（含 20 个全球指数），可代码混合传入。非交易时间返回最近一个交易日的收盘快照；停牌证券返回停牌前最后一个有效快照。日 K 线接口（day-kline*）不含盘中数据，问\"现在/此刻\"请走本工具。⚠️ **volume 的单位是「股」**（ETF 为「份」），不是「手」——按手换算会差 100 倍且不报错。**全部字段仅这 15 个：securityCode/exchange/tradeDate/tradeTime/tradeStatus/open/high/low/latestPrice(最新价)/preClose(昨收)/change/pctChange/volume/amount/amplitude——没有 close、没有市值，也没有 turnoverRate / volumeRatio**（传了会连字段名一起被静默丢掉；换手率走 gangtise_indicator_cross_section 的 qte_turn，A 股）；总市值请用 gangtise_indicator_cross_section 的 qte_mkt_cptl（A/港/美股均有数，默认返「元」，用 scale 缩放）。tradeStatus（未开市/连续竞价/收盘/停牌…）仅 A 股 / 港股个股有值，其余为 null。为 null 的字段：美股 amount（要美股成交额用 gangtise_day_kline 或 EDE qte_amt）；全球指数 volume / amount / amplitude。tradeDate / tradeTime：A 股 / 港股 / ETF / 沪深各类指数为北京时间，**美股与全球指数是交易所当地时间**（美股收盘快照的 tradeTime 是 16:00）。" + CODE_IDENTITY_WARNING,
-      inputSchema: {
+      input: {
         security: z.union([nonEmptyString, nonEmptyList()]).optional().describe("证券代码或全市场关键字：单/多只代码（'600519.SH' / ['600519.SH','00700.HK','AAPL.O','512800.SH','SPX.SPI']，沪深 ETF .SH/.SZ、交易所指数 .SH/.SZ/.BJ、概念指数 .GT、申万行业指数 .SWI（801xxx.SWI）、中信行业指数 .CI（821xxx.CI）、全球指数按数据源后缀照抄（SPX.SPI / DJI.SPI / IXIC.O / N225.NKI / HSI.HI / FTSE.FI / GDAXI.FRA 等 20 个）也可传），或市场关键字 'aShares' / 'hkStocks' / 'usStocks' 拉取全市场（关键字须单独传，不能与证券代码或另一个关键字混传；关键字只覆盖个股——指数没有全市场关键字，aShares 也不含 ETF）。"),
         fieldList: uniqueFieldList(`【默认不传 = 返回全量字段，最稳】仅当用户明确要精简、或查全市场（aShares/hkStocks/usStocks）想省 token 时才传。示例：['securityCode','tradeDate','tradeTime','latestPrice','pctChange','volume']。**只传本工具真实存在的 15 个字段名**（见描述；注意没有 close、turnoverRate、volumeRatio）。${FIELD_LIST_NOTE("securityCode（需要时点再加 tradeDate / tradeTime）")}`),
       },
-      annotations: { readOnlyHint: true, openWorldHint: false },
-    },
-    toolHandler(async ({ security, fieldList }: Record<string, unknown>) => {
-      const body: Record<string, unknown> = {}
-      if (security) {
-        const list = Array.isArray(security) ? security as string[] : [security as string]
-        // Realtime rejects a keyword sent alongside codes with a bare 120001 that points
-        // at the codes rather than at the combination — catch it here instead.
-        assertMarketKeywords(list, REALTIME_MARKETS, "gangtise_realtime")
-        body.securityList = canonicalizeKeywords(list, REALTIME_MARKETS)
-      }
-      if (fieldList) body.fieldList = fieldList
-      const result = await client.call("quote.realtime", body)
-      return contentResult(await buildToolContent(normalizeRows(flagMissingFields(result, fieldList))))
+      run: async ({ client }, { security, fieldList }) => {
+        const body: Record<string, unknown> = {}
+        if (security) {
+          const list = Array.isArray(security) ? security as string[] : [security as string]
+          // Realtime rejects a keyword sent alongside codes with a bare 120001 that points
+          // at the codes rather than at the combination — catch it here instead.
+          assertMarketKeywords(list, REALTIME_MARKETS, "gangtise_realtime")
+          body.securityList = canonicalizeKeywords(list, REALTIME_MARKETS)
+        }
+        if (fieldList) body.fieldList = fieldList
+        const result = await client.call("quote.realtime", body)
+        return contentResult(await buildToolContent(normalizeRows(flagMissingFields(result, fieldList))))
+      },
+      examples: [
+        { title: "混合市场 + fieldList", args: { security: ["600519.SH", "00700.HK", "AAPL.O"], fieldList: ["securityCode", "latestPrice"] }, expect: { requests: [{ method: "POST", path: "/application/open-quote/quote/realtime", body: { securityList: ["600519.SH", "00700.HK", "AAPL.O"], fieldList: ["securityCode", "latestPrice"] } }] } },
+        { title: "全市场关键字大小写归一", args: { security: "usstocks" }, expect: { requests: [{ method: "POST", path: "/application/open-quote/quote/realtime", body: { securityList: ["usStocks"] } }] } },
+      ],
     }),
-  )
-
-  server.registerTool(
-    "gangtise_fund_flow",
-    {
+    defineTool({
+      name: "gangtise_fund_flow",
+      tier: "core",
+      access: "read",
+      endpoint: "quote.fund-flow",
       description: "查询 A 股个股日资金流向（沪深北），含小/中/大/特大单流入流出金额及占比、主力净流入等字段。security='aShares' 配合 startDate/endDate 拉取全市场（自动按 1 天/片分片）。",
-      inputSchema: {
+      input: {
         security: z.union([nonEmptyString, nonEmptyList()]).optional().describe("A 股证券代码（沪深北），如 '600519.SH' 或 ['600519.SH','000858.SZ']；传 'aShares' 拉取全市场（关键字须单独传，不能与证券代码混传——混传时本接口会丢掉关键字只返那几只，不报错；须同时提供 startDate 和 endDate，自动按日分片）"),
         startDate: dateString.optional(),
         endDate: dateString.optional(),
         limit: z.number().int().min(1).max(10_000).optional().describe("单次请求最大返回行数（默认 6000，最大 10000）。截取从查询窗口开头开始——取「最近 N 条」须传日期区间；返回行数撞上限时结果标 _partial（可能被截断）；全市场分片时该值作用于每个分片"),
         fieldList: uniqueFieldList("指定返回字段，如 ['mainNetInflow','largeInflow','xlargeOutflow']；省略返回全部。本接口会自动附带 securityCode / tradeDate；名字写错不报错、只少一列并标 missingFields"),
       },
-      annotations: { readOnlyHint: true, openWorldHint: false },
-    },
-    toolHandler(async (args: Record<string, unknown>) => {
-      assertDateOrder(args)
-      const body = buildKlineBody(args)
-      // This guard matters MORE here than on the K-line tools, not less: mixing the
-      // keyword with codes does not even fail upstream — the keyword is silently
-      // dropped and only the explicit codes come back, so "whole market plus this one"
-      // quietly becomes "only this one".
-      assertMarketKeywords(body.securityList, FUND_FLOW_MARKETS, "gangtise_fund_flow")
-      body.securityList = canonicalizeKeywords(body.securityList, FUND_FLOW_MARKETS)
-      const isFullMarket = body.securityList?.length === 1 && body.securityList[0] === "aShares"
-      // fund-flow is A-share only (沪深北). Reject an obvious HK/US code before it
-      // reaches the A-share endpoint and returns a silent empty list that reads as
-      // "no data" — the costliest silent error here. Distinct hint: there is no HK/US
-      // fund-flow tool to redirect to.
-      assertMarketMatch(body.securityList, "cn", {
-        message: (code, codeMarket) => `资金流向仅支持 A 股（沪深北）代码，'${code}' 是${MARKET_LABEL[codeMarket]}代码。`,
-      })
-      if (isFullMarket) {
-        // Full-market fund-flow: upstream errors instead of truncating when a
-        // single request exceeds the row cap, so it must day-shard — which needs
-        // an explicit range. Without both dates, reject up front (mirrors CLI).
-        if (!body.startDate || !body.endDate) {
-          throw new ValidationError("security='aShares' 全市场资金流向须同时提供 startDate 和 endDate（按日分片拉取）")
+      run: async ({ client }, args) => {
+        assertDateOrder(args)
+        const body = buildKlineBody(args)
+        // This guard matters MORE here than on the K-line tools, not less: mixing the
+        // keyword with codes does not even fail upstream — the keyword is silently
+        // dropped and only the explicit codes come back, so "whole market plus this one"
+        // quietly becomes "only this one".
+        assertMarketKeywords(body.securityList, FUND_FLOW_MARKETS, "gangtise_fund_flow")
+        body.securityList = canonicalizeKeywords(body.securityList, FUND_FLOW_MARKETS)
+        const isFullMarket = body.securityList?.length === 1 && body.securityList[0] === "aShares"
+        // fund-flow is A-share only (沪深北). Reject an obvious HK/US code before it
+        // reaches the A-share endpoint and returns a silent empty list that reads as
+        // "no data" — the costliest silent error here. Distinct hint: there is no HK/US
+        // fund-flow tool to redirect to.
+        assertMarketMatch(body.securityList, "cn", {
+          message: (code, codeMarket) => `资金流向仅支持 A 股（沪深北）代码，'${code}' 是${MARKET_LABEL[codeMarket]}代码。`,
+        })
+        if (isFullMarket) {
+          // Full-market fund-flow: upstream errors instead of truncating when a
+          // single request exceeds the row cap, so it must day-shard — which needs
+          // an explicit range. Without both dates, reject up front (mirrors CLI).
+          if (!body.startDate || !body.endDate) {
+            throw new ValidationError("security='aShares' 全市场资金流向须同时提供 startDate 和 endDate（按日分片拉取）")
+          }
+          const result = await callKlineWithSharding(client, "quote.fund-flow", body, { shardDays: 1, fullMarketValue: "aShares", tool: "gangtise_fund_flow" })
+          return contentResult(await buildToolContent(normalizeRows(flagMissingFields(result, body.fieldList))))
         }
-        const result = await callKlineWithSharding(client, "quote.fund-flow", body, { shardDays: 1, fullMarketValue: "aShares", tool: "gangtise_fund_flow" })
-        return contentResult(await buildToolContent(normalizeRows(flagMissingFields(result, body.fieldList))))
-      }
-      // Pin the row cap so limit-truncation detection is exact (mirrors CLI DEFAULT_QUOTE_LIMIT).
-      const limit = body.limit ?? DEFAULT_QUOTE_LIMIT
-      const flagged = flagLimitTruncated(await client.call("quote.fund-flow", { ...body, limit }), limit)
-      return contentResult(await buildToolContent(normalizeRows(flagMissingFields(flagged, body.fieldList))))
+        // Pin the row cap so limit-truncation detection is exact (mirrors CLI DEFAULT_QUOTE_LIMIT).
+        const limit = body.limit ?? DEFAULT_QUOTE_LIMIT
+        const flagged = flagLimitTruncated(await client.call("quote.fund-flow", { ...body, limit }), limit)
+        return contentResult(await buildToolContent(normalizeRows(flagMissingFields(flagged, body.fieldList))))
+      },
+      examples: [
+        { title: "单只", args: { security: "600519.SH", startDate: "2026-09-01", endDate: "2026-09-05" }, expect: { requests: [{ method: "POST", path: "/application/open-quote/fund-flow/daily", body: { securityList: ["600519.SH"], startDate: "2026-09-01", endDate: "2026-09-05", limit: 6000 } }] } },
+        { title: "aShares 全市场：1 天/片", args: { security: "aShares", startDate: "2026-09-04", endDate: "2026-09-07" }, upstream: oneQuoteRow(), expect: { requests: [
+            { method: "POST", path: "/application/open-quote/fund-flow/daily", body: { securityList: ["aShares"], startDate: "2026-09-04", endDate: "2026-09-04", limit: 10000 } },
+            { method: "POST", path: "/application/open-quote/fund-flow/daily", body: { securityList: ["aShares"], startDate: "2026-09-07", endDate: "2026-09-07", limit: 10000 } },
+          ] } },
+        { title: "全市场缺日期本地拒绝", args: { security: "aShares", startDate: "2026-09-04" }, expect: { rejects: /须同时提供 startDate 和 endDate/ } },
+        { title: "港股代码本地拒绝", args: { security: "00700.HK" }, expect: { rejects: /仅支持 A 股/ } },
+      ],
     }),
-  )
+  ],
 }

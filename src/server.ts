@@ -5,17 +5,8 @@ import type { GangtiseClient } from "./core/client.js"
 import { DEFAULT_ASYNC_TIMEOUT_MS } from "./core/config.js"
 import { dateContextInstruction } from "./core/dateContext.js"
 import { getPackageVersion } from "./core/version.js"
-import { registerContextTools } from "./tools/context.js"
-import { registerLookupTools } from "./tools/lookup.js"
-import { registerReferenceTools } from "./tools/reference.js"
-import { registerInsightTools } from "./tools/insight.js"
-import { registerQuoteTools } from "./tools/quote.js"
-import { registerFundamentalTools } from "./tools/fundamental.js"
-import { registerAiTools } from "./tools/ai.js"
-import { registerVaultTools } from "./tools/vault.js"
-import { registerAlternativeTools } from "./tools/alternative.js"
-import { registerIndicatorTools } from "./tools/indicator.js"
-import { registerResponseTools } from "./tools/response.js"
+import { registerFamilies } from "./mcp/register.js"
+import { createFamilies } from "./tools/index.js"
 
 /**
  * 路由总则。分层原则：这里放两类东西——「哪类问题找哪族工具」，以及**出现在 ≥10 个工具
@@ -58,12 +49,10 @@ const ROUTING_INSTRUCTIONS = `以下为全局默认，**工具/参数自带描�
  * `startDate`/`endDate`（服务端换了它接受的字段名），沿用旧名的调用方因此静默拿到
  * 12.8 万行全库切片而不是一周排期。
  *
- * 为什么拦在 server 层而不是逐个注册点改：直接 `server.registerTool` 的调用点有 27 个
- * 分散在 12 个文件里，漏一个就是一个静默剥参的工具，且将来新增工具还会再漏。这里拦
- * 一次，全部覆盖并自动继承。
+ * 各族工具经 mcp/register.ts 注册时已收成 strict；这里是兜底：将来任何绕过它、直接
+ * `server.registerTool` 的调用点，也不会漏成一个静默剥参的工具。
  *
- * 幂等：已经是 Zod schema 的（`registerJsonTool` / `registerDownloadTool` 自己包过）
- * 原样放行，不会二次包裹。
+ * 幂等：已经是 Zod schema 的原样放行，不会二次包裹。
  *
  * `registerTool` 的 `inputSchema` 接受 `ZodRawShapeCompat | AnySchema`（1.29.0 起就
  * 是这个签名，核对过 1.29.0 的类型定义——**升级到 1.30 是为了修 audit 漏洞，不是为了
@@ -186,17 +175,7 @@ export function createGangtiseMcpServer(
   normalizePublishedSchemas(server)
   const asyncTimeoutMs = options.asyncTimeoutMs ?? DEFAULT_ASYNC_TIMEOUT_MS
 
-  registerContextTools(server, client)
-  registerLookupTools(server, client)
-  registerReferenceTools(server, client)
-  registerInsightTools(server, client)
-  registerQuoteTools(server, client)
-  registerFundamentalTools(server, client)
-  registerAiTools(server, client, { asyncTimeoutMs })
-  registerVaultTools(server, client)
-  registerAlternativeTools(server, client)
-  registerIndicatorTools(server, client)
-  registerResponseTools(server, client)
+  registerFamilies(server, client, createFamilies({ asyncTimeoutMs }))
 
   return server
 }

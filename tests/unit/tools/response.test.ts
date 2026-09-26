@@ -6,7 +6,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
-import { registerResponseTools, TEXT_CHUNK_CHARS, pageNote, fitByBytes, spillReadCount, resetSpillReadCount, spillScanCount, resetSpillScanCount } from "../../../src/tools/response.js"
+import { responseFamily, TEXT_CHUNK_CHARS, pageNote, fitByBytes, spillReadCount, resetSpillReadCount, spillScanCount, resetSpillScanCount } from "../../../src/tools/response.js"
+import { registerFamilies } from "../../../src/mcp/register.js"
 import { buildToolContent } from "../../../src/core/present.js"
 import { createManagedTempDir, enforceOwnedTempQuota, resetOwnedTempDirs, setMaxOwnedTempDirsForTests, MAX_OWNED_TEMP_DIRS } from "../../../src/core/tempCleanup.js"
 import { INLINE_MAX_BYTES } from "../../../src/core/config.js"
@@ -24,7 +25,7 @@ const mockClient = { call: async () => ({}), download: async () => ({}) } as unk
 
 async function makeConnectedPair() {
   const server = new McpServer({ name: "test", version: "0.0.0" })
-  registerResponseTools(server, mockClient)
+  registerFamilies(server, mockClient, [responseFamily])
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
   await server.connect(serverTransport)
   const client = new Client({ name: "test", version: "0.0.1" })

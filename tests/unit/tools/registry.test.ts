@@ -6,7 +6,9 @@ import { z } from "zod"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
-import { registerJsonTool, registerDownloadTool, sanitizeArgs } from "../../../src/tools/registry.js"
+import { defineDownloadTool, defineJsonTool, sanitizeArgs, type DownloadToolSpec, type JsonToolSpec } from "../../../src/mcp/define.js"
+import type { Examples } from "../../../src/mcp/examples.js"
+import { registerTools } from "../../../src/mcp/register.js"
 import { buildToolContent, buildTextResult, buildTextPointer } from "../../../src/core/present.js"
 import { INLINE_MAX_BYTES } from "../../../src/core/config.js"
 import { ownedTempDirCount, ownedTempBookkeepingSizes, resetOwnedTempDirs } from "../../../src/core/tempCleanup.js"
@@ -19,6 +21,13 @@ function makeMockClient(responseData: unknown = { list: [{ id: "1" }], total: 1 
     download: vi.fn(),
   } as unknown as GangtiseClient
 }
+
+// 这里只测工厂与注册的行为，示例由契约测试覆盖。
+const NO_EXAMPLES: Examples = [{ title: "unused", args: {}, expect: { requests: [] } }]
+const registerJsonTool = (server: McpServer, client: GangtiseClient, spec: Omit<JsonToolSpec, "tier" | "examples">) =>
+  registerTools(server, client, [defineJsonTool({ tier: "core", examples: NO_EXAMPLES, ...spec })])
+const registerDownloadTool = (server: McpServer, client: GangtiseClient, spec: Omit<DownloadToolSpec, "tier" | "examples">) =>
+  registerTools(server, client, [defineDownloadTool({ tier: "core", examples: NO_EXAMPLES, ...spec })])
 
 async function makeConnectedPair(server: McpServer) {
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
@@ -356,7 +365,7 @@ describe("registerJsonTool", () => {
       name: "gangtise_opinion_list",
       description: "Test",
       endpointKey: "insight.opinion.list",
-      paginated: false,
+      paginated: true,
       inputSchema: {},
     })
     const mcpClient = await makeConnectedPair(server)

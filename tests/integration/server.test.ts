@@ -825,7 +825,7 @@ describe("strict input schemas", () => {
     return { mcp, client }
   }
 
-  // 三条注册路径各取一个：registerJsonTool / registerDownloadTool / 直接 server.registerTool。
+  // 三种定义方式各取一个：defineJsonTool / defineDownloadTool / defineTool。
   it.each([
     ["registry-driven", "gangtise_research_list", { keyword: "茅台", bogusKey: "x" }],
     ["download", "gangtise_research_download", { reportId: "1", bogusKey: "x" }],
