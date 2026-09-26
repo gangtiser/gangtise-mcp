@@ -5,11 +5,11 @@ import { assertDateOrder } from "./registry.js"
 import { buildToolContent } from "../core/present.js"
 import { toolHandler, contentResult } from "./helpers.js"
 import { normalizeRows } from "../core/normalize.js"
+import { unwrapPayload } from "../core/shape.js"
 import { markPartial, type PartialReason } from "../core/partial.js"
 import { resolveCalendarType } from "../core/calendarType.js"
 import { estimateTradingDays } from "../core/quoteSharding.js"
 import {
-  unwrapIndicatorData,
   requireIndicatorMatrix,
   isEmptyMatrix,
   droppedFromMatrix,
@@ -109,7 +109,7 @@ export const EDE_EMPTY_HINT =
  * 调用方引去查指标参数与日期语义，而那和 search 无关。
  * `indicator.search keeps the generic 999999 hint` 反向钉住这一点。 */
 async function callIndicator(client: GangtiseClient, endpointKey: string, body: Record<string, unknown>): Promise<unknown> {
-  return unwrapIndicatorData(await client.call(endpointKey, body))
+  return unwrapPayload(endpointKey, await client.call(endpointKey, body))
 }
 
 /** Raw matrix call: keep the envelope until requireIndicatorMatrix has validated

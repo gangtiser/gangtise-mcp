@@ -22,6 +22,11 @@ export interface EndpointDefinition {
    *  "list"：成功响应必是 `{…, list: [...]}`；`{total: 0, list: null}` 是合法的零行写法，照常放行。
    *  "array"：成功响应必是裸数组。形状不符不能读成「零行」——那会把一次异常当成正常的空结果。 */
   expects?: "list" | "array"
+  /** "double"：`data` 里还包着一层 `{code, status, data}`（EDE），由 shape.ts 的 unwrapPayload 剥掉，
+   *  内层失败码照常抛出。缺省为单层信封。 */
+  envelope?: "single" | "double"
+  /** 以错误码表示「零行」的端点：这些码收成 `{total: 0, list: []}`，不当错误抛出。 */
+  emptyCodes?: string[]
   /** "no-replay": never resend a request the server may have executed — set
    * where a transport-level replay re-bills or duplicates a job. This is a
    * REPLAY-SAFETY marker, not a billing-model one: ai.hot-topic carries it and
@@ -930,6 +935,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     kind: "json",
     description: "Search data indicators by keyword (returns indicatorCode + params)",
     retry: "no-999999",
+    envelope: "double",
   },
   "indicator.cross-section": {
     key: "indicator.cross-section",
@@ -938,6 +944,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     kind: "json",
     description: "Get cross-section data (multi-indicator x multi-security, single date)",
     retry: "no-999999",
+    envelope: "double",
   },
   "indicator.time-series": {
     key: "indicator.time-series",
@@ -946,6 +953,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     kind: "json",
     description: "Get time-series data (multi-indicator x single-security OR single-indicator x multi-security)",
     retry: "no-999999",
+    envelope: "double",
   },
   // Note the path: the screener sits directly under open-indicator, NOT under
   // the EDE/ prefix its three siblings share.
@@ -956,5 +964,6 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     kind: "json",
     description: "Screen securities by an expression over indicator values (条件选股)",
     retry: "no-999999",
+    envelope: "double",
   },
 }

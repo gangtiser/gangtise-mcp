@@ -1,5 +1,5 @@
 import type { GangtiseClient } from "./client.js"
-import { unwrapIndicatorData } from "./indicatorMatrix.js"
+import { unwrapPayload } from "./shape.js"
 import { currentSignal } from "./requestContext.js"
 import { runWithConcurrency } from "./transport.js"
 
@@ -80,7 +80,7 @@ export function clearCalendarTypeCacheForTests(): void {
  *  ——关键词搜索会连近似项一起返回。 */
 async function findIndicator(client: GangtiseClient, code: string): Promise<Record<string, unknown> | undefined> {
   const raw = await client.call("indicator.search", { keyword: code, limit: 100 })
-  const data = unwrapIndicatorData(raw)
+  const data = unwrapPayload("indicator.search", raw)
   const list = Array.isArray(data) ? data : (data as { list?: unknown })?.list
   if (!Array.isArray(list)) return undefined
   return list.find((item): item is Record<string, unknown> =>
