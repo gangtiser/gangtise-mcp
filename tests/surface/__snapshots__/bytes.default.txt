@@ -1,5 +1,5 @@
 tools: 102
-tools/list bytes: 148480
+tools/list bytes: 148591
 instructions bytes: 2468
 
    396  gangtise_current_date
@@ -63,7 +63,7 @@ instructions bytes: 2468
   1217  gangtise_income_statement_us
   1220  gangtise_balance_sheet_us
   1216  gangtise_cash_flow_us
-  1471  gangtise_valuation_analysis
+  1582  gangtise_valuation_analysis
    886  gangtise_stock_summary
   1826  gangtise_knowledge_batch
   1446  gangtise_security_clue_list

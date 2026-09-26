@@ -1,0 +1,26 @@
+{
+  "isError": false,
+  "result": {
+    "total": 3,
+    "list": [
+      {
+        "tradeDate": "2026-09-01",
+        "value": 25.1,
+        "percentileRank": 0.31
+      },
+      {
+        "tradeDate": "2026-09-02",
+        "value": 25,
+        "percentileRank": 0.3
+      },
+      {
+        "tradeDate": "2026-09-03",
+        "value": 24.8,
+        "percentileRank": 0.29
+      }
+    ],
+    "_partial": true,
+    "_partial_reason": "limit_truncated",
+    "_hint": "返回行数撞满 limit（3）：本接口每个自然日一行（含周末），超出时保留最近的行，缺的是区间开头（本次从 2026-09-01 开始）。把 limit 调到区间天数以上（一年约 366 行），或把 startDate 往后挪。"
+  }
+}

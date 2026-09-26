@@ -4042,7 +4042,7 @@
         "limit": {
           "type": "integer",
           "minimum": 1,
-          "description": "最大返回行数（默认 2000）"
+          "description": "最大返回行数（默认 2000）。每个自然日一行（含周末），超出时保留最近的行、丢掉区间开头，撞满标 _partial"
         },
         "skipNull": {
           "type": "boolean",

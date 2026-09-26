@@ -57,6 +57,42 @@ const mainBusinessFieldList = z
   .refine((v) => new Set(v).size === v.length, "fieldList 不能重复：同名字段在按位置拍平时会相互覆盖，导致静默少一列")
   .optional()
   .describe(`指定返回字段，只认这 15 个主营字段：${MAIN_BUSINESS_FIELD_NAMES.join(" / ")}。不确定就不传`)
+/** 估值序列每个自然日一行（含周末）、升序。limit 显式下发：省略时服务端按同一个默认值截断，
+ *  且保留的是**最近**的行——十年区间会静默只剩最后 2000 天，看起来像一份完整序列。 */
+const VALUATION_DEFAULT_LIMIT = 2000
+
+/** 估值序列的完整性判定。
+ *
+ *  - 行数撞满 limit 且首行不是 startDate → 区间开头被截掉了，标 `limit_truncated`。首行恰好是
+ *    startDate 时说明一行没少（区间正好 limit 天），不标。
+ *  - 没撞满、首行却晚于 startDate → 服务端自己晚开始：之后才上市，或区间超出了账号的历史窗口
+ *    （本接口对窗口外的部分直接不返回、不报错）。不是截断，只加一句说明。 */
+function flagValuationRange(normalized: unknown, limit: number, startDate: unknown): unknown {
+  const rec = Array.isArray(normalized) ? { list: normalized } : normalized
+  if (!rec || typeof rec !== "object") return normalized
+  const list = (rec as { list?: unknown }).list
+  if (!Array.isArray(list)) return normalized
+  const first = list[0] as Record<string, unknown> | undefined
+  const firstDate = typeof first?.tradeDate === "string" ? first.tradeDate : undefined
+  const start = typeof startDate === "string" ? startDate : undefined
+  if (list.length >= limit && !(start && firstDate === start)) {
+    const prior = typeof (rec as Record<string, unknown>)._partial_reason === "string" && (rec as Record<string, unknown>)._partial_reason
+      ? String((rec as Record<string, unknown>)._partial_reason).split(",")
+      : []
+    if (!prior.includes("limit_truncated")) prior.push("limit_truncated")
+    return {
+      ...rec,
+      _partial: true,
+      _partial_reason: prior.join(","),
+      _hint: `返回行数撞满 limit（${limit}）：本接口每个自然日一行（含周末），超出时保留最近的行，缺的是区间开头${firstDate ? `（本次从 ${firstDate} 开始）` : ""}。把 limit 调到区间天数以上（一年约 366 行），或把 startDate 往后挪。`,
+    }
+  }
+  if (start && firstDate && firstDate > start) {
+    return { ...rec, _note: `序列从 ${firstDate} 开始，晚于 startDate ${start}：可能是之后才上市，或区间超出了账号可取的历史窗口——本接口只返回窗口内的部分，不报错。` }
+  }
+  return rec
+}
+
 // 报表里有两个披露日字段，取值可能不同，而选错的后果是 point-in-time 校验得出相反结论
 // （拿一个晚得多的日期去回溯，等于把未来信息当成当时可见）。这不是普遍现象、是个股级的，
 // 所以只能靠字段选择规避，没法靠「换只票验一下」发现——茅台两个字段一致，用它当探针
@@ -270,7 +306,7 @@ export function registerFundamentalTools(server: McpServer, client: GangtiseClie
         securityCode,
         indicator: z.enum(["peTtm", "pbMrq", "peg", "psTtm", "pcfTtm", "em"]).describe("peTtm | pbMrq | peg | psTtm | pcfTtm | em（必填）"),
         ...dateRange,
-        limit: z.number().int().min(1).optional().describe("最大返回行数（默认 2000）"),
+        limit: z.number().int().min(1).optional().describe("最大返回行数（默认 2000）。每个自然日一行（含周末），超出时保留最近的行、丢掉区间开头，撞满标 _partial"),
         skipNull: z.boolean().optional().describe("过滤掉 value 或 percentileRank 为空的行（客户端后处理；传了 fieldList 时只按其中请求到的那几列判空）"),
         fieldList: valuationFieldList,
       },
@@ -278,9 +314,12 @@ export function registerFundamentalTools(server: McpServer, client: GangtiseClie
     },
     toolHandler(async (args: Record<string, unknown>) => {
       assertDateOrder(args)
-      const { skipNull, ...body } = args
+      const { skipNull, ...rest } = args
+      const limit = (rest.limit as number | undefined) ?? VALUATION_DEFAULT_LIMIT
+      const body: Record<string, unknown> = { ...rest, limit }
       const raw = await client.call("fundamental.valuation-analysis", body)
-      const normalized = normalizeRows(raw)
+      // 截断判定在 skipNull 之前：过滤掉空值行之后行数就不再能说明撞没撞满。
+      const normalized = flagValuationRange(normalizeRows(raw), limit, rest.startDate)
       let result: unknown = normalized
       // 只按**请求到的**列判空。fieldList 投影掉 percentileRank 时那一列在行里根本不存在，
       // 把「没查」当「为空」会把一份正常数据整个过滤成零行且不报错。

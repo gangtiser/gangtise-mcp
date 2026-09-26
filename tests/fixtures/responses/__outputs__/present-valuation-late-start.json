@@ -1,0 +1,19 @@
+{
+  "isError": false,
+  "result": {
+    "total": 2,
+    "list": [
+      {
+        "tradeDate": "2021-04-04",
+        "value": 25.1,
+        "percentileRank": 0.31
+      },
+      {
+        "tradeDate": "2021-04-05",
+        "value": 25,
+        "percentileRank": 0.3
+      }
+    ],
+    "_note": "序列从 2021-04-04 开始，晚于 startDate 2016-01-01：可能是之后才上市，或区间超出了账号可取的历史窗口——本接口只返回窗口内的部分，不报错。"
+  }
+}
