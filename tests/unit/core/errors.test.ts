@@ -89,6 +89,11 @@ describe("2026-07-17 三层错误码", () => {
 
   // 900002 的旧文档写作「请求缺少 uid」，实测服务端用它表示「请求方法不正确」(HTTP 405)。
   // 按旧释义排查会去翻本来就没有的 uid 参数。
+  // 云盘管理的三个专有码（2026-09-23 文档）。
+  it.each(["230004", "230005", "230008"])("covers drive-management code %s", (code) => {
+    expect(hintOf(code)).toBeTruthy()
+  })
+
   it("does not describe 900002 as a missing uid", () => {
     expect(hintOf("900002")).not.toContain("uid")
   })
