@@ -205,11 +205,7 @@ export const EXAMPLES: Record<string, ContractExample[]> = {
   ],
   gangtise_index_day_kline: [
     { title: "单个指数", args: { security: "000001.SH", startDate: "2026-09-01", endDate: "2026-09-05" }, expect: { requests: [{ method: "POST", path: "/application/open-quote/index/kline/daily", body: { securityList: ["000001.SH"], startDate: "2026-09-01", endDate: "2026-09-05", limit: 6000 } }] } },
-    { title: "all：15 天/片", args: { security: "all", startDate: "2026-08-01", endDate: "2026-08-31" }, upstream: oneQuoteRow(), expect: { requests: [
-        { method: "POST", path: "/application/open-quote/index/kline/daily", body: { securityList: ["all"], startDate: "2026-08-01", endDate: "2026-08-15", limit: 10000 } },
-        { method: "POST", path: "/application/open-quote/index/kline/daily", body: { securityList: ["all"], startDate: "2026-08-16", endDate: "2026-08-30", limit: 10000 } },
-        { method: "POST", path: "/application/open-quote/index/kline/daily", body: { securityList: ["all"], startDate: "2026-08-31", endDate: "2026-08-31", limit: 10000 } },
-      ] } },
+    { title: "all 本地拒绝（本端点对 all 返回空结果）", args: { security: "all", startDate: "2026-08-01", endDate: "2026-08-31" }, expect: { rejects: /没有全市场关键字/ } },
   ],
   gangtise_minute_kline: [
     { title: "单只：securityCode 标量", args: { security: "600519.SH", startTime: "2026-09-01 09:30:00", endTime: "2026-09-01 15:00:00" }, expect: { requests: [{ method: "POST", path: "/application/open-quote/kline/minute", body: { startTime: "2026-09-01 09:30:00", endTime: "2026-09-01 15:00:00", limit: 6000, securityCode: "600519.SH" } }] } },

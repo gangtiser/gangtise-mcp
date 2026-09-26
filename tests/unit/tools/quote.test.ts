@@ -189,13 +189,21 @@ describe("quote market keywords", () => {
     expect(client.call).not.toHaveBeenCalled()
   })
 
-  it("still accepts 'all' on the market-specific day-kline tools", async () => {
+  it("still accepts 'all' on the HK day-kline tool", async () => {
     const client = makeMockClient()
     const mcp = await connect(client)
     const hk = await mcp.callTool({ name: "gangtise_day_kline_hk", arguments: { security: "all", startDate: "2026-04-01" } })
-    const idx = await mcp.callTool({ name: "gangtise_index_day_kline", arguments: { security: "all", startDate: "2026-04-01" } })
     expect(hk.isError).toBeFalsy()
-    expect(idx.isError).toBeFalsy()
+  })
+
+  // 指数端点对 'all' 返回 000000 + 空列表，读起来像「没有数据」——本地拒绝，一个请求都不发。
+  it.each(["all", "ALL", "aShares"])("index_day_kline refuses the keyword %s before sending anything", async (keyword) => {
+    const client = makeMockClient()
+    const mcp = await connect(client)
+    const result = await mcp.callTool({ name: "gangtise_index_day_kline", arguments: { security: keyword, startDate: "2026-04-01", endDate: "2026-04-30" } })
+    expect(result.isError).toBe(true)
+    expect((result.content as Array<{ text: string }>)[0].text).toMatch(/没有全市场关键字/)
+    expect(client.call).not.toHaveBeenCalled()
   })
 
   it.each([
@@ -323,12 +331,15 @@ describe("industry index routing (.CI / .SWI)", () => {
     expect(DENIES_CI.test(text as string)).toBe(expected)
   })
 
-  // 指数工具的**真实**独有理由（实测：day-kline 查 821026.CI 不返 securityName）。
-  // 撤掉一条假理由后，剩下的真理由必须还在，否则模型会以为这个工具没用了。
-  it("index_day_kline still states its real reasons to exist", async () => {
-    const { description } = await surfaces("gangtise_index_day_kline")
-    expect(description).toContain("securityName")
-    expect(description).toContain("全部交易所指数")
+  // 两个指数日 K 端点都不返回指数名称，本端点也不收 'all'（返空不报错）。所以描述必须把名称
+  // 指到 securities_search，并声明没有全市场关键字——要改回「用本工具取名称 / 一次取回全部指数」，
+  // 就得先删掉这两句声明。
+  it("index kline surfaces send index names to securities_search and declare no whole-market keyword", async () => {
+    const index = await surfaces("gangtise_index_day_kline")
+    expect(index.description).toMatch(/名称[^。]{0,20}gangtise_securities_search/)
+    expect(index.description).toMatch(/没有全市场关键字/)
+    const day = await surfaces("gangtise_day_kline")
+    expect(day.description).toMatch(/指数名称[^。]{0,20}gangtise_securities_search/)
   })
 
 })
@@ -363,12 +374,6 @@ describe("quote shard granularity", () => {
     expect(await shardCount("gangtise_day_kline", "hkStocks", "2026-04-01", "2026-04-30")).toBe(15)
   })
 
-  // 15 days, not the historical 30: all exchange indices run ~531 rows per trading day,
-  // so a 30-day window (~22 trading days ≈ 11.7K) maxes out the 10000-row cap on every
-  // shard. 30 calendar days / 15 = 2.
-  it("shards the whole-market index kline 15 days at a time", async () => {
-    expect(await shardCount("gangtise_index_day_kline", "all", "2026-04-01", "2026-04-30")).toBe(2)
-  })
 })
 
 // The K-line/realtime param is fieldList (aligned with the fundamental tools and

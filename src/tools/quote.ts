@@ -68,11 +68,14 @@ const commonKlineSchema = {
  * keyword that is merely misspelt (`aSharez`) is rejected with `120001 非有效A股`. Do
  * not restate the old claim that this endpoint takes only the literal `aShares`; that
  * error code belongs to a wrong keyword, not to a case variant. Pinned in quote.test.ts. */
-function assertMarketKeywords(securityList: readonly unknown[] | undefined, accepted: readonly string[], tool: string): void {
+function assertMarketKeywords(securityList: readonly unknown[] | undefined, accepted: readonly string[], tool: string, noKeywordReason?: string): void {
   if (!securityList) return
   const codes = securityList.filter((s): s is string => typeof s === "string")
   const used = codes.filter((s) => MARKET_KEYWORDS.has(s.toLowerCase()))
   if (used.length === 0) return
+  if (accepted.length === 0) {
+    throw new ValidationError(`${tool} 没有全市场关键字（传了 '${used[0]}'）：${noKeywordReason ?? "请逐个传证券代码。"}`)
+  }
   const unsupported = used.filter((k) => !accepted.some((a) => matchesKeyword(k, a)))
   if (unsupported.length > 0) {
     throw new ValidationError(`'${unsupported[0]}' 不是 ${tool} 的全市场关键字，请改用 ${accepted.join(" / ")}。`)
@@ -147,12 +150,13 @@ function klineHandler(
   tool: string,
   markets: Record<string, number>,
   market?: "cn" | "hk" | "us",
+  noKeywordReason?: string,
 ) {
   return toolHandler(async (args: Record<string, unknown>) => {
     assertDateOrder(args)
     const body = buildKlineBody(args)
     const accepted = Object.keys(markets)
-    assertMarketKeywords(body.securityList, accepted, tool)
+    assertMarketKeywords(body.securityList, accepted, tool, noKeywordReason)
     body.securityList = canonicalizeKeywords(body.securityList, accepted)
     if (market) assertMarketMatch(body.securityList, market)
     const fullMarket = resolveFullMarket(body.securityList, markets)
@@ -213,13 +217,13 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
   server.registerTool(
     "gangtise_day_kline",
     {
-      description: "查询历史日 K 线数据，单接口覆盖 A股/港股/美股个股 + 沪深 ETF + 交易所指数（沪深京）+ 概念指数（.GT）+ 申万行业指数（.SWI）+ 中信行业指数（.CI）+ 20 个全球指数，可在一次请求里混着传（仅历史；盘中实时请用 gangtise_realtime）。security 传市场关键字 'aShares' / 'hkStocks' / 'usStocks' 配合 startDate/endDate 可拉取该市场全部个股（自动分片）；关键字只覆盖个股——**aShares 不含 ETF**，ETF 与各类指数都要逐个传代码。⚠️ **港股部分标的有人民币柜台**：代码首位换成 8、名字带 -R 或 -WR（中国移动港币 00941.HK / 人民币 80941.HK；阿里 09988.HK / 89988.HK）。两者**后缀相同、exchange 字段也相同、返回里没有币种字段**，价差约等于汇率、看着完全正常——要港币报价就别用 8 开头的那只（不是每只港股都有柜台）。⚠️ **本接口查指数只返代码、不返 securityName**；要指数名称、或要一次取回全部沪深京交易所指数，请用 gangtise_index_day_kline。返回字段含 adjustFactor 复权因子（个股与 ETF 有，指数为 null）。⚠️ **volume 的单位是「股」**（ETF 为「份」），不是「手」——按手换算会差 100 倍，而数字看着仍像个成交量、不会报错。全球指数：amount 为 null、volume 正常，tradeDate 是交易所当地日期。" + CODE_IDENTITY_WARNING,
+      description: "查询历史日 K 线数据，单接口覆盖 A股/港股/美股个股 + 沪深 ETF + 交易所指数（沪深京）+ 概念指数（.GT）+ 申万行业指数（.SWI）+ 中信行业指数（.CI）+ 20 个全球指数，可在一次请求里混着传（仅历史；盘中实时请用 gangtise_realtime）。security 传市场关键字 'aShares' / 'hkStocks' / 'usStocks' 配合 startDate/endDate 可拉取该市场全部个股（自动分片）；关键字只覆盖个股——**aShares 不含 ETF**，ETF 与各类指数都要逐个传代码。⚠️ **港股部分标的有人民币柜台**：代码首位换成 8、名字带 -R 或 -WR（中国移动港币 00941.HK / 人民币 80941.HK；阿里 09988.HK / 89988.HK）。两者**后缀相同、exchange 字段也相同、返回里没有币种字段**，价差约等于汇率、看着完全正常——要港币报价就别用 8 开头的那只（不是每只港股都有柜台）。⚠️ **本接口查指数只返代码、不返 securityName**；指数名称用 gangtise_securities_search（category=['index']）查 gtsName。返回字段含 adjustFactor 复权因子（个股与 ETF 有，指数为 null）。⚠️ **volume 的单位是「股」**（ETF 为「份」），不是「手」——按手换算会差 100 倍，而数字看着仍像个成交量、不会报错。全球指数：amount 为 null、volume 正常，tradeDate 是交易所当地日期。" + CODE_IDENTITY_WARNING,
       inputSchema: {
         ...commonKlineSchema,
         // 统一工具的全市场关键字是三个市场名，不是 `all`，所以走 securityDesc 的双参形式
         // 而不是 marketSecurity（后者固定给「传 'all'」）。
         security: z.union([nonEmptyString, nonEmptyList()]).optional().describe(securityDesc(
-          "证券代码 — A股 .SH/.SZ/.BJ、港股 .HK、美股 .O/.N/.A、沪深 ETF .SH/.SZ（512800.SH）、交易所指数 .SH/.SZ/.BJ、概念指数 .GT、申万行业指数 .SWI（801xxx.SWI）、中信行业指数 .CI（821xxx.CI）、全球指数按数据源后缀照抄（SPX.SPI 标普500 / DJI.SPI 道琼斯 / IXIC.O 纳指 / N225.NKI 日经225 / HSI.HI 恒生 / FTSE.FI 富时100 / GDAXI.FRA 德国DAX / KS11.KRX 韩国KOSPI 等 20 个），可混传，如 ['600519.SH','00700.HK','AAPL.O','000001.SH','SPX.SPI']；查指数若需要名称请用 gangtise_index_day_kline",
+          "证券代码 — A股 .SH/.SZ/.BJ、港股 .HK、美股 .O/.N/.A、沪深 ETF .SH/.SZ（512800.SH）、交易所指数 .SH/.SZ/.BJ、概念指数 .GT、申万行业指数 .SWI（801xxx.SWI）、中信行业指数 .CI（821xxx.CI）、全球指数按数据源后缀照抄（SPX.SPI 标普500 / DJI.SPI 道琼斯 / IXIC.O 纳指 / N225.NKI 日经225 / HSI.HI 恒生 / FTSE.FI 富时100 / GDAXI.FRA 德国DAX / KS11.KRX 韩国KOSPI 等 20 个），可混传，如 ['600519.SH','00700.HK','AAPL.O','000001.SH','SPX.SPI']",
           "或传市场关键字 'aShares'（A股全市场）/ 'hkStocks'（港股全市场）/ 'usStocks'（美股全市场）",
         )),
       },
@@ -251,14 +255,12 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
   server.registerTool(
     "gangtise_index_day_kline",
     {
-      description: "查询指数日 K 线数据（沪深京交易所指数如 000001.SH 上证指数、399001.SZ 深成指，也支持概念指数 .GT 与行业指数 .CI/.SWI）。个股日 K 线请用 gangtise_day_kline；下面两种情况用本工具：**一次取回全部交易所指数**（security='all'，自动分片）、**需要指数名称 securityName**（gangtise_day_kline 查指数只返代码，其余字段两个工具一致）。⚠️ 本工具只收指数代码：传个股代码（哪怕是有效的，如 600519.SH）返回空列表而不报错，别把它读成「这只票没数据」；无效代码同样返空。核对代码请用 gangtise_securities_search 按公司名/简称查，并同时核对返回的 gtsName 与 gtsCode 后缀（A+H 两地上市名字逐字相同，只有后缀能区分）。",
-      inputSchema: { ...commonKlineSchema, security: marketSecurity("指数代码，如 '000001.SH'（上证指数）/ '399001.SZ'（深成指）/ '821026.CI'（中信行业）/ '801780.SWI'（申万银行）") },
+      description: "查询指数日 K 线数据（沪深京交易所指数如 000001.SH 上证指数、399001.SZ 深成指，也支持概念指数 .GT 与行业指数 .CI/.SWI）。gangtise_day_kline 收同样的指数代码、还能与个股混查。返回不含指数名称，名称用 gangtise_securities_search（category=['index']）查 gtsName。本工具没有全市场关键字，多个指数逐个列出代码。⚠️ 本工具只收指数代码：传个股代码（哪怕是有效的，如 600519.SH）返回空列表而不报错，别把它读成「这只票没数据」；无效代码同样返空。核对代码请用 gangtise_securities_search 按公司名/简称查，并同时核对返回的 gtsName 与 gtsCode 后缀（A+H 两地上市名字逐字相同，只有后缀能区分）。",
+      inputSchema: { ...commonKlineSchema, security: z.union([nonEmptyString, nonEmptyList()]).optional().describe("指数代码，单个或多个，如 '000001.SH'（上证指数）/ '399001.SZ'（深成指）/ '821026.CI'（中信行业）/ '801780.SWI'（申万银行）") },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    // 15 天/片，不是 30：全部交易所指数每个交易日约 531 行，30 天窗口约 22 个交易日
-    // ≈ 11.7K 行，必然撞 10000 行上限并被截断（有 _truncated_shards 兜底，但分片本就
-    // 不该切出必然超限的窗口）；15 天窗口约 5.8K 行，留足余量。
-    async (args, extra) => klineHandler(client, "quote.index-day-kline", "gangtise_index_day_kline", LEGACY_ALL(15))(args as Record<string, unknown>, extra as HandlerExtra),
+    // 不收任何全市场关键字：本端点对 'all' 返回 000000 + 空列表（不报错），读起来像「没有数据」。
+    async (args, extra) => klineHandler(client, "quote.index-day-kline", "gangtise_index_day_kline", {}, undefined, "本接口对 'all' 返回空结果而不报错。请逐个传指数代码。")(args as Record<string, unknown>, extra as HandlerExtra),
   )
 
   server.registerTool(
