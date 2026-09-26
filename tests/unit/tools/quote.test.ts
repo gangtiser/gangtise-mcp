@@ -642,29 +642,8 @@ describe("gangtise_minute_kline multi-security", () => {
   })
 })
 
-// 单请求收到一个没有 list 的载荷时，原样交出去的是一个既不是表、也不是错误的对象。
-describe("quote single-request payload guard", () => {
-  it("fails loudly when a day-kline response carries no list", async () => {
-    const client = {
-      call: vi.fn().mockResolvedValue({ message: "ok" }),
-      download: vi.fn(),
-    } as unknown as GangtiseClient
-    const mcp = await connect(client)
-    const result = await mcp.callTool({ name: "gangtise_day_kline", arguments: { security: "600519.SH" } })
-    expect(result.isError).toBe(true)
-    expect((result as { content: Array<{ text: string }> }).content[0].text).toContain("没有可读的 list")
-  })
-
-  it("accepts the {total:0, list:null} empty encoding", async () => {
-    const client = {
-      call: vi.fn().mockResolvedValue({ total: 0, list: null }),
-      download: vi.fn(),
-    } as unknown as GangtiseClient
-    const mcp = await connect(client)
-    const result = await mcp.callTool({ name: "gangtise_day_kline", arguments: { security: "600519.SH" } })
-    expect(result.isError).toBeFalsy()
-  })
-})
+// 单请求收到没有 list 的载荷时的响亮失败，现由端点的 `expects` 在 client 里执行（带 traceId）：
+// 见 tests/unit/core/client.test.ts 的「expects 形状守卫」与响应 fixture 的 shape-quote-* 场景。
 
 // 0.38 起 realtime 的字段集变了：新增 tradeStatus，turnoverRate / volumeRatio 不再返回。
 // 描述里的字段清单是模型唯一的依据，写错就会诱导它传一个会被丢掉的字段名。

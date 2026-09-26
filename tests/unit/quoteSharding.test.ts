@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
-import { callKlinePerSecurity, callKlineWithSharding, estimateTradingDays, requireQuoteRows } from "../../src/core/quoteSharding.js"
+import { callKlinePerSecurity, callKlineWithSharding, estimateTradingDays } from "../../src/core/quoteSharding.js"
+import { ResponseShapeError } from "../../src/core/errors.js"
 
 describe("callKlineWithSharding", () => {
   it("injects API-max limit (10000) for security='all' when user didn't set limit", async () => {
@@ -504,20 +505,6 @@ describe("callKlinePerSecurity", () => {
   })
 })
 
-// 单请求收到一个没有 list 的载荷时，原样交出去的是一个既不是表、也不是错误的对象。
-describe("requireQuoteRows", () => {
-  it("rejects a payload with no readable list", () => {
-    expect(() => requireQuoteRows({ message: "ok" }, "gangtise_day_kline")).toThrow(/没有可读的 list/)
-    expect(() => requireQuoteRows(null, "gangtise_day_kline")).toThrow(/不是可读的行集合/)
-  })
-
-  it("passes a normal list, a bare array and the {total:0,list:null} empty shape", () => {
-    expect(requireQuoteRows({ list: [{ a: 1 }] }, "t")).toEqual({ list: [{ a: 1 }] })
-    expect(requireQuoteRows([{ a: 1 }], "t")).toEqual([{ a: 1 }])
-    expect(requireQuoteRows({ total: 0, list: null }, "t")).toEqual({ total: 0, list: null })
-  })
-})
-
 describe("estimateTradingDays", () => {
   it("counts weekdays inclusive and skips the weekend", () => {
     expect(estimateTradingDays("2026-03-30", "2026-04-03")).toBe(5)   // Mon–Fri
@@ -596,29 +583,35 @@ describe("shard column supersets are reported, not silently dropped", () => {
   })
 })
 
-// 🔴 分片路径对「没有可读 list」的载荷早已响亮失败，单请求这条却曾直接原样交出去：
-// `{total: 42, fieldList: [...]}` 这种既不是表也不是错误的对象被当成一次成功返回，
-// 连 `_partial` 都没有。而全市场**单日**查询走的正是这条路——最常见的用法。
+// 「没有可读 list」的载荷由端点的 `expects` 在 client 里拦下（ResponseShapeError，带 traceId）。
+// 分片层要做的只有两件：单请求路径把它原样抛给调用方；多片路径把那一片记成 malformed、其余照常合并。
 describe("全市场单请求路径的形状护栏", () => {
-  const bad = { total: 42, fieldList: ["securityCode", "close"] }
+  const shapeError = () => new ResponseShapeError("响应不是预期的列表结构", 200, { code: "000000", traceId: "t-1" }, { total: 42, fieldList: ["securityCode", "close"] })
 
   it.each([
     ["单日区间（一个分片就装下）", { securityList: ["all"], startDate: "2026-04-01", endDate: "2026-04-01" }],
     ["缺起止日期", { securityList: ["all"] }],
-    ["日期无法解析", { securityList: ["all"], startDate: "不是日期", endDate: "也不是" }],
-    ["起止颠倒", { securityList: ["all"], startDate: "2026-04-05", endDate: "2026-04-01" }],
-  ])("rejects a payload with no readable list — %s", async (_label, body) => {
-    const call = vi.fn().mockResolvedValue(bad)
+  ])("surfaces the client's shape error on the single-request path — %s", async (_label, body) => {
+    const call = vi.fn().mockRejectedValue(shapeError())
     await expect(
       callKlineWithSharding({ call }, "quote.day-kline", body, { shardDays: 1, tool: "gangtise_day_kline" }),
-    ).rejects.toThrow(/没有可读的 list/)
+    ).rejects.toBeInstanceOf(ResponseShapeError)
   })
 
-  it("names the tool in the refusal", async () => {
-    const call = vi.fn().mockResolvedValue(bad)
-    await expect(
-      callKlineWithSharding({ call }, "quote.day-kline", { securityList: ["all"] }, { shardDays: 1, tool: "gangtise_day_kline" }),
-    ).rejects.toThrow(/gangtise_day_kline/)
+  it("records a shard whose payload failed the shape check as malformed and merges the rest", async () => {
+    const call = vi.fn().mockImplementation(async (_key: string, body: { startDate: string }) => {
+      if (body.startDate === "2026-04-02") throw shapeError()
+      return { total: 1, fieldList: ["securityCode", "tradeDate"], list: [["600519.SH", body.startDate]] }
+    })
+    const r = await callKlineWithSharding(
+      { call }, "quote.day-kline",
+      { securityList: ["all"], startDate: "2026-04-01", endDate: "2026-04-03" },
+      { shardDays: 1, tool: "t" },
+    ) as Record<string, unknown>
+    expect(r._partial_reason).toBe("malformed_shards")
+    expect(r._malformed_shards).toEqual([{ startDate: "2026-04-02", endDate: "2026-04-02" }])
+    expect(r._failed_shards).toBeUndefined()
+    expect((r.list as unknown[]).length).toBe(2)
   })
 
   // `{total: 0, list: null}` 是部分端点编码零行的合法写法，不能被这道护栏误伤。
@@ -640,7 +633,7 @@ describe("全市场单请求路径的形状护栏", () => {
 
   // 周六日是必然空的请求，压根不发 —— 护栏不该改变这条捷径。
   it("keeps the weekend short-circuit", async () => {
-    const call = vi.fn().mockResolvedValue(bad)
+    const call = vi.fn()
     const r = await callKlineWithSharding(
       { call }, "quote.day-kline",
       { securityList: ["all"], startDate: "2026-04-04", endDate: "2026-04-04" },

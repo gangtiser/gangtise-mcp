@@ -18,6 +18,10 @@ export interface EndpointDefinition {
   /** `rowId` 只来自接口文档、未在真实响应里确认过是主键：整行重复照样去掉，但「同 ID 异内容」不报
    *  `changed_rows`（一个不唯一的字段只要重复对跨页出现，就会把每次拉取都误标）。 */
   rowIdUnverified?: true
+  /** 返回形状声明，在 `requestJson` 仍握有信封（traceId）时校验，不符抛 `ResponseShapeError`。
+   *  "list"：成功响应必是 `{…, list: [...]}`；`{total: 0, list: null}` 是合法的零行写法，照常放行。
+   *  "array"：成功响应必是裸数组。形状不符不能读成「零行」——那会把一次异常当成正常的空结果。 */
+  expects?: "list" | "array"
   /** "no-replay": never resend a request the server may have executed — set
    * where a transport-level replay re-bills or duplicates a job. This is a
    * REPLAY-SAFETY marker, not a billing-model one: ai.hot-topic carries it and
@@ -397,6 +401,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-quote/kline/daily",
     kind: "json",
     description: "Query A-share historical daily kline (SH/SZ/BJ)",
+    expects: "list",
   },
   "quote.day-kline-hk": {
     key: "quote.day-kline-hk",
@@ -404,6 +409,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-quote/kline-hk/daily",
     kind: "json",
     description: "Query HK stock historical daily kline (HK)",
+    expects: "list",
   },
   "quote.day-kline-us": {
     key: "quote.day-kline-us",
@@ -411,6 +417,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-quote/kline-us/daily",
     kind: "json",
     description: "Query US stock historical daily kline (NYSE/NASDAQ/AMEX)",
+    expects: "list",
   },
   "quote.index-day-kline": {
     key: "quote.index-day-kline",
@@ -418,6 +425,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-quote/index/kline/daily",
     kind: "json",
     description: "Query SH/SZ/BJ index daily kline",
+    expects: "list",
   },
   "quote.minute-kline": {
     key: "quote.minute-kline",
@@ -425,6 +433,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-quote/kline/minute",
     kind: "json",
     description: "Query A-share minute kline (SH/SZ/BJ)",
+    expects: "list",
   },
   "quote.realtime": {
     key: "quote.realtime",
@@ -432,6 +441,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-quote/quote/realtime",
     kind: "json",
     description: "Query realtime quote snapshot (A-share / HK / US)",
+    expects: "list",
   },
   "quote.fund-flow": {
     key: "quote.fund-flow",
@@ -439,6 +449,7 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-quote/fund-flow/daily",
     kind: "json",
     description: "Query A-share daily fund flow (SH/SZ/BJ; small/medium/large/xlarge orders + main net inflow)",
+    expects: "list",
   },
 
   // ─── fundamental ───

@@ -3,7 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { GangtiseClient } from "../core/client.js"
 import { flagMissingFields, normalizeRows } from "../core/normalize.js"
 import { ValidationError } from "../core/errors.js"
-import { callKlinePerSecurity, callKlineWithSharding, estimateTradingDays, flagLimitTruncated, requireQuoteRows, type KlineBody } from "../core/quoteSharding.js"
+import { callKlinePerSecurity, callKlineWithSharding, estimateTradingDays, flagLimitTruncated, type KlineBody } from "../core/quoteSharding.js"
 import { dateString, dateTimeString } from "../core/dateContext.js"
 import { assertDateOrder, buildToolContent } from "./registry.js"
 import { toolHandler, contentResult, type HandlerExtra } from "./helpers.js"
@@ -181,7 +181,7 @@ function klineHandler(
       const result = await callKlinePerSecurity(client, endpointKey, securities, (code) => ({ ...body, securityList: [code], limit }), limit)
       return contentResult(await buildToolContent(normalizeRows(flagMissingFields(result, body.fieldList))))
     }
-    const result = flagLimitTruncated(requireQuoteRows(await client.call(endpointKey, { ...body, limit }), tool), limit)
+    const result = flagLimitTruncated(await client.call(endpointKey, { ...body, limit }), limit)
     return contentResult(await buildToolContent(normalizeRows(flagMissingFields(result, body.fieldList))))
   })
 }
@@ -290,7 +290,7 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
       // 接口一次只收一只（securityCode），多只在本地逐只请求再合并。
       const result = securities.length > 1
         ? await callKlinePerSecurity(client, "quote.minute-kline", securities, (code) => ({ ...body, securityCode: code }), effLimit)
-        : flagLimitTruncated(requireQuoteRows(await client.call("quote.minute-kline", { ...body, securityCode: securities[0] }), "gangtise_minute_kline"), effLimit)
+        : flagLimitTruncated(await client.call("quote.minute-kline", { ...body, securityCode: securities[0] }), effLimit)
       return contentResult(await buildToolContent(normalizeRows(flagMissingFields(result, fieldList))))
     }),
   )
@@ -315,7 +315,7 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
         body.securityList = canonicalizeKeywords(list, REALTIME_MARKETS)
       }
       if (fieldList) body.fieldList = fieldList
-      const result = requireQuoteRows(await client.call("quote.realtime", body), "gangtise_realtime")
+      const result = await client.call("quote.realtime", body)
       return contentResult(await buildToolContent(normalizeRows(flagMissingFields(result, fieldList))))
     }),
   )
@@ -362,7 +362,7 @@ export function registerQuoteTools(server: McpServer, client: GangtiseClient): v
       }
       // Pin the row cap so limit-truncation detection is exact (mirrors CLI DEFAULT_QUOTE_LIMIT).
       const limit = body.limit ?? DEFAULT_QUOTE_LIMIT
-      const flagged = flagLimitTruncated(requireQuoteRows(await client.call("quote.fund-flow", { ...body, limit }), "gangtise_fund_flow"), limit)
+      const flagged = flagLimitTruncated(await client.call("quote.fund-flow", { ...body, limit }), limit)
       return contentResult(await buildToolContent(normalizeRows(flagMissingFields(flagged, body.fieldList))))
     }),
   )

@@ -60,6 +60,9 @@ const LONG_TEXT = "研报正文段落。".repeat(40)
 const SCENARIOS: Scenario[] = [
   // ─── 返回形状 ───
   { name: "shape-kline-columnar", tool: "gangtise_day_kline", args: { security: "600519.SH", startDate: "2026-09-01", endDate: "2026-09-03" }, upstream: on("quote.day-kline", () => ({ data: fixture("kline-columnar") })) },
+  // 行情端点声明了 expects: "list"：没有 list 的载荷在 client 里就被拦下，报错带 traceId。
+  { name: "shape-quote-no-list", tool: "gangtise_day_kline", args: { security: "600519.SH", startDate: "2026-09-01", endDate: "2026-09-03" }, upstream: on("quote.day-kline", () => ({ json: { code: "000000", msg: "ok", data: { message: "ok" }, traceId: "trace-q1" } })) },
+  { name: "shape-quote-list-null-empty", tool: "gangtise_realtime", args: { security: "600519.SH" }, upstream: on("quote.realtime", () => ({ data: { total: 0, list: null } })) },
   { name: "shape-ede-cross-section", tool: "gangtise_indicator_cross_section", args: { indicatorCodeList: ["qte_close", "qte_mkt_cptl"], securityCodeList: ["600519.SH", "00700.HK"], date: "2026-09-25" }, upstream: on("indicator.cross-section", () => ({ data: edeInner(fixture("ede-cross-section")) })) },
   { name: "shape-ede-time-series", tool: "gangtise_indicator_time_series", args: { indicatorCodeList: ["qte_close"], securityCodeList: ["600519.SH", "000858.SZ"], startDate: "2026-09-01", endDate: "2026-09-02", calendarType: "TD" }, upstream: on("indicator.time-series", () => ({ data: edeInner(fixture("ede-time-series")) })) },
   { name: "shape-ede-screener", tool: "gangtise_indicator_screener", args: { indicatorList: [{ field: "F1", indicatorCode: "qte_mkt_cptl", parameters: [{ paramKey: "scale", paramValue: "8" }] }, { field: "F2", indicatorCode: "scr_exchg_sctr", noQueryDate: true }], expression: "F1 >= 500 && F2 contains '创业板'", securityCodeList: ["2000000014"], date: "2026-09-25" }, upstream: on("indicator.screener", () => ({ data: edeInner(fixture("ede-screener")) })) },

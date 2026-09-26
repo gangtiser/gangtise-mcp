@@ -1,5 +1,5 @@
 import { runWithConcurrency, isVerbose } from "./transport.js"
-import { ApiError, errorMessage, ValidationError } from "./errors.js"
+import { ApiError, ResponseShapeError, errorMessage, ValidationError } from "./errors.js"
 import { PAGE_CONCURRENCY } from "./config.js"
 import { currentSignal } from "./requestContext.js"
 
@@ -131,6 +131,8 @@ async function fetchParts<P>(parts: P[], concurrency: number, fetch: (part: P) =
       return { ok: true, value: await fetch(part) }
     } catch (err) {
       if (signal?.aborted) throw err
+      // 形状不符是「这一份载荷并不进来」，不是请求失败：交给合并去记 malformed，其余照常合并。
+      if (err instanceof ResponseShapeError) return { ok: true, value: err.payload }
       return { ok: false, error: errorMessage(err), cause: err }
     }
   }, signal)
@@ -159,20 +161,6 @@ function columnRemap(header: string[], part: string[]): { map: number[] | null; 
     map.push(i)
   }
   return { map, extra }
-}
-
-/** 行情端点的单请求响应必须带得出行。没有可读的 `list` 时原样交出去，模型收到的是一个
- *  既不是表、也不是错误的对象——分片路径早已对同一形状响亮失败，单请求这条此前没有。
- *  `{total: 0, list: null}` 是合法的零行写法，照旧放行。 */
-export function requireQuoteRows(result: unknown, label: string): unknown {
-  if (result === null || result === undefined || typeof result !== "object") {
-    throw new ApiError(`${label}：响应不是可读的行集合（形状可能已变更）——请重试；持续出现请带上工具名与入参报障。`)
-  }
-  if (Array.isArray(result)) return result
-  if (partRows(result) === undefined) {
-    throw new ApiError(`${label}：响应里没有可读的 list（形状可能已变更）——请重试；持续出现请带上工具名与入参报障。`)
-  }
-  return result
 }
 
 function partRows(value: unknown): { rec: Record<string, unknown>; rows: unknown[] } | undefined {
@@ -291,12 +279,8 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   // one shard) skips the merge loop below, so it needs the same limit-truncation
   // check inline — else a low limit or an oversized single window slips through as a
   // silently truncated "complete" result (e.g. index 'all' over a 30-day window).
-  // 🔴 `requireQuoteRows` 不能漏：分片路径对「没有可读 list」的载荷早已响亮失败（见下面
-  // 的 header 检查），单请求这条却曾直接原样交出去——`{total: 42, fieldList: [...]}` 这种
-  // 既不是表也不是错误的对象会被当成一次成功返回，连 `_partial` 都没有。
-  // 全市场单日（最常见的用法）走的正是这条路。
-  const callSingle = async () =>
-    flagLimitTruncated(requireQuoteRows(await client.call(endpointKey, allMarketBody), config.tool ?? endpointKey), perShardLimit)
+  // 「没有可读 list」的载荷由端点的 `expects` 在 client 里拦下（带 traceId），不会走到这里。
+  const callSingle = async () => flagLimitTruncated(await client.call(endpointKey, allMarketBody), perShardLimit)
 
   if (!body.startDate || !body.endDate) {
     return callSingle()

@@ -11,7 +11,7 @@ import { request } from "undici"
 
 import { DEFAULT_MAX_DOWNLOAD_BYTES, PAGE_CONCURRENCY, type CliConfig } from "./config.js"
 import { credentialFingerprint, isTokenCacheValid, normalizeToken, readTokenCache, readTokenCacheWithMtime, requireAccessCredentials, writeTokenCache, type TokenCache } from "./auth.js"
-import { ApiError, DownloadError, ValidationError, errorMessage } from "./errors.js"
+import { ApiError, DownloadError, ResponseShapeError, ValidationError, errorMessage } from "./errors.js"
 import { flagFailedItems } from "./normalize.js"
 import { ENDPOINTS, type EndpointDefinition } from "./endpoints.js"
 import { Envelope, isEnvelope, unwrapEnvelope } from "./envelope.js"
@@ -130,6 +130,14 @@ export interface DownloadResponse {
   filename?: string
   /** When set, the response body has been streamed directly to this path (no in-memory buffer). */
   savedPath?: string
+}
+
+/** 端点声明的返回形状是否成立（见 EndpointDefinition.expects）。 */
+function hasExpectedShape(expects: "list" | "array", payload: unknown): boolean {
+  if (expects === "array") return Array.isArray(payload)
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false
+  const { total, list } = payload as { total?: unknown; list?: unknown }
+  return Array.isArray(list) || (total === 0 && (list === null || list === undefined))
 }
 
 const TOTAL_CAPPED_NOTE =
@@ -809,7 +817,15 @@ export class GangtiseClient {
         if (response.statusCode >= 400) {
           this.throwHttpError(parsed, response.statusCode, retryAfterMs)
         }
-        return unwrapEnvelope(parsed, response.statusCode, retryAfterMs)
+        const payload = unwrapEnvelope(parsed, response.statusCode, retryAfterMs)
+        // 形状校验放在这里而不是工具层：`data: null` 挂不上信封的 traceId，下沉之后就报不出
+        // 可追溯的错。不带错误码、HTTP 200，不会被重试。
+        if (endpoint.expects && !hasExpectedShape(endpoint.expects, payload)) {
+          const got = payload === null ? "null" : Array.isArray(payload) ? "数组" : typeof payload === "object" ? "没有 list 的对象" : typeof payload
+          const want = endpoint.expects === "list" ? "列表（{…, list: [...]}）" : "数组"
+          throw new ResponseShapeError(`响应不是预期的${want}结构（收到${got}），形状可能已变更——请重试；持续出现请带上工具名与入参报障。`, response.statusCode, parsed, payload)
+        }
+        return payload as T
       } catch (error) {
         // Run through auth recovery for BOTH 4xx (e.g. 401 token-invalid) and
         // 200-envelope auth errors, so a server-rejected cached token refreshes.

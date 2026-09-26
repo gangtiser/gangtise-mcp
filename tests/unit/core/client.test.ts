@@ -6,7 +6,8 @@ import { gzipSync } from "node:zlib"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { GangtiseClient } from "../../../src/core/client.js"
-import { ENDPOINTS } from "../../../src/core/endpoints.js"
+import { ENDPOINTS, type EndpointDefinition } from "../../../src/core/endpoints.js"
+import { ResponseShapeError, errorMessage } from "../../../src/core/errors.js"
 import { credentialFingerprint } from "../../../src/core/auth.js"
 
 const { requestMock } = vi.hoisted(() => ({ requestMock: vi.fn() }))
@@ -1435,5 +1436,46 @@ describe("GangtiseClient per-item failure flagging", () => {
     requestMock.mockImplementation(async () => jsonResponse({ poolId: "1", poolName: "x", failList: [{ securityCode: "Z" }] }))
     const r = await client().call("vault.stock-pool.create", { poolName: "x" }) as Record<string, unknown>
     expect(r._partial).toBeUndefined()
+  })
+})
+
+describe("expects 形状守卫", () => {
+  const listEndpoint = ENDPOINTS["quote.day-kline"]
+  const arrayEndpoint: EndpointDefinition = { key: "test.array", method: "POST", path: "/test/array", kind: "json", description: "t", expects: "array" }
+  const withTrace = (data: unknown) => rawJsonResponse({ code: "000000", msg: "ok", data, traceId: "trace-9" })
+
+  it.each([
+    ["没有 list 的对象", { message: "ok" }],
+    ["null", null],
+    ["裸数组", [{ a: 1 }]],
+    ["list 为 null 但 total 不为 0", { total: 3, list: null }],
+  ])("rejects a list endpoint answering %s, with the traceId, without retrying", async (_label, data) => {
+    requestMock.mockResolvedValue(withTrace(data))
+    const err = await tokenClient().requestJson(listEndpoint, {}).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(ResponseShapeError)
+    expect((err as ResponseShapeError).payload).toEqual(data)
+    expect(errorMessage(err)).toContain("trace trace-9")
+    expect(requestMock).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ["空数组", { total: 0, list: [] }],
+    ["约定的零行写法", { total: 0, list: null }],
+    ["正常行", { total: 1, fieldList: ["a"], list: [[1]] }],
+  ])("passes a list endpoint answering %s", async (_label, data) => {
+    requestMock.mockResolvedValue(withTrace(data))
+    await expect(tokenClient().requestJson(listEndpoint, {})).resolves.toEqual(data)
+  })
+
+  it("requires a bare array on an array endpoint", async () => {
+    requestMock.mockResolvedValue(withTrace([{ id: 1 }]))
+    await expect(tokenClient().requestJson(arrayEndpoint, {})).resolves.toEqual([{ id: 1 }])
+    requestMock.mockResolvedValue(withTrace({ list: [{ id: 1 }] }))
+    await expect(tokenClient().requestJson(arrayEndpoint, {})).rejects.toBeInstanceOf(ResponseShapeError)
+  })
+
+  it("leaves endpoints without a declaration alone", async () => {
+    requestMock.mockResolvedValue(withTrace(null))
+    await expect(tokenClient().requestJson(ENDPOINTS["reference.constant-list"], {})).resolves.toBeNull()
   })
 })

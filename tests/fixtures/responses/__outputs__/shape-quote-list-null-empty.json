@@ -1,0 +1,8 @@
+{
+  "isError": false,
+  "result": {
+    "total": 0,
+    "list": [],
+    "_hint": "0 行结果：可能该条件下确无数据；也可能是参数不匹配——证券代码需含交易所后缀（600519.SH / 00700.HK / AAPL.O），可用 gangtise_securities_search 核实，并检查日期区间与市场是否匹配。"
+  }
+}

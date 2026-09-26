@@ -338,6 +338,15 @@ export class ApiError extends CliError {
   }
 }
 
+/** 端点声明了返回形状（`expects`）而响应不符。在仍握有信封时抛出，所以带得出 traceId。
+ *  `payload` 是剥掉信封后的原始载荷：分片 / 逐只合并据此把这一份记作 malformed（与其他份照常
+ *  合并），而不是当成请求失败。 */
+export class ResponseShapeError extends ApiError {
+  constructor(message: string, statusCode: number | undefined, envelope: unknown, readonly payload: unknown) {
+    super(message, undefined, statusCode, envelope)
+  }
+}
+
 export function errorMessage(err: unknown): string {
   if (err instanceof ApiError) {
     const meta = [err.code && `错误码 ${err.code}`, err.traceId && `trace ${err.traceId}`].filter(Boolean)
