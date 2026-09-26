@@ -1,0 +1,16 @@
+{
+  "isError": false,
+  "result": {
+    "_partial": true,
+    "_partial_reason": "unexpected_page_shape",
+    "_unexpected_page_shape": "本接口标记为分页，但返回的首包不是 {total, list} 结构；已原样返回，未进行翻页——这份结果可能只是第一页，也可能是筛选条件未生效，不要当作完整结果使用",
+    "_truncated": true,
+    "_saved_to": "<TMP>/response.json",
+    "_local_hint": "该路径存的是完整 JSON；若本机可直接读取，请在本地做投影/过滤/聚合后只取所需结果，不要把整个文件读进上下文。",
+    "_read_with": "gangtise_read_response",
+    "_total_bytes": 104363,
+    "_preview_count": 0,
+    "has_more": true,
+    "next_offset": 0
+  }
+}

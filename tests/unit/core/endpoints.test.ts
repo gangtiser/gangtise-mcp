@@ -96,6 +96,14 @@ describe("ENDPOINTS retry/timeout annotations", () => {
     }
   })
 
+  // 同理：零行错误码在 `client.call` 的单次 JSON 路径上收成空表，offset 分页与下载走的是别的 return。
+  it("keeps every emptyCodes endpoint on the path where the codes are read", () => {
+    for (const e of Object.values(ENDPOINTS).filter((x) => x.emptyCodes)) {
+      expect(e.kind, `${e.key}: download 端点不读 emptyCodes`).toBe("json")
+      expect(e.pagination?.mode, `${e.key}: offset 分页不读 emptyCodes`).not.toBe("offset")
+    }
+  })
+
   it("marks exactly the irreversible endpoints as destructive", () => {
     const annotated = Object.values(ENDPOINTS).filter((e) => e.destructive).map((e) => e.key).sort()
     expect(annotated).toEqual(["vault.stock-pool.delete"])

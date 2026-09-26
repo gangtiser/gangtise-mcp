@@ -151,6 +151,8 @@ const SCENARIOS: Scenario[] = [
     const n = Math.max(0, Math.min(size, 200 - from))
     return { data: { total: 200, list: Array.from({ length: n }, (_, i) => ({ id: `row-${from + i}`, title: `标题 ${from + i}`, brief: LONG_TEXT })) } }
   }), followUp: (first) => ({ tool: "gangtise_read_response", args: { saved_to: (first as { _saved_to: string })._saved_to, offset: 20, limit: 3, fields: ["id", "title"] } }) },
+  // 首包不是 {total, list}、又大到要落盘：指针保留不完整标记与全部明细，说明文字不跟着正文沉进文件。
+  { name: "present-spill-partial-object", tool: "gangtise_research_list", args: { keyword: "AI" }, upstream: on("insight.research.list", () => ({ data: { items: Array.from({ length: 120 }, (_, i) => ({ id: `row-${i}`, brief: LONG_TEXT })) } })) },
   { name: "present-spill-text", tool: "gangtise_one_pager", args: { securityCode: "600519.SH" }, upstream: on("ai.one-pager", () => ({ data: { content: `# 一页通\n\n${LONG_TEXT.repeat(120)}` } })) },
   { name: "present-download-text", tool: "gangtise_research_download", args: { reportId: "rep-1", fileType: 2 }, upstream: on("insight.research.download", () => ({ text: "# 研报\n\n正文", headers: { "content-type": "text/markdown; charset=utf-8" } })) },
   { name: "present-download-binary", tool: "gangtise_report_image_download", args: { chunkId: "chunk-1" }, upstream: on("insight.report-image.download", () => ({ bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xe0]), headers: { "content-type": "image/jpeg", "content-disposition": 'attachment; filename="chart.jpg"' } })) },
