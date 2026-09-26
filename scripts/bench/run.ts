@@ -10,7 +10,10 @@
  * 取 GANGTISE_PAGE_CONCURRENCY 等环境变量的默认值，不在这里改。
  * 任一场景出错时退出码为 1；但数字本身没有阈值判定，退出码 0 不代表「没有退化」，结果仍要人读。
  */
-import { endpointBilling } from "../../src/mcp/billing.js"
+import http from "node:http"
+import type { AddressInfo } from "node:net"
+import { once } from "node:events"
+import { ENDPOINTS, type Billing } from "../../src/core/endpoints.js"
 import { startHarness, type Harness } from "../../tests/helpers/harness.js"
 import type { RecordedRequest, Responder, UpstreamReply } from "../../tests/helpers/mockUpstream.js"
 
@@ -22,7 +25,8 @@ interface Scenario {
   name: string
   description: string
   /** 返回本轮要执行的调用；可在其中多次调用（回读、并发）。 */
-  run: (harness: Harness, counter: Counter, signal?: AbortSignal) => Promise<{ isError: boolean; bytes: number; tool: string }>
+  /** `metricMs`：只计场景里那一次关键调用的耗时（混合负载里被测的那个查询），缺省计整轮。 */
+  run: (harness: Harness, counter: Counter, signal?: AbortSignal) => Promise<{ isError: boolean; bytes: number; tool: string; metricMs?: number }>
   /** 取消场景：在这么多毫秒后中止调用。 */
   cancelAfterMs?: number
   /** 覆盖全局延迟。 */
@@ -184,6 +188,45 @@ const SCENARIOS: Scenario[] = [
       return { isError: !allErrored, bytes, tool: "gangtise_securities_search" }
     },
   },
+  {
+    name: "paged-repeated-id",
+    description: "research_list fetchAll 1 万行，每行同一个 reportId、内容各不相同（去重的最坏情况）",
+    run: async (h, counter, signal) => {
+      h.upstream.setResponder((req) => {
+        const { from = 0, size = 20 } = bodyOf(req) as { from?: number; size?: number }
+        const n = Math.max(0, Math.min(size, 10_000 - from))
+        counter.rows += n
+        return { data: { total: 10_000, list: Array.from({ length: n }, (_, i) => ({ reportId: "same", title: `标题 ${from + i}` })) } }
+      })
+      return single(h, "gangtise_research_list", { keyword: "AI", fetchAll: true }, signal)
+    },
+  },
+  {
+    name: "mixed-download-query",
+    description: "16 个研报下载经 302 跳到另一个源、各传 400ms，传输期间发一次证券搜索；耗时列只计这次搜索",
+    run: async (h, _counter, signal) => {
+      let started = 0
+      let allStarted = () => {}
+      const ready = new Promise<void>((resolve) => { allStarted = resolve })
+      const storage = http.createServer((_req, res) => {
+        if (++started === 16) allStarted()
+        setTimeout(() => res.writeHead(200, { "content-type": "text/plain" }).end("download content"), 400)
+      })
+      storage.listen(0, "127.0.0.1")
+      await once(storage, "listening")
+      const location = `http://127.0.0.1:${(storage.address() as AddressInfo).port}/file`
+      h.upstream.setResponder((req) => (req.endpoint === "insight.research.download" ? { status: 302, headers: { location }, json: {} } : undefined))
+      const downloads = Promise.all(Array.from({ length: 16 }, (_, i) => h.call("gangtise_research_download", { reportId: `r-${i}` }, { signal, timeoutMs: 120_000 })))
+      await ready
+      const t0 = performance.now()
+      const out = await h.call("gangtise_securities_search", { keyword: "茅台" }, { signal, timeoutMs: 120_000 })
+      const metricMs = performance.now() - t0
+      const done = await downloads
+      storage.closeAllConnections()
+      await new Promise((resolve) => storage.close(resolve))
+      return { isError: out.isError || done.some((d) => d.isError), bytes: textBytes(out.text), tool: "gangtise_securities_search", metricMs }
+    },
+  },
 ]
 
 /** 场景用到的工具 → 默认档端点（价格在端点上）。 */
@@ -195,7 +238,8 @@ const TOOL_ENDPOINT: Record<string, string> = {
 }
 
 function estimateCredits(tool: string, rows: number, requests: number): string {
-  const spec = TOOL_ENDPOINT[tool] ? endpointBilling(TOOL_ENDPOINT[tool]) : undefined
+  // 直接读端点表（而不是计费渲染模块），同一份脚本也能拿去跑旧版本做前后对比。
+  const spec = TOOL_ENDPOINT[tool] ? (ENDPOINTS[TOOL_ENDPOINT[tool]] as { billing?: Billing } | undefined)?.billing : undefined
   if (!spec || spec.kind === "free" || spec.kind === "local") return "0"
   if (spec.kind !== "fixed") return "n/a"
   const units = spec.per === "call" || spec.per === "page" ? requests : rows
@@ -254,7 +298,7 @@ async function main(): Promise<void> {
           }, scenario.cancelAfterMs)
         : undefined
       const t0 = performance.now()
-      let outcome: { isError: boolean; bytes: number; tool: string }
+      let outcome: { isError: boolean; bytes: number; tool: string; metricMs?: number }
       try {
         outcome = await scenario.run(harness, counter, controller?.signal)
       } catch (err) {
@@ -269,7 +313,7 @@ async function main(): Promise<void> {
       const m = process.memoryUsage()
       peakHeap = Math.max(peakHeap, m.heapUsed)
       peakRss = Math.max(peakRss, m.rss)
-      times.push(elapsed)
+      times.push(outcome.metricMs ?? elapsed)
       if (outcome.isError && !controller) errors++
       const requests = harness.upstream.requests.length
       last = {
