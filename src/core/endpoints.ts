@@ -475,6 +475,9 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-fundamental/earning-forecast",
     kind: "json",
     description: "Query earning forecast (consensus estimates)",
+    // 按行计费（0.5/条），行数随日期区间增长：每个工作日一个日期 × 三个预测年度，区间上限只受
+    // 账号的取数窗口约束。单次调用可以远超几千积分，而客户端给不出可靠的行数上界，所以不重放。
+    retry: "no-replay",
   },
   "fundamental.income-statement-hk": {
     key: "fundamental.income-statement-hk",
@@ -526,6 +529,10 @@ export const ENDPOINTS: Record<string, EndpointDefinition> = {
     path: "/application/open-ai/stock-summary/getList",
     kind: "json",
     description: "Stock highlights (refined research summary per security)",
+    // 按条计费（3/条），单次最多 6000 只：一次调用最多 18000 积分，不重放。不重放就要给足等待：
+    // 大批量会跑过默认的 30s，而超时的那一次可能已经计费。
+    retry: "no-replay",
+    timeoutMs: 120_000,
   },
   "ai.knowledge-batch": {
     key: "ai.knowledge-batch",

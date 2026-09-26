@@ -35,6 +35,9 @@ const NO_REPLAY_KEYS = [
   "insight.pamirs-summary.download",
   "insight.foreign-report.download",
   "vault.my-conference.download",
+  // 按行计费且单次行数无可靠上界（盈利预测随区间增长；个股看点单次最多 6000 只 × 3 积分）。
+  "fundamental.earning-forecast",
+  "ai.stock-summary.list",
   // 清单里唯一不是出于计费原因的一条：池名不允许重复，所以重发一个其实已经建成的
   // 创建请求会撞上 230006，把一次成功报成失败。
   "vault.stock-pool.create",
@@ -44,7 +47,9 @@ const NO_999999_KEYS = ["indicator.search", "indicator.cross-section", "indicato
 
 // Synchronous AI generation regularly outlives the default 30s request timeout;
 // aborting bills the orphaned generation anyway, so these carry a 120s floor.
+// ai.stock-summary.list 不是生成类，但它不重放、大批量又会跑过 30s，同样给足下限。
 const SLOW_AI_KEYS = [
+  "ai.stock-summary.list",
   "ai.one-pager",
   "ai.investment-logic",
   "ai.peer-comparison",
