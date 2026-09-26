@@ -13,6 +13,7 @@ import { DEFAULT_MAX_DOWNLOAD_BYTES, PAGE_CONCURRENCY, type CliConfig } from "./
 import { credentialFingerprint, isTokenCacheValid, normalizeToken, readTokenCache, readTokenCacheWithMtime, requireAccessCredentials, writeTokenCache, type TokenCache } from "./auth.js"
 import { ApiError, DownloadError, ResponseShapeError, ValidationError, errorMessage } from "./errors.js"
 import { flagFailedItems } from "./normalize.js"
+import { markPartial, type PartialReason } from "./partial.js"
 import { ENDPOINTS, type EndpointDefinition } from "./endpoints.js"
 import { Envelope, isEnvelope, unwrapEnvelope } from "./envelope.js"
 import { getLookupData } from "./lookupData/index.js"
@@ -465,13 +466,11 @@ export class GangtiseClient {
    *    响亮失败），而标量不可能被误读成一批行。 */
   private flagUnexpectedPageShape(page: unknown): unknown {
     if (!page || typeof page !== "object") return page
-    const marker = {
-      _partial: true,
-      _partial_reason: "unexpected_page_shape",
+    const detail = {
       _unexpected_page_shape: "本接口标记为分页，但返回的首包不是 {total, list} 结构；已原样返回，未进行翻页——这份结果可能只是第一页，也可能是筛选条件未生效，不要当作完整结果使用",
     }
-    if (Array.isArray(page)) return { list: page, ...marker }
-    return { ...(page as Record<string, unknown>), ...marker }
+    const base = Array.isArray(page) ? { list: page } : (page as Record<string, unknown>)
+    return markPartial(base, "unexpected_page_shape", detail)
   }
 
   private async requestPaginated(endpoint: EndpointDefinition, body?: unknown) {
@@ -529,7 +528,7 @@ export class GangtiseClient {
     }
 
     /** 本轮新增的三种不完整原因，排在各路径既有原因之后。 */
-    const flagRowIssues = (reasons: string[], details: Record<string, unknown>): void => {
+    const flagRowIssues = (reasons: PartialReason[], details: Record<string, unknown>): void => {
       if (target < wanted) {
         reasons.push("window_cut")
         details._window_cut = {
@@ -573,14 +572,13 @@ export class GangtiseClient {
         typeof total === "number" ? Math.max(total - startFrom, 0) : returned,
         requestedSize ?? Number.POSITIVE_INFINITY,
       )
-      const reasons: string[] = []
+      const reasons: PartialReason[] = []
       const details: Record<string, unknown> = {}
       // 被当成重复丢掉的行不算短页：服务端把行都给了，只是有的给了两遍（见 duplicate_rows）。
       if (returned + tracker.state.duplicateRows < expectable) {
         reasons.push("short_page")
         flagRowIssues(reasons, details)
-        Object.assign(shortResult, { _partial: true, _partial_reason: reasons.join(",") }, details)
-        return shortResult
+        return markPartial(shortResult, reasons, details)
       }
       // 短页**恰好覆盖了 reported total** = 调用方以为拿到了全部，和下面「取满 target」
       // 是同一种处境，同样要探。上限比单页还小、或记录全落在首屏时会走这条路径——
@@ -597,8 +595,7 @@ export class GangtiseClient {
         }
       }
       flagRowIssues(reasons, details)
-      if (reasons.length > 0) Object.assign(shortResult, { _partial: true, _partial_reason: reasons.join(",") }, details)
-      return shortResult
+      return markPartial(shortResult, reasons, details)
     }
 
     if (firstRows.length >= target) {
@@ -612,7 +609,7 @@ export class GangtiseClient {
       // 注意 size 大小本身说明不了问题：size=200/total=100 覆盖到了，
       // size=20/total=10 也覆盖到了，两者都要探。
       // 窗口截掉了请求的行时不探：那种结果已经标了 window_cut，探针也只会落在窗口外。
-      const reasons: string[] = []
+      const reasons: PartialReason[] = []
       const details: Record<string, unknown> = {}
       if ((requestedSize === undefined || startFrom + requestedSize >= total) && total > 0 && target === wanted) {
         const cap = await checkTotalCap()
@@ -622,8 +619,7 @@ export class GangtiseClient {
         }
       }
       flagRowIssues(reasons, details)
-      if (reasons.length > 0) Object.assign(early, { _partial: true, _partial_reason: reasons.join(",") }, details)
-      return early
+      return markPartial(early, reasons, details)
     }
 
     // Build remaining page requests
@@ -686,10 +682,11 @@ export class GangtiseClient {
       list: returnedList,
     }
 
-    const partialReasons: string[] = []
+    const partialReasons: PartialReason[] = []
+    const details: Record<string, unknown> = {}
     if (hitPageCap) {
       partialReasons.push("page_cap")
-      response._page_cap = {
+      details._page_cap = {
         maxPages: MAX_PAGES,
         targetItems: target,
         returnedItems: returnedList.length,
@@ -704,27 +701,20 @@ export class GangtiseClient {
       const cap = await checkTotalCap()
       if (cap?.reason === "total_capped") {
         partialReasons.push("total_capped")
-        response._total_capped = cap.detail
+        details._total_capped = cap.detail
       } else if (cap?.reason === "total_drift" && !partialReasons.includes("total_drift")) {
         partialReasons.push("total_drift")
       }
     }
     if (failedPages.length > 0) {
       partialReasons.push("failed_pages")
-      response._failed_pages = failedPages
+      details._failed_pages = failedPages
     }
     // Pages all succeeded and no cap was hit, yet fewer rows than target arrived
     // — the server under-filled pages. Same loud-partial contract.
     if (partialReasons.length === 0 && returnedList.length < target && !shortByRepeatsOnly) partialReasons.push("short_page")
-    const details: Record<string, unknown> = {}
     flagRowIssues(partialReasons, details)
-    Object.assign(response, details)
-    if (partialReasons.length > 0) {
-      response._partial = true
-      response._partial_reason = partialReasons.join(",")
-    }
-
-    return response
+    return markPartial(response, partialReasons, details, "details-first")
   }
 
   async login() {

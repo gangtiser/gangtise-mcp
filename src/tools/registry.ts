@@ -10,6 +10,7 @@ import { downloadToResult, type DownloadResult } from "../core/download.js"
 import { ValidationError } from "../core/errors.js"
 import { createManagedTempDir, discardManagedTempDir, enforceOwnedTempQuota } from "../core/tempCleanup.js"
 import { INLINE_MAX_BYTES } from "../core/config.js"
+import { PARTIAL_DETAIL_KEYS, PER_PART_DETAIL_KEYS } from "../core/partial.js"
 import { withBilling } from "./billing.js"
 import { toolHandler } from "./helpers.js"
 
@@ -136,11 +137,7 @@ const DIAGNOSTIC_ENTRY_MAX = 400
  * 从**数字**（采样行数）覆盖成 `{shown,total}` 对象 —— 那是一个已有契约：读者靠
  * `_available_fields_sampled < _total_items` 判断字段清单可能不全。收缩逻辑不该有权
  * 改写它不认识的字段。 */
-const SHRINKABLE = new Set([
-  "_failed_pages",
-  "_failed_shards", "_malformed_shards", "_truncated_shards",
-  "_failed_securities", "_malformed_securities", "_truncated_securities",
-])
+const SHRINKABLE = new Set(PER_PART_DETAIL_KEYS)
 
 /** 指针必须保留的最小信息：没有它们，这条回复就没法回读了。 */
 const POINTER_KEYS = new Set([
@@ -247,33 +244,10 @@ function shrinkDiagnostics(preview: Record<string, unknown>): Record<string, unk
   }
 }
 
-/** 「结果不完整」的明细键。分页形状的预览靠 `...rest` 把顶层元数据整片带上，非列表
- *  大对象没有那条路——它的预览是**纯指针**，一个字段都不带。正文沉进文件没关系，
- *  「这份结果完整吗」不能跟着沉下去：工具说明让调用方看 `_partial`，而它恰好是唯一
- *  看不到的地方，一次部分失败就会被读成全部成功。
- *
- *  新增不完整标记时必须同步加进这张表，`registry.test.ts` 用精确集合钉住它。 */
-const PARTIAL_DETAIL_KEYS = [
-  "failedItems",
-  "missingFields",
-  "missingIds",
-  "unfetchedIds",
-  "unfetchedError",
-  "omittedIndicators",
-  "omittedSecurities",
-  "_dropped_columns",
-  "_dropped_columns_note",
-  "_failed_pages",
-  "_failed_shards",
-  "_failed_securities",
-  "_malformed_securities",
-  "_malformed_shards",
-  "_truncated_shards",
-  "_truncated_securities",
-  "_duplicate_rows",
-  "_changed_rows",
-  "_window_cut",
-] as const
+/** 「结果不完整」的明细键（取自 core/partial.ts 的 PARTIAL_DETAILS）。分页形状的预览靠 `...rest`
+ *  把顶层元数据整片带上，非列表大对象没有那条路——它的预览是**纯指针**，一个字段都不带。正文
+ *  沉进文件没关系，「这份结果完整吗」不能跟着沉下去：工具说明让调用方看 `_partial`，而它恰好是
+ *  唯一看不到的地方，一次部分失败就会被读成全部成功。 */
 
 /** 明细数组在指针里最多带几条。有界是硬要求：这些数组本身就可能是把载荷顶过阈值的
  *  那个东西，整片搬进预览等于把刚落盘的内容又塞回上下文。 */

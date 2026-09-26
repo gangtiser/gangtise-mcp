@@ -4,6 +4,7 @@ import type { GangtiseClient } from "../core/client.js"
 import { assertDateOrder, buildToolContent } from "./registry.js"
 import { toolHandler, contentResult } from "./helpers.js"
 import { normalizeRows } from "../core/normalize.js"
+import { markPartial, type PartialReason } from "../core/partial.js"
 import { resolveCalendarType } from "../core/calendarType.js"
 import { estimateTradingDays } from "../core/quoteSharding.js"
 import {
@@ -153,19 +154,17 @@ async function callMatrix(client: GangtiseClient, endpointKey: string, body: Rec
 function flagOmitted(result: unknown, dropped: { securities: string[]; indicators: string[] }): unknown {
   if (dropped.securities.length === 0 && dropped.indicators.length === 0) return result
   if (!result || typeof result !== "object") return result
-  const out = result as Record<string, unknown>
-  const reasons: string[] = []
+  const reasons: PartialReason[] = []
+  const details: Record<string, unknown> = {}
   if (dropped.indicators.length > 0) {
-    out.omittedIndicators = dropped.indicators
+    details.omittedIndicators = dropped.indicators
     reasons.push("omitted_indicators")
   }
   if (dropped.securities.length > 0) {
-    out.omittedSecurities = dropped.securities
+    details.omittedSecurities = dropped.securities
     reasons.push("omitted_securities")
   }
-  out._partial = true
-  out._partial_reason = reasons.join(",")
-  return out
+  return markPartial(result as Record<string, unknown>, reasons, details, "details-first")
 }
 
 // The query date rides on each indicator's own parameters now that the root-level

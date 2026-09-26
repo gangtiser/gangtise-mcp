@@ -1,3 +1,5 @@
+import { markPartial } from "./partial.js"
+
 import { ValidationError } from "./errors.js"
 
 function wrapList(meta: Record<string, unknown>, list: unknown[]): unknown {
@@ -16,10 +18,7 @@ export function flagMissingFields(result: unknown, requested: unknown): unknown 
   const returned = new Set(rec.fieldList.map(String))
   const missing = requested.filter((field): field is string => typeof field === "string" && !returned.has(field))
   if (missing.length === 0) return result
-  // `_partial_reason` 是逗号拼接的多原因列表，追加、不覆盖。
-  const prior = typeof rec._partial_reason === "string" && rec._partial_reason ? rec._partial_reason.split(",") : []
-  if (!prior.includes("missing_fields")) prior.push("missing_fields")
-  return { ...rec, _partial: true, _partial_reason: prior.join(","), missingFields: missing }
+  return markPartial(rec, "missing_fields", { missingFields: missing })
 }
 
 /** 逐条写操作（加/删证券、删池）的逐条失败**藏在成功信封里**：外层 `code` 恒为
@@ -36,9 +35,7 @@ export function flagFailedItems(result: unknown): unknown {
     const id = entry.securityCode ?? entry.poolId ?? JSON.stringify(entry)
     return entry.failReason ? `${String(id)}（${String(entry.failReason)}）` : String(id)
   })
-  const prior = typeof rec._partial_reason === "string" && rec._partial_reason ? rec._partial_reason.split(",") : []
-  if (!prior.includes("failed_items")) prior.push("failed_items")
-  return { ...rec, _partial: true, _partial_reason: prior.join(","), failedItems }
+  return markPartial(rec, "failed_items", { failedItems })
 }
 
 export function normalizeRows(value: unknown): unknown {

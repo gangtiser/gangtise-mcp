@@ -5,6 +5,7 @@ import { registerJsonTool, buildToolContent, type JsonToolSpec } from "./registr
 import { toolHandler, contentResult } from "./helpers.js"
 import { assertDateOrder } from "./registry.js"
 import { normalizeRows } from "../core/normalize.js"
+import { markPartial } from "../core/partial.js"
 import { dateString } from "../core/dateContext.js"
 import { nonEmptyString, uniqueFieldList, enumList } from "./schemas.js"
 
@@ -76,16 +77,9 @@ function flagValuationRange(normalized: unknown, limit: number, startDate: unkno
   const firstDate = typeof first?.tradeDate === "string" ? first.tradeDate : undefined
   const start = typeof startDate === "string" ? startDate : undefined
   if (list.length >= limit && !(start && firstDate === start)) {
-    const prior = typeof (rec as Record<string, unknown>)._partial_reason === "string" && (rec as Record<string, unknown>)._partial_reason
-      ? String((rec as Record<string, unknown>)._partial_reason).split(",")
-      : []
-    if (!prior.includes("limit_truncated")) prior.push("limit_truncated")
-    return {
-      ...rec,
-      _partial: true,
-      _partial_reason: prior.join(","),
+    return markPartial(rec as Record<string, unknown>, "limit_truncated", {
       _hint: `返回行数撞满 limit（${limit}）：本接口每个自然日一行（含周末），超出时保留最近的行，缺的是区间开头${firstDate ? `（本次从 ${firstDate} 开始）` : ""}。把 limit 调到区间天数以上（一年约 366 行），或把 startDate 往后挪。`,
-    }
+    })
   }
   if (start && firstDate && firstDate > start) {
     return { ...rec, _note: `序列从 ${firstDate} 开始，晚于 startDate ${start}：可能是之后才上市，或区间超出了账号可取的历史窗口——本接口只返回窗口内的部分，不报错。` }

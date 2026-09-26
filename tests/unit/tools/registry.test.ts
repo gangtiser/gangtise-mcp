@@ -721,10 +721,8 @@ describe("spilled non-list objects keep their incompleteness markers", () => {
         return statSync(full).isDirectory() ? walk(full) : full.endsWith(".ts") ? [full] : []
       })
     const all = walk("src").map((f) => readFileSync(f, "utf8")).join("\n")
-    const registry = readFileSync("src/tools/registry.ts", "utf8")
-    const table = new Set(
-      [...registry.match(/const PARTIAL_DETAIL_KEYS = \[([^\]]*)\]/)![1].matchAll(/"([^"]+)"/g)].map((m) => m[1]),
-    )
+    const { PARTIAL_DETAIL_KEYS } = await import("../../../src/core/partial.js")
+    const table = new Set(PARTIAL_DETAIL_KEYS)
     const produced = new Set(
       [...all.matchAll(/\b_(?:failed|truncated|malformed|dropped)_[a-z_]+\b/g)].map((m) => m[0]),
     )
@@ -734,12 +732,8 @@ describe("spilled non-list objects keep their incompleteness markers", () => {
 
   // 驼峰族没有统一前缀，只能显式钉；加删都应当是一次被看见的改动。
   it("pins the camelCase detail keys", async () => {
-    const { readFileSync } = await import("node:fs")
-    const registry = readFileSync("src/tools/registry.ts", "utf8")
-    const keys = [...registry.match(/const PARTIAL_DETAIL_KEYS = \[([^\]]*)\]/)![1].matchAll(/"([^"]+)"/g)]
-      .map((m) => m[1])
-      .filter((k) => !k.startsWith("_"))
-      .sort()
+    const { PARTIAL_DETAIL_KEYS } = await import("../../../src/core/partial.js")
+    const keys = PARTIAL_DETAIL_KEYS.filter((k) => !k.startsWith("_")).sort()
     expect(keys).toEqual(["failedItems", "missingFields", "missingIds", "omittedIndicators", "omittedSecurities", "unfetchedError", "unfetchedIds"])
   })
 })

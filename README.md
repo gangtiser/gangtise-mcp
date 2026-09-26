@@ -214,6 +214,7 @@ Get-ChildItem "$env:LOCALAPPDATA\npm-cache\_npx" -Recurse -Filter package.json |
 | `failed_shards` / `failed_securities` / `failed_pages` | 分片、逐只或分页请求中有一部分失败 | `_failed_shards` / `_failed_securities` / `_failed_pages`，逐条记出区间 / 证券 / 页与错误 |
 | `failed_items` | 自选股池的批量写操作（加股 / 移除 / 删池）里有单条失败，其余照常生效 | `failedItems`，逐条点名并附原因 |
 | `malformed_shards` / `malformed_securities` | 某一份响应里没有可合并的行，或列结构对不上 | `_malformed_shards` / `_malformed_securities` |
+| `part_partial` | 合并多份响应时，其中一份自带不完整标记但没有写原因 | — |
 | `short_page` / `page_cap` / `total_drift` / `total_capped` | 翻页没取满、撞到页数上限、翻页期间数据集变了、`total` 是上限值而非真实计数（含 `total` 触及接口偏移窗口、越过 `total` 的那一行被接口拒绝） | `page_cap` / `total_capped` 分别附带 `_page_cap` / `_total_capped`；其他原因不保证有独立详情字段 |
 | `duplicate_rows` / `changed_rows` | 翻页排序键不唯一，同一行在相邻两页各出现一次（重复的已去掉，同样多的行没有取回）；同一 ID 在后面的页上内容变了（两版都保留） | `_duplicate_rows` / `_changed_rows` |
 | `window_cut` | 请求的行越过了接口的偏移窗口（`from + size` 上限），窗口外的没有取回 | `_window_cut` |

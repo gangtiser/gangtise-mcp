@@ -9,6 +9,7 @@ import { dateString, dateTimeString } from "../core/dateContext.js"
 import { nonEmptyString, nonEmptyList, intLiteralEnum, enumList } from "./schemas.js"
 import { withBilling } from "./billing.js"
 import { fetchOpinionDetails } from "../core/opinionDetail.js"
+import { markPartial } from "../core/partial.js"
 
 // insight.qa.list accepts either a plain date or a full datetime; the string is
 // passed through to the API as-is (no timestamp conversion).
@@ -648,7 +649,7 @@ export function registerInsightTools(server: McpServer, client: GangtiseClient):
       const capped = !hasDateRange && requestedRows > SECURITY_ONLY_ROW_CAP
       if (capped) body.size = SECURITY_ONLY_ROW_CAP
 
-      const result = await client.call("insight.performance-calendar.list", body)
+      let result = await client.call("insight.performance-calendar.list", body)
 
       // 取满上限且 total 显示还有剩余 = securityList 过滤可能已失效，屏上这批
       // 是整本日历的一段切片而非某公司的日历。判据用 total 而非只看行数：
@@ -660,16 +661,8 @@ export function registerInsightTools(server: McpServer, client: GangtiseClient):
         if (Array.isArray(list) && list.length >= SECURITY_ONLY_ROW_CAP) {
           const total = typeof rec.total === "number" ? rec.total : undefined
           if (total === undefined || from + list.length < total) {
-            // _partial_reason 是**逗号拼接的多原因列表**（见 client.requestPaginated）：
-            // 分页层可能已经写入 page_cap / total_drift / failed_pages 等，直接赋值
-            // 会把那些诊断信息抹掉。追加，不覆盖。
-            const prior = typeof rec._partial_reason === "string" && rec._partial_reason
-              ? rec._partial_reason.split(",")
-              : []
-            if (!prior.includes("security_only_row_cap")) prior.push("security_only_row_cap")
-            rec._partial = true
-            rec._partial_reason = prior.join(",")
-            rec._hint = `securityList 是唯一约束时最多取 ${SECURITY_ONLY_ROW_CAP} 行，且结果已取满、total=${String(rec.total)} 显示还有剩余 —— 该筛选可能未生效，请改用 startDate+endDate 重查。`
+            // 分页层可能已经写入 page_cap / total_drift / failed_pages 等原因，markPartial 追加、不覆盖。
+            result = markPartial(rec, "security_only_row_cap", { _hint: `securityList 是唯一约束时最多取 ${SECURITY_ONLY_ROW_CAP} 行，且结果已取满、total=${String(rec.total)} 显示还有剩余 —— 该筛选可能未生效，请改用 startDate+endDate 重查。` })
           }
         }
       }

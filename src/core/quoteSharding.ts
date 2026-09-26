@@ -2,6 +2,7 @@ import { runWithConcurrency, isVerbose } from "./transport.js"
 import { ApiError, ResponseShapeError, errorMessage, ValidationError } from "./errors.js"
 import { PAGE_CONCURRENCY } from "./config.js"
 import { currentSignal } from "./requestContext.js"
+import { clearPartial, markPartial, partialReasonsOf, type PartialReason } from "./partial.js"
 
 export interface KlineBody {
   securityList?: string[]
@@ -69,7 +70,7 @@ export function flagLimitTruncated(result: unknown, effectiveLimit: number): unk
   if (result && typeof result === "object" && Array.isArray((result as { list?: unknown[] }).list)) {
     const list = (result as { list: unknown[] }).list
     if (list.length >= effectiveLimit) {
-      return { ...(result as Record<string, unknown>), _partial: true, _partial_reason: "limit_truncated" }
+      return markPartial(result as Record<string, unknown>, "limit_truncated")
     }
   }
   return result
@@ -187,7 +188,7 @@ interface MergedParts {
   malformed: number[]
   /** 各部件自己带来的 `_partial_reason`。合并结果只展开首片的元数据、且随后会覆写
    *  `_partial_reason`，不单独收集的话：非首片的标记整个消失，首片的原因被覆盖掉。 */
-  partReasons: string[]
+  partReasons: PartialReason[]
   /** 某些部件返回了首片没有的列。合并结果的 `fieldList` 是首片的，这些列没有位置可放，
    *  只能丢；按列名报出来，调用方才知道有一列在部分范围里其实是有值的。 */
   droppedColumns: string[]
@@ -204,7 +205,7 @@ function mergeParts(results: PartOutcome[], perLimit: number): MergedParts {
   const merged: unknown[] = []
   const truncated: number[] = []
   const malformed: number[] = []
-  const partReasons = new Set<string>()
+  const partReasons = new Set<PartialReason>()
   const droppedColumns = new Set<string>()
   for (let i = 0; i < results.length; i++) {
     const r = results[i]
@@ -215,8 +216,8 @@ function mergeParts(results: PartOutcome[], perLimit: number): MergedParts {
       continue
     }
     if (part.rec._partial === true) {
-      const reason = typeof part.rec._partial_reason === "string" ? part.rec._partial_reason : ""
-      for (const one of reason ? reason.split(",") : ["part_partial"]) partReasons.add(one)
+      const reasons = partialReasonsOf(part.rec) as PartialReason[]
+      for (const one of reasons.length > 0 ? reasons : ["part_partial" as const]) partReasons.add(one)
     }
     let rows = part.rows
     const partFields = Array.isArray(part.rec.fieldList) && part.rec.fieldList.length > 0 ? part.rec.fieldList.map(String) : undefined
@@ -250,11 +251,17 @@ function mergeParts(results: PartOutcome[], perLimit: number): MergedParts {
 }
 
 /** 合并结果里多出来的列被丢掉时，按列名记名并标 `_partial`。分片与逐只两条路共用。 */
-function flagDroppedColumns(out: Record<string, unknown>, reasons: string[], droppedColumns: string[]): void {
+/** 合并结果的元数据取自第一份。第一份自带的原因已经收进 partReasons，这里先清空原因串再整组写入，
+ *  原因顺序才是「本层原因在前、各部件原因在后」；`_partial` 键若已存在则保留原位。 */
+function clearPartialReason(out: Record<string, unknown>): Record<string, unknown> {
+  return "_partial_reason" in out ? { ...out, _partial_reason: "" } : out
+}
+
+function flagDroppedColumns(reasons: PartialReason[], details: Record<string, unknown>, droppedColumns: string[]): void {
   if (droppedColumns.length === 0) return
   reasons.push("dropped_columns")
-  out._dropped_columns = droppedColumns
-  out._dropped_columns_note = "这些列只在部分分片/证券的响应里出现，而合并结果的 fieldList 取自第一份，放不下它们；需要这些列请缩小日期区间或按证券单独重拉"
+  details._dropped_columns = droppedColumns
+  details._dropped_columns_note = "这些列只在部分分片/证券的响应里出现，而合并结果的 fieldList 取自第一份，放不下它们；需要这些列请缩小日期区间或按证券单独重拉"
 }
 
 /**
@@ -348,29 +355,23 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
   // Loud partial: a dropped shard (failure), a shard whose rows hit the per-request
   // limit (truncated slice) or a shard whose payload could not be merged all leave
   // the merged market data incomplete.
-  const reasons: string[] = []
+  const reasons: PartialReason[] = []
+  const details: Record<string, unknown> = {}
   if (failed.length > 0) {
     reasons.push("failed_shards")
-    out._failed_shards = failed.map(({ r, i }) => ({ startDate: shards[i].startDate, endDate: shards[i].endDate, error: r.error }))
+    details._failed_shards = failed.map(({ r, i }) => ({ startDate: shards[i].startDate, endDate: shards[i].endDate, error: r.error }))
   }
   if (truncated.length > 0) {
     reasons.push("limit_truncated")
-    out._truncated_shards = truncated.map((i) => shards[i])
+    details._truncated_shards = truncated.map((i) => shards[i])
   }
   if (malformed.length > 0) {
     reasons.push("malformed_shards")
-    out._malformed_shards = malformed.map((i) => shards[i])
+    details._malformed_shards = malformed.map((i) => shards[i])
   }
-  flagDroppedColumns(out, reasons, droppedColumns)
+  flagDroppedColumns(reasons, details, droppedColumns)
   for (const reason of partReasons) if (!reasons.includes(reason)) reasons.push(reason)
-  if (reasons.length > 0) {
-    out._partial = true
-    out._partial_reason = reasons.join(",")
-  } else {
-    delete out._partial
-    delete out._partial_reason
-  }
-  return out
+  return reasons.length > 0 ? markPartial(clearPartialReason(out), reasons, details, "details-first") : clearPartial(out)
 }
 
 /**
@@ -410,27 +411,21 @@ export async function callKlinePerSecurity(
   const out: Record<string, unknown> = { ...header, list: merged }
   if (fieldList) out.fieldList = fieldList
   if ("total" in out) out.total = merged.length
-  const reasons: string[] = []
+  const reasons: PartialReason[] = []
+  const details: Record<string, unknown> = {}
   if (failed.length > 0) {
     reasons.push("failed_securities")
-    out._failed_securities = failed.map(({ r, i }) => ({ security: securities[i], error: r.error }))
+    details._failed_securities = failed.map(({ r, i }) => ({ security: securities[i], error: r.error }))
   }
   if (truncated.length > 0) {
     reasons.push("limit_truncated")
-    out._truncated_securities = truncated.map((i) => securities[i])
+    details._truncated_securities = truncated.map((i) => securities[i])
   }
   if (malformed.length > 0) {
     reasons.push("malformed_securities")
-    out._malformed_securities = malformed.map((i) => securities[i])
+    details._malformed_securities = malformed.map((i) => securities[i])
   }
-  flagDroppedColumns(out, reasons, droppedColumns)
+  flagDroppedColumns(reasons, details, droppedColumns)
   for (const reason of partReasons) if (!reasons.includes(reason)) reasons.push(reason)
-  if (reasons.length > 0) {
-    out._partial = true
-    out._partial_reason = reasons.join(",")
-  } else {
-    delete out._partial
-    delete out._partial_reason
-  }
-  return out
+  return reasons.length > 0 ? markPartial(clearPartialReason(out), reasons, details, "details-first") : clearPartial(out)
 }

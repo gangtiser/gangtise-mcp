@@ -1,4 +1,5 @@
 import { ApiError, ResponseShapeError } from "./errors.js"
+import { markPartial, type PartialReason } from "./partial.js"
 
 /** 分批取正文只需要 client 的这一个方法，测试可以不经 HTTP 驱动它。 */
 export interface DetailClient {
@@ -49,20 +50,16 @@ export async function fetchOpinionDetails(
   }
   const returned = new Set(list.map((row) => String(row[idField])))
   const missing = unique.filter((id) => !returned.has(id) && !unfetched.includes(id))
-  const out: Record<string, unknown> = { total: list.length, list }
-  const reasons: string[] = []
+  const reasons: PartialReason[] = []
+  const details: Record<string, unknown> = {}
   if (missing.length > 0) {
     reasons.push("missing_ids")
-    out.missingIds = missing
+    details.missingIds = missing
   }
   if (unfetched.length > 0) {
     reasons.push("unfetched_ids")
-    out.unfetchedIds = unfetched
-    out.unfetchedError = unfetchedError
+    details.unfetchedIds = unfetched
+    details.unfetchedError = unfetchedError
   }
-  if (reasons.length > 0) {
-    out._partial = true
-    out._partial_reason = reasons.join(",")
-  }
-  return out
+  return markPartial({ total: list.length, list }, reasons, details, "details-first")
 }
