@@ -3,6 +3,10 @@ import path from "node:path"
 
 export const DEFAULT_BASE_URL = "https://openapi.gangtise.com"
 export const DEFAULT_TIMEOUT_MS = 30_000
+/** GANGTISE_TIMEOUT_MS 的取值范围：低于 1 秒时服务端来不及应答，每个请求都会超时；超过 1 小时，
+ *  挂住的请求与没发出的请求已经分不出来。 */
+export const MIN_TIMEOUT_MS = 1_000
+export const MAX_TIMEOUT_MS = 3_600_000
 export const DEFAULT_TOKEN_CACHE_PATH = path.join(os.homedir(), ".config", "gangtise", "token.json")
 // Default async-AI wait. Kept under the MCP client's default request timeout
 // (~60s, DEFAULT_REQUEST_TIMEOUT_MSEC) so the {dataId, status:"timeout"} response
@@ -59,6 +63,16 @@ export function resolveMaxDownloadBytes(raw: string | undefined): number {
   return Number.isFinite(n) && n >= 1024 * 1024 ? Math.floor(n) : DEFAULT_MAX_DOWNLOAD_BYTES
 }
 
+/** GANGTISE_TIMEOUT_MS 只收十进制整数毫秒。`0.5`、`1e4`、`30s` 这类回退默认值；低于 1 秒的
+ *  多半是把秒当毫秒写了（`30`），同样回退——否则每个请求都会超时；超过上限的夹到上限。 */
+export function resolveTimeoutMs(raw: string | undefined): number {
+  if (!raw || !/^\d+$/.test(raw.trim())) return DEFAULT_TIMEOUT_MS
+  const ms = Number(raw)
+  return ms < MIN_TIMEOUT_MS ? DEFAULT_TIMEOUT_MS : Math.min(MAX_TIMEOUT_MS, ms)
+}
+
+let timeoutWarned = false
+
 export interface CliConfig {
   baseUrl: string
   timeoutMs: number
@@ -73,14 +87,20 @@ export interface CliConfig {
 
 export function loadConfig(): CliConfig {
   const timeoutValue = process.env.GANGTISE_TIMEOUT_MS
-  const timeoutMs = timeoutValue ? Number(timeoutValue) : DEFAULT_TIMEOUT_MS
+  const timeoutMs = resolveTimeoutMs(timeoutValue)
+  // 设了却没按原值生效时在 stderr 说一次：调大它通常是为了等慢的 AI 生成，悄悄退回 30 秒会让
+  // 那次调用超时、而超时的生成可能已经计费。
+  if (timeoutValue && Number(timeoutValue) !== timeoutMs && !timeoutWarned) {
+    timeoutWarned = true
+    process.stderr.write(`[gangtise] warning: GANGTISE_TIMEOUT_MS=${timeoutValue} is not in effect, using ${timeoutMs} ms: expected whole milliseconds from ${MIN_TIMEOUT_MS} to ${MAX_TIMEOUT_MS}\n`)
+  }
 
   const asyncTimeoutValue = process.env.GANGTISE_MCP_ASYNC_TIMEOUT_MS
   const asyncTimeoutMs = asyncTimeoutValue ? Number(asyncTimeoutValue) : DEFAULT_ASYNC_TIMEOUT_MS
 
   return {
     baseUrl: process.env.GANGTISE_BASE_URL ?? DEFAULT_BASE_URL,
-    timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : DEFAULT_TIMEOUT_MS,
+    timeoutMs,
     accessKey: process.env.GANGTISE_ACCESS_KEY,
     secretKey: process.env.GANGTISE_SECRET_KEY,
     token: process.env.GANGTISE_TOKEN,

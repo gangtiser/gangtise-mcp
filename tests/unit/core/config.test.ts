@@ -1,10 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import {
   loadConfig,
   resolveInlineMaxBytes,
   resolvePageConcurrency,
+  resolveTimeoutMs,
   MAX_PAGE_CONCURRENCY,
+  MAX_TIMEOUT_MS,
   DEFAULT_BASE_URL,
   DEFAULT_TIMEOUT_MS,
   DEFAULT_ASYNC_TIMEOUT_MS,
@@ -101,6 +103,36 @@ describe("loadConfig", () => {
     expect(resolvePageConcurrency("33")).toBe(MAX_PAGE_CONCURRENCY) // just over → clamped
     expect(resolvePageConcurrency("100000")).toBe(MAX_PAGE_CONCURRENCY)
     expect(MAX_PAGE_CONCURRENCY).toBe(32)
+  })
+
+  it("GANGTISE_TIMEOUT_MS 只收整数毫秒：小数、科学计数、带单位回退默认，不足 1 秒回退，超过 1 小时夹到上限", () => {
+    expect(resolveTimeoutMs(undefined)).toBe(DEFAULT_TIMEOUT_MS)
+    expect(resolveTimeoutMs("45000")).toBe(45_000)
+    expect(resolveTimeoutMs(" 45000 ")).toBe(45_000)
+    expect(resolveTimeoutMs("1000")).toBe(1_000)
+    for (const bad of ["0.5", "1e4", "30s", "5000.0", "0x10", "-1000"]) expect(resolveTimeoutMs(bad), bad).toBe(DEFAULT_TIMEOUT_MS)
+    // 把秒当毫秒写（30）会让每个请求都超时，按无效处理而不是照用。
+    expect(resolveTimeoutMs("30")).toBe(DEFAULT_TIMEOUT_MS)
+    expect(resolveTimeoutMs("999")).toBe(DEFAULT_TIMEOUT_MS)
+    expect(resolveTimeoutMs("3600001")).toBe(MAX_TIMEOUT_MS)
+    expect(resolveTimeoutMs("99999999999")).toBe(MAX_TIMEOUT_MS)
+  })
+
+  it("GANGTISE_TIMEOUT_MS 未按原值生效时在 stderr 提示一次，按原值生效时不提示", () => {
+    const write = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    try {
+      process.env.GANGTISE_TIMEOUT_MS = "60000"
+      loadConfig()
+      expect(write).not.toHaveBeenCalled()
+      process.env.GANGTISE_TIMEOUT_MS = "30"
+      expect(loadConfig().timeoutMs).toBe(DEFAULT_TIMEOUT_MS)
+      loadConfig()
+      const warnings = write.mock.calls.map((call) => String(call[0])).filter((text) => text.includes("GANGTISE_TIMEOUT_MS"))
+      expect(warnings).toHaveLength(1)
+      expect(warnings[0]).toContain("GANGTISE_TIMEOUT_MS=30 is not in effect")
+    } finally {
+      write.mockRestore()
+    }
   })
 
   it("ignores empty, non-numeric, zero, and negative timeouts", () => {
