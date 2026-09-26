@@ -1,0 +1,26 @@
+{
+  "isError": false,
+  "result": {
+    "total": 2,
+    "_malformed_shards": [
+      {
+        "startDate": "2026-09-08",
+        "endDate": "2026-09-08"
+      }
+    ],
+    "_partial": true,
+    "_partial_reason": "malformed_shards",
+    "list": [
+      {
+        "securityCode": "600519.SH",
+        "tradeDate": "2026-09-07",
+        "close": 1
+      },
+      {
+        "securityCode": "600519.SH",
+        "tradeDate": "2026-09-09",
+        "close": 1
+      }
+    ]
+  }
+}

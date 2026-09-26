@@ -1,0 +1,28 @@
+{
+  "isError": false,
+  "result": {
+    "total": 3,
+    "_malformed_securities": [
+      "AAPL.O"
+    ],
+    "_partial": true,
+    "_partial_reason": "malformed_securities",
+    "list": [
+      {
+        "securityCode": "600519.SH",
+        "tradeDate": "2026-09-01",
+        "close": 1
+      },
+      {
+        "securityCode": "000858.SZ",
+        "tradeDate": "2026-09-01",
+        "close": 1
+      },
+      {
+        "securityCode": "00700.HK",
+        "tradeDate": "2026-09-01",
+        "close": 1
+      }
+    ]
+  }
+}

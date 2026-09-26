@@ -1,0 +1,27 @@
+{
+  "isError": false,
+  "result": {
+    "total": 2,
+    "_failed_shards": [
+      {
+        "startDate": "2026-09-08",
+        "endDate": "2026-09-08",
+        "error": "参数错误（错误码 100005） — 对照工具参数说明列出的合法取值检查。"
+      }
+    ],
+    "_partial": true,
+    "_partial_reason": "failed_shards",
+    "list": [
+      {
+        "securityCode": "600519.SH",
+        "tradeDate": "2026-09-07",
+        "close": 1
+      },
+      {
+        "securityCode": "600519.SH",
+        "tradeDate": "2026-09-09",
+        "close": 1
+      }
+    ]
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "isError": false,
+  "result": {
+    "total": 2,
+    "_dropped_columns": [
+      "extraCol"
+    ],
+    "_dropped_columns_note": "这些列只在部分分片/证券的响应里出现，而合并结果的 fieldList 取自第一份，放不下它们；需要这些列请缩小日期区间或按证券单独重拉",
+    "_partial": true,
+    "_partial_reason": "dropped_columns",
+    "list": [
+      {
+        "securityCode": "600519.SH",
+        "tradeDate": "2026-09-07",
+        "close": 1
+      },
+      {
+        "securityCode": "600519.SH",
+        "tradeDate": "2026-09-08",
+        "close": 2
+      }
+    ]
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "isError": false,
+  "result": {
+    "successList": [
+      "600519.SH"
+    ],
+    "failList": [
+      {
+        "securityCode": "600519.XX",
+        "failReason": "证券代码无效"
+      }
+    ],
+    "_partial": true,
+    "_partial_reason": "failed_items",
+    "failedItems": [
+      "600519.XX（证券代码无效）"
+    ]
+  }
+}

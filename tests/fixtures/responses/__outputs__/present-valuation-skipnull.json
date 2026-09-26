@@ -1,0 +1,18 @@
+{
+  "isError": false,
+  "result": {
+    "total": 2,
+    "list": [
+      {
+        "tradeDate": "2026-09-01",
+        "value": 25.1,
+        "percentileRank": 0.31
+      },
+      {
+        "tradeDate": "2026-09-03",
+        "value": 24.8,
+        "percentileRank": 0.29
+      }
+    ]
+  }
+}

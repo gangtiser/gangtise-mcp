@@ -1,0 +1,9 @@
+{
+  "securityCodeList": ["300750.SZ"],
+  "securityNameList": ["宁德时代"],
+  "indicatorList": [
+    { "code": "qte_mkt_cptl", "name": "总市值", "dataType": "number", "field": "F1" },
+    { "code": "scr_exchg_sctr", "name": "上市板块", "dataType": "string", "field": "F2" }
+  ],
+  "values": [[11234.56, "创业板"]]
+}

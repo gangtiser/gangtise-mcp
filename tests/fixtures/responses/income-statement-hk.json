@@ -1,0 +1,5 @@
+{
+  "total": 1,
+  "fieldList": ["securityCode", "securityName", "announcementDate", "endDate", "period", "reportType", "opRevenue", "netProfit"],
+  "list": [["00700.HK", "腾讯控股", "2026-08-13", "2026-06-30", "h1", "consolidated", 364520000000, 124380000000]]
+}

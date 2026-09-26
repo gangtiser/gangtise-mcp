@@ -1,0 +1,17 @@
+{
+  "isError": false,
+  "result": {
+    "total": 1,
+    "_partial": true,
+    "_partial_reason": "missing_fields",
+    "missingFields": [
+      "turnoverRate"
+    ],
+    "list": [
+      {
+        "securityCode": "600519.SH",
+        "latestPrice": 1510.2
+      }
+    ]
+  }
+}

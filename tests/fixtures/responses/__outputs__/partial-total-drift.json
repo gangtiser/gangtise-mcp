@@ -1,0 +1,31 @@
+{
+  "isError": false,
+  "result": {
+    "total": 7,
+    "_partial": true,
+    "_partial_reason": "total_drift",
+    "list": [
+      {
+        "id": "row-0"
+      },
+      {
+        "id": "row-1"
+      },
+      {
+        "id": "row-2"
+      },
+      {
+        "id": "row-3"
+      },
+      {
+        "id": "row-4"
+      },
+      {
+        "id": "row-5"
+      },
+      {
+        "id": "row-6"
+      }
+    ]
+  }
+}

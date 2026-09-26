@@ -1,0 +1,35 @@
+{
+  "isError": false,
+  "result": {
+    "total": 7,
+    "_partial": true,
+    "_partial_reason": "total_capped",
+    "_total_capped": {
+      "reportedTotal": 7,
+      "note": "服务端返回的 total 是上限值而非真实计数，实际条数更多；本次只取到了上限内的部分"
+    },
+    "list": [
+      {
+        "id": "row-0"
+      },
+      {
+        "id": "row-1"
+      },
+      {
+        "id": "row-2"
+      },
+      {
+        "id": "row-3"
+      },
+      {
+        "id": "row-4"
+      },
+      {
+        "id": "row-5"
+      },
+      {
+        "id": "row-6"
+      }
+    ]
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "isError": false,
+  "result": {
+    "_partial": true,
+    "_partial_reason": "unexpected_page_shape",
+    "_unexpected_page_shape": "本接口标记为分页，但返回的首包不是 {total, list} 结构；已原样返回，未进行翻页——这份结果可能只是第一页，也可能是筛选条件未生效，不要当作完整结果使用",
+    "list": [
+      {
+        "id": "row-0"
+      }
+    ]
+  }
+}

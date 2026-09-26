@@ -1,0 +1,4 @@
+{
+  "successList": ["600519.SH"],
+  "failList": [{ "securityCode": "600519.XX", "failReason": "证券代码无效" }]
+}

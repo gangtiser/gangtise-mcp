@@ -1,0 +1,30 @@
+{
+  "isError": false,
+  "result": {
+    "total": 2,
+    "_truncated_shards": [
+      {
+        "startDate": "2026-09-07",
+        "endDate": "2026-09-07"
+      },
+      {
+        "startDate": "2026-09-08",
+        "endDate": "2026-09-08"
+      }
+    ],
+    "_partial": true,
+    "_partial_reason": "limit_truncated",
+    "list": [
+      {
+        "securityCode": "600519.SH",
+        "tradeDate": "2026-09-07",
+        "close": 1
+      },
+      {
+        "securityCode": "600519.SH",
+        "tradeDate": "2026-09-08",
+        "close": 1
+      }
+    ]
+  }
+}

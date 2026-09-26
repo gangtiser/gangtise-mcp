@@ -1,0 +1,31 @@
+{
+  "isError": false,
+  "result": {
+    "total": 3,
+    "_failed_securities": [
+      {
+        "security": "00700.HK",
+        "error": "证券代码无效（错误码 120001） — 用 gangtise_securities_search 确认证券代码与后缀（如 600519.SH / 00700.HK / AAPL.O）。"
+      }
+    ],
+    "_partial": true,
+    "_partial_reason": "failed_securities",
+    "list": [
+      {
+        "securityCode": "600519.SH",
+        "tradeDate": "2026-09-01",
+        "close": 1
+      },
+      {
+        "securityCode": "000858.SZ",
+        "tradeDate": "2026-09-01",
+        "close": 1
+      },
+      {
+        "securityCode": "AAPL.O",
+        "tradeDate": "2026-09-01",
+        "close": 1
+      }
+    ]
+  }
+}

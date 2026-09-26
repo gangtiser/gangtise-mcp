@@ -1,0 +1,88 @@
+{
+  "isError": false,
+  "result": {
+    "total": 60000,
+    "_page_cap": {
+      "maxPages": 1000,
+      "targetItems": 60000,
+      "returnedItems": 50000
+    },
+    "_partial": true,
+    "_partial_reason": "page_cap",
+    "list": [
+      {
+        "id": "row-0"
+      },
+      {
+        "id": "row-1"
+      },
+      {
+        "id": "row-2"
+      },
+      {
+        "id": "row-3"
+      },
+      {
+        "id": "row-4"
+      },
+      {
+        "id": "row-5"
+      },
+      {
+        "id": "row-6"
+      },
+      {
+        "id": "row-7"
+      },
+      {
+        "id": "row-8"
+      },
+      {
+        "id": "row-9"
+      },
+      {
+        "id": "row-10"
+      },
+      {
+        "id": "row-11"
+      },
+      {
+        "id": "row-12"
+      },
+      {
+        "id": "row-13"
+      },
+      {
+        "id": "row-14"
+      },
+      {
+        "id": "row-15"
+      },
+      {
+        "id": "row-16"
+      },
+      {
+        "id": "row-17"
+      },
+      {
+        "id": "row-18"
+      },
+      {
+        "id": "row-19"
+      }
+    ],
+    "_truncated": true,
+    "_saved_to": "<TMP>/response.json",
+    "_local_hint": "该路径存的是完整 JSON；若本机可直接读取，请在本地做投影/过滤/聚合后只取所需结果，不要把整个文件读进上下文。",
+    "_available_fields": [
+      "id"
+    ],
+    "_available_fields_sampled": 20,
+    "_read_with": "gangtise_read_response",
+    "_total_bytes": 939031,
+    "_total_items": 50000,
+    "_preview_count": 20,
+    "has_more": true,
+    "next_offset": 20
+  }
+}

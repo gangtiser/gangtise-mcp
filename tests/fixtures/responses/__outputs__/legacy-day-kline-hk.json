@@ -1,0 +1,13 @@
+{
+  "isError": false,
+  "result": {
+    "total": 1,
+    "list": [
+      {
+        "securityCode": "00700.HK",
+        "tradeDate": "2026-09-01",
+        "close": 480.4
+      }
+    ]
+  }
+}

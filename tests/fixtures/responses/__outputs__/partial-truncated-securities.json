@@ -1,0 +1,24 @@
+{
+  "isError": false,
+  "result": {
+    "total": 2,
+    "_truncated_securities": [
+      "600519.SH",
+      "512800.SH"
+    ],
+    "_partial": true,
+    "_partial_reason": "limit_truncated",
+    "list": [
+      {
+        "securityCode": "600519.SH",
+        "tradeTime": "2026-09-01 09:31:00",
+        "close": 1
+      },
+      {
+        "securityCode": "512800.SH",
+        "tradeTime": "2026-09-01 09:31:00",
+        "close": 1
+      }
+    ]
+  }
+}

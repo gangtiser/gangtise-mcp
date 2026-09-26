@@ -1,0 +1,8 @@
+{
+  "isError": false,
+  "result": {
+    "dataId": "mock-data-id",
+    "status": "timeout",
+    "hint": "Call gangtise_earnings_review_check with this dataId in ~3 minutes"
+  }
+}

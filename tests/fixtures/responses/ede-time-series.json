@@ -1,0 +1,10 @@
+{
+  "securityCodeList": ["600519.SH", "000858.SZ"],
+  "securityNameList": ["贵州茅台", "五粮液"],
+  "indicatorList": [{ "code": "qte_close", "name": "收盘价", "dataType": "number" }],
+  "dates": ["2026-09-01", "2026-09-02"],
+  "values": [
+    [1510.2, 1498.8],
+    [132.5, null]
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "total": 1,
+  "list": [
+    {
+      "announcementId": "annhk-1",
+      "title": "二零二六年中期业绩公告",
+      "publishTime": "2026-08-13 16:30:00",
+      "securityList": [{ "securityCode": "00700.HK", "securityName": "腾讯控股" }],
+      "categoryList": ["业绩公告"]
+    }
+  ]
+}

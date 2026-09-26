@@ -1,0 +1,12 @@
+{
+  "securityCodeList": ["600519.SH", "00700.HK"],
+  "securityNameList": ["贵州茅台", "腾讯控股"],
+  "indicatorList": [
+    { "code": "qte_close", "name": "收盘价", "dataType": "number" },
+    { "code": "qte_mkt_cptl", "name": "总市值", "dataType": "number" }
+  ],
+  "values": [
+    [1510.2, 18970.5],
+    [480.4, null]
+  ]
+}
