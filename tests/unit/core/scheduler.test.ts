@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
-import { ConcurrencyGate, CALL_LIMITS } from "../../../src/core/scheduler.js"
+import { ConcurrencyGate, CALL_LIMITS, withDownloadSlot, withGlobalSlot } from "../../../src/core/scheduler.js"
+import { GLOBAL_CONCURRENCY } from "../../../src/core/config.js"
 import { MAX_GLOBAL_CONCURRENCY, resolveGlobalConcurrency } from "../../../src/core/config.js"
 
 const tick = () => new Promise((r) => setTimeout(r, 0))
@@ -63,6 +64,21 @@ describe("ConcurrencyGate", () => {
     const gate = new ConcurrencyGate(1)
     await expect(gate.run(async () => { throw new Error("boom") })).rejects.toThrow("boom")
     expect(await gate.run(async () => "ok")).toBe("ok")
+  })
+})
+
+// 下载要持有名额直到正文读完。与查询共用名额时，几个慢下载就能把查询全堵住。
+describe("query and download slots", () => {
+  it("lets a query through while every download slot is held", async () => {
+    let release = () => {}
+    const held = new Promise<void>((resolve) => { release = resolve })
+    const downloads = Array.from({ length: GLOBAL_CONCURRENCY }, () => withDownloadSlot(() => held))
+    await tick()
+    let queried = false
+    await withGlobalSlot(async () => { queried = true })
+    expect(queried).toBe(true)
+    release()
+    await Promise.all(downloads)
   })
 })
 

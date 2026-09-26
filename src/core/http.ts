@@ -15,7 +15,7 @@ import { ENDPOINTS, type EndpointDefinition } from "./endpoints.js"
 import { Envelope, isEnvelope, unwrapEnvelope } from "./envelope.js"
 import { getLookupData } from "./lookupData/index.js"
 import { currentSignal } from "./requestContext.js"
-import { withGlobalSlot } from "./scheduler.js"
+import { withDownloadSlot, withGlobalSlot } from "./scheduler.js"
 import { getDispatcher, getDownloadDispatcher, isVerbose, logTiming, markRetryable, withRetry } from "./transport.js"
 
 // 异步解压：同步版会把事件循环卡住整段解压时间，分页 / 分片扇出时几路响应只能排队解压。
@@ -406,7 +406,7 @@ export class HttpClient {
     const signal = currentSignal()
     const maxBytes = this.config.maxDownloadBytes ?? DEFAULT_MAX_DOWNLOAD_BYTES
 
-    return withRetry(() => withGlobalSlot(async () => {
+    return withRetry(() => withDownloadSlot(async () => {
       const authorization = await this.getAuthorizationHeader()
       const startedAt = Date.now()
       const response = await request(url, {

@@ -3,9 +3,9 @@ import { abortReason } from "./transport.js"
 
 /** 执行层的两类约束。
  *
- *  - **全局并发闸**：同时在飞的 HTTP 请求数，跨所有 MCP 调用共享。每个任务内部的分页扇出 /
- *    分片 / 逐只按 GANGTISE_PAGE_CONCURRENCY 并发，几个调用同时进来时总量由这里封顶。
- *    默认与连接池同大（见 config.ts 的 GLOBAL_CONCURRENCY），所以不改变单个调用的行为。
+ *  - **全局并发闸**：同时在飞的 HTTP 请求数，跨所有 MCP 调用共享；查询与下载各有一组名额。
+ *    每个任务内部的分页扇出 / 分片 / 逐只按 GANGTISE_PAGE_CONCURRENCY 并发，几个调用同时进来时
+ *    总量由这里封顶。默认与连接池同大（见 config.ts 的 GLOBAL_CONCURRENCY），所以不改变单个调用的行为。
  *  - **每次调用的上限**：一次调用最多发多少页 / 多少片。它们原先散在分页与分片代码里，集中到
  *    这里是为了新的拆分策略（多证券合批、别的品种的序列）沿用同一组数。 */
 
@@ -78,11 +78,18 @@ export class ConcurrencyGate {
 }
 
 const globalGate = new ConcurrencyGate(GLOBAL_CONCURRENCY)
+const downloadGate = new ConcurrencyGate(GLOBAL_CONCURRENCY)
 
-/** 占一个全局名额执行 `fn`。登录请求不要走这里：在飞的请求可能正等着 token 刷新，
+/** 占一个查询名额执行 `fn`。登录请求不要走这里：在飞的请求可能正等着 token 刷新，
  *  刷新自己再去排队，名额满时就互相卡死。 */
 export function withGlobalSlot<T>(fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
   return globalGate.run(fn, signal)
+}
+
+/** 下载有自己的一组名额。一次下载要持有名额直到正文读完（常常跳转到另一个源、传好几秒），
+ *  与查询共用名额时，几个慢下载就能把同时进来的查询全堵住，而 API 这边的连接其实是空的。 */
+export function withDownloadSlot<T>(fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  return downloadGate.run(fn, signal)
 }
 
 export function globalGateStats(): { active: number; queued: number; limit: number } {
