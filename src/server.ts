@@ -7,6 +7,7 @@ import { dateContextInstruction } from "./core/dateContext.js"
 import { getPackageVersion } from "./core/version.js"
 import { registerFamilies } from "./mcp/register.js"
 import { createFamilies } from "./tools/index.js"
+import { parseProfile } from "./profile.js"
 
 /**
  * 路由总则。分层原则：这里放两类东西——「哪类问题找哪族工具」，以及**出现在 ≥10 个工具
@@ -159,6 +160,8 @@ function normalizePublishedSchemas(server: McpServer): McpServer {
 export interface McpServerOptions {
   asyncTimeoutMs?: number
   version?: string
+  /** GANGTISE_MCP_TOOLS 的原值（见 profile.ts）；缺省为 core。 */
+  tools?: string
 }
 
 export function createGangtiseMcpServer(
@@ -175,7 +178,8 @@ export function createGangtiseMcpServer(
   normalizePublishedSchemas(server)
   const asyncTimeoutMs = options.asyncTimeoutMs ?? DEFAULT_ASYNC_TIMEOUT_MS
 
-  registerFamilies(server, client, createFamilies({ asyncTimeoutMs }))
+  const families = createFamilies({ asyncTimeoutMs })
+  registerFamilies(server, client, families, parseProfile(options.tools, families))
 
   return server
 }

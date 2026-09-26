@@ -7,7 +7,7 @@ import { createGangtiseMcpServer } from "./server.js"
 
 const config = loadConfig()
 const client = new GangtiseClient(config)
-const server = createGangtiseMcpServer(client, { asyncTimeoutMs: config.asyncTimeoutMs })
+const server = createGangtiseMcpServer(client, { asyncTimeoutMs: config.asyncTimeoutMs, tools: config.tools })
 await server.connect(new StdioServerTransport())
 
 // Best-effort sweep of stale temp files from previous runs; never blocks startup.

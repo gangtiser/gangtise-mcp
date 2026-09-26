@@ -5,19 +5,22 @@ import { withBilling } from "./billing.js"
 import type { FamilyModule, ToolSpec, ZodShape } from "./define.js"
 import { toolHandler } from "./handler.js"
 import { invokeOperation } from "./invoke.js"
+import type { Profile } from "../profile.js"
 
-/** 按顺序注册各族的全部工具。handler 只做一件事：调 invokeOperation。 */
-export function registerFamilies(server: McpServer, client: GangtiseClient, families: FamilyModule[]): void {
-  registerTools(server, client, families.flatMap((family) => family.tools))
+/** 按顺序注册各族的工具。handler 只做一件事：调 invokeOperation。给了 profile 时，未启用的工具
+ *  不进调用表（任何入口都调不到），未列出的不注册进 tools/list。 */
+export function registerFamilies(server: McpServer, client: GangtiseClient, families: FamilyModule[], profile?: Profile): void {
+  const specs = families.flatMap((family) => family.tools)
+  registerTools(server, client, profile ? specs.filter((spec) => profile.enabled(spec)) : specs, profile?.advertised)
 }
 
-export function registerTools(server: McpServer, client: GangtiseClient, specs: ToolSpec[]): void {
+export function registerTools(server: McpServer, client: GangtiseClient, specs: ToolSpec[], advertised: (spec: ToolSpec) => boolean = () => true): void {
   const operations = new Map<string, ToolSpec>()
   for (const spec of specs) {
     if (operations.has(spec.name)) throw new Error(`duplicate tool name: ${spec.name}`)
     operations.set(spec.name, spec)
   }
-  for (const spec of specs) {
+  for (const spec of specs.filter(advertised)) {
     const billing = spec.billingLabel ?? spec.endpoint
     if (billing === undefined) throw new Error(`${spec.name}: endpoint 与 billingLabel 必有其一`)
     server.registerTool(

@@ -96,6 +96,8 @@ export interface CliConfig {
   asyncTimeoutMs: number
   /** 单个下载文件的字节上限；测试注入小值以免每次跑测试都真写 1 GiB。 */
   maxDownloadBytes: number
+  /** GANGTISE_MCP_TOOLS 原值：列出与启用哪些工具，由 profile.ts 解析。 */
+  tools?: string
 }
 
 export function loadConfig(): CliConfig {
@@ -120,5 +122,6 @@ export function loadConfig(): CliConfig {
     tokenCachePath: process.env.GANGTISE_TOKEN_CACHE_PATH ?? DEFAULT_TOKEN_CACHE_PATH,
     asyncTimeoutMs: Number.isFinite(asyncTimeoutMs) && asyncTimeoutMs > 0 ? asyncTimeoutMs : DEFAULT_ASYNC_TIMEOUT_MS,
     maxDownloadBytes: resolveMaxDownloadBytes(process.env.GANGTISE_MAX_DOWNLOAD_BYTES),
+    tools: process.env.GANGTISE_MCP_TOOLS,
   }
 }
