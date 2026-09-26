@@ -1,0 +1,1142 @@
+{
+  "source": "gangtise-openapi-cli",
+  "version": "0.43.0",
+  "commit": "d2dda53871695c2a6fd44b42771652b829e01c0b",
+  "endpoints": {
+    "ai.earnings-review.get-content": {
+      "method": "POST",
+      "path": "/application/open-ai/agent/earnings-review-getcontent",
+      "kind": "json"
+    },
+    "ai.earnings-review.get-id": {
+      "method": "POST",
+      "path": "/application/open-ai/agent/earnings-review-getid",
+      "kind": "json",
+      "retry": "no-replay",
+      "billing": {
+        "per": "call",
+        "price": 50
+      }
+    },
+    "ai.hot-topic": {
+      "method": "POST",
+      "path": "/application/open-ai/hot-topic/getList",
+      "kind": "json",
+      "retry": "no-replay",
+      "pagination": {
+        "maxPageSize": 20
+      },
+      "billing": {
+        "per": "row",
+        "price": 50
+      }
+    },
+    "ai.investment-logic": {
+      "method": "POST",
+      "path": "/application/open-ai/agent/investment-logic",
+      "kind": "json",
+      "retry": "no-replay",
+      "timeoutMs": 120000,
+      "billing": {
+        "per": "call",
+        "price": 50
+      }
+    },
+    "ai.knowledge-batch": {
+      "method": "POST",
+      "path": "/application/open-data/ai/search/knowledge/batch",
+      "kind": "json",
+      "retry": "no-replay",
+      "billing": {
+        "per": "call",
+        "price": 10
+      }
+    },
+    "ai.knowledge-resource.download": {
+      "method": "GET",
+      "path": "/application/open-data/ai/resource/download",
+      "kind": "download"
+    },
+    "ai.management-discuss-announcement": {
+      "method": "POST",
+      "path": "/application/open-ai/management-discuss/from-announcement",
+      "kind": "json",
+      "retry": "no-replay",
+      "timeoutMs": 120000,
+      "billing": {
+        "per": "call",
+        "price": 10
+      }
+    },
+    "ai.management-discuss-earnings-call": {
+      "method": "POST",
+      "path": "/application/open-ai/management-discuss/from-earningsCall",
+      "kind": "json",
+      "retry": "no-replay",
+      "timeoutMs": 120000,
+      "billing": {
+        "per": "call",
+        "price": 10
+      }
+    },
+    "ai.one-pager": {
+      "method": "POST",
+      "path": "/application/open-ai/agent/one-pager",
+      "kind": "json",
+      "retry": "no-replay",
+      "timeoutMs": 120000,
+      "billing": {
+        "per": "call",
+        "price": 50
+      }
+    },
+    "ai.peer-comparison": {
+      "method": "POST",
+      "path": "/application/open-ai/agent/peer-comparison",
+      "kind": "json",
+      "retry": "no-replay",
+      "timeoutMs": 120000,
+      "billing": {
+        "per": "call",
+        "price": 50
+      }
+    },
+    "ai.research-outline": {
+      "method": "POST",
+      "path": "/application/open-ai/agent/research-outline",
+      "kind": "json",
+      "retry": "no-replay",
+      "timeoutMs": 120000,
+      "billing": {
+        "per": "call",
+        "price": 50
+      }
+    },
+    "ai.security-clue.list": {
+      "method": "POST",
+      "path": "/application/open-ai/security-clue/getList",
+      "kind": "json",
+      "pagination": {
+        "maxPageSize": 500
+      },
+      "billing": {
+        "per": "row",
+        "price": 5
+      }
+    },
+    "ai.stock-summary.list": {
+      "method": "POST",
+      "path": "/application/open-ai/stock-summary/getList",
+      "kind": "json",
+      "retry": "no-replay",
+      "timeoutMs": 120000,
+      "billing": {
+        "per": "row",
+        "price": 3,
+        "maxUnits": 6000
+      }
+    },
+    "ai.theme-tracking": {
+      "method": "POST",
+      "path": "/application/open-ai/agent/theme-tracking",
+      "kind": "json",
+      "retry": "no-replay",
+      "timeoutMs": 120000,
+      "billing": {
+        "per": "call",
+        "price": 50
+      }
+    },
+    "ai.viewpoint-debate.get-content": {
+      "method": "POST",
+      "path": "/application/open-ai/agent/viewpoint-debate-getcontent",
+      "kind": "json"
+    },
+    "ai.viewpoint-debate.get-id": {
+      "method": "POST",
+      "path": "/application/open-ai/agent/viewpoint-debate-getid",
+      "kind": "json",
+      "retry": "no-replay",
+      "billing": {
+        "per": "call",
+        "price": 50
+      }
+    },
+    "alternative.concept-info": {
+      "method": "POST",
+      "path": "/application/open-alternative/concept/v2/info",
+      "kind": "json",
+      "retry": "no-replay",
+      "billing": {
+        "per": "call",
+        "price": 50
+      }
+    },
+    "alternative.concept-info-full": {
+      "method": "POST",
+      "path": "/application/open-alternative/concept/info",
+      "kind": "json",
+      "retry": "no-replay",
+      "billing": {
+        "per": "call",
+        "price": 500
+      }
+    },
+    "alternative.concept-securities": {
+      "method": "POST",
+      "path": "/application/open-alternative/concept/v2/securities",
+      "kind": "json",
+      "retry": "no-replay",
+      "billing": {
+        "per": "call",
+        "price": 50
+      }
+    },
+    "alternative.concept-securities-full": {
+      "method": "POST",
+      "path": "/application/open-alternative/concept/securities",
+      "kind": "json",
+      "retry": "no-replay",
+      "billing": {
+        "per": "call",
+        "price": 500
+      }
+    },
+    "alternative.edb-data": {
+      "method": "POST",
+      "path": "/application/open-alternative/EDB/getData",
+      "kind": "json"
+    },
+    "alternative.edb-search": {
+      "method": "POST",
+      "path": "/application/open-alternative/EDB/search",
+      "kind": "json"
+    },
+    "auth.login": {
+      "method": "POST",
+      "path": "/application/auth/oauth/open/loginV2",
+      "kind": "json"
+    },
+    "bond.announcement": {
+      "method": "POST",
+      "path": "/application/open-fundamental/bond/announcement",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "list",
+      "billing": {
+        "per": "call",
+        "price": 0.4
+      }
+    },
+    "bond.basic-info": {
+      "method": "POST",
+      "path": "/application/open-fundamental/bond/basic-info",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "list",
+      "billing": {
+        "per": "call",
+        "price": 0.4
+      }
+    },
+    "bond.cash-flow": {
+      "method": "POST",
+      "path": "/application/open-fundamental/bond/cash-flow",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "list",
+      "billing": {
+        "per": "call",
+        "price": 0.4
+      }
+    },
+    "bond.daily-quote": {
+      "method": "POST",
+      "path": "/application/open-quote/bond/daily-quote-exchange-cfets",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "list",
+      "billing": {
+        "per": "call",
+        "price": 0.4
+      }
+    },
+    "bond.exercise-notice": {
+      "method": "POST",
+      "path": "/application/open-fundamental/bond/exercise-notice",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "list",
+      "billing": {
+        "per": "call",
+        "price": 0.4
+      }
+    },
+    "bond.issuance-detail": {
+      "method": "POST",
+      "path": "/application/open-fundamental/bond/issuance-detail",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "list",
+      "billing": {
+        "per": "call",
+        "price": 0.4
+      }
+    },
+    "bond.issuance-plan": {
+      "method": "POST",
+      "path": "/application/open-fundamental/bond/issuance-plan",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "list",
+      "billing": {
+        "per": "call",
+        "price": 0.4
+      }
+    },
+    "bond.issuer-info": {
+      "method": "POST",
+      "path": "/application/open-fundamental/bond/issuer-info",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "list",
+      "billing": {
+        "per": "call",
+        "price": 0.4
+      }
+    },
+    "bond.issuer-rating-change": {
+      "method": "POST",
+      "path": "/application/open-fundamental/bond/issuer-rating-change",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "list",
+      "billing": {
+        "per": "call",
+        "price": 0.4
+      }
+    },
+    "bond.rating-change": {
+      "method": "POST",
+      "path": "/application/open-fundamental/bond/rating-change",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "list",
+      "billing": {
+        "per": "call",
+        "price": 0.4
+      }
+    },
+    "bond.rating-overview": {
+      "method": "POST",
+      "path": "/application/open-fundamental/bond/rating-overview",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "list",
+      "billing": {
+        "per": "call",
+        "price": 0.4
+      }
+    },
+    "bond.valuation": {
+      "method": "POST",
+      "path": "/application/open-fundamental/bond/valuation-shclearing",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "list",
+      "billing": {
+        "per": "call",
+        "price": 0.4
+      }
+    },
+    "fundamental.balance-sheet": {
+      "method": "POST",
+      "path": "/application/open-fundamental/financial-report/balance-sheet/accumulated",
+      "kind": "json"
+    },
+    "fundamental.balance-sheet-hk": {
+      "method": "POST",
+      "path": "/application/open-fundamental/financial-report/balance-sheet/hk",
+      "kind": "json"
+    },
+    "fundamental.balance-sheet-us": {
+      "method": "POST",
+      "path": "/application/open-fundamental/financial-report/balance-sheet/us",
+      "kind": "json"
+    },
+    "fundamental.cash-flow": {
+      "method": "POST",
+      "path": "/application/open-fundamental/financial-report/cash-flow-statement/accumulated",
+      "kind": "json"
+    },
+    "fundamental.cash-flow-hk": {
+      "method": "POST",
+      "path": "/application/open-fundamental/financial-report/cash-flow-statement/hk",
+      "kind": "json"
+    },
+    "fundamental.cash-flow-quarterly": {
+      "method": "POST",
+      "path": "/application/open-fundamental/financial-report/cash-flow-statement/quarterly",
+      "kind": "json"
+    },
+    "fundamental.cash-flow-us": {
+      "method": "POST",
+      "path": "/application/open-fundamental/financial-report/cash-flow-statement/us",
+      "kind": "json"
+    },
+    "fundamental.earning-forecast": {
+      "method": "POST",
+      "path": "/application/open-fundamental/earning-forecast",
+      "kind": "json",
+      "retry": "no-replay",
+      "billing": {
+        "per": "row",
+        "price": 0.5,
+        "maxUnits": "Infinity"
+      }
+    },
+    "fundamental.income-statement": {
+      "method": "POST",
+      "path": "/application/open-fundamental/financial-report/income-statement/accumulated",
+      "kind": "json"
+    },
+    "fundamental.income-statement-hk": {
+      "method": "POST",
+      "path": "/application/open-fundamental/financial-report/income-statement/hk",
+      "kind": "json"
+    },
+    "fundamental.income-statement-quarterly": {
+      "method": "POST",
+      "path": "/application/open-fundamental/financial-report/income-statement/quarterly",
+      "kind": "json"
+    },
+    "fundamental.income-statement-us": {
+      "method": "POST",
+      "path": "/application/open-fundamental/financial-report/income-statement/us",
+      "kind": "json"
+    },
+    "fundamental.main-business": {
+      "method": "POST",
+      "path": "/application/open-fundamental/main-business",
+      "kind": "json"
+    },
+    "fundamental.top-holders": {
+      "method": "POST",
+      "path": "/application/open-fundamental/capital-structure/top-holders",
+      "kind": "json"
+    },
+    "fundamental.valuation-analysis": {
+      "method": "POST",
+      "path": "/application/open-fundamental/valuation-analysis",
+      "kind": "json",
+      "expects": "list"
+    },
+    "indicator.cross-section": {
+      "method": "POST",
+      "path": "/application/open-indicator/EDE/cross-section",
+      "kind": "json",
+      "retry": "no-999999"
+    },
+    "indicator.screener": {
+      "method": "POST",
+      "path": "/application/open-indicator/screener",
+      "kind": "json",
+      "retry": "no-999999"
+    },
+    "indicator.search": {
+      "method": "POST",
+      "path": "/application/open-indicator/EDE/search",
+      "kind": "json",
+      "retry": "no-999999"
+    },
+    "indicator.time-series": {
+      "method": "POST",
+      "path": "/application/open-indicator/EDE/time-series",
+      "kind": "json",
+      "retry": "no-999999"
+    },
+    "insight.announcement-hk.download": {
+      "method": "GET",
+      "path": "/application/open-insight/announcement-hk/download/file",
+      "kind": "download",
+      "billing": {
+        "per": "document",
+        "price": 20
+      }
+    },
+    "insight.announcement-hk.list": {
+      "method": "POST",
+      "path": "/application/open-insight/announcement-hk/getList",
+      "kind": "json",
+      "rowId": "announcementId",
+      "pagination": {
+        "maxPageSize": 50
+      },
+      "billing": {
+        "per": "row",
+        "price": 0.1
+      }
+    },
+    "insight.announcement-us.download": {
+      "method": "GET",
+      "path": "/application/open-insight/announcement-us/download/file",
+      "kind": "download",
+      "billing": {
+        "per": "document",
+        "price": 20
+      }
+    },
+    "insight.announcement-us.list": {
+      "method": "POST",
+      "path": "/application/open-insight/announcement-us/getList",
+      "kind": "json",
+      "rowId": "announcementId",
+      "pagination": {
+        "maxPageSize": 50
+      },
+      "billing": {
+        "per": "row",
+        "price": 0.1
+      }
+    },
+    "insight.announcement.download": {
+      "method": "GET",
+      "path": "/application/open-insight/announcement/download/file",
+      "kind": "download",
+      "billing": {
+        "per": "document",
+        "price": 10
+      }
+    },
+    "insight.announcement.list": {
+      "method": "POST",
+      "path": "/application/open-insight/announcement/getList",
+      "kind": "json",
+      "rowId": "announcementId",
+      "pagination": {
+        "maxPageSize": 50
+      },
+      "billing": {
+        "per": "row",
+        "price": 0.1
+      }
+    },
+    "insight.foreign-opinion.detail": {
+      "method": "POST",
+      "path": "/application/open-insight/foreign-opinion/getDetail",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "array",
+      "billing": {
+        "per": "row",
+        "price": 30,
+        "maxUnits": 20
+      }
+    },
+    "insight.foreign-opinion.list": {
+      "method": "POST",
+      "path": "/application/open-insight/foreign-opinion/v2/getList",
+      "kind": "json",
+      "rowId": "foreignOpinionId",
+      "pagination": {
+        "maxPageSize": 50
+      },
+      "billing": {
+        "per": "row",
+        "price": 1
+      }
+    },
+    "insight.foreign-opinion.list-with-content": {
+      "method": "POST",
+      "path": "/application/open-insight/foreign-opinion/getList",
+      "kind": "json",
+      "retry": "no-replay",
+      "pagination": {
+        "maxPageSize": 50
+      },
+      "billing": {
+        "per": "row",
+        "price": 30
+      }
+    },
+    "insight.foreign-report.download": {
+      "method": "GET",
+      "path": "/application/open-insight/foreign-report/download/file",
+      "kind": "download",
+      "retry": "no-replay",
+      "billing": {
+        "per": "document",
+        "price": 50
+      }
+    },
+    "insight.foreign-report.list": {
+      "method": "POST",
+      "path": "/application/open-insight/foreign-report/getList",
+      "kind": "json",
+      "rowId": "reportId",
+      "pagination": {
+        "maxPageSize": 50
+      },
+      "billing": {
+        "per": "row",
+        "price": 0.1
+      }
+    },
+    "insight.forum.list": {
+      "method": "POST",
+      "path": "/application/open-insight/schedule/forum/getList",
+      "kind": "json",
+      "rowId": "id",
+      "rowIdUnverified": true,
+      "pagination": {
+        "maxPageSize": 50
+      },
+      "billing": {
+        "per": "row",
+        "price": 20
+      }
+    },
+    "insight.highlight.list": {
+      "method": "POST",
+      "path": "/application/open-insight/summary/highlight/getList",
+      "kind": "json",
+      "retry": "no-replay",
+      "rowId": "highlightId",
+      "expects": "list",
+      "pagination": {
+        "maxPageSize": 50,
+        "maxWindow": 10000
+      },
+      "billing": {
+        "per": "row",
+        "price": 5
+      }
+    },
+    "insight.independent-opinion.download": {
+      "method": "GET",
+      "path": "/application/open-insight/independent-opinion/download/file",
+      "kind": "download",
+      "billing": {
+        "per": "document",
+        "price": 30
+      }
+    },
+    "insight.independent-opinion.list": {
+      "method": "POST",
+      "path": "/application/open-insight/independent-opinion/getList",
+      "kind": "json",
+      "rowId": "independentOpinionId",
+      "rowIdUnverified": true,
+      "pagination": {
+        "maxPageSize": 50
+      },
+      "billing": {
+        "per": "row",
+        "price": 5
+      }
+    },
+    "insight.official-account.download": {
+      "method": "GET",
+      "path": "/application/open-insight/officialAccount/download/file",
+      "kind": "download",
+      "billing": {
+        "per": "document",
+        "price": 10
+      }
+    },
+    "insight.official-account.list": {
+      "method": "POST",
+      "path": "/application/open-insight/officialAccount/getList",
+      "kind": "json",
+      "rowId": "articleId",
+      "pagination": {
+        "maxPageSize": 50
+      },
+      "billing": {
+        "per": "row",
+        "price": 0.1
+      }
+    },
+    "insight.opinion.detail": {
+      "method": "POST",
+      "path": "/application/open-insight/chief-opinion/getDetail",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "array",
+      "billing": {
+        "per": "row",
+        "price": 30,
+        "maxUnits": 20
+      }
+    },
+    "insight.opinion.list": {
+      "method": "POST",
+      "path": "/application/open-insight/chief-opinion/v2/getList",
+      "kind": "json",
+      "rowId": "chiefOpinionId",
+      "pagination": {
+        "maxPageSize": 50
+      },
+      "billing": {
+        "per": "row",
+        "price": 1
+      }
+    },
+    "insight.opinion.list-with-content": {
+      "method": "POST",
+      "path": "/application/open-insight/chief-opinion/getList",
+      "kind": "json",
+      "retry": "no-replay",
+      "pagination": {
+        "maxPageSize": 50
+      },
+      "billing": {
+        "per": "row",
+        "price": 30
+      }
+    },
+    "insight.pamirs-summary.download": {
+      "method": "GET",
+      "path": "/application/open-insight/pamirs-summary/download/file",
+      "kind": "download",
+      "retry": "no-replay"
+    },
+    "insight.pamirs-summary.list": {
+      "method": "POST",
+      "path": "/application/open-insight/pamirs-summary/getList",
+      "kind": "json",
+      "rowId": "summaryId",
+      "pagination": {
+        "maxPageSize": 50
+      }
+    },
+    "insight.performance-calendar.download": {
+      "method": "GET",
+      "path": "/application/open-insight/schedule/performance-calendar/download/file",
+      "kind": "download",
+      "billing": {
+        "per": "document",
+        "price": 20
+      }
+    },
+    "insight.performance-calendar.list": {
+      "method": "POST",
+      "path": "/application/open-insight/schedule/performance-calendar/getList",
+      "kind": "json",
+      "rowId": "performanceReportId",
+      "pagination": {
+        "maxPageSize": 50
+      },
+      "billing": {
+        "per": "row",
+        "price": 0.1
+      }
+    },
+    "insight.qa.list": {
+      "method": "POST",
+      "path": "/application/open-insight/Q&A-data/getList",
+      "kind": "json",
+      "pagination": {
+        "maxPageSize": 500
+      },
+      "billing": {
+        "per": "row",
+        "price": 0.1
+      }
+    },
+    "insight.report-image.download": {
+      "method": "GET",
+      "path": "/application/open-insight/report-image/download/file",
+      "kind": "download",
+      "billing": {
+        "per": "document",
+        "price": 0.1
+      }
+    },
+    "insight.report-image.list": {
+      "method": "POST",
+      "path": "/application/open-insight/report-image/getList",
+      "kind": "json"
+    },
+    "insight.research.download": {
+      "method": "GET",
+      "path": "/application/open-insight/broker-report/download/file",
+      "kind": "download",
+      "billing": {
+        "per": "document",
+        "price": 10
+      }
+    },
+    "insight.research.list": {
+      "method": "POST",
+      "path": "/application/open-insight/broker-report/getList",
+      "kind": "json",
+      "rowId": "reportId",
+      "pagination": {
+        "maxPageSize": 50
+      },
+      "billing": {
+        "per": "row",
+        "price": 0.1
+      }
+    },
+    "insight.roadshow.list": {
+      "method": "POST",
+      "path": "/application/open-insight/schedule/roadshow/getList",
+      "kind": "json",
+      "rowId": "id",
+      "rowIdUnverified": true,
+      "pagination": {
+        "maxPageSize": 50
+      },
+      "billing": {
+        "per": "row",
+        "price": 20
+      }
+    },
+    "insight.site-visit.list": {
+      "method": "POST",
+      "path": "/application/open-insight/schedule/site-visit/getList",
+      "kind": "json",
+      "rowId": "id",
+      "rowIdUnverified": true,
+      "pagination": {
+        "maxPageSize": 50
+      },
+      "billing": {
+        "per": "row",
+        "price": 20
+      }
+    },
+    "insight.strategy.list": {
+      "method": "POST",
+      "path": "/application/open-insight/schedule/strategy-meeting/getList",
+      "kind": "json",
+      "rowId": "id",
+      "rowIdUnverified": true,
+      "pagination": {
+        "maxPageSize": 50
+      },
+      "billing": {
+        "per": "row",
+        "price": 20
+      }
+    },
+    "insight.summary.download": {
+      "method": "GET",
+      "path": "/application/open-insight/summary/v2/download/file",
+      "kind": "download",
+      "retry": "no-replay",
+      "billing": {
+        "per": "document",
+        "price": 50
+      }
+    },
+    "insight.summary.list": {
+      "method": "POST",
+      "path": "/application/open-insight/summary/v2/getList",
+      "kind": "json",
+      "rowId": "summaryId",
+      "pagination": {
+        "maxPageSize": 50
+      },
+      "billing": {
+        "per": "row",
+        "price": 0.1
+      }
+    },
+    "lookup.broker-orgs.list": {
+      "method": "GET",
+      "path": "/guide/broker-orgs-local",
+      "kind": "json"
+    },
+    "lookup.meeting-orgs.list": {
+      "method": "GET",
+      "path": "/guide/meeting-orgs-local",
+      "kind": "json"
+    },
+    "quote.day-kline": {
+      "method": "POST",
+      "path": "/application/open-quote/kline/daily",
+      "kind": "json",
+      "expects": "list"
+    },
+    "quote.day-kline-hk": {
+      "method": "POST",
+      "path": "/application/open-quote/kline-hk/daily",
+      "kind": "json",
+      "expects": "list"
+    },
+    "quote.day-kline-us": {
+      "method": "POST",
+      "path": "/application/open-quote/kline-us/daily",
+      "kind": "json",
+      "expects": "list"
+    },
+    "quote.fund-flow": {
+      "method": "POST",
+      "path": "/application/open-quote/fund-flow/daily",
+      "kind": "json",
+      "expects": "list"
+    },
+    "quote.index-day-kline": {
+      "method": "POST",
+      "path": "/application/open-quote/index/kline/daily",
+      "kind": "json",
+      "expects": "list"
+    },
+    "quote.minute-kline": {
+      "method": "POST",
+      "path": "/application/open-quote/kline/minute",
+      "kind": "json",
+      "expects": "list"
+    },
+    "quote.realtime": {
+      "method": "POST",
+      "path": "/application/open-quote/quote/realtime",
+      "kind": "json",
+      "expects": "list"
+    },
+    "reference.chiefs-search": {
+      "method": "POST",
+      "path": "/application/open-reference/chiefs/search",
+      "kind": "json"
+    },
+    "reference.concept-search": {
+      "method": "POST",
+      "path": "/application/open-reference/concepts/search",
+      "kind": "json"
+    },
+    "reference.constant-category": {
+      "method": "GET",
+      "path": "/application/open-reference/constants/category",
+      "kind": "json"
+    },
+    "reference.constant-list": {
+      "method": "POST",
+      "path": "/application/open-reference/constants/getList",
+      "kind": "json"
+    },
+    "reference.institution-search": {
+      "method": "POST",
+      "path": "/application/open-reference/institutions/search",
+      "kind": "json"
+    },
+    "reference.official-account-search": {
+      "method": "POST",
+      "path": "/application/open-reference/officialAccount/search",
+      "kind": "json"
+    },
+    "reference.sector-constituents": {
+      "method": "POST",
+      "path": "/application/open-reference/sectors/constituents",
+      "kind": "json"
+    },
+    "reference.sector-search": {
+      "method": "POST",
+      "path": "/application/open-reference/sectors/search",
+      "kind": "json"
+    },
+    "reference.securities-search": {
+      "method": "POST",
+      "path": "/application/open-reference/securities/search",
+      "kind": "json"
+    },
+    "tool.file-parse.result": {
+      "method": "POST",
+      "path": "/application/open-tool/file-parse/result",
+      "kind": "download"
+    },
+    "tool.file-parse.submit": {
+      "method": "POST",
+      "path": "/application/open-tool/file-parse/submit",
+      "kind": "upload",
+      "retry": "no-replay",
+      "timeoutMs": 300000,
+      "bigIntFields": [
+        "taskId"
+      ],
+      "billing": {
+        "per": "page",
+        "price": 0.8
+      }
+    },
+    "tool.web-search": {
+      "method": "POST",
+      "path": "/application/open-tool/web-search/search",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "list",
+      "billing": {
+        "per": "call",
+        "price": 1
+      }
+    },
+    "vault.drive.copy": {
+      "method": "POST",
+      "path": "/application/open-vault/drive/copy",
+      "kind": "json",
+      "retry": "no-replay",
+      "itemFailures": true
+    },
+    "vault.drive.create-folder": {
+      "method": "POST",
+      "path": "/application/open-vault/drive/createFolder",
+      "kind": "json",
+      "retry": "no-replay"
+    },
+    "vault.drive.delete-file": {
+      "method": "POST",
+      "path": "/application/open-vault/drive/deleteFile",
+      "kind": "json",
+      "retry": "no-replay",
+      "itemFailures": true,
+      "destructive": true
+    },
+    "vault.drive.delete-folder": {
+      "method": "POST",
+      "path": "/application/open-vault/drive/deleteFolder",
+      "kind": "json",
+      "retry": "no-replay",
+      "destructive": true
+    },
+    "vault.drive.download": {
+      "method": "GET",
+      "path": "/application/open-vault/drive/download/file",
+      "kind": "download"
+    },
+    "vault.drive.folder-list": {
+      "method": "POST",
+      "path": "/application/open-vault/drive/getFolderList",
+      "kind": "json"
+    },
+    "vault.drive.list": {
+      "method": "POST",
+      "path": "/application/open-vault/drive/getList",
+      "kind": "json",
+      "rowId": "fileId",
+      "pagination": {
+        "maxPageSize": 50
+      }
+    },
+    "vault.drive.move-file": {
+      "method": "POST",
+      "path": "/application/open-vault/drive/moveFile",
+      "kind": "json",
+      "itemFailures": true
+    },
+    "vault.drive.move-folder": {
+      "method": "POST",
+      "path": "/application/open-vault/drive/moveFolder",
+      "kind": "json"
+    },
+    "vault.drive.rename": {
+      "method": "POST",
+      "path": "/application/open-vault/drive/rename",
+      "kind": "json"
+    },
+    "vault.drive.upload": {
+      "method": "POST",
+      "path": "/application/open-vault/drive/uploadFile",
+      "kind": "upload",
+      "retry": "no-replay",
+      "timeoutMs": 300000
+    },
+    "vault.my-conference.download": {
+      "method": "GET",
+      "path": "/application/open-vault/my-conference/download/file",
+      "kind": "download",
+      "retry": "no-replay",
+      "billing": {
+        "per": "document",
+        "price": 50
+      }
+    },
+    "vault.my-conference.list": {
+      "method": "POST",
+      "path": "/application/open-vault/my-conference/getList",
+      "kind": "json",
+      "rowId": "conferenceId",
+      "pagination": {
+        "maxPageSize": 50
+      },
+      "billing": {
+        "per": "row",
+        "price": 0.1
+      }
+    },
+    "vault.record.download": {
+      "method": "GET",
+      "path": "/application/open-vault/record/download/file",
+      "kind": "download"
+    },
+    "vault.record.list": {
+      "method": "POST",
+      "path": "/application/open-vault/record/getList",
+      "kind": "json",
+      "rowId": "recordId",
+      "pagination": {
+        "maxPageSize": 50
+      }
+    },
+    "vault.stock-pool.add-stock": {
+      "method": "POST",
+      "path": "/application/open-vault/stock-pool/addStock",
+      "kind": "json",
+      "itemFailures": true
+    },
+    "vault.stock-pool.create": {
+      "method": "POST",
+      "path": "/application/open-vault/stock-pool/createPool",
+      "kind": "json",
+      "retry": "no-replay"
+    },
+    "vault.stock-pool.delete": {
+      "method": "POST",
+      "path": "/application/open-vault/stock-pool/deletePool",
+      "kind": "json",
+      "itemFailures": true,
+      "destructive": true
+    },
+    "vault.stock-pool.list": {
+      "method": "POST",
+      "path": "/application/open-vault/stock-pool/getPoolList",
+      "kind": "json"
+    },
+    "vault.stock-pool.remove-stock": {
+      "method": "POST",
+      "path": "/application/open-vault/stock-pool/deleteStock",
+      "kind": "json",
+      "itemFailures": true
+    },
+    "vault.stock-pool.rename": {
+      "method": "POST",
+      "path": "/application/open-vault/stock-pool/updatePool",
+      "kind": "json"
+    },
+    "vault.stock-pool.stocks": {
+      "method": "POST",
+      "path": "/application/open-vault/stock-pool/getStockList",
+      "kind": "json"
+    },
+    "vault.wechat-chatroom.list": {
+      "method": "POST",
+      "path": "/application/open-vault/wechatgroupmsg/chatroomId",
+      "kind": "json",
+      "rowId": "chatroomId",
+      "pagination": {
+        "maxPageSize": 50
+      }
+    },
+    "vault.wechat-message.list": {
+      "method": "POST",
+      "path": "/application/open-vault/wechatgroupmsg/list",
+      "kind": "json",
+      "rowId": "msgId",
+      "pagination": {
+        "maxPageSize": 50,
+        "maxWindow": 10000
+      }
+    }
+  }
+}
