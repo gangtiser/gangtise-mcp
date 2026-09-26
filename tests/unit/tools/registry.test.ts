@@ -424,7 +424,7 @@ describe("paginated param text", () => {
 
   // 分页计费声明已上收到 instructions；描述里只剩逐工具不同的放大提示 + 标签，标签在最后。
   it("keeps only the per-tool amplification hint and the label on a paid paginated tool", async () => {
-    const { description } = await paginatedProps("gangtise_opinion_list", "insight.opinion.list")
+    const { description } = await paginatedProps("gangtise_opinion_list", "insight.opinion.list-with-content")
     expect(description).not.toContain("按全部实际返回条目计费")
     expect(description).toContain("单次约 600 积分")
     expect(description.endsWith("【积分：30/条】")).toBe(true)

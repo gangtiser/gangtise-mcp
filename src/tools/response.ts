@@ -8,7 +8,7 @@ import { errorMessage, ValidationError } from "../core/errors.js"
 import { beginSpillRead, endSpillRead, isOwnedTempPath, touchOwnedTempDir } from "../core/tempCleanup.js"
 import { INLINE_MAX_BYTES } from "../core/config.js"
 import { alignSliceEnd, sampleDiagnostics } from "../core/present.js"
-import { withBilling } from "./billing.js"
+import { LOCAL, withBilling } from "./billing.js"
 
 const DEFAULT_LIMIT = 50
 
@@ -244,8 +244,8 @@ export function registerResponseTools(server: McpServer, _client: GangtiseClient
     "gangtise_read_response",
     {
       description: withBilling(
-        "gangtise_read_response",
         "读取被截断的大响应。当其他工具返回 `_truncated: true` 且包含 `_saved_to` 临时文件路径时，用此工具按 offset/limit 分片读取完整数据。仅可读取本进程在系统临时目录下生成的 gangtise-mcp- 前缀文件。",
+        LOCAL,
       ),
       inputSchema: {
         saved_to: z

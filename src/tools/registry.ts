@@ -132,7 +132,7 @@ export function registerJsonTool(server: McpServer, client: GangtiseClient, spec
 
   server.registerTool(
     spec.name,
-    { description: withBilling(spec.name, spec.description), inputSchema: strictSchema(schema), annotations: { readOnlyHint: true, openWorldHint: false } },
+    { description: withBilling(spec.description, spec.endpointKey), inputSchema: strictSchema(schema), annotations: { readOnlyHint: true, openWorldHint: false } },
     // toolHandler 统一错误形状，并把取消信号带进分页扇出（见 helpers.ts）。
     toolHandler(async (args: Record<string, unknown>) => {
       const { fetchAll, ...rest } = args
@@ -149,7 +149,7 @@ export function registerJsonTool(server: McpServer, client: GangtiseClient, spec
 export function registerDownloadTool(server: McpServer, client: GangtiseClient, spec: DownloadToolSpec): void {
   server.registerTool(
     spec.name,
-    { description: withBilling(spec.name, spec.description), inputSchema: strictSchema(spec.inputSchema), annotations: { readOnlyHint: true, openWorldHint: false } },
+    { description: withBilling(spec.description, spec.endpointKey), inputSchema: strictSchema(spec.inputSchema), annotations: { readOnlyHint: true, openWorldHint: false } },
     toolHandler(async (args: Record<string, unknown>) => {
       const endpoint = ENDPOINTS[spec.endpointKey]
       if (!endpoint) throw new Error(`Unknown endpoint: ${spec.endpointKey}`)

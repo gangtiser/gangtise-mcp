@@ -193,8 +193,8 @@ function makeAsyncToolPair(
     config.name,
     {
       description: withBilling(
-        config.name,
         config.description + `任务计费且不可重复提交：超时/失败后用返回的 dataId 调 ${config.checkName} 续查，切勿重新提交。`,
+        config.submitEndpoint,
       ),
       inputSchema: {
         ...config.inputSchema,
@@ -250,8 +250,8 @@ function makeAsyncToolPair(
     config.checkName,
     {
       description: withBilling(
-        config.checkName,
         config.checkDescription + `dataId 来自 ${config.name} 的超时/错误响应；pending 表示仍在生成，间隔 1-3 分钟再查。`,
+        config.pollEndpoint,
       ),
       inputSchema: { dataId: nonEmptyString.describe("异步任务 ID，来自对应提交工具的超时/错误响应") },
       annotations: { readOnlyHint: true, openWorldHint: false },
@@ -288,7 +288,7 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
   server.registerTool(
     "gangtise_theme_tracking",
     {
-      description: withBilling("gangtise_theme_tracking", "获取指定主题的每日跟踪报告（早报或晚报版），需传入主题 ID 和日期。"),
+      description: withBilling("获取指定主题的每日跟踪报告（早报或晚报版），需传入主题 ID 和日期。", "ai.theme-tracking"),
       inputSchema: {
         themeId: nonEmptyString.describe("主题 ID，来自 gangtise_concept_search（必填）"),
         date: dateString.describe("YYYY-MM-DD（必填）"),
@@ -337,7 +337,7 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
   server.registerTool(
     "gangtise_one_pager",
     {
-      description: withBilling("gangtise_one_pager", "获取指定证券的 AI 一页纸投资摘要，返回 Markdown 内容。"),
+      description: withBilling("获取指定证券的 AI 一页纸投资摘要，返回 Markdown 内容。", "ai.one-pager"),
       inputSchema: { securityCode: nonEmptyString.describe("A 股或港股证券代码") },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
@@ -347,7 +347,7 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
   server.registerTool(
     "gangtise_investment_logic",
     {
-      description: withBilling("gangtise_investment_logic", "获取指定证券的 AI 投资逻辑梳理报告，返回 Markdown 内容。"),
+      description: withBilling("获取指定证券的 AI 投资逻辑梳理报告，返回 Markdown 内容。", "ai.investment-logic"),
       inputSchema: { securityCode: nonEmptyString.describe("A 股或港股证券代码") },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
@@ -357,7 +357,7 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
   server.registerTool(
     "gangtise_peer_comparison",
     {
-      description: withBilling("gangtise_peer_comparison", "获取指定证券的 AI 同业竞争格局对比报告，返回 Markdown 内容。"),
+      description: withBilling("获取指定证券的 AI 同业竞争格局对比报告，返回 Markdown 内容。", "ai.peer-comparison"),
       inputSchema: { securityCode: nonEmptyString.describe("A 股或港股证券代码") },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
@@ -367,7 +367,7 @@ export function registerAiTools(server: McpServer, client: GangtiseClient, opts:
   server.registerTool(
     "gangtise_research_outline",
     {
-      description: withBilling("gangtise_research_outline", "获取指定证券的 AI 生成公司研究提纲，返回 Markdown 内容。"),
+      description: withBilling("获取指定证券的 AI 生成公司研究提纲，返回 Markdown 内容。", "ai.research-outline"),
       inputSchema: { securityCode: nonEmptyString.describe("仅支持 A 股证券代码") },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },

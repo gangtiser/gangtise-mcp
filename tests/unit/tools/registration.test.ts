@@ -55,14 +55,14 @@ describe("tool spec ↔ ENDPOINTS consistency", () => {
     expect(downloadMismatch).toEqual([])
   })
 
-  it("spec.paginated agrees with endpoint pagination.enabled in both directions", () => {
+  it("spec.paginated agrees with endpoint offset pagination in both directions", () => {
     // Bidirectional: a paginated tool must hit a paginated endpoint (else requestPaginated
     // misbehaves), AND a tool pointing at a paginated endpoint must opt in (else it silently
     // drops from/size/fetchAll and only ever returns the default page). The codebase is a
     // strict bijection today — if an intentional exception ever arises, make it explicit here.
     const mismatched = jsonSpecs
-      .filter((s) => Boolean(s.paginated) !== Boolean(ENDPOINTS[s.endpointKey]?.pagination?.enabled))
-      .map((s) => `${s.name} → ${s.endpointKey} (spec.paginated=${Boolean(s.paginated)}, endpoint.enabled=${Boolean(ENDPOINTS[s.endpointKey]?.pagination?.enabled)})`)
+      .filter((s) => Boolean(s.paginated) !== (ENDPOINTS[s.endpointKey]?.pagination?.mode === "offset"))
+      .map((s) => `${s.name} → ${s.endpointKey} (spec.paginated=${Boolean(s.paginated)}, endpoint.offset=${ENDPOINTS[s.endpointKey]?.pagination?.mode === "offset"})`)
     expect(mismatched).toEqual([])
   })
 

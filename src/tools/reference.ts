@@ -117,7 +117,7 @@ export function registerReferenceTools(server: McpServer, client: GangtiseClient
   server.registerTool(
     "gangtise_securities_search",
     {
-      description: withBilling("gangtise_securities_search", "按关键词搜索证券，支持股票名称、代码（如 600519）、拼音或英文名。返回匹配证券及其 GTS 代码。"),
+      description: withBilling("按关键词搜索证券，支持股票名称、代码（如 600519）、拼音或英文名。返回匹配证券及其 GTS 代码。", "reference.securities-search"),
       inputSchema: {
         keyword: z.string().trim().min(1, "搜索词不能为空").describe("搜索词：股票名称、代码（如 600519）、拼音或英文名"),
         category: enumList(z.enum(["stock", "dr", "index", "fund"])).optional().describe("按类别筛选：stock=股票 | dr=存托凭证 | index=指数 | fund=基金（不传查所有）"),

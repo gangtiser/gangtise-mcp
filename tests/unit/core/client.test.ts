@@ -1479,3 +1479,24 @@ describe("expects 形状守卫", () => {
     await expect(tokenClient().requestJson(ENDPOINTS["reference.constant-list"], {})).resolves.toBeNull()
   })
 })
+
+// 只有 offset 分页自动翻页。page（pageNo/pageSize、无 total）由调用方按页取，cursor 是预留——
+// 两者都走一次普通 JSON 请求，响应原样返回，不因为没有 total 被当成异形。
+describe("non-offset pagination modes", () => {
+  it.each([
+    ["page", { mode: "page", maxPageSize: 200 }],
+    ["cursor", { mode: "cursor", cursorField: "nextCursor" }],
+  ] as const)("sends one request for a %s-mode endpoint and returns the page as is", async (mode, pagination) => {
+    const key = `test.${mode}-mode`
+    ENDPOINTS[key] = { key, method: "POST", path: `/test/${mode}`, kind: "json", description: "t", pagination }
+    try {
+      const page = [{ securityCode: "019742.SH" }, { securityCode: "123456.SZ" }]
+      requestMock.mockResolvedValue(jsonResponse(page))
+      await expect(tokenClient().call(key, { pageNo: 2, pageSize: 2 })).resolves.toEqual(page)
+      expect(requestMock).toHaveBeenCalledTimes(1)
+      expect(JSON.parse((requestMock.mock.calls[0][1] as { body: string }).body)).toEqual({ pageNo: 2, pageSize: 2 })
+    } finally {
+      delete ENDPOINTS[key]
+    }
+  })
+})

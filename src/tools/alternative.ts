@@ -61,7 +61,7 @@ export function registerAlternativeTools(server: McpServer, client: GangtiseClie
   server.registerTool(
     "gangtise_edb_data",
     {
-      description: withBilling("gangtise_edb_data", "按指标 ID 批量查询 EDB 行业指标时序数据（最多 10 个指标）。指标 ID 来自 gangtise_edb_search。"),
+      description: withBilling("按指标 ID 批量查询 EDB 行业指标时序数据（最多 10 个指标）。指标 ID 来自 gangtise_edb_search。", "alternative.edb-data"),
       inputSchema: {
         indicatorIdList: nonEmptyList().min(1).max(10).describe("指标 ID 列表（最多 10 个），来自 gangtise_edb_search"),
         startDate: dateString,

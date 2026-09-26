@@ -10,7 +10,7 @@
  * 取 GANGTISE_PAGE_CONCURRENCY 等环境变量的默认值，不在这里改。
  * 任一场景出错时退出码为 1；但数字本身没有阈值判定，退出码 0 不代表「没有退化」，结果仍要人读。
  */
-import { BILLING_CATALOG } from "../../src/tools/billing.js"
+import { endpointBilling } from "../../src/tools/billing.js"
 import { startHarness, type Harness } from "../../tests/helpers/harness.js"
 import type { RecordedRequest, Responder, UpstreamReply } from "../../tests/helpers/mockUpstream.js"
 
@@ -186,12 +186,20 @@ const SCENARIOS: Scenario[] = [
   },
 ]
 
+/** 场景用到的工具 → 默认档端点（价格在端点上）。 */
+const TOOL_ENDPOINT: Record<string, string> = {
+  gangtise_day_kline: "quote.day-kline",
+  gangtise_opinion_list: "insight.opinion.list-with-content",
+  gangtise_research_list: "insight.research.list",
+  gangtise_securities_search: "reference.securities-search",
+}
+
 function estimateCredits(tool: string, rows: number, requests: number): string {
-  const spec = BILLING_CATALOG[tool]
+  const spec = TOOL_ENDPOINT[tool] ? endpointBilling(TOOL_ENDPOINT[tool]) : undefined
   if (!spec || spec.kind === "free" || spec.kind === "local") return "0"
   if (spec.kind !== "fixed") return "n/a"
-  const units = spec.unit === "call" ? requests : rows
-  return String(Math.round(units * spec.credits * 10) / 10)
+  const units = spec.per === "call" || spec.per === "page" ? requests : rows
+  return String(Math.round(units * spec.price * 10) / 10)
 }
 
 const pct = (sorted: number[], p: number) => sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))]

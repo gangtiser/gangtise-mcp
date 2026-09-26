@@ -92,7 +92,7 @@ describe("ENDPOINTS retry/timeout annotations", () => {
   it("keeps every itemFailures endpoint on the path where the flag actually runs", () => {
     for (const e of Object.values(ENDPOINTS).filter((x) => x.itemFailures)) {
       expect(e.kind, `${e.key}: download 端点走的是另一条 return，itemFailures 不会执行`).toBe("json")
-      expect(e.pagination?.enabled, `${e.key}: 分页端点走的是另一条 return，itemFailures 不会执行`).toBeFalsy()
+      expect(e.pagination?.mode, `${e.key}: 分页端点走的是另一条 return，itemFailures 不会执行`).not.toBe("offset")
     }
   })
 
@@ -121,6 +121,51 @@ describe("ENDPOINTS retry/timeout annotations", () => {
     expect(annotated).toEqual(SLOW_AI_KEYS)
     for (const endpoint of Object.values(ENDPOINTS)) {
       if (endpoint.timeoutMs != null) expect(endpoint.timeoutMs).toBeGreaterThanOrEqual(120_000)
+    }
+  })
+})
+
+// 计费与重放的对应关系（只看 fixed 且 price > 0）：
+// ① 按次 / 按页计费的必须 no-replay——重放一次就再计一次费；
+// ② 按行 / 按文件计费、一次请求最坏能计超过 3000 积分的也必须 no-replay；低于这条线，
+//    重放一页或一个文件的代价小于放弃自动重试的代价；
+// ③ 按行计费又不分页的必须声明 maxUnits，否则②算不出最坏值。
+// 写操作的重放风险与计费无关（vault.stock-pool.create 免费却 no-replay），由上面的精确集合钉。
+const NO_REPLAY_ABOVE_CREDITS = 3000
+
+describe("ENDPOINTS billing guards", () => {
+  const priced = Object.values(ENDPOINTS).flatMap((e) =>
+    e.billing?.kind === "fixed" && e.billing.price > 0 ? [{ endpoint: e, billing: e.billing }] : [],
+  )
+
+  it("declares billing on every OpenAPI endpoint", () => {
+    const LOCAL_OR_AUTH = new Set(["auth.login", "lookup.broker-orgs.list", "lookup.meeting-orgs.list"])
+    const missing = Object.values(ENDPOINTS).filter((e) => !LOCAL_OR_AUTH.has(e.key) && !e.billing).map((e) => e.key)
+    expect(missing, "端点缺 billing：标签会显示「单价以平台计费为准」").toEqual([])
+    for (const e of Object.values(ENDPOINTS)) expect(e.billing?.kind, `${e.key}：local 只用在工具上`).not.toBe("local")
+  })
+
+  it("① per-call and per-page billed endpoints never replay", () => {
+    for (const { endpoint, billing } of priced) {
+      if (billing.per === "call" || billing.per === "page") expect(endpoint.retry, `${endpoint.key}`).toBe("no-replay")
+    }
+  })
+
+  it("② per-row and per-document endpoints that can bill over 3000 in one request never replay", () => {
+    for (const { endpoint, billing } of priced) {
+      if (billing.per !== "row" && billing.per !== "document") continue
+      const pageSize = endpoint.pagination && "maxPageSize" in endpoint.pagination ? endpoint.pagination.maxPageSize : undefined
+      const worst = (pageSize ?? billing.maxUnits ?? 1) * billing.price
+      if (worst > NO_REPLAY_ABOVE_CREDITS) expect(endpoint.retry, `${endpoint.key}：单次最坏 ${worst} 积分`).toBe("no-replay")
+    }
+    // 两条边界钉住阈值本身：个股看点 6000×3 必须不重放，线索 500×5 = 2500 留默认重试。
+    expect(ENDPOINTS["ai.stock-summary.list"].retry).toBe("no-replay")
+    expect(ENDPOINTS["ai.security-clue.list"].retry).toBeUndefined()
+  })
+
+  it("③ per-row billed endpoints without pagination declare maxUnits", () => {
+    for (const { endpoint, billing } of priced) {
+      if (billing.per === "row" && !endpoint.pagination) expect(billing.maxUnits, `${endpoint.key}`).toBeDefined()
     }
   })
 })

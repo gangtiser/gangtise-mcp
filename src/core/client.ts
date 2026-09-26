@@ -20,7 +20,7 @@ export class GangtiseClient extends HttpClient {
       return this.download(endpoint, query ?? {}, options)
     }
 
-    if (endpoint.kind === 'json' && endpoint.pagination?.enabled) {
+    if (endpoint.kind === 'json' && endpoint.pagination?.mode === 'offset') {
       return requestPaginated(this, endpoint, body)
     }
 

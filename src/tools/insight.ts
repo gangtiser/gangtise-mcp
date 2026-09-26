@@ -553,8 +553,8 @@ export function registerInsightTools(server: McpServer, client: GangtiseClient):
     "gangtise_opinion_detail",
     {
       description: withBilling(
-        "gangtise_opinion_detail",
         "按 ID 取观点全文。⚠️ 没有正文的 ID 被跳过而不报错（ID 错、超出取数窗口、刚发布都可能），结果标 _partial 并列在 missingIds；某批失败时已取到的正文照常返回，未取的列在 unfetchedIds，只重跑这几个。",
+        "insight.opinion.detail",
       ),
       inputSchema: {
         kind: z.enum(["domestic", "foreign"]).describe("domestic=内资 chiefOpinionId | foreign=外资 foreignOpinionId（另有 contentTranslate）"),
@@ -576,8 +576,8 @@ export function registerInsightTools(server: McpServer, client: GangtiseClient):
     "gangtise_performance_calendar_list",
     {
       description: withBilling(
-        "gangtise_performance_calendar_list",
         "查询财报日历：业绩预告 / 业绩快报 / 业绩公告三类事件的发布日程（含未来已排期）。按 publishDate 过滤，返回 performanceReportId（下载用）、securityCodeList（A+H 同时上市会有多个码）、securityName、category、publishDate、title、hasAttachment。查「某公司何时披露财报」用 securityList，查「某段时间谁要出业绩」用 startDate+endDate。本工具只给排期与标题，公告全文请用 gangtise_announcement_list / _download 系列。",
+        "insight.performance-calendar.list",
       ),
       inputSchema: {
         from: z.number().int().min(0).optional(),

@@ -136,4 +136,34 @@ describe("createRowTracker", () => {
     expect(t.filter([row("a"), row("a")])).toHaveLength(2)
     expect(t.state).toEqual({ duplicateRows: 0, changedRows: 0, idIsRowKey: true })
   })
+
+  it("keys rows by a composite key, keeping rows with any part missing", () => {
+    const t = createRowTracker(["securityCode", "tradeDate"])
+    t.filter([{ securityCode: "600519.SH", tradeDate: "2026-09-25", close: 1 }])
+    // 同证券不同日期是另一行；同证券同日期整行相同是重复；缺一段取不到键，照样保留。
+    expect(t.filter([
+      { securityCode: "600519.SH", tradeDate: "2026-09-26", close: 1 },
+      { securityCode: "600519.SH", tradeDate: "2026-09-25", close: 1 },
+      { securityCode: "600519.SH", tradeDate: null, close: 1 },
+      { securityCode: "600519.SH", tradeDate: null, close: 1 },
+    ])).toHaveLength(3)
+    expect(t.state).toEqual({ duplicateRows: 1, changedRows: 0, idIsRowKey: true })
+  })
+
+  it("does not confuse composite parts that concatenate to the same text", () => {
+    const t = createRowTracker(["a", "b"])
+    t.filter([{ a: "x", b: "yz" }])
+    expect(t.filter([{ a: "xy", b: "z" }])).toHaveLength(1)
+    expect(t.state.duplicateRows).toBe(0)
+  })
+
+  it("keys rows by a key function, keeping rows it returns undefined for", () => {
+    const t = createRowTracker((r) => {
+      const id = (r.meta as { id?: number } | undefined)?.id
+      return id === undefined ? undefined : String(id)
+    })
+    t.filter([{ meta: { id: 7 }, title: "t" }])
+    expect(t.filter([{ meta: { id: 7 }, title: "t" }, { title: "no id" }, { title: "no id" }])).toHaveLength(2)
+    expect(t.state).toEqual({ duplicateRows: 1, changedRows: 0, idIsRowKey: true })
+  })
 })

@@ -496,8 +496,8 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
     "gangtise_indicator_cross_section",
     {
       description: withBilling(
-        "gangtise_indicator_cross_section",
         "查询指标截面数据（多指标 × 多证券，单日快照）。返回宽表：每证券一行、每指标一列（无 date 列——查询日期挂在每个指标自己的参数上，各列可以是不同日期）。指标代码来自 gangtise_indicator_search。多证券取同一批已实现财务/估值指标的首选（一次拉取，免去逐只调用专用工具）。财务科目分公司类型，公司类型不匹配时返 null（≠指标坏）。指标代码、证券代码、参数名写错都会被接口拒绝并指名出错的那一个，照 msg 改即可。**取不到数时保留整行整列**（不是缺行），" + EDE_NULL_ONLY + "，既不报错也不标 _partial。所以 `null` 有三种读法——「该证券确实没有这项数据」「日期或口径不对导致取不到」「该指标不覆盖这个市场或证券类型」（覆盖面见 gangtise_indicator_search 的 scopeList），从结果本身分不出来；结论要紧时请用专用报表工具单查该证券核对。结果若标了 _partial + omittedIndicators/omittedSecurities，说明那几个 code 没进入结果，先核对该指标/标的的权限与证券后缀（美股是 .O/.N，不是 .US）。",
+        "indicator.cross-section",
       ),
       inputSchema: {
         indicatorCodeList,
@@ -538,8 +538,8 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
     "gangtise_indicator_time_series",
     {
       description: withBilling(
-        "gangtise_indicator_time_series",
         "查询指标时间序列（多指标 × 单证券 或 单指标 × 多证券，按区间）。返回宽表：每日期一行。指标代码来自 gangtise_indicator_search。单指标 × 多证券即批量取财务/估值历史序列的首选；多指标 × 多证券不支持，需拆分——注意传 1 个 sectorId（板块）算多证券（服务端展开成 N 只成分股），所以板块只能配单指标。🔴 **财务/报告期类指标按日返回，但只有报告期末那几行是真值**——" + EDE_NULL_ONLY + "，其余每一行都是占位。**不要对整列直接做均值/求和/比率**：聚合函数通常跳过 null，但**行数不变**——手工「整列求和 ÷ 行数」会把占位行算进分母（茅台 is_dnrpnp 五个月区间 104 行里只有 2 行有值：真值均值 361.2 亿，而整列求和 ÷ 104 得到 6.9 亿——差 52 倍，且看着像个正常数字）。本端点**无法**只取报告期末——parameters 里传 tradeDate/reportDate 会被硬拒，calendarType 也只有 ND/TD/WD——所以要么自行只取报告期末那几行，要么改用 gangtise_indicator_cross_section 按报告期逐期取。整列都是 `null` 时先查 gangtise_indicator_search 的 scopeList——该指标可能不覆盖这个市场或证券类型，那与「这段区间没有数据」从结果里分不出来。指标代码或证券代码写错会被接口拒绝并指名，照 msg 改即可；结果若标了 _partial，说明有 code 没进入结果，查该指标/标的的权限与后缀。",
+        "indicator.time-series",
       ),
       inputSchema: {
         indicatorCodeList,
@@ -624,8 +624,8 @@ export function registerIndicatorTools(server: McpServer, client: GangtiseClient
     "gangtise_indicator_screener",
     {
       description: withBilling(
-        "gangtise_indicator_screener",
         "条件选股：把变量绑到指标（F1=某指标、F2=另一指标），再用 expression 组合筛选，从证券/板块范围里筛出命中的股票。返回宽表：每命中证券一行、每绑定指标一列（无 date 列）。指标代码来自 gangtise_indicator_search。这是唯一能按指标数值筛股的工具（专用工具都不支持），典型用法：给 securityCodeList 传一个板块 sectorId（服务端展开为全部成分股）再按市值/PE 筛。支持数值比较（>= <= > < == !=）与文本匹配 contains/notcontains（仅 dataType: string 的指标）。零命中返回空表，不是报错。🔴 **但空表有两种同形的假阴性，载荷与「确实没有股票符合条件」逐字相同**：① **日期没落在报告期末**——报告期类指标在非期末日期上整列是 `null`；② **该指标不覆盖所查市场或证券类型**——覆盖面见 gangtise_indicator_search 返回的 scopeList（如预测类 frcst_* 只覆盖 A 股，用它筛港股/美股就是这种情形）。两种情形整列都是占位（" + EDE_NULL_ONLY + "），而 **null 不满足任何数值比较**，条件因此恒假。判别方法二选一：把表达式**反向再跑一次**（`F1 > 0` 与 `F1 < 一个极大值` 同时返 0 行 = 恒假，不是真无匹配），或先用 gangtise_indicator_cross_section 取回该列看是不是全 `null`。🔴 **报告期类指标（营收/净利等）必须按变量传 reportDate 且值为报告期末**：它们拒收 date 下发的 tradeDate 并直接报错，补 { indicatorCode: 'F1', parameters: [{ paramKey: 'reportDate', ... }] } 即可。",
+        "indicator.screener",
       ),
       inputSchema: {
         indicatorList: z

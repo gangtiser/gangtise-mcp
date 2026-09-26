@@ -3,7 +3,7 @@ import { createHash } from "node:crypto"
 import { PAGE_CONCURRENCY } from "./config.js"
 import { ApiError, ValidationError, errorMessage } from "./errors.js"
 import { markPartial, type PartialReason } from "./partial.js"
-import type { EndpointDefinition } from "./endpoints.js"
+import type { EndpointDefinition, RowId } from "./endpoints.js"
 import { currentSignal } from "./requestContext.js"
 import { CALL_LIMITS } from "./scheduler.js"
 import { isVerbose, runWithConcurrency } from "./transport.js"
@@ -67,6 +67,16 @@ function stableStringify(value: unknown): string {
   return JSON.stringify(value) ?? "null"
 }
 
+/** 行的主键值；取不到（字段缺失或为 null、函数返回 undefined）时为 undefined。复合键把各字段值
+ *  按 JSON 数组拼成一个串，任一字段取不到即整行取不到。 */
+function rowKeyOf(rowId: RowId, row: Record<string, unknown>): string | undefined {
+  if (typeof rowId === "function") return rowId(row)
+  const fields = typeof rowId === "string" ? [rowId] : rowId
+  const values = fields.map((field) => row[field])
+  if (values.some((value) => value === undefined || value === null)) return undefined
+  return typeof rowId === "string" ? String(values[0]) : JSON.stringify(values)
+}
+
 /** 翻页的跨页重复 / 变动检测（端点声明了 `rowId` 才生效）。
  *
  *  按非唯一键（`msgTime` / `publishTime`）排序的列表，同一时间点的一组行在两次翻页请求之间会
@@ -77,7 +87,7 @@ function stableStringify(value: unknown): string {
  *  - 同一 ID 在**后面的页**上出现新版本 → 翻页期间列表在变，各版都留（`changed_rows`）。
  *  - 同一 ID 在**同一页**里出现两版 → 这个字段不是本列表的行主键，此后不再报变动行。
  *  - 没有该字段、或值为 null 的行一律保留。只存 ID 与各版本的摘要，不存整行；摘要与字段顺序无关。 */
-export function createRowTracker(rowId: string | undefined) {
+export function createRowTracker(rowId: RowId | undefined) {
   const seen = rowId ? new Map<string, Set<string>>() : undefined
   const state = { duplicateRows: 0, changedRows: 0, idIsRowKey: true }
   const filter = (rows: unknown[]): unknown[] => {
@@ -86,10 +96,9 @@ export function createRowTracker(rowId: string | undefined) {
     // 版本时它们都会被当重复去掉，但这一页仍然证明了这个字段不是行主键。
     const onThisPage = new Map<string, Set<string>>()
     return rows.filter((row) => {
-      const id = row && typeof row === "object" ? (row as Record<string, unknown>)[rowId] : undefined
-      if (id === undefined || id === null) return true
+      const key = row && typeof row === "object" ? rowKeyOf(rowId, row as Record<string, unknown>) : undefined
+      if (key === undefined) return true
       const digest = createHash("sha1").update(stableStringify(row)).digest("base64")
-      const key = String(id)
       const pageVersions = onThisPage.get(key)
       if (pageVersions === undefined) onThisPage.set(key, new Set([digest]))
       else {
@@ -226,10 +235,11 @@ export async function requestPaginated(http: PageFetcher, endpoint: EndpointDefi
 
   const startFrom = typeof initialBody.from === 'number' && Number.isFinite(initialBody.from) ? initialBody.from : 0
   const requestedSize = typeof initialBody.size === 'number' && Number.isFinite(initialBody.size) ? initialBody.size : undefined
-  const maxPageSize = endpoint.pagination?.maxPageSize ?? requestedSize ?? 20
+  const offset = endpoint.pagination?.mode === "offset" ? endpoint.pagination : undefined
+  const maxPageSize = offset?.maxPageSize ?? requestedSize ?? 20
   // 偏移窗口：服务端拒绝 from + size 超过它的任何一页，与 total 多大无关。页只在窗口内规划——
   // 跨窗口的那一页会让整段尾巴失败；窗口外的行取不到，结果标 window_cut。
-  const maxWindow = endpoint.pagination?.maxWindow
+  const maxWindow = offset?.maxWindow
   if (maxWindow !== undefined && startFrom >= maxWindow) {
     throw new ValidationError(`本接口只能按偏移取到第 ${maxWindow} 行为止（from + size ≤ ${maxWindow}），from=${startFrom} 已越过：请缩小查询范围（如缩短时间区间）分段拉取，而不是继续往后翻页。`)
   }
@@ -268,6 +278,9 @@ export async function requestPaginated(http: PageFetcher, endpoint: EndpointDefi
     return undefined
   }
 
+  // 取键函数没有可展示的名字，明细里不写。
+  const rowIdLabel = typeof endpoint.rowId === "function" ? undefined : endpoint.rowId
+
   /** 本轮新增的三种不完整原因，排在各路径既有原因之后。 */
   const flagRowIssues = (reasons: PartialReason[], details: Record<string, unknown>): void => {
     if (target < wanted) {
@@ -284,7 +297,7 @@ export async function requestPaginated(http: PageFetcher, endpoint: EndpointDefi
       reasons.push("duplicate_rows")
       details._duplicate_rows = {
         count: duplicateRows,
-        rowId: endpoint.rowId,
+        rowId: rowIdLabel,
         note: "同一行在相邻两页各出现一次（翻页排序键不唯一，同一时间点的一组行在两次请求间换了顺序）：重复的已去掉，同样多的行一次都没出现、未取回。缩短时间范围后重查可以取全",
       }
     }
@@ -292,7 +305,7 @@ export async function requestPaginated(http: PageFetcher, endpoint: EndpointDefi
       reasons.push("changed_rows")
       details._changed_rows = {
         count: changedRows,
-        rowId: endpoint.rowId,
+        rowId: rowIdLabel,
         note: "同一 ID 在后面的页上内容变了：翻页期间列表在变化，两版都已保留（按 ID 去重会只剩一版），相邻的行也可能漏了。重查一次可取到一致的结果",
       }
     }

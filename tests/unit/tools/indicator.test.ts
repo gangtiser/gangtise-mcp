@@ -1434,10 +1434,10 @@ describe("EDE 单次单元格上限对外可见", () => {
     expect(screenerCap).toBe(100_000)
 
     const { billingSuffix } = await import("../../../src/tools/billing.js")
-    for (const t of ["gangtise_indicator_cross_section", "gangtise_indicator_time_series"]) {
+    for (const t of ["indicator.cross-section", "indicator.time-series"]) {
       expect(billingSuffix(t), `${t} 的描述没有公布 handler 实际执行的单元格上限`).toContain(`单次上限 ${cap / 10_000} 万单元格`)
     }
-    expect(billingSuffix("gangtise_indicator_screener")).toContain(`单次上限 ${screenerCap / 10_000} 万单元格`)
+    expect(billingSuffix("indicator.screener")).toContain(`单次上限 ${screenerCap / 10_000} 万单元格`)
   })
 })
 
@@ -1528,7 +1528,7 @@ describe("indicator_search routes fund flow to the free tool", () => {
     const description = search?.description ?? ""
     expect(description).toContain("flow_*")
     expect(description).toContain("gangtise_fund_flow")
-    // 计费口径由 BILLING_CATALOG 生成的标签负责，描述里不手写价格（billing.test.ts 的门禁钉着）。
+    // 计费口径由端点 billing 生成的标签负责，描述里不手写价格（billing.test.ts 的门禁钉着）。
     expect(description).toMatch(/同一套数/)
   })
 })
