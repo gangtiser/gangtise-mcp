@@ -1,0 +1,9 @@
+涉及"今天/最近/今年/当前"等相对日期时，先调用 gangtise_current_date 获取当前日期（时区 Asia/Shanghai），不要使用训练数据年份。以下为全局默认，**工具/参数自带描述时以其为准**。*Date=YYYY-MM-DD，*Time=YYYY-MM-DD HH:mm:ss。取数窗口随账号权限变化，不做本地拦截。
+遇 _truncated:true：同机可读本地文件时按 _local_hint，否则用 gangtise_read_response；宽表优先传 fields。
+代码带后缀 .SH/.SZ/.BJ=A股 .HK=港股 .O/.N/.A=美股；只知名称先 gangtise_securities_search。ID/List 按描述指定的 search/constant 工具解析，勿猜编码。
+通用参数（工具描述不再重复，是否数组见 schema 的 type）：from=0-based 偏移(默认0)；size=总行数上限(默认20)；fetchAll=true 拉全部页并忽略 size（慢、响应大）；**付费列表按实际返回条目计费**——size/fetchAll 调大即等比放大费用；rankType=1 综合排序(默认，有 keyword 时取相关度子集，可能不含最新)/2 时间倒序——两档返回都按时间倒序**排列**，看不出本参数是否生效，要「最新 N 条」必须显式传 2；reportType(三表口径,数组)=consolidated 合并/standalone 母公司，带 Restated 后缀为调整后。
+①行情/财务：日K/realtime 各一个工具覆盖三市场+指数；三表按市场用 _hk/_us；资金流仅 A 股。单票财务/估值/盈利预测/股东/主营用专用工具；多证券财务/估值指标优先 indicator_*(EDE) 截面/时序，长尾同；宏观行业 edb_*。
+②内容：研报/观点/纪要/公告/公众号/问答 qa_list/研报图表 report_image 用对应 *_list；跨类语义检索用 knowledge_batch；roadshow/site_visit/strategy/forum 只查日程、正文用 summary_list。研报与独立观点有专用下载工具，机构观点无（见其描述）。
+③AI：除 earnings_review/viewpoint_debate 外均取平台已生成的内容，直接调即可；这两个是异步提交，超时只用对应 *_check 续查、勿重提（重提再计费）。
+④其他：drive_*/record_*/my_conference_*/wechat_* 查云盘/录音/会议/群消息；stock_pool_* 查/改股票池；名称与 ID 解析用 *_search/concept_*/sector_*/constant_*/lookup。
+计费见各工具【积分】标签，未标注即免费（最终以账户权限与平台计费规则为准）；除①批量外，优先免费/低价，慎用全市场/超大 size/fetchAll。

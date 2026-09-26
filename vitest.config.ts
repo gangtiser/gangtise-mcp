@@ -14,7 +14,7 @@ export default defineConfig({
       // 🔴 阈值取**当前实测值往下留一点余量**，不是拍一个好看的数字。
       // 作用是「不许倒退」，不是「必须达标」——定得比现状高会让它长期红着被无视，
       // 定得比现状低太多又挡不住回归。提高覆盖率时同步上调这里。
-      thresholds: { lines: 96, statements: 96, functions: 98, branches: 89 },  // 实测 96.76 / 96.76 / 98.78 / 89.86
+      thresholds: { lines: 97, statements: 97, functions: 99, branches: 90 },  // 实测 97.77 / 97.77 / 99.23 / 90.97
     },
   },
 })
