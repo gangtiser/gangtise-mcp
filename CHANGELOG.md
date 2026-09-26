@@ -2,6 +2,33 @@
 
 > README 顶部只放最近 5 个版本的一行摘要 + 历史里程碑；本文件是完整历史明细（中文），回溯至 0.1.3。
 
+### 0.2.10 (2026-09-26)
+
+部分同步 gangtise-openapi-cli v0.41.1–v0.43.0。**新增 1 个工具**（`gangtise_opinion_detail`），观点、题材工具各加一个低价档开关；**不传新参数时的返回与价格不变**。
+
+**🔴 会拿到错数据或漏数据的**
+
+- **翻页结果去掉跨页重复行，并标出重复与变动**：按非唯一键（如发布时间）排序的列表，同一时间点的一组行会在两次翻页请求之间换顺序，于是相邻两页各拿到其中一部分——有的行出现两次、有的一次都没出现，总行数却仍等于 `total`。现在重复的整行会被去掉，结果标 `_partial` + `duplicate_rows` 与 `_duplicate_rows`（去掉了几行，就漏掉了几行，缩短时间范围重查可以取全）；同一 ID 在后面的页上内容变了则两版都保留，标 `changed_rows`。适用于研报、纪要、公告、独立观点、公众号、财报日历、日程、云盘、录音、会议与群消息的列表，以及两个观点列表的 brief 档（`withContent: false`）。
+- **`total` 封顶判定补两种情形**：群消息列表只能按偏移取到前 10000 行，`total` 触及这个窗口时直接标 `total_capped`（`_total_capped` 附 `maxWindow`）；其他列表在越过 `total` 的那一行被接口拒绝（`140002` / `100006`）时同样按封顶处理。请求的行越过偏移窗口时只取窗口内的并标 `window_cut`，`from` 本身越过窗口则在本地拒绝。
+- **`gangtise_valuation_analysis` 显式下发 `limit`（默认 2000）**：本接口每个自然日一行（含周末），行数超过 `limit` 时保留的是**最近**的部分、丢掉区间开头——省略 `limit` 时，长区间只会拿到最近 2000 天而看不出来。现在撞满即标 `_partial` + `limit_truncated`，`_hint` 说明缺的是区间开头；首行正好是 `startDate`（区间恰好 `limit` 天）时不标。序列比 `startDate` 晚开始（之后才上市，或区间超出账号可取的历史窗口）时加一条 `_note`。
+- **`gangtise_index_day_kline` 不再收 `all`**：本接口对 `all` 返回空结果而不报错，读起来像「没有数据」。现在本地拒绝，多个指数请逐个列出代码。描述也不再说本工具返回指数名称——两个日 K 工具都不返回，名称用 `gangtise_securities_search`（`category: ['index']`）查 `gtsName`。
+
+**新增**
+
+- **观点低价档**：`gangtise_opinion_list` / `gangtise_foreign_opinion_list` 新增 `withContent`。缺省或 `true` 与此前相同（每条带正文，30 积分/条；内资的标题与正文在 `contentList.title` / `contentList.content`，顶层没有 `title` / `brief`；外资正文在顶层 `content` / `contentTranslate`）。传 `false` 只回标题与 200 字 `brief`（外资另有译文），**1 积分/条**。
+- **`gangtise_opinion_detail`**：按 ID 取观点全文，30 积分/条，`kind` 选内资 / 外资，每 20 个一批串行请求。没有正文的 ID 会被跳过而不报错（ID 写错、超出取数窗口、刚发布都可能），结果标 `missing_ids` 并在 `missingIds` 列出；某一批失败时，已取到的正文照常返回，没取的列在 `unfetchedIds`（附 `unfetchedError`），只重跑这几个即可。
+- **题材低价档**：`gangtise_concept_info` / `gangtise_concept_securities` 新增 `full`。缺省或 `true` 与此前相同（500 积分/次，含催化事件 `keyEvents`、重点标记 `isKey` 与纳入理由 `inclusionReason`）；传 `false` 不含这几项，**50 积分/次**。`securityCount` 是去重后的只数，逐组累加会多算。
+- **`gangtise_constant_list` 的 `category` 不再限定取值**：常量接口现有 17 类（新增国民经济行业、债券类型、利率类型、付息频率、ABS 基础资产类型、评级类型、交易市场、基金分类、基金持仓券种类别），以 `gangtise_constant_category` 返回为准；非法取值由接口报 `100005`。
+
+**行为修正**
+
+- **不再自动重发**：`gangtise_stock_summary`、`gangtise_earning_forecast`、两个观点列表的带正文档与 `gangtise_opinion_detail` 遇到 5xx / 超时不再重发——它们按条计费，一次请求就可能扣上千积分，重发可能重复扣费。`gangtise_stock_summary` 的请求超时下限提到 120 秒，大批量不会在 30 秒处被截断。
+- **行情类响应形状异常时带上 `trace`**：日 K、分钟 K、实时、资金流的响应里没有可读的 `list` 时，报错附 `trace`，便于报障。
+- **`GANGTISE_TIMEOUT_MS` 只收十进制整数毫秒**：`30s`、`1e4`、小数与低于 1000 的值按无效处理、回退 30000（把秒当毫秒写的 `30` 会让每个请求都超时）；超过 3600000 的夹到上限；没有按原值生效时在 stderr 提示一次。
+- **连接池随 `GANGTISE_PAGE_CONCURRENCY` 放大**（至少 16）：并发调大后不再在客户端内部排队。
+- **错误码提示**：云盘管理的 `230004` / `230005` / `230008` 补上处置提示；`130002` 的提示覆盖云盘文件 / 文件夹已被删除的情形。
+- 依赖：`undici` 7.29.0 → 7.29.1。
+
 ### 0.2.9 (2026-09-20)
 
 健壮性修复，**无工具 / 参数 / 字段增删**，返回结构不变。四处都落在临时文件的生命周期上——并发下载、异步等待到期，以及磁盘写入失败这几条路径。

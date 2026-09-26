@@ -6,11 +6,11 @@
 
 README 仅列最近 5 个版本的一行摘要，完整明细见 [CHANGELOG.md](CHANGELOG.md)：
 
+- **0.2.10 — 2026-09-26**：部分同步 CLI v0.41.1–v0.43.0，不传新参数时返回与价格不变。🔴 翻页结果去掉跨页重复行并标 `duplicate_rows` / `changed_rows`，`total` 封顶判定补偏移窗口与越界被拒两种情形；`valuation_analysis` 显式下发 `limit`（默认 2000），撞满标 `limit_truncated`（缺的是区间开头）；`index_day_kline` 不再收 `all`（该接口对 `all` 返空）。新增 `gangtise_opinion_detail`，观点列表加 `withContent`、题材加 `full` 两个低价档开关；`constant_list` 的 `category` 放开到接口现有的 17 类。`stock_summary` / `earning_forecast` / 带正文的观点列表不再自动重发。
 - **0.2.9 — 2026-09-20**：健壮性修复，无工具/参数/字段增删。🔴 并发下载不再被临时目录回收误删（此前下载收尾报「文件不存在」，在计费接口上等于已付过费的内容拿不到）；异步生成（`earnings_review` / `viewpoint_debate`）等待到期后不再继续重发请求，`dataId` 仍可用 `*_check` 取回。临时目录清理失败不再让一次已成功的直链下载报错，下载失败时抛出的也始终是下载本身的错误；大响应落盘失败后目录能正常回收。
 - **0.2.8 — 2026-09-19**：同步 CLI v0.40.0–v0.40.1。**新增 5 个自选股池写工具**（建池 / 改名 / 加股 / 移除 / 删池，本服务仅有的写操作，全部免费）：删池须显式 `confirm: true` 且不可恢复，逐条失败标 `_partial` + `failedItems`。🔴 token 缓存改为绑定凭证——**换过 `GANGTISE_ACCESS_KEY` 的请复核换号前后取到的数据**，此前会继续使用上一个账号未过期的 token 且不报错。🔴 `indicator_time_series` 的 `calendarType` 不传时按指标类型自动选轴，接口默认是 `ND` 不是 `TD`；给报告期类指标传 `TD` 会整片返 `null` 且不报错。EDE 截面 / 时序单次 3 万单元格上限。
 - **0.2.7 — 2026-09-13**：同步 CLI v0.39.0，无工具/参数/字段增删。`stock_summary` 的 `securityList` 单次上限 5000 → 6000（接口上限），全 A 股可一次提交完；无看点的证券不在返回列表里，返回行数少于提交数是正常的。
 - **0.2.6 — 2026-09-06**：同步 CLI v0.38.0。🔴 修六处静默错数：`valuation_analysis` 的 `skipNull`+`fieldList` 会把正常数据全过滤成 0 行、全市场分片按位置合并可致开收盘价互换、正文续读误判格式会丢掉后半段、重复列名静默少一列。客户端取消后不再继续发分页/分片请求。行情 `fieldList` 缺列改为标 `missingFields`，且**只返回点名的列、不自动附带身份列**。新增沪深 ETF 与 20 个全球指数；`realtime` 新增 `tradeStatus`、**不再返回 `turnoverRate`/`volumeRatio`**；`stock_summary` 上限收到 5000。另修两处：分片合并会丢掉后一份多出来的列、临时目录配额把下载中途的大小当成最终值（于是超出配额的占用一路放行）。**`volume` 的单位是「股」不是「手」**，三处行情描述已写明。
-- **0.2.5 — 2026-08-31**：同步 CLI v0.37.1，无工具/字段/参数增删。🔴 订正 `110003`（超出可查时间范围）的处置：这个窗口按账号的数据权限配、不按接口配，EDE 截面/时序/条件选股与日 K 同界，**换接口绕不过去**——旧提示建议的「改用范围更宽的同族工具」会多发一次注定同样失败的请求。`indicator_screener` 描述同步删去「范围比截面窄」一句，能力不变。
 
 ### 历史里程碑
 
@@ -36,13 +36,13 @@ README 仅列最近 5 个版本的一行摘要，完整明细见 [CHANGELOG.md](
 
 ## 功能覆盖
 
-102 个工具，分十一类。除 5 个自选股池写操作外全部只读。完整清单与每个参数的语义由 `tools/list` 提供，此处只列范围。
+103 个工具，分十一类。除 5 个自选股池写操作外全部只读。完整清单与每个参数的语义由 `tools/list` 提供，此处只列范围。
 
 | 类别 | 覆盖 |
 |---|---|
 | 上下文 | 运行时当前日期、年份、时间与时区（用于换算「今天 / 最近 / 今年」） |
-| 检索与 ID 解析 | 证券搜索；行业 / 城市 / 公告分类 / 区域常量；题材与板块成分股；首席分析师、机构、公众号 ID |
-| 观点与研报 | 国内首席观点、会议纪要、帕米尔专家纪要（独立库，需单独购买）、券商研报、外资研报与独立观点、A/港/美股公告、产业公众号资讯、投资者问答、研报图表 |
+| 检索与 ID 解析 | 证券搜索；行业 / 城市 / 公告分类 / 区域 / 债券与基金分类等常量；题材与板块成分股；首席分析师、机构、公众号 ID |
+| 观点与研报 | 国内首席观点与外资观点（可按 ID 取全文）、会议纪要、帕米尔专家纪要（独立库，需单独购买）、券商研报、外资研报、独立观点、A/港/美股公告、产业公众号资讯、投资者问答、研报图表 |
 | 会议日程 | 路演、调研、策略会、论坛（日程；正文走会议纪要） |
 | 财报日历 | 业绩预告 / 快报 / 公告的发布排期（含未来已排期）与原文 PDF |
 | 行情 | A/港/美股日 K 与实时快照、分钟 K、指数日 K、A 股个股资金流向；日 K / 实时 / 分钟 K 另覆盖沪深 ETF 与 20 个全球指数 |
@@ -192,10 +192,10 @@ Get-ChildItem "$env:LOCALAPPDATA\npm-cache\_npx" -Recurse -Filter package.json |
 | `GANGTISE_SECRET_KEY` | — | 开放平台 Secret Key |
 | `GANGTISE_TOKEN` | — | 直接传 Bearer Token（优先于 Key/Secret，适合临时使用） |
 | `GANGTISE_BASE_URL` | `https://openapi.gangtise.com` | API 基础地址（旧域名 `https://open.gangtise.com` 仍可用） |
-| `GANGTISE_TIMEOUT_MS` | `30000` | 单次请求超时（毫秒） |
+| `GANGTISE_TIMEOUT_MS` | `30000` | 单次请求超时，十进制整数毫秒（1000–3600000）；无效值回退默认、超上限夹到上限，未按原值生效时在 stderr 提示一次 |
 | `GANGTISE_MCP_ASYNC_TIMEOUT_MS` | `55000` | 异步 AI 任务默认等待超时（毫秒）；保持在 MCP 客户端请求超时（约 60s）以下，超时返回 dataId 供 `*_check` 续查。需更长等待可调高本值或按调用传 `waitSeconds`（最大 180） |
 | `GANGTISE_TOKEN_CACHE_PATH` | `~/.config/gangtise/token.json` | Token 缓存文件路径 |
-| `GANGTISE_PAGE_CONCURRENCY` | `5` | 分页并发数 |
+| `GANGTISE_PAGE_CONCURRENCY` | `5` | 分页、全市场分片与逐只请求的并发数（1–32）；连接池随之放大，至少 16 |
 | `GANGTISE_INLINE_MAX_BYTES` | `65536` | 工具结果内联字节上限；超过则落盘为临时文件并返回可翻页的预览指针。默认 64KB（约 1.5–2 万 token）控制单次响应体积；批量导出可调大（最低 8192） |
 | `GANGTISE_MAX_DOWNLOAD_BYTES` | `1073741824` | 单个下载文件的字节上限（默认 1 GiB）。超出时在落盘前拒绝（有 `Content-Length`）或流式中止（无该头），避免一次超大下载占满临时磁盘。`/tmp` 较小的部署可调低（最低 1 MB） |
 | `GANGTISE_VERBOSE` | — | 设为 `1` 开启请求耗时日志（输出到 stderr） |
@@ -210,12 +210,17 @@ Get-ChildItem "$env:LOCALAPPDATA\npm-cache\_npx" -Recurse -Filter package.json |
 |---|---|---|
 | `missing_fields` | 请求的某几列没回来（字段名写错或已下线）。行情类接口对不认识的字段名是名和值一起丢，不报错 | `missingFields` |
 | `dropped_columns` | 合并多份响应时，后一份多出来的列放不下——合并结果的列集合取自第一份 | `_dropped_columns` |
-| `limit_truncated` | 返回行数达到单次请求上限，结果可能在窗口内被截断 | 分片 / 逐只合并时为 `_truncated_shards` / `_truncated_securities`；单次请求可能只有原因标记 |
+| `limit_truncated` | 返回行数达到单次请求上限，结果可能在窗口内被截断 | 分片 / 逐只合并时为 `_truncated_shards` / `_truncated_securities`；估值分析附 `_hint`（缺的是区间开头）；其他单次请求可能只有原因标记 |
 | `failed_shards` / `failed_securities` / `failed_pages` | 分片、逐只或分页请求中有一部分失败 | `_failed_shards` / `_failed_securities` / `_failed_pages`，逐条记出区间 / 证券 / 页与错误 |
+| `failed_items` | 自选股池的批量写操作（加股 / 移除 / 删池）里有单条失败，其余照常生效 | `failedItems`，逐条点名并附原因 |
 | `malformed_shards` / `malformed_securities` | 某一份响应里没有可合并的行，或列结构对不上 | `_malformed_shards` / `_malformed_securities` |
-| `short_page` / `page_cap` / `total_drift` / `total_capped` | 翻页没取满、撞到页数上限、翻页期间数据集变了、`total` 是上限值而非真实计数 | `page_cap` / `total_capped` 分别附带 `_page_cap` / `_total_capped`；其他原因不保证有独立详情字段 |
+| `short_page` / `page_cap` / `total_drift` / `total_capped` | 翻页没取满、撞到页数上限、翻页期间数据集变了、`total` 是上限值而非真实计数（含 `total` 触及接口偏移窗口、越过 `total` 的那一行被接口拒绝） | `page_cap` / `total_capped` 分别附带 `_page_cap` / `_total_capped`；其他原因不保证有独立详情字段 |
+| `duplicate_rows` / `changed_rows` | 翻页排序键不唯一，同一行在相邻两页各出现一次（重复的已去掉，同样多的行没有取回）；同一 ID 在后面的页上内容变了（两版都保留） | `_duplicate_rows` / `_changed_rows` |
+| `window_cut` | 请求的行越过了接口的偏移窗口（`from + size` 上限），窗口外的没有取回 | `_window_cut` |
+| `missing_ids` / `unfetched_ids` | 按 ID 取观点全文时，有的 ID 没有正文（被跳过、不报错）；某一批请求失败，后面的 ID 没有取 | `missingIds` / `unfetchedIds` + `unfetchedError` |
 | `unexpected_page_shape` | 分页端点的首个响应不是 `{total, list}` 结构，翻页没有发生 | `_unexpected_page_shape` |
 | `omitted_indicators` / `omitted_securities` | 证券级指标（EDE）请求里的某些代码没有出现在返回矩阵中 | `omittedIndicators` / `omittedSecurities` |
+| `security_only_row_cap` | 财报日历只按 `securityList` 筛选时最多取 1000 行；取满且 `total` 显示还有剩余，说明该筛选可能没有生效 | `_hint` |
 
 拿到 `_partial` 后的常规处置：按标记指出的那几天 / 那几只 / 那几列缩小范围重拉，而不是把结果当完整集继续算。
 
@@ -232,6 +237,8 @@ Get-ChildItem "$env:LOCALAPPDATA\npm-cache\_npx" -Recurse -Filter package.json |
 | `_preview_count` | 本次内联返回的条数（最多 20） |
 | `_read_with` | 续读工具名（固定为 `gangtise_read_response`） |
 | `has_more` | 文件中是否还有未返回的条目 |
+| `next_offset` | 下一页的起点，传给 `gangtise_read_response` 的 `offset`；没有更多时为 `null` |
+| `_preview` / `_total_chars` / `_preview_chars` | 仅文本类（Markdown 等）：开头一段的预览、全文字符数、预览字符数；这类文件续读的 `offset` 按字符计 |
 | `_local_hint` | 本地处理建议（server 与客户端共享文件系统时适用） |
 | `_available_fields` / `_available_fields_sampled` | 采样前 20 行得到的顶层字段名，及实际扫描行数；供 `gangtise_read_response` 的 `fields` 参考 |
 | `_available_fields_truncated` | 仅当顶层字段超 50 个时出现（`true`）：`_available_fields` 已截断至前 50 个 |
@@ -252,7 +259,10 @@ cd gangtise-mcp
 npm install
 npm run dev      # 直接运行源码（tsx，无需 build）
 npm run build    # 编译 TypeScript → dist/
-npm test         # 运行测试
+npm test         # 运行测试（含 tools/list 快照、逐工具请求契约与响应形状 fixture）
+npm run lint
+npm run build && npm run check:release   # 发版门禁：对外措辞、dist 无注释、上下文预算
+node --expose-gc --import tsx scripts/bench/run.ts   # 性能基线（本机假服务端，不进 CI）
 ```
 
 ## 发布维护
@@ -263,22 +273,22 @@ npm test         # 运行测试
 
 ```bash
 npm version patch --no-git-tag-version
-# 更新 README Changelog，并完成代码/测试修改
+# 完整明细写进 CHANGELOG.md；README 的 Changelog 顶部加一行摘要、删掉第 6 行
 npm test
 npx tsc --noEmit
-npm run build
+npm run build && npm run check:release
 git add .
 git commit -m "fix: <message>"
-git push origin main
-git tag v0.2.x
-git push origin v0.2.x
+git tag -a v0.2.x -m v0.2.x          # 必须是 annotated tag
+git push origin main v0.2.x
+git ls-remote --tags origin v0.2.x   # 有输出才说明 tag 已推上去、发布流水线会触发
 ```
 
-发布完成后确认：
+tag 名须与 `package.json` 的 `version` 一致，被打 tag 的提交须已在 `main` 上。发布完成后确认：
 
 ```bash
 gh run list --workflow npm-publish.yml --limit 1
-npm view gangtise-mcp version
+npm view gangtise-mcp version        # 可能滞后几分钟，以 Actions 日志里的「+ gangtise-mcp@版本号」为准
 ```
 
 如果 GitHub Actions 的 publish 步骤提示 OIDC/trusted publisher 失败，应先检查 npm 包的 Publishing access 设置是否绑定到 `gangtiser/gangtise-mcp` 和 `.github/workflows/npm-publish.yml`，不要改回本地 token 发布。
