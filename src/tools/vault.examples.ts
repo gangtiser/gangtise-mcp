@@ -15,6 +15,7 @@ export const vaultExamples: ToolExamples = {
     { title: "copy 只复制文件", args: { action: "copy", fileIdList: ["file-1"], targetFolderId: "root" }, expect: { requests: [{ method: "POST", path: `${D}/copy`, body: { copyType: "file", fileIdList: ["file-1"], targetFolderId: "root" } }] } },
     { title: "delete_file 确认后下发，confirm 不进 body", args: { action: "delete_file", fileIdList: ["file-1"], confirm: true }, expect: { requests: [{ method: "POST", path: `${D}/deleteFile`, body: { fileIdList: ["file-1"] } }] } },
     { title: "delete_folder 未确认零请求拒绝", args: { action: "delete_folder", folderId: "f-1" }, expect: { rejects: /连同其中全部子文件夹与文件一起删除.*confirm 置为 true/ } },
+    { title: "delete_folder 确认后下发，confirm 不进 body", args: { action: "delete_folder", folderId: "f-1", confirm: true }, expect: { requests: [{ method: "POST", path: `${D}/deleteFolder`, body: { folderId: "f-1" } }] } },
     { title: "缺该动作的必填参数本地拒绝", args: { action: "move_file", fileIdList: ["file-1"] }, expect: { rejects: /action=move_file 须传 targetFolderId/ } },
     { title: "不属于该动作的参数本地拒绝", args: { action: "rename", type: "file", id: "file-1", name: "x", parentId: "f-1" }, expect: { rejects: /action=rename 不收 parentId/ } },
     { title: "名称超过 200 个字符在 schema 层拒绝", args: { action: "create_folder", name: "字".repeat(201) }, expect: { rejects: /name/ } },
