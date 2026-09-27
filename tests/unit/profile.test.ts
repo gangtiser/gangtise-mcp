@@ -104,13 +104,23 @@ describe("GANGTISE_MCP_TOOLS on the real server", () => {
     for (const args of [{ kind: "drive", id: "f-1" }, { kind: "record", id: "r-1", contentType: "asr" }, { kind: "my_conference", id: "c-1", contentType: "summary" }]) {
       const result = await client.callTool({ name: "gangtise_download", arguments: args })
       expect(result.isError).toBe(true)
-      expect((result.content as Array<{ text: string }>)[0].text).toMatch(/未启用，不下载这类资源/)
+      expect((result.content as Array<{ text: string }>)[0].text).toMatch(/被禁用，不下载这类资源/)
     }
     expect(stubClient.download).not.toHaveBeenCalled()
     // 来源工具启用着的照常下载。
     vi.mocked(stubClient.download).mockResolvedValueOnce({ text: "ok", contentType: "text/plain", filename: "r.md" } as never)
     const ok = await client.callTool({ name: "gangtise_download", arguments: { kind: "research", id: "rp-1", fileType: 2 } })
     expect(ok.isError).toBeFalsy()
+  })
+
+  // 只是没选中来源工具不拦：精简到只点名下载工具时，手里已有的 ID 照样能下载。
+  it("lets a download through when its source tool is merely not selected", async () => {
+    const client = await connect("gangtise_download")
+    vi.mocked(stubClient.download).mockClear()
+    vi.mocked(stubClient.download).mockResolvedValueOnce({ text: "ok", contentType: "text/plain", filename: "r.md" } as never)
+    const ok = await client.callTool({ name: "gangtise_download", arguments: { kind: "research", id: "rp-1", fileType: 2 } })
+    expect(ok.isError).toBeFalsy()
+    expect(stubClient.download).toHaveBeenCalledTimes(1)
   })
 
   it("refuses to start on a misspelled item", () => {

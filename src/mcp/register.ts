@@ -11,10 +11,10 @@ import type { Profile } from "../profile.js"
  *  不进调用表（任何入口都调不到），未列出的不注册进 tools/list。 */
 export function registerFamilies(server: McpServer, client: GangtiseClient, families: FamilyModule[], profile?: Profile): void {
   const specs = families.flatMap((family) => family.tools)
-  registerTools(server, client, profile ? specs.filter((spec) => profile.enabled(spec)) : specs, profile?.advertised)
+  registerTools(server, client, profile ? specs.filter((spec) => profile.enabled(spec)) : specs, profile?.advertised, profile?.disabled)
 }
 
-export function registerTools(server: McpServer, client: GangtiseClient, specs: ToolSpec[], advertised: (spec: ToolSpec) => boolean = () => true): void {
+export function registerTools(server: McpServer, client: GangtiseClient, specs: ToolSpec[], advertised: (spec: ToolSpec) => boolean = () => true, disabled?: (name: string) => boolean): void {
   const operations = new Map<string, ToolSpec>()
   for (const spec of specs) {
     if (operations.has(spec.name)) throw new Error(`duplicate tool name: ${spec.name}`)
@@ -27,7 +27,7 @@ export function registerTools(server: McpServer, client: GangtiseClient, specs: 
       spec.name,
       { description: withBilling(spec.description, billing), inputSchema: strictInput(spec.input), annotations: annotationsFor(spec) },
       // toolHandler 统一错误形状，并把取消信号带进调用链（见 handler.ts）。
-      toolHandler((args: Record<string, unknown>, extra) => invokeOperation(spec.name, args, { client, signal: extra?.signal, operations })),
+      toolHandler((args: Record<string, unknown>, extra) => invokeOperation(spec.name, args, { client, signal: extra?.signal, operations, disabled })),
     )
   }
 }

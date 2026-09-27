@@ -5,6 +5,8 @@ import type { FamilyModule, ToolSpec } from "./mcp/define.js"
 export interface Profile {
   advertised(spec: ToolSpec): boolean
   enabled(spec: ToolSpec): boolean
+  /** 显式禁用（`-组名` / `-工具名`）了这个工具。没选中不算：网关按它判断能不能代取该工具的资源。 */
+  disabled(name: string): boolean
 }
 
 const KEYWORDS = new Set(["core", "all", "legacy"])
@@ -70,5 +72,5 @@ export function parseProfile(raw: string | undefined, families: FamilyModule[]):
     }
   }
   const chosen = (spec: ToolSpec) => enabled.has(spec.name)
-  return { advertised: chosen, enabled: chosen }
+  return { advertised: chosen, enabled: chosen, disabled: isExcluded }
 }

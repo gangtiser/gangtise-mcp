@@ -81,13 +81,13 @@ export const downloadFamily: FamilyModule = {
         contentType: z.enum(["original", "asr", "summary"]).optional().describe(`只有 record（${KINDS.record.contentType!.desc}）与 my_conference（${KINDS.my_conference.contentType!.desc}）收`),
         resourceType: intLiteralEnum(RESOURCE_TYPES).optional().describe("只有 knowledge_resource 收，必填：10=研报 | 11=外资研报 | 20=内部 | 40=观点 | 50=公告 | 51=港股公告 | 60=纪要 | 70=调研 | 80=网络纪要 | 90=公众号"),
       },
-      run: async ({ client, operations }, args) => {
+      run: async ({ client, disabled }, args) => {
         const { kind: name, id, fileType, contentType, resourceType } = args as { kind: string; id: string; fileType?: number; contentType?: string; resourceType?: number }
         const kind = KINDS[name]
-        // 禁用对网关同样生效：一种资源的来源工具没启用（如 GANGTISE_MCP_TOOLS=core,-vault 之后的云盘、录音），
-        // 就不下载这种资源——否则禁掉一族只是藏起了列表，内容照样取得到。
+        // 禁用对网关同样生效：来源工具被显式禁用（如 GANGTISE_MCP_TOOLS=core,-vault 之后的云盘、录音），就不下载
+        // 这种资源——否则禁掉一族只是藏起了列表，内容照样取得到。只是没选中来源工具（精简配置、手里已有 ID）不拦。
         const source = `gangtise_${kind.from}`
-        if (!operations.has(source)) reject(name, `它的来源工具 ${source} 在当前配置（GANGTISE_MCP_TOOLS）里未启用，不下载这类资源。`)
+        if (disabled?.(source)) reject(name, `它的来源工具 ${source} 在当前配置（GANGTISE_MCP_TOOLS）里被禁用，不下载这类资源。`)
         // 每个 kind 的附加参数契约与原来的独立下载工具一致：该收的缺了拒，不该收的传了拒。
         if (fileType !== undefined && !kind.fileType) reject(name, "不收 fileType")
         if (kind.fileType?.required && fileType === undefined) reject(name, `fileType 必填（${kind.fileType.desc}）`)

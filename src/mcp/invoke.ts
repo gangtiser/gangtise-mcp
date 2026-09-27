@@ -10,6 +10,8 @@ export interface CallContext {
   client: GangtiseClient
   signal?: AbortSignal
   operations: ReadonlyMap<string, ToolSpec>
+  /** 显式禁用了该工具（GANGTISE_MCP_TOOLS 的 `-` 项）。网关代取某个工具的资源前查它。 */
+  disabled?: (name: string) => boolean
 }
 
 /** 唯一调用入口：任何入口调工具都走这里，确认闸门只有一份。
