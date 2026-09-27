@@ -97,6 +97,22 @@ describe("GANGTISE_MCP_TOOLS on the real server", () => {
     expect(stubClient.call).not.toHaveBeenCalled()
   })
 
+  // 下载网关按资源的来源工具判：禁掉 vault 之后，云盘、录音、会议的内容也不能经网关取到。
+  it("keeps the download gateway from reaching resources of a disabled family", async () => {
+    const client = await connect("core,-vault")
+    vi.mocked(stubClient.download).mockClear()
+    for (const args of [{ kind: "drive", id: "f-1" }, { kind: "record", id: "r-1", contentType: "asr" }, { kind: "my_conference", id: "c-1", contentType: "summary" }]) {
+      const result = await client.callTool({ name: "gangtise_download", arguments: args })
+      expect(result.isError).toBe(true)
+      expect((result.content as Array<{ text: string }>)[0].text).toMatch(/未启用，不下载这类资源/)
+    }
+    expect(stubClient.download).not.toHaveBeenCalled()
+    // 来源工具启用着的照常下载。
+    vi.mocked(stubClient.download).mockResolvedValueOnce({ text: "ok", contentType: "text/plain", filename: "r.md" } as never)
+    const ok = await client.callTool({ name: "gangtise_download", arguments: { kind: "research", id: "rp-1", fileType: 2 } })
+    expect(ok.isError).toBeFalsy()
+  })
+
   it("refuses to start on a misspelled item", () => {
     expect(() => createGangtiseMcpServer(stubClient, { tools: "core,gangtise_realtme" })).toThrow(/gangtise_realtme/)
   })
