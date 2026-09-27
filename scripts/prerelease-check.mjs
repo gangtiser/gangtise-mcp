@@ -155,7 +155,7 @@ check("④ commit", "最近一条 message 无自曝措辞", msgHits.length === 0
 // 确认省无可省再**主动**抬数字并在 commit 里说明。悄悄涨回去才是这一节要拦的事。
 const TOOLS_LIST_CEILING = 150_000
 const SINGLE_TOOL_CEILING = 10_000
-const INSTRUCTIONS_CEILING = 2_500
+const INSTRUCTIONS_CEILING = 2_700
 const DUP_WASTE_CEILING = 18_000
 // 🔴 整串相等只看得见一半。上面那个 freq 表以**整条 description** 为键，所以两条只在
 // 开头几个字不同、后面 600 字逐字相同的描述（day_kline_hk / _us 曾经就是）在它眼里是

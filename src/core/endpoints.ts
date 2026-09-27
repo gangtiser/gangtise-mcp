@@ -98,6 +98,12 @@ export interface EndpointDefinition {
   itemFailures?: true
 }
 
+/** 按条计费且有单价的端点的计费声明：分页层的积分预估保护与分页工具的 `confirmCost` 参数都由它派生。 */
+export function perRowBilling(endpoint: Pick<EndpointDefinition, "billing">): Extract<Billing, { kind: "fixed" }> | undefined {
+  const billing = endpoint.billing
+  return billing?.kind === "fixed" && billing.per === "row" && billing.price > 0 ? billing : undefined
+}
+
 /** 端点表里的一条：键即端点键，`key` 字段由汇总时补上。 */
 export type EndpointSpec = Omit<EndpointDefinition, "key">
 export type EndpointTable = Record<string, EndpointSpec>

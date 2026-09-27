@@ -620,6 +620,7 @@ export const insightFamily: FamilyModule = {
         // 通用语义（默认 20）在 server.instructions；这里只留本端点独有的两档行数封顶。
         size: z.number().int().min(1).optional().describe(`无筛选时最多 ${UNFILTERED_MAX_ROWS} 行（超出本地拒绝）；仅用 securityList 筛选时封顶 ${SECURITY_ONLY_ROW_CAP} 行`),
         fetchAll: z.boolean().optional().describe("拉取全部页并忽略 size（等价于不限行数）。要求同时给出 startDate+endDate 或 securityList，否则拒绝执行"),
+        confirmCost: z.boolean().optional(),
         startDate: calendarTimeString.optional().describe("YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss，过滤 publishDate（含端点）"),
         endDate: calendarTimeString.optional().describe("YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss，过滤 publishDate（含端点）"),
         securityList: nonEmptyList().optional().describe("证券代码，需含交易所后缀（600519.SH / 00700.HK）"),

@@ -7,6 +7,14 @@ export const insightExamples: ToolExamples = {
     { title: "withContent=false 与缺省同为只回 brief 的端点，开关不进 body", args: { securityList: ["600519.SH"], withContent: false }, expect: { requests: [{ method: "POST", path: "/application/open-insight/chief-opinion/v2/getList", body: { securityList: ["600519.SH"], size: 20, from: 0 } }] } },
     { title: "withContent=true 走带正文的端点", args: { securityList: ["600519.SH"], withContent: true }, expect: { requests: [{ method: "POST", path: "/application/open-insight/chief-opinion/getList", body: { securityList: ["600519.SH"], size: 20, from: 0 } }] } },
     { title: "显式 size 与 from", args: { keyword: "机器人", from: 40, size: 5, llmTagList: ["strongRcmd"], sourceList: ["realTime"] }, expect: { requests: [{ method: "POST", path: "/application/open-insight/chief-opinion/v2/getList", body: { from: 40, keyword: "机器人", llmTagList: ["strongRcmd"], sourceList: ["realTime"], size: 5 } }] } },
+    { title: "withContent + fetchAll 按 30/条估算：整页超 50 积分先探 1 条，超阈值拒绝", args: { securityList: ["600519.SH"], withContent: true, fetchAll: true }, upstream: paged(100), expect: { rejects: /预计取 100 条（30 积分\/条），约 3000 积分.*confirmCost: true/, requests: [
+        { method: "POST", path: "/application/open-insight/chief-opinion/getList", body: { securityList: ["600519.SH"], from: 0, size: 1 } },
+      ] } },
+    { title: "confirmCost 放行：不估算不探针，也不进 body", args: { securityList: ["600519.SH"], withContent: true, fetchAll: true, confirmCost: true }, upstream: paged(60), expect: { requests: [
+        { method: "POST", path: "/application/open-insight/chief-opinion/getList", body: { securityList: ["600519.SH"], from: 0, size: 50 } },
+        { method: "POST", path: "/application/open-insight/chief-opinion/getList", body: { securityList: ["600519.SH"], from: 50, size: 10 } },
+        { method: "POST", path: "/application/open-insight/chief-opinion/getList", body: { securityList: ["600519.SH"], from: 60, size: 1 } },
+      ] } },
   ],
   gangtise_summary_list: [
     { title: "sourceList 发数字", args: { securityList: ["600519.SH"], categoryList: ["earningsCall"], searchType: 2, sourceList: [1], marketList: ["aShares"] }, expect: { requests: [{ method: "POST", path: "/application/open-insight/summary/v2/getList", body: { searchType: 2, securityList: ["600519.SH"], categoryList: ["earningsCall"], marketList: ["aShares"], sourceList: [1], size: 20, from: 0 } }] } },
@@ -16,6 +24,11 @@ export const insightExamples: ToolExamples = {
     { title: "summary 独有的 sourceList 被 strict 拒绝", args: { sourceList: [1] }, expect: { rejects: /Unrecognized key.*sourceList/ } },
   ],
   gangtise_roadshow_list: [
+    { title: "fetchAll 整页超 50 积分先探 1 条，未超阈值则从同一偏移按整页重取", args: { marketList: ["aShares"], fetchAll: true }, upstream: paged(30), expect: { requests: [
+        { method: "POST", path: "/application/open-insight/schedule/roadshow/getList", body: { marketList: ["aShares"], from: 0, size: 1 } },
+        { method: "POST", path: "/application/open-insight/schedule/roadshow/getList", body: { marketList: ["aShares"], from: 0, size: 50 } },
+        { method: "POST", path: "/application/open-insight/schedule/roadshow/getList", body: { marketList: ["aShares"], from: 30, size: 1 } },
+      ] } },
     { title: "时间窗 + 市场 + 权限", args: { startTime: "2026-09-01 00:00:00", endTime: "2026-09-07 23:59:59", marketList: ["aShares"], permission: [1], brokerTypeList: ["cnBroker"] }, expect: { requests: [{ method: "POST", path: "/application/open-insight/schedule/roadshow/getList", body: { startTime: "2026-09-01 00:00:00", endTime: "2026-09-07 23:59:59", marketList: ["aShares"], brokerTypeList: ["cnBroker"], permission: [1], size: 20, from: 0 } }] } },
   ],
   gangtise_site_visit_list: [
@@ -43,6 +56,9 @@ export const insightExamples: ToolExamples = {
     { title: "短页覆盖到 total 时探一行 from=total", args: { keyword: "AI", size: 20 }, upstream: paged(7), expect: { requests: [
         { method: "POST", path: "/application/open-insight/broker-report/getList", body: { keyword: "AI", size: 1, from: 7 } },
         { method: "POST", path: "/application/open-insight/broker-report/getList", body: { keyword: "AI", size: 20, from: 0 } },
+      ] } },
+    { title: "便宜列表的 fetchAll 由首页带回 total，超阈值在扇出前拒绝", args: { keyword: "AI", fetchAll: true }, upstream: paged(20_000), expect: { rejects: /预计取 20000 条（0\.1 积分\/条），约 2000 积分.*已取 50 条/, requests: [
+        { method: "POST", path: "/application/open-insight/broker-report/getList", body: { keyword: "AI", from: 0, size: 50 } },
       ] } },
     { title: "负页数本地拒绝", args: { minReportPages: -1 }, expect: { rejects: /at minReportPages/ } },
   ],

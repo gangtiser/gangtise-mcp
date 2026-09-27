@@ -75,7 +75,7 @@ const SCENARIOS: Scenario[] = [
   { name: "partial-total-capped", tool: "gangtise_research_list", args: { keyword: "AI" }, upstream: (req) => (bodyOf(req).from === 7 ? { data: { total: 7, list: [{ id: "row-7" }] } } : paged(7)(req, 0)) },
   { name: "partial-total-drift", tool: "gangtise_research_list", args: { keyword: "AI" }, upstream: (req) => (bodyOf(req).from === 7 ? { data: { total: 8, list: [{ id: "row-7" }] } } : paged(7)(req, 0)) },
   // 1000 页 × 50 行的上限：fetchAll 面对 6 万行会停在第 1000 页。约 1000 个本机请求，结果落盘。
-  { name: "partial-page-cap", tool: "gangtise_research_list", args: { keyword: "AI", fetchAll: true }, upstream: paged(60_000), timeoutMs: 30_000 },
+  { name: "partial-page-cap", tool: "gangtise_research_list", args: { keyword: "AI", fetchAll: true, confirmCost: true }, upstream: paged(60_000), timeoutMs: 30_000 },
   { name: "partial-unexpected-page-shape", tool: "gangtise_research_list", args: { keyword: "AI" }, upstream: on("insight.research.list", () => ({ data: [{ id: "row-0" }] })) },
   // 翻页排序键不唯一：第二页开头重复了第一页最后一行（整行相同），第 99 行一次都没出现。
   { name: "partial-duplicate-rows", tool: "gangtise_research_list", args: { keyword: "AI", fetchAll: true }, upstream: on("insight.research.list", (req) => {
@@ -93,7 +93,7 @@ const SCENARIOS: Scenario[] = [
     return { data: { total: 100, list: rows } }
   }) },
   // rowId 只来自文档的端点（日程）：整行重复照样去掉，但同 ID 异内容不报 changed_rows。
-  { name: "present-changed-rows-unverified-rowid", tool: "gangtise_roadshow_list", args: { keyword: "AI", fetchAll: true }, upstream: on("insight.roadshow.list", (req) => {
+  { name: "present-changed-rows-unverified-rowid", tool: "gangtise_roadshow_list", args: { keyword: "AI", fetchAll: true, confirmCost: true }, upstream: on("insight.roadshow.list", (req) => {
     const { from = 0, size = 20 } = bodyOf(req) as { from?: number; size?: number }
     if (from >= 100) return { data: { total: 100, list: [] } }
     const rows = Array.from({ length: Math.min(size, 100 - from) }, (_, i) => ({ id: `s-${from + i}`, title: `日程 ${from + i}` }))
@@ -101,13 +101,15 @@ const SCENARIOS: Scenario[] = [
     return { data: { total: 100, list: rows } }
   }) },
   // rowId 只来自文档的端点：s-10 在三页里依次是 v1、v2、v2。第三次与第二版整行相同，照样按重复去掉。
-  { name: "partial-duplicate-rows-after-update", tool: "gangtise_roadshow_list", args: { keyword: "AI", fetchAll: true }, upstream: on("insight.roadshow.list", (req) => {
+  { name: "partial-duplicate-rows-after-update", tool: "gangtise_roadshow_list", args: { keyword: "AI", fetchAll: true, confirmCost: true }, upstream: on("insight.roadshow.list", (req) => {
     const { from = 0, size = 20 } = bodyOf(req) as { from?: number; size?: number }
     if (from >= 150) return { data: { total: 150, list: [] } }
     const rows = Array.from({ length: Math.min(size, 150 - from) }, (_, i) => ({ id: `s-${from + i}`, title: `日程 ${from + i}` }))
     if (from === 50 || from === 100) rows[0] = { id: "s-10", title: "日程 10（改期）" }
     return { data: { total: 150, list: rows } }
   }) },
+  // 整页超 50 积分的按条计费列表先探 1 条再按整页重取：那 1 条计费两次，结果里记 _cost_probe。
+  { name: "present-cost-probe", tool: "gangtise_roadshow_list", args: { keyword: "AI", fetchAll: true }, upstream: paged(3) },
   // total 触及声明的偏移窗口：不发探针，直接按封顶标。
   { name: "partial-total-capped-window", tool: "gangtise_wechat_message_list", args: { keyword: "AI", from: 9960, fetchAll: true }, upstream: paged(10_000) },
   // 请求的行越过偏移窗口：只取窗口内的，标 window_cut。

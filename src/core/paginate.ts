@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto"
 
-import { PAGE_CONCURRENCY } from "./config.js"
+import { COST_LIMIT, PAGE_CONCURRENCY } from "./config.js"
 import { ApiError, ValidationError, errorMessage } from "./errors.js"
 import { markPartial, type PartialReason } from "./partial.js"
-import type { EndpointDefinition, RowId } from "./endpoints.js"
-import { currentSignal } from "./requestContext.js"
+import { perRowBilling, type EndpointDefinition, type RowId } from "./endpoints.js"
+import { costConfirmed, currentSignal } from "./requestContext.js"
 import { CALL_LIMITS } from "./scheduler.js"
 import { isVerbose, runWithConcurrency } from "./transport.js"
 
@@ -14,6 +14,8 @@ export interface PageFetcher {
 }
 
 const MAX_PAGES = CALL_LIMITS.maxPages
+/** 整页积分超过它的端点，额度保护先取 1 条探 total（见 requestPaginated）。 */
+const PROBE_ABOVE_CREDITS = 50
 
 export interface PageRequest {
   from: number
@@ -242,7 +244,7 @@ function flagUnexpectedPageShape(page: unknown): unknown {
   return markPartial(base, "unexpected_page_shape", detail)
 }
 
-export async function requestPaginated(http: PageFetcher, endpoint: EndpointDefinition, body?: unknown) {
+export async function requestPaginated(http: PageFetcher, endpoint: EndpointDefinition, body?: unknown, costLimit: number = COST_LIMIT) {
   const initialBody = body && typeof body === 'object' ? { ...(body as Record<string, unknown>) } : {}
 
   if ('from' in initialBody && (typeof initialBody.from !== 'number' || !Number.isFinite(initialBody.from) || initialBody.from < 0)) {
@@ -263,16 +265,54 @@ export async function requestPaginated(http: PageFetcher, endpoint: EndpointDefi
     throw new ValidationError(`本接口只能按偏移取到第 ${maxWindow} 行为止（from + size ≤ ${maxWindow}），from=${startFrom} 已越过：请缩小查询范围（如缩短时间区间）分段拉取，而不是继续往后翻页。`)
   }
   const windowRoom = maxWindow === undefined ? Number.POSITIVE_INFINITY : maxWindow - startFrom
+  const fullPageSize = Math.min(requestedSize === undefined ? maxPageSize : Math.min(maxPageSize, requestedSize), windowRoom)
+
+  // 积分预估保护：按条计费的**多页**拉取（fetchAll，或 size 超过单页上限）先按计划行数 × 单价估算，
+  // 超过阈值且本次调用未确认花费（confirmCost）就拒绝。单页请求照常放行；最多也花不到阈值的不估；
+  // 按次计费与不可估的不管。整页就超过 PROBE_ABOVE_CREDITS 的端点先取 1 条探 total，被拒时只花这
+  // 1 条；放行后从同一偏移按整页重取，页边界与平时一致，那 1 条计费两次（结果记 _cost_probe）。
+  // 便宜的端点由首页带回 total，扇出前再核，被拒时最多花一整页。
+  const billing = perRowBilling(endpoint)
+  const rowCeiling = Math.min(windowRoom, requestedSize ?? Number.POSITIVE_INFINITY, MAX_PAGES * maxPageSize)
+  const guarded = billing !== undefined && costLimit > 0 && (requestedSize === undefined || requestedSize > maxPageSize)
+    && rowCeiling * billing.price > costLimit && !costConfirmed()
+  const refuseIfCostly = (reportedTotal: number, fetched: number): void => {
+    if (!guarded || !billing) return
+    const rows = Math.min(Math.max(reportedTotal - startFrom, 0), rowCeiling)
+    const credits = Math.round(rows * billing.price * 100) / 100
+    if (credits <= costLimit) return
+    const unit = billing.unit ?? "条"
+    throw new ValidationError(`本次预计取 ${rows} ${unit}（${billing.price} 积分/${unit}），约 ${credits} 积分，超过多页拉取的积分预估保护（${costLimit} 积分）；为获知总数已取 ${fetched} ${unit}。请用较小的 size 或更窄的筛选只取一部分；确认要全部取回，再传 confirmCost: true 重试。`)
+  }
+  let probe: Record<string, unknown> | undefined
+  let extraProbeRows = 0
+  if (guarded && billing && fullPageSize * billing.price > PROBE_ABOVE_CREDITS) {
+    const reply = await http.requestJson<Record<string, unknown>>(endpoint, { ...initialBody, from: startFrom, size: 1 })
+    if (!isPaginatedListResponse(reply)) {
+      // 形状不对：当首页交给下面的异形分支，不再花一整页复看。
+      probe = reply
+    } else {
+      const rows = pageRows(reply).length
+      refuseIfCostly(reply.total, rows)
+      // 探针已经是全部结果（0 或 1 行）时直接当首页。
+      if (rows === Math.min(Math.max(reply.total - startFrom, 0), windowRoom)) probe = reply
+      else extraProbeRows = rows
+    }
+  }
+  const withProbeNote = <T>(result: T): T =>
+    extraProbeRows === 0 || !result || typeof result !== "object" || Array.isArray(result)
+      ? result
+      : { ...result, _cost_probe: { rows: extraProbeRows, note: "为预估积分先取了 1 条探总数，正式拉取时这条又取了一次，计费两次" } }
 
   // First page: serial — we need total before deciding how many more requests to fan out.
-  const firstPageSize = Math.min(requestedSize === undefined ? maxPageSize : Math.min(maxPageSize, requestedSize), windowRoom)
-  const firstPage = await http.requestJson<Record<string, unknown>>(endpoint, {
+  const firstPageSize = probe ? 1 : fullPageSize
+  const firstPage = probe ?? await http.requestJson<Record<string, unknown>>(endpoint, {
     ...initialBody,
     from: startFrom,
     size: firstPageSize,
   })
 
-  if (!isPaginatedListResponse(firstPage)) return flagUnexpectedPageShape(firstPage)
+  if (!isPaginatedListResponse(firstPage)) return withProbeNote(flagUnexpectedPageShape(firstPage))
   // 合法空结果的两种写法（`list: []` 与 `list: null`）在这里合流，后面一律按数组处理。
   // 写回一次，让后面每一处 `...firstPage` 展开都带着归一后的数组。
   const firstRows = pageRows(firstPage)
@@ -351,7 +391,7 @@ export async function requestPaginated(http: PageFetcher, endpoint: EndpointDefi
     if (returned + tracker.state.duplicateRows < expectable) {
       reasons.push("short_page")
       flagRowIssues(reasons, details)
-      return markPartial(shortResult, reasons, details)
+      return withProbeNote(markPartial(shortResult, reasons, details))
     }
     // 短页**恰好覆盖了 reported total** = 调用方以为拿到了全部，和下面「取满 target」
     // 是同一种处境，同样要探。上限比单页还小、或记录全落在首屏时会走这条路径——
@@ -368,7 +408,7 @@ export async function requestPaginated(http: PageFetcher, endpoint: EndpointDefi
       }
     }
     flagRowIssues(reasons, details)
-    return markPartial(shortResult, reasons, details)
+    return withProbeNote(markPartial(shortResult, reasons, details))
   }
 
   if (firstRows.length >= target) {
@@ -392,8 +432,11 @@ export async function requestPaginated(http: PageFetcher, endpoint: EndpointDefi
       }
     }
     flagRowIssues(reasons, details)
-    return markPartial(early, reasons, details)
+    return withProbeNote(markPartial(early, reasons, details))
   }
+
+  // 扇出前按首页的 total 核一次：便宜的端点在这里第一次核，探过的端点防 total 在两次请求之间涨过线。
+  refuseIfCostly(total, extraProbeRows + firstRows.length)
 
   // Build remaining page requests
   const nextFrom = startFrom + firstRows.length
@@ -487,5 +530,5 @@ export async function requestPaginated(http: PageFetcher, endpoint: EndpointDefi
   // — the server under-filled pages. Same loud-partial contract.
   if (partialReasons.length === 0 && returnedList.length < target && !shortByRepeatsOnly) partialReasons.push("short_page")
   flagRowIssues(partialReasons, details)
-  return markPartial(response, partialReasons, details, "details-first")
+  return withProbeNote(markPartial(response, partialReasons, details, "details-first"))
 }

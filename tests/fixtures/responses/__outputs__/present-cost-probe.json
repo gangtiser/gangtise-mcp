@@ -1,0 +1,21 @@
+{
+  "isError": false,
+  "result": {
+    "total": 3,
+    "_cost_probe": {
+      "rows": 1,
+      "note": "为预估积分先取了 1 条探总数，正式拉取时这条又取了一次，计费两次"
+    },
+    "list": [
+      {
+        "id": "row-0"
+      },
+      {
+        "id": "row-1"
+      },
+      {
+        "id": "row-2"
+      }
+    ]
+  }
+}

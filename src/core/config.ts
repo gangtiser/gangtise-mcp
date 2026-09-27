@@ -65,6 +65,18 @@ export function resolveGlobalConcurrency(raw: string | undefined, pageConcurrenc
 
 export const GLOBAL_CONCURRENCY = resolveGlobalConcurrency(process.env.GANGTISE_MCP_GLOBAL_CONCURRENCY, PAGE_CONCURRENCY)
 
+/** 多页拉取的积分预估保护阈值（GANGTISE_MCP_COST_LIMIT，见 core/paginate.ts）。0 关闭；非法值回退
+ *  默认——回退的方向是更保守，写错不会变成放开。 */
+export const DEFAULT_COST_LIMIT = 1000
+
+export function resolveCostLimit(raw: string | undefined): number {
+  if (raw === undefined || raw.trim() === "") return DEFAULT_COST_LIMIT
+  const n = Number(raw)
+  return Number.isFinite(n) && n >= 0 ? n : DEFAULT_COST_LIMIT
+}
+
+export const COST_LIMIT = resolveCostLimit(process.env.GANGTISE_MCP_COST_LIMIT)
+
 // 单个下载文件的字节上限。总配额（tempCleanup 的 2 GiB）管「多份加起来」，这一条管
 // 「一份自己就把盘写满」——后者是总配额的 LRU 淘汰救不了的，因为淘汰只能删**别的**目录。
 // 1 GiB：研报 PDF / 原始音频再大也很少接近它；/tmp 很小的部署可以调低。

@@ -9,6 +9,7 @@ import { GangtiseClient } from "../../../src/core/client.js"
 import { ENDPOINTS, type EndpointDefinition } from "../../../src/core/endpoints.js"
 import { ResponseShapeError, errorMessage } from "../../../src/core/errors.js"
 import { credentialFingerprint } from "../../../src/core/auth.js"
+import { runWithCostConfirmation } from "../../../src/core/requestContext.js"
 
 const { requestMock } = vi.hoisted(() => ({ requestMock: vi.fn() }))
 
@@ -313,7 +314,8 @@ describe("GangtiseClient pagination", () => {
     maxDownloadBytes: 1024 * 1024 * 1024,
     })
 
-    const result = await client.call("insight.opinion.list", {}) as Record<string, unknown> & { list: unknown[] }
+    // 已确认花费：本例测的是页数上限，不是积分预估保护（见 costGuard.test.ts）。
+    const result = await runWithCostConfirmation(true, () => client.call("insight.opinion.list", {})) as Record<string, unknown> & { list: unknown[] }
 
     expect(result.list).toHaveLength(50_000)
     expect(result._partial).toBe(true)

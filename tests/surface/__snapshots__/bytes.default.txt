@@ -1,6 +1,6 @@
 tools: 77
-tools/list bytes: 130514
-instructions bytes: 2492
+tools/list bytes: 131075
+instructions bytes: 2633
 
    396  gangtise_current_date
    763  gangtise_lookup
@@ -13,23 +13,23 @@ instructions bytes: 2492
    865  gangtise_concept_search
    964  gangtise_sector_search
    860  gangtise_sector_constituents
-  2851  gangtise_opinion_list
-  2718  gangtise_summary_list
+  2884  gangtise_opinion_list
+  2751  gangtise_summary_list
   2645  gangtise_pamirs_summary_list
-  2831  gangtise_roadshow_list
-  2514  gangtise_site_visit_list
-  1282  gangtise_strategy_list
-  1446  gangtise_forum_list
-  2827  gangtise_research_list
-  3298  gangtise_foreign_report_list
-  1528  gangtise_announcement_list
-  2718  gangtise_foreign_opinion_list
-  1548  gangtise_independent_opinion_list
-  2329  gangtise_official_account_list
-  2259  gangtise_qa_list
+  2864  gangtise_roadshow_list
+  2547  gangtise_site_visit_list
+  1315  gangtise_strategy_list
+  1479  gangtise_forum_list
+  2860  gangtise_research_list
+  3331  gangtise_foreign_report_list
+  1561  gangtise_announcement_list
+  2751  gangtise_foreign_opinion_list
+  1581  gangtise_independent_opinion_list
+  2362  gangtise_official_account_list
+  2292  gangtise_qa_list
   1024  gangtise_report_image_list
    837  gangtise_opinion_detail
-  2377  gangtise_performance_calendar_list
+  2410  gangtise_performance_calendar_list
   4498  gangtise_day_kline
   2129  gangtise_index_day_kline
   1725  gangtise_minute_kline
@@ -44,8 +44,8 @@ instructions bytes: 2492
   1582  gangtise_valuation_analysis
    886  gangtise_stock_summary
   1826  gangtise_knowledge_batch
-  1446  gangtise_security_clue_list
-  1189  gangtise_hot_topic
+  1479  gangtise_security_clue_list
+  1222  gangtise_hot_topic
    945  gangtise_management_discuss_announcement
    882  gangtise_management_discuss_earnings_call
    819  gangtise_theme_tracking
@@ -59,7 +59,7 @@ instructions bytes: 2492
    592  gangtise_viewpoint_debate_check
    999  gangtise_drive_list
   1057  gangtise_record_list
-  2205  gangtise_my_conference_list
+  2238  gangtise_my_conference_list
   1818  gangtise_wechat_message_list
    288  gangtise_stock_pool_list
    746  gangtise_wechat_chatroom_list

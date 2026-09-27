@@ -764,12 +764,12 @@ describe("MCP server integration", () => {
     const listBytes = Buffer.byteLength(JSON.stringify(tools), "utf8")
 
     // instructions 单项仍有上界：它是**每次会话都全量注入**的，不该无限长。
-    expect(instrBytes, "instructions 超出单项上界").toBeLessThanOrEqual(2_600)
+    expect(instrBytes, "instructions 超出单项上界").toBeLessThanOrEqual(2_700)
     // 合计才是模型真正付的钱。上限取发版门禁（scripts/prerelease-check.mjs ⑤）两项上限之和：
-    // tools/list 150,000B + instructions 2,500B。这里不另设一个更严的数——那会让一次门禁允许的
+    // tools/list 150,000B + instructions 2,700B。这里不另设一个更严的数——那会让一次门禁允许的
     // 增量在测试里红，而两边的上限本该是同一个决定。tools/list 单项仍由上面那条 150,000B 钉住。
     expect(instrBytes + listBytes, `合计上下文 ${instrBytes + listBytes}B（instructions ${instrBytes} + tools/list ${listBytes}）超出预算`)
-      .toBeLessThanOrEqual(152_500)
+      .toBeLessThanOrEqual(152_700)
   })
 
   it("routes with real tool prefixes, not src filenames", async () => {

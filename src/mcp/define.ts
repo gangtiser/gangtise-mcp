@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { ENDPOINTS, type EndpointTable } from "../core/endpoints.js"
+import { ENDPOINTS, perRowBilling, type EndpointTable } from "../core/endpoints.js"
 import { normalizeRows } from "../core/normalize.js"
 import { downloadToResult } from "../core/download.js"
 import { ValidationError } from "../core/errors.js"
@@ -119,6 +119,8 @@ export function defineJsonTool(spec: JsonToolSpec): ToolSpec {
         from: z.number().int().min(0).optional(),
         size: z.number().int().min(1).optional(),
         fetchAll: z.boolean().optional(),
+        // 按条计费的才有多页拉取的积分预估保护，也才收它；只进调用上下文、不进请求体（mcp/invoke.ts）。
+        ...(perRowBilling(endpoint) ? { confirmCost: z.boolean().optional() } : {}),
       }
     : spec.inputSchema
   return {

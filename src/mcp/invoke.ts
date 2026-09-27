@@ -1,6 +1,7 @@
 import type { GangtiseClient } from "../core/client.js"
 import { ENDPOINTS } from "../core/endpoints.js"
 import { ValidationError } from "../core/errors.js"
+import { runWithCostConfirmation } from "../core/requestContext.js"
 import type { ToolSpec } from "./define.js"
 import type { ToolTextResult } from "./handler.js"
 
@@ -19,7 +20,9 @@ export async function invokeOperation(op: string, args: Record<string, unknown>,
   const spec = ctx.operations.get(op)
   if (!spec) throw new ValidationError(`未知工具：${op}`)
   if (spec.access === "destructive" && spec.endpoint) assertConfirmed(spec.endpoint, args.confirm === true)
-  return spec.run(ctx, args)
+  // 费用确认只进本次调用的上下文、不进请求体；分页层据此放行积分预估保护（core/paginate.ts）。
+  const { confirmCost, ...rest } = args
+  return runWithCostConfirmation(confirmCost === true, () => spec.run(ctx, rest))
 }
 
 /** 不可逆端点的确认闸门。文案取自 `ENDPOINTS[key].destructive`，所以「这个请求会做什么」

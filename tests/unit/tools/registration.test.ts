@@ -2,7 +2,8 @@ import { describe, it, expect, vi } from "vitest"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { createGangtiseMcpServer } from "../../../src/server.js"
-import { ENDPOINTS } from "../../../src/core/endpoints.js"
+import { z } from "zod"
+import { ENDPOINTS, perRowBilling } from "../../../src/core/endpoints.js"
 import type { GangtiseClient } from "../../../src/core/client.js"
 import { defineDownloadTool, defineJsonTool } from "../../../src/mcp/define.js"
 import { createFamilies } from "../../../src/tools/index.js"
@@ -38,6 +39,16 @@ describe("families ↔ ENDPOINTS consistency", () => {
     for (const family of FAMILIES) {
       for (const [key, spec] of Object.entries(family.endpoints)) expect(ENDPOINTS[key]).toEqual({ key, ...spec })
     }
+  })
+
+  // confirmCost 由端点计费派生：按条计费的分页工具都有、别的都没有——少了，积分预估保护拦下的调用
+  // 无从确认；多了，是一个什么都不做的参数。
+  it("gives confirmCost to exactly the per-row billed paginated tools", () => {
+    const keysOf = (tool: (typeof TOOLS)[number]) => Object.keys(tool.input instanceof z.ZodObject ? tool.input.shape : tool.input)
+    const expected = TOOLS.filter((tool) => keysOf(tool).includes("fetchAll") && tool.endpoint && perRowBilling(ENDPOINTS[tool.endpoint])).map((tool) => tool.name)
+    const actual = TOOLS.filter((tool) => keysOf(tool).includes("confirmCost")).map((tool) => tool.name)
+    expect(actual).toEqual(expected)
+    expect(actual.length).toBeGreaterThanOrEqual(19)
   })
 
   it("keeps tool names unique and gangtise_-prefixed", () => {

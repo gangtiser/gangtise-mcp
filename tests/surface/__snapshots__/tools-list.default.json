@@ -454,6 +454,9 @@
         },
         "fetchAll": {
           "type": "boolean"
+        },
+        "confirmCost": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false
@@ -591,6 +594,9 @@
           "minimum": 1
         },
         "fetchAll": {
+          "type": "boolean"
+        },
+        "confirmCost": {
           "type": "boolean"
         }
       },
@@ -831,6 +837,9 @@
         },
         "fetchAll": {
           "type": "boolean"
+        },
+        "confirmCost": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false
@@ -955,6 +964,9 @@
         },
         "fetchAll": {
           "type": "boolean"
+        },
+        "confirmCost": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false
@@ -1013,6 +1025,9 @@
         },
         "fetchAll": {
           "type": "boolean"
+        },
+        "confirmCost": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false
@@ -1070,6 +1085,9 @@
           "minimum": 1
         },
         "fetchAll": {
+          "type": "boolean"
+        },
+        "confirmCost": {
           "type": "boolean"
         }
       },
@@ -1238,6 +1256,9 @@
           "minimum": 1
         },
         "fetchAll": {
+          "type": "boolean"
+        },
+        "confirmCost": {
           "type": "boolean"
         }
       },
@@ -1424,6 +1445,9 @@
         },
         "fetchAll": {
           "type": "boolean"
+        },
+        "confirmCost": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false
@@ -1505,6 +1529,9 @@
           "minimum": 1
         },
         "fetchAll": {
+          "type": "boolean"
+        },
+        "confirmCost": {
           "type": "boolean"
         }
       },
@@ -1628,6 +1655,9 @@
         },
         "fetchAll": {
           "type": "boolean"
+        },
+        "confirmCost": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false
@@ -1720,6 +1750,9 @@
           "minimum": 1
         },
         "fetchAll": {
+          "type": "boolean"
+        },
+        "confirmCost": {
           "type": "boolean"
         }
       },
@@ -1830,6 +1863,9 @@
         },
         "fetchAll": {
           "type": "boolean"
+        },
+        "confirmCost": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false
@@ -1918,6 +1954,9 @@
           "minimum": 1
         },
         "fetchAll": {
+          "type": "boolean"
+        },
+        "confirmCost": {
           "type": "boolean"
         }
       },
@@ -2034,6 +2073,9 @@
         "fetchAll": {
           "type": "boolean",
           "description": "拉取全部页并忽略 size（等价于不限行数）。要求同时给出 startDate+endDate 或 securityList，否则拒绝执行"
+        },
+        "confirmCost": {
+          "type": "boolean"
         },
         "startDate": {
           "anyOf": [
@@ -3084,6 +3126,9 @@
         },
         "fetchAll": {
           "type": "boolean"
+        },
+        "confirmCost": {
+          "type": "boolean"
         }
       },
       "required": [
@@ -3146,6 +3191,9 @@
           "minimum": 1
         },
         "fetchAll": {
+          "type": "boolean"
+        },
+        "confirmCost": {
           "type": "boolean"
         }
       },
@@ -3735,6 +3783,9 @@
           "minimum": 1
         },
         "fetchAll": {
+          "type": "boolean"
+        },
+        "confirmCost": {
           "type": "boolean"
         }
       },
