@@ -1,0 +1,60 @@
+{
+  "isError": false,
+  "result": {
+    "total": 10,
+    "_failed_securities": [
+      {
+        "security": "100010.SZ",
+        "error": "服务繁忙（错误码 999999） — 稍后重试；持续失败请带上报错行的 trace 报障。"
+      },
+      {
+        "security": "100011.SZ",
+        "error": "服务繁忙（错误码 999999） — 稍后重试；持续失败请带上报错行的 trace 报障。"
+      }
+    ],
+    "_partial": true,
+    "_partial_reason": "failed_securities",
+    "list": [
+      {
+        "securityCode": "100000.SZ",
+        "bondRating": null
+      },
+      {
+        "securityCode": "100001.SZ",
+        "bondRating": "AAA"
+      },
+      {
+        "securityCode": "100002.SZ",
+        "bondRating": "AAA"
+      },
+      {
+        "securityCode": "100003.SZ",
+        "bondRating": "AAA"
+      },
+      {
+        "securityCode": "100004.SZ",
+        "bondRating": "AAA"
+      },
+      {
+        "securityCode": "100005.SZ",
+        "bondRating": "AAA"
+      },
+      {
+        "securityCode": "100006.SZ",
+        "bondRating": "AAA"
+      },
+      {
+        "securityCode": "100007.SZ",
+        "bondRating": "AAA"
+      },
+      {
+        "securityCode": "100008.SZ",
+        "bondRating": "AAA"
+      },
+      {
+        "securityCode": "100009.SZ",
+        "bondRating": "AAA"
+      }
+    ]
+  }
+}

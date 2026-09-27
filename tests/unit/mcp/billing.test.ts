@@ -37,7 +37,7 @@ const FROZEN_LABELS = new Set([
   "", "【积分：按下游资源类型】", "【积分：按所选指标】", "【积分：单价以平台计费为准】",
   "【本地工具，不消耗 OpenAPI 积分】",
 ])
-const inFrozenVocabulary = (label: string) => FROZEN_LABELS.has(label) || /^【积分：[\d.]+\/(次|条|篇|张|页|指标)】$/.test(label) || /^【积分：按[^】]{2,8}】$/.test(label)
+const inFrozenVocabulary = (label: string) => FROZEN_LABELS.has(label) || /^【积分：[\d.]+\/(次|条|篇|张|页|指标|只|发行人)】$/.test(label) || /^【积分：按[^】]{2,8}】$/.test(label)
 
 const AMPLIFY_HINTS = [...new Set(Object.values(ENDPOINTS).flatMap((e) => (e.billing && "amplify" in e.billing && e.billing.amplify ? [e.billing.amplify] : [])))]
 
@@ -166,10 +166,10 @@ describe("billing labels", () => {
     })
     const count = (kind: string) => kinds.filter((k) => k === kind).length
     expect(count("free")).toBe(43)
-    expect(count("fixed")).toBe(58)
+    expect(count("fixed")).toBe(61)
     expect(count("downstream")).toBe(1)
-    // 3 个 EDE 取数（按所选指标）+ 下载网关（按下载类型）+ 3 个债券评级（按条 / 债券 / 发行人）。
-    expect(count("variable")).toBe(7)
+    // 3 个 EDE 取数（按所选指标）+ 下载网关（按下载类型）。
+    expect(count("variable")).toBe(4)
     // 11 = 7 个参考类 + 2 个续查 + 帕米尔两个：未确认 ≠ 免费。
     expect(count("unknown")).toBe(11)
     expect(count("local")).toBe(3)

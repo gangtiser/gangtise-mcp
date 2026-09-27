@@ -12,17 +12,17 @@
   {
     "key": "bond.issuer-rating-change",
     "field": "billing",
-    "reason": "平台文档按发行人计价，单价未单列：标 variable（按发行人数），不写死按次 0.4"
+    "reason": "平台文档按命中的发行人计 0.4（与返回条数无关），不是按次"
   },
   {
     "key": "bond.rating-change",
     "field": "billing",
-    "reason": "平台文档按有数据的债券只数计价，单价未单列：标 variable（按债券只数），不写死按次 0.4"
+    "reason": "平台文档按有数据的债券只数计 0.4（与变动记录条数无关），不是按次"
   },
   {
     "key": "bond.rating-overview",
     "field": "billing",
-    "reason": "平台文档按返回条数计价，单价未单列：标 variable（按返回条数），不写死按次 0.4"
+    "reason": "平台文档按有资料的返回行计 0.4（无资料行不计），不是按次"
   },
   {
     "key": "insight.performance-calendar.download",

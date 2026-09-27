@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { callKlinePerSecurity, callKlineWithSharding, estimateTradingDays, fullMarketOf } from "../../../src/core/batch.js"
+import { callPerSecurity, callKlineWithSharding, estimateTradingDays, fullMarketOf } from "../../../src/core/batch.js"
 import { ApiError, ResponseShapeError } from "../../../src/core/errors.js"
 
 describe("callKlineWithSharding", () => {
@@ -464,7 +464,7 @@ describe("shard column alignment", () => {
 
 // 显式多证券且单请求装不下时逐只拉：单请求会在窗口开头截断，只剩前几只的前几个月，
 // 且只有一个 _partial 说不清缺了谁。
-describe("callKlinePerSecurity", () => {
+describe("callPerSecurity", () => {
   it("merges per-security parts in the requested order", async () => {
     const call = vi.fn().mockImplementation(async (_k: string, body: Record<string, unknown>) => ({
       fieldList: ["securityCode"],
@@ -472,7 +472,7 @@ describe("callKlinePerSecurity", () => {
       total: 1,
     }))
 
-    const out = await callKlinePerSecurity(
+    const out = await callPerSecurity(
       { call }, "quote.day-kline", ["600519.SH", "000858.SZ"],
       (codes) => ({ securityList: codes }), 6000,
     ) as Record<string, unknown>
@@ -488,7 +488,7 @@ describe("callKlinePerSecurity", () => {
       return { list: code === "000858.SZ" ? [{ a: 1 }, { a: 2 }] : [{ a: 1 }] }
     })
 
-    const out = await callKlinePerSecurity(
+    const out = await callPerSecurity(
       { call }, "quote.day-kline", ["600519.SH", "000858.SZ"],
       (codes) => ({ securityList: codes }), 2,
     ) as Record<string, unknown>
@@ -504,7 +504,7 @@ describe("callKlinePerSecurity", () => {
       return { list: [{ a: 1 }] }
     })
 
-    const out = await callKlinePerSecurity(
+    const out = await callPerSecurity(
       { call }, "quote.day-kline", ["600519.SH", "000858.SZ"],
       (codes) => ({ securityList: codes }), 6000,
     ) as Record<string, unknown>
@@ -516,7 +516,7 @@ describe("callKlinePerSecurity", () => {
 
   it("throws the original error when every security fails", async () => {
     const call = vi.fn().mockRejectedValue(new Error("auth expired"))
-    await expect(callKlinePerSecurity(
+    await expect(callPerSecurity(
       { call }, "quote.day-kline", ["600519.SH", "000858.SZ"],
       (codes) => ({ securityList: codes }), 6000,
     )).rejects.toThrow("auth expired")
@@ -525,7 +525,7 @@ describe("callKlinePerSecurity", () => {
 
 // 多只一组：服务端按 securityCode 排序返回，合并按传入顺序还原；截断、坏形状按整组记名；
 // 请求失败的组逐只重试，只把真正失败的那只记名。
-describe("callKlinePerSecurity in groups", () => {
+describe("callPerSecurity in groups", () => {
   const rowsOf = (codes: string[], fields = ["securityCode", "tradeDate"]) => ({
     fieldList: fields,
     list: [...codes].sort().flatMap((code) => [[code, "2026-09-01"], [code, "2026-09-02"]].map((row) => (fields.includes("securityCode") ? row : row.slice(1)))),
@@ -533,7 +533,7 @@ describe("callKlinePerSecurity in groups", () => {
 
   it("puts each group back in the order the caller listed, keeping each security's dates in order", async () => {
     const call = vi.fn().mockImplementation(async (_k: string, body: Record<string, unknown>) => rowsOf(body.securityList as string[]))
-    const out = await callKlinePerSecurity({ call }, "quote.day-kline", ["600519.SH", "000858.SZ", "00700.HK"], (codes) => ({ securityList: codes }), 10_000, 2) as Record<string, unknown>
+    const out = await callPerSecurity({ call }, "quote.day-kline", ["600519.SH", "000858.SZ", "00700.HK"], (codes) => ({ securityList: codes }), 10_000, 2) as Record<string, unknown>
     expect(call.mock.calls.map(([, body]) => body.securityList)).toEqual([["600519.SH", "000858.SZ"], ["00700.HK"]])
     expect(out.list).toEqual([
       ["600519.SH", "2026-09-01"], ["600519.SH", "2026-09-02"],
@@ -544,13 +544,13 @@ describe("callKlinePerSecurity in groups", () => {
 
   it("matches codes case-blind when restoring the order", async () => {
     const call = vi.fn().mockImplementation(async (_k: string, body: Record<string, unknown>) => rowsOf((body.securityList as string[]).map((c) => c.toUpperCase())))
-    const out = await callKlinePerSecurity({ call }, "quote.day-kline", ["600519.sh", "000858.sz"], (codes) => ({ securityList: codes }), 10_000, 2) as Record<string, unknown>
+    const out = await callPerSecurity({ call }, "quote.day-kline", ["600519.sh", "000858.sz"], (codes) => ({ securityList: codes }), 10_000, 2) as Record<string, unknown>
     expect((out.list as unknown[][]).map((row) => row[0])).toEqual(["600519.SH", "600519.SH", "000858.SZ", "000858.SZ"])
   })
 
   it("names every security of a group whose rows reach the cap", async () => {
     const call = vi.fn().mockImplementation(async (_k: string, body: Record<string, unknown>) => rowsOf(body.securityList as string[]))
-    const out = await callKlinePerSecurity({ call }, "quote.day-kline", ["600519.SH", "000858.SZ", "00700.HK"], (codes) => ({ securityList: codes }), 4, 2) as Record<string, unknown>
+    const out = await callPerSecurity({ call }, "quote.day-kline", ["600519.SH", "000858.SZ", "00700.HK"], (codes) => ({ securityList: codes }), 4, 2) as Record<string, unknown>
     expect(out._truncated_securities).toEqual(["600519.SH", "000858.SZ"])
   })
 
@@ -560,7 +560,7 @@ describe("callKlinePerSecurity in groups", () => {
       if (codes.includes("BAD.SH")) throw new ApiError("证券代码无效", "120001")
       return rowsOf(codes)
     })
-    const out = await callKlinePerSecurity({ call }, "quote.day-kline", ["600519.SH", "BAD.SH", "00700.HK"], (codes) => ({ securityList: codes }), 10_000, 2) as Record<string, unknown>
+    const out = await callPerSecurity({ call }, "quote.day-kline", ["600519.SH", "BAD.SH", "00700.HK"], (codes) => ({ securityList: codes }), 10_000, 2) as Record<string, unknown>
     expect(call.mock.calls.map(([, body]) => body.securityList)).toEqual([["600519.SH", "BAD.SH"], ["00700.HK"], ["600519.SH"], ["BAD.SH"]])
     expect(out._failed_securities).toEqual([{ security: "BAD.SH", error: expect.stringMatching(/证券代码无效/) }])
     expect((out.list as unknown[][]).map((row) => row[0])).toEqual(["600519.SH", "600519.SH", "00700.HK", "00700.HK"])
@@ -574,7 +574,7 @@ describe("callKlinePerSecurity in groups", () => {
       if (group.some((c) => c.startsWith("BAD"))) throw new ApiError("证券代码无效", "120001")
       return rowsOf(group)
     })
-    await expect(callKlinePerSecurity({ call }, "quote.day-kline", codes, (c) => ({ securityList: c }), 10_000, 2)).rejects.toMatchObject({ code: "120001" })
+    await expect(callPerSecurity({ call }, "quote.day-kline", codes, (c) => ({ securityList: c }), 10_000, 2)).rejects.toMatchObject({ code: "120001" })
     expect(call).toHaveBeenCalledTimes(91)
   })
 
@@ -586,7 +586,7 @@ describe("callKlinePerSecurity in groups", () => {
       if (group.some((c) => c.startsWith("BAD"))) throw new ApiError("证券代码无效", "120001")
       return rowsOf(group)
     })
-    await expect(callKlinePerSecurity({ call }, "quote.day-kline", codes, (c) => ({ securityList: c }), 10_000, 2)).rejects.toMatchObject({ code: "120001", message: expect.stringMatching(/90 组全部失败.*请分批查询/) })
+    await expect(callPerSecurity({ call }, "quote.day-kline", codes, (c) => ({ securityList: c }), 10_000, 2)).rejects.toMatchObject({ code: "120001", message: expect.stringMatching(/90 组全部失败.*请分批查询/) })
     expect(call).toHaveBeenCalledTimes(90)
     // 只有部分组失败时同样按合计判：结果里写明未拆开的原因。
     const mixed = vi.fn().mockImplementation(async (_k: string, body: Record<string, unknown>) => {
@@ -595,7 +595,7 @@ describe("callKlinePerSecurity in groups", () => {
       return rowsOf(group)
     })
     const partlyBad = Array.from({ length: 180 }, (_, i) => (i < 176 && i % 2 === 0 ? `BAD${i}.SH` : `6${String(i).padStart(5, "0")}.SH`))
-    const out = await callKlinePerSecurity({ call: mixed }, "quote.day-kline", partlyBad, (c) => ({ securityList: c }), 10_000, 2) as Record<string, unknown>
+    const out = await callPerSecurity({ call: mixed }, "quote.day-kline", partlyBad, (c) => ({ securityList: c }), 10_000, 2) as Record<string, unknown>
     expect(mixed).toHaveBeenCalledTimes(90)
     expect((out._failed_securities as Array<{ error: string }>)[0].error).toMatch(/逐只重试会超出单次调用的请求上限，未拆开/)
   })
@@ -604,7 +604,7 @@ describe("callKlinePerSecurity in groups", () => {
   it("does not split on errors that splitting cannot fix", async () => {
     for (const error of [new ApiError("无权限", "999004"), new ApiError("请求过于频繁", undefined, 429), new Error("socket hang up")]) {
       const call = vi.fn().mockRejectedValue(error)
-      await expect(callKlinePerSecurity({ call }, "quote.day-kline", Array.from({ length: 20 }, (_, i) => `6000${String(i).padStart(2, "0")}.SH`), (codes) => ({ securityList: codes }), 10_000, 5)).rejects.toBe(error)
+      await expect(callPerSecurity({ call }, "quote.day-kline", Array.from({ length: 20 }, (_, i) => `6000${String(i).padStart(2, "0")}.SH`), (codes) => ({ securityList: codes }), 10_000, 5)).rejects.toBe(error)
       expect(call).toHaveBeenCalledTimes(4)
     }
     // 只有部分组失败时同样不拆：失败组整组记名。
@@ -613,7 +613,7 @@ describe("callKlinePerSecurity in groups", () => {
       if (codes.includes("000858.SZ")) throw new ApiError("服务暂不可用", "999999", 503)
       return rowsOf(codes)
     })
-    const out = await callKlinePerSecurity({ call }, "quote.day-kline", ["600519.SH", "000858.SZ", "00700.HK"], (codes) => ({ securityList: codes }), 10_000, 2) as Record<string, unknown>
+    const out = await callPerSecurity({ call }, "quote.day-kline", ["600519.SH", "000858.SZ", "00700.HK"], (codes) => ({ securityList: codes }), 10_000, 2) as Record<string, unknown>
     expect(call).toHaveBeenCalledTimes(2)
     expect((out._failed_securities as Array<{ security: string }>).map((f) => f.security)).toEqual(["600519.SH", "000858.SZ"])
   })
@@ -622,11 +622,11 @@ describe("callKlinePerSecurity in groups", () => {
   it("refuses a split that would exceed the per-call request cap, before sending anything", async () => {
     const call = vi.fn()
     const codes = Array.from({ length: 181 }, (_, i) => `6${String(i).padStart(5, "0")}.SH`)
-    await expect(callKlinePerSecurity({ call }, "quote.minute-kline", codes, ([code]) => ({ securityCode: code }), 6000)).rejects.toThrow(/拆成 181 个请求.*每批不超过 180 只/)
-    await expect(callKlinePerSecurity({ call }, "quote.day-kline", [...codes, ...codes].slice(0, 362), (c) => ({ securityList: c }), 10_000, 2)).rejects.toThrow(/拆成 181 个请求.*每批不超过 360 只，或缩短日期区间/)
+    await expect(callPerSecurity({ call }, "quote.minute-kline", codes, ([code]) => ({ securityCode: code }), 6000)).rejects.toThrow(/拆成 181 个请求.*每批不超过 180 只/)
+    await expect(callPerSecurity({ call }, "quote.day-kline", [...codes, ...codes].slice(0, 362), (c) => ({ securityList: c }), 10_000, 2)).rejects.toThrow(/拆成 181 个请求.*每批不超过 360 只，或缩短日期区间/)
     expect(call).not.toHaveBeenCalled()
     const ok = vi.fn().mockImplementation(async (_k: string, body: Record<string, unknown>) => rowsOf(body.securityList as string[]))
-    await callKlinePerSecurity({ call: ok }, "quote.day-kline", codes.slice(0, 180), (c) => ({ securityList: c }), 10_000, 1)
+    await callPerSecurity({ call: ok }, "quote.day-kline", codes.slice(0, 180), (c) => ({ securityList: c }), 10_000, 1)
     expect(ok).toHaveBeenCalledTimes(180)
   })
 
@@ -635,7 +635,7 @@ describe("callKlinePerSecurity in groups", () => {
       const codes = body.securityList as string[]
       return codes.length > 1 ? rowsOf(codes, ["tradeDate"]) : rowsOf(codes)
     })
-    const out = await callKlinePerSecurity({ call }, "quote.day-kline", ["00700.HK", "600519.SH", "000858.SZ"], (codes) => ({ securityList: codes }), 10_000, 2) as Record<string, unknown>
+    const out = await callPerSecurity({ call }, "quote.day-kline", ["00700.HK", "600519.SH", "000858.SZ"], (codes) => ({ securityList: codes }), 10_000, 2) as Record<string, unknown>
     expect(out._malformed_securities).toEqual(["00700.HK", "600519.SH"])
     // 被拒的那组不能定下合并结果的列：否则后面的组的 securityCode 会被当成多出来的列丢掉。
     expect(out.fieldList).toEqual(["securityCode", "tradeDate"])
@@ -697,7 +697,7 @@ describe("shard column supersets are reported, not silently dropped", () => {
         : { fieldList: ["securityCode", "open", "close"], list: [["000858.SZ", 10, 20]] },
     )
 
-    const out = await callKlinePerSecurity(
+    const out = await callPerSecurity(
       { call }, "quote.day-kline", ["600519.SH", "000858.SZ"],
       ([securityCode]) => ({ securityCode }), 6000,
     ) as Record<string, unknown>

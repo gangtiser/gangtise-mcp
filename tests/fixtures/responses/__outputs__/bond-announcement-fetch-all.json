@@ -1,0 +1,23 @@
+{
+  "isError": false,
+  "result": {
+    "pages": 3,
+    "list": [
+      {
+        "announcementDate": "2026-09-01",
+        "securityCode": "019742",
+        "title": "公告 1-0"
+      },
+      {
+        "announcementDate": "2026-09-01",
+        "securityCode": "019742",
+        "title": "公告 1-1"
+      },
+      {
+        "announcementDate": "2026-09-01",
+        "securityCode": "019742",
+        "title": "公告 2-0"
+      }
+    ]
+  }
+}

@@ -423,7 +423,7 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
  * 每个请求各自受 `perLimit` 约束，撞上限的那组证券记进 `_truncated_securities`；请求失败 / 载荷并不
  * 进来的那组分别记进 `_failed_securities` / `_malformed_securities`，与全市场分片的标记对称。
  */
-export async function callKlinePerSecurity(
+export async function callPerSecurity(
   client: KlineClient,
   endpointKey: string,
   securities: string[],

@@ -1,5 +1,5 @@
 tools: 96
-tools/list bytes: 154207
+tools/list bytes: 154440
 instructions bytes: 2970
 
    396  gangtise_current_date
@@ -47,11 +47,11 @@ instructions bytes: 2970
   1028  gangtise_bond_daily_quote
   1204  gangtise_bond_valuation
    853  gangtise_bond_cash_flow
-   892  gangtise_bond_rating_overview
-  1357  gangtise_bond_announcement_list
+   967  gangtise_bond_rating_overview
+  1477  gangtise_bond_announcement_list
   1358  gangtise_bond_issuer_info
-  1168  gangtise_bond_rating_change
-  1203  gangtise_bond_issuer_rating_change
+  1208  gangtise_bond_rating_change
+  1201  gangtise_bond_issuer_rating_change
    902  gangtise_bond_issuance_detail
    880  gangtise_bond_issuance_plan
    908  gangtise_bond_exercise_notice

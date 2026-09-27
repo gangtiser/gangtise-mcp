@@ -121,6 +121,21 @@ const SCENARIOS: Scenario[] = [
   { name: "bond-empty-130001", tool: "gangtise_bond_cash_flow", args: { securityList: ["019742.SH"] }, upstream: on("bond.cash-flow", () => ({ status: 404, json: { code: "130001", msg: "数据未找到", data: null } })) },
   // 债券基本资料每个代码固定一行：库中没有的那只除代码外全为 null，原样保留。
   { name: "bond-fixed-row-per-code", tool: "gangtise_bond_basic_info", args: { securityList: ["019742.SH", "019999.SH"] }, upstream: on("bond.basic-info", () => ({ data: { total: 2, fieldList: ["securityCode", "securityName", "latestParValue"], list: [["019742.SH", "24国债01", 100], ["019999.SH", null, null]] } })) },
+  // 债券评级一览超过 10 只：按 10 只一批合并，fieldList 补 securityCode；第二批失败时第一批照常返回，失败的代码逐只记名。
+  { name: "bond-rating-overview-batched", tool: "gangtise_bond_rating_overview", args: { securityList: Array.from({ length: 12 }, (_, i) => `1${String(i).padStart(5, "0")}.SZ`), fieldList: ["bondRating"] }, upstream: on("bond.rating-overview", (req) => {
+    const codes = bodyOf(req).securityList as string[]
+    return codes.length < 10 ? errorEnvelope("999999", "服务繁忙") : { data: { total: codes.length, fieldList: ["securityCode", "bondRating"], list: codes.map((code, i) => [code, i === 0 ? null : "AAA"]) } }
+  }) },
+  // 债券公告 fetchAll：没有 total，逐页取到空页，pages 是发出的请求数（按页计费）。
+  { name: "bond-announcement-fetch-all", tool: "gangtise_bond_announcement_list", args: { startDate: "2026-09-01", endDate: "2026-09-05", pageSize: 2, fetchAll: true }, upstream: on("bond.announcement", (req) => {
+    const pageNo = bodyOf(req).pageNo as number
+    return { data: { fieldList: ["announcementDate", "securityCode", "title"], list: Array.from({ length: [2, 1][pageNo - 1] ?? 0 }, (_, i) => ["2026-09-01", "019742", `公告 ${pageNo}-${i}`]) } }
+  }) },
+  // 债券公告 fetchAll 遇到 {total: 0, list: null}：与其他分页路径一样是合法空页，翻页到此结束、不标失败页。
+  { name: "bond-announcement-fetch-all-null-list", tool: "gangtise_bond_announcement_list", args: { securityList: ["019742.SH"], pageSize: 2, fetchAll: true }, upstream: on("bond.announcement", (req) => {
+    const pageNo = bodyOf(req).pageNo as number
+    return { data: pageNo === 1 ? { fieldList: ["announcementDate", "securityCode", "title"], list: [["2026-09-01", "019742.SH", "公告"]] } : { total: 0, list: null } }
+  }) },
   // total 触及声明的偏移窗口：不发探针，直接按封顶标。
   { name: "partial-total-capped-window", tool: "gangtise_wechat_message_list", args: { keyword: "AI", from: 9960, fetchAll: true }, upstream: paged(10_000) },
   // 请求的行越过偏移窗口：只取窗口内的，标 window_cut。
@@ -140,6 +155,8 @@ const SCENARIOS: Scenario[] = [
     if (ids[0] === "co-20") return { json: { code: "000000", msg: "ok", data: [{ chiefOpinionId: "co-20", content: "<p>正文</p>" }, "<p>正文</p>"], traceId: "trace-m" } }
     return { data: ids.map((id) => ({ chiefOpinionId: id, content: "<p>正文</p>" })) }
   }) },
+  // 一批里夹着 null：按该 ID 没有正文处理，同批其余已付费的正文照常返回，不进未取。
+  { name: "partial-missing-ids-null-element", tool: "gangtise_opinion_detail", args: { kind: "domestic", ids: ["co-1", "co-2"] }, upstream: on("insight.opinion.detail", () => ({ data: [{ chiefOpinionId: "co-1", title: "观点一", content: "<p>正文</p>" }, null] })) },
   { name: "partial-limit-truncated", tool: "gangtise_day_kline", args: { security: "600519.SH", startDate: "2026-09-01", endDate: "2026-09-03", limit: 3 }, upstream: on("quote.day-kline", () => ({ data: fixture("kline-columnar") })) },
   { name: "partial-failed-shards", tool: "gangtise_day_kline", args: { security: "aShares", startDate: "2026-09-07", endDate: "2026-09-09" }, upstream: shardRows("quote.day-kline", { "2026-09-08": errorEnvelope("100005", "参数错误") }) },
   { name: "partial-malformed-shards", tool: "gangtise_day_kline", args: { security: "aShares", startDate: "2026-09-07", endDate: "2026-09-09" }, upstream: shardRows("quote.day-kline", { "2026-09-08": { data: { total: 5 } } }) },
@@ -155,8 +172,6 @@ const SCENARIOS: Scenario[] = [
   // 多只 + fieldList 只点了 close：身份列补到最前，结果用 _note 说明。
   { name: "present-identity-fields", tool: "gangtise_day_kline", args: { security: ["600519.SH", "000858.SZ"], startDate: "2026-09-01", endDate: "2026-09-01", fieldList: ["close"] }, upstream: perSecurityRows("quote.day-kline") },
   { name: "partial-truncated-securities", tool: "gangtise_minute_kline", args: { security: ["600519.SH", "512800.SH"], startTime: "2026-09-01 09:30:00", endTime: "2026-09-01 15:00:00", limit: 1 }, upstream: on("quote.minute-kline", (req) => ({ data: { total: 1, fieldList: ["securityCode", "tradeTime", "close"], list: [[bodyOf(req).securityCode, "2026-09-01 09:31:00", 1]] } })) },
-  // 一批里夹着 null：按该 ID 没有正文处理，同批其余已付费的正文照常返回，不进未取。
-  { name: "partial-missing-ids-null-element", tool: "gangtise_opinion_detail", args: { kind: "domestic", ids: ["co-1", "co-2"] }, upstream: on("insight.opinion.detail", () => ({ data: [{ chiefOpinionId: "co-1", title: "观点一", content: "<p>正文</p>" }, null] })) },
   { name: "partial-missing-fields", tool: "gangtise_realtime", args: { security: "600519.SH", fieldList: ["securityCode", "latestPrice", "turnoverRate"] }, upstream: on("quote.realtime", () => ({ data: { total: 1, fieldList: ["securityCode", "latestPrice"], list: [["600519.SH", 1510.2]] } })) },
   { name: "partial-failed-items", tool: "gangtise_stock_pool_add_stock", args: { poolId: "pool-1", securityCodeList: ["600519.SH", "600519.XX"] }, upstream: on("vault.stock-pool.add-stock", () => ({ data: fixture("stock-pool-item-failures") })) },
   { name: "partial-security-only-row-cap", tool: "gangtise_performance_calendar_list", args: { securityList: ["600519.SH"], fetchAll: true }, upstream: paged(1500) },

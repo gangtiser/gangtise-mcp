@@ -1,6 +1,9 @@
 import { z } from "zod"
+import { callPerSecurity } from "../core/batch.js"
 import { ValidationError } from "../core/errors.js"
 import { dateString } from "../core/dateContext.js"
+import { requestUntilEmptyPage } from "../core/paginate.js"
+import { CALL_LIMITS } from "../core/scheduler.js"
 import { defineJsonTool, type FamilyModule, type JsonToolSpec } from "../mcp/define.js"
 import { nonEmptyList, uniqueFieldList } from "../mcp/schemas.js"
 import { bondEndpoints } from "./bond.endpoints.js"
@@ -15,6 +18,23 @@ const RATING_SUFFIX = "评级值可能紧跟小写后缀 sf / pi（如 AAApi）�
 const WINDOW_START = "startDate 早于账号可回溯的下界时整批报 110003（不会只返回窗口内那段），把起点往后挪再查"
 /** 零行的真因与股票工具不同，通用提示里的股票代码示例会把排查引错方向。 */
 const EMPTY_HINT = "0 行结果：该条件下没有数据（如区间内全是非交易日、没有发行计划，或品种本身没有这类数据——国债没有评级与行权数据）；代码须是带后缀的标准代码（019742.SH / 220205.IB）。"
+
+/** 评级两个端点每次最多 10 只：超过时按 10 只一批并发请求（计费按条 / 按只，与手动分批相同），
+ *  一次调用最多拆成单次调用上限那么多批。 */
+const RATING_BATCH = 10
+const RATING_MAX = RATING_BATCH * CALL_LIMITS.maxShards
+
+/** 超过一批时拆开请求、按传入顺序合并。合并靠 securityCode 还原顺序：评级一览没有恒在最前的列，
+ *  fieldList 没点它时补在最前；评级变动的 securityCode 恒在最前，不用补。 */
+function inRatingBatches(addCode: boolean): NonNullable<JsonToolSpec["call"]> {
+  return (client, endpointKey, body) => {
+    const codes = body.securityList as string[]
+    if (codes.length <= RATING_BATCH) return client.call(endpointKey, body)
+    const fields = body.fieldList as string[] | undefined
+    const base = addCode && fields && !fields.includes("securityCode") ? { ...body, fieldList: ["securityCode", ...fields] } : body
+    return callPerSecurity(client, endpointKey, codes, (group) => ({ ...base, securityList: group }), Number.POSITIVE_INFINITY, RATING_BATCH)
+  }
+}
 
 /** 服务端按去重后的只数计上限，重复的代码去掉再发。 */
 function uniqueCodes(body: Record<string, unknown>, max?: number): Record<string, unknown> {
@@ -39,6 +59,7 @@ const rangeSpec = (name: string, tier: JsonToolSpec["tier"], endpointKey: string
   inputSchema: { securityList: codes(max), startDate: dateString.optional(), endDate: dateString.optional(), fieldList: fieldList(lead) },
   transformBody: (body) => uniqueCodes(body, max),
 })
+const BATCHED = `超过 ${RATING_BATCH} 只时按 ${RATING_BATCH} 只一批请求、按传入顺序合并`
 
 const specs: JsonToolSpec[] = [
   {
@@ -75,15 +96,16 @@ const specs: JsonToolSpec[] = [
   {
     name: "gangtise_bond_rating_overview",
     tier: "core",
-    description: `并列查询债项、发行人、担保人三套评级（每次去重后最多 10 只）。每个代码固定一行，没有数据的除代码外全为 null；国债本身没有评级。${RATING_SUFFIX}，否则 AAA 与 AAApi 会被当成两档。`,
+    description: `并列查询债项、发行人、担保人三套评级（${BATCHED}，fieldList 自动补 securityCode）。每个代码固定一行，没有数据的除代码外全为 null、不计费；国债本身没有评级。${RATING_SUFFIX}，否则 AAA 与 AAApi 会被当成两档。`,
     endpointKey: "bond.rating-overview",
-    inputSchema: { securityList: codes(10), fieldList: fieldList() },
-    transformBody: (body) => uniqueCodes(body, 10),
+    inputSchema: { securityList: codes(RATING_MAX), fieldList: fieldList() },
+    transformBody: (body) => uniqueCodes(body, RATING_MAX),
+    call: inRatingBatches(true),
   },
   {
     name: "gangtise_bond_announcement_list",
     tier: "core",
-    description: "查询债券公告，手动翻页：没有 total，pageNo 从 1 递增、取到空页为止；每页按次计费，批量翻页传 pageSize=200。securityList 与日期区间二选一。⚠️ 按日期查时返回的 securityCode 不带市场后缀，而其他 bond 工具只收带后缀的代码：用该行 securityName 经 gangtise_securities_search 换回 gtsCode，并核对去掉后缀后与原代码一致——别拿无后缀代码直接搜，相似度检索可能给出相邻的另一只。",
+    description: "查询债券公告。没有 total：fetchAll=true 从 pageNo 起自动翻到空页（pageSize 缺省 200，末尾可能多计几个空页）；手动翻页时 pageNo 递增到空页为止，批量传 pageSize=200。每页按次计费。securityList 与日期区间二选一。⚠️ 按日期查时返回的 securityCode 不带市场后缀，而其他 bond 工具只收带后缀的代码：用该行 securityName 经 gangtise_securities_search 换回 gtsCode，并核对去掉后缀后与原代码一致——别拿无后缀代码直接搜，相似度检索可能给出相邻的另一只。",
     endpointKey: "bond.announcement",
     inputSchema: {
       securityList: codes().optional(),
@@ -91,6 +113,7 @@ const specs: JsonToolSpec[] = [
       endDate: dateString.optional(),
       pageNo: z.number().int().min(1).optional().describe("默认 1"),
       pageSize: z.number().int().min(1).max(200).optional().describe("默认 50"),
+      fetchAll: z.boolean().optional(),
       fieldList: fieldList("announcementDate / securityCode"),
     },
     transformBody: (body) => {
@@ -99,6 +122,8 @@ const specs: JsonToolSpec[] = [
       if (body.securityList === undefined && !byDate) throw new ValidationError("请传 securityList（债券代码）或 startDate / endDate（公告日期区间）其中一种。")
       return { pageNo: 1, pageSize: 50, ...(body.securityList === undefined ? body : uniqueCodes(body)) }
     },
+    call: (client, endpointKey, body, args) =>
+      args.fetchAll === true ? requestUntilEmptyPage(client, endpointKey, args.pageSize === undefined ? { ...body, pageSize: 200 } : body) : client.call(endpointKey, body),
   },
   {
     name: "gangtise_bond_issuer_info",
@@ -108,7 +133,10 @@ const specs: JsonToolSpec[] = [
     inputSchema: { securityList: codes().optional(), issuerNameList: issuerNames.optional(), fieldList: fieldList("issuerName") },
     transformBody: issuerSelector,
   },
-  rangeSpec("gangtise_bond_rating_change", "core", "bond.rating-change", `查询债项评级变动：本次 / 上次评级、方向、展望、评级类型与机构（每次去重后最多 10 只）。startDate / endDate 筛公告日，省略返回全部。每次变动一行，首次评级的 previousRating 为 null；没有数据的代码不产生行，国债没有评级。${RATING_SUFFIX}。`, "securityCode / announcementDate", 10),
+  {
+    ...rangeSpec("gangtise_bond_rating_change", "core", "bond.rating-change", `查询债项评级变动：本次 / 上次评级、方向、展望、评级类型与机构（${BATCHED}）。startDate / endDate 筛公告日，省略返回全部。每次变动一行，首次评级的 previousRating 为 null；没有数据的代码不产生行、不计费，国债没有评级。${RATING_SUFFIX}。`, "securityCode / announcementDate", RATING_MAX),
+    call: inRatingBatches(false),
+  },
   {
     name: "gangtise_bond_issuer_rating_change",
     tier: "core",

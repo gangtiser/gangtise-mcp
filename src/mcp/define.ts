@@ -1,4 +1,5 @@
 import { z } from "zod"
+import type { GangtiseClient } from "../core/client.js"
 import { ENDPOINTS, perRowBilling, type EndpointTable } from "../core/endpoints.js"
 import { normalizeRows } from "../core/normalize.js"
 import { downloadToResult } from "../core/download.js"
@@ -77,6 +78,11 @@ export interface JsonToolSpec extends SpecBase {
    */
   resolve?: (body: Record<string, unknown>) => { endpointKey: string; body: Record<string, unknown> }
   /**
+   * 替换默认的一次 `client.call`（按只数分批、按页码翻到空页这类一次调用发多个请求的）。拿到的 body 已经过
+   * transformBody / resolve；`args` 是原始入参，不进请求体的开关（如 fetchAll）从这里读。
+   */
+  call?: (client: GangtiseClient, endpointKey: string, body: Record<string, unknown>, args: Record<string, unknown>) => Promise<unknown>
+  /**
    * 该端点用 `null` 表示「零行」时置 true —— 只对**列表**端点开。
    * 默认关闭：null 一律原样透出，让协议异常响亮地暴露，而不是被伪装成空列表。
    *
@@ -140,7 +146,7 @@ export function defineJsonTool(spec: JsonToolSpec): ToolSpec {
       assertDateOrder(sanitized)
       const transformed = spec.transformBody ? spec.transformBody(sanitized) : sanitized
       const { endpointKey, body } = spec.resolve ? spec.resolve(transformed) : { endpointKey: spec.endpointKey, body: transformed }
-      const result = await ctx.client.call(endpointKey, body)
+      const result = spec.call ? await spec.call(ctx.client, endpointKey, body, args) : await ctx.client.call(endpointKey, body)
       return { content: await buildToolContent(normalizeRows(result), { nullMeansEmpty: spec.nullMeansEmpty, emptyHint: spec.emptyHint }) }
     },
   }

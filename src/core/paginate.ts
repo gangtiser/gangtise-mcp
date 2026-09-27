@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto"
 
 import { COST_LIMIT, PAGE_CONCURRENCY } from "./config.js"
-import { ApiError, ValidationError, errorMessage } from "./errors.js"
+import { ApiError, ResponseShapeError, ValidationError, errorMessage } from "./errors.js"
 import { markPartial, type PartialReason } from "./partial.js"
 import { perRowBilling, type EndpointDefinition, type RowId } from "./endpoints.js"
+import { normalizeRows } from "./normalize.js"
 import { costConfirmed, currentSignal } from "./requestContext.js"
 import { CALL_LIMITS } from "./scheduler.js"
 import { isVerbose, runWithConcurrency } from "./transport.js"
@@ -548,4 +549,74 @@ export async function requestPaginated(http: PageFetcher, endpoint: EndpointDefi
   if (partialReasons.length === 0 && returnedList.length < target && !shortByRepeatsOnly) partialReasons.push("short_page")
   flagRowIssues(partialReasons, details)
   return withProbeNote(markPartial(response, partialReasons, details, "details-first"))
+}
+
+/** 页码翻页、不回 total 的端点（`pagination.mode: "page"`）：从 body.pageNo（缺省 1）起逐页取到空页为止，
+ *  逐页拍平后按页序合并。没有 total 就排不出全部页：前一轮页页取满时下一轮并发加倍（1、2、4… 至
+ *  GANGTISE_PAGE_CONCURRENCY），见到不满的页就退回一页一页地确认——结果少时不多发，末尾最多多请求一轮里
+ *  剩下的几页。失败的页记进 `_failed_pages` 继续往后翻；一整轮都失败时停下，并记下从哪一页起未请求。
+ *  `pages` 是实际发出的请求数（按页计费的端点就是计费页数）。封顶 MAX_PAGES 页。`{total: 0, list: null}`
+ *  与其他分页路径一样按合法空页处理。 */
+export async function requestUntilEmptyPage(
+  client: { call(endpointKey: string, body?: unknown): Promise<unknown> },
+  endpointKey: string,
+  body: Record<string, unknown>,
+  concurrency: number = PAGE_CONCURRENCY,
+): Promise<Record<string, unknown>> {
+  const pageSize = Number(body.pageSize)
+  const signal = currentSignal()
+  const list: unknown[] = []
+  const failedPages: Array<{ pageNo: number; error: string }> = []
+  let next = Number(body.pageNo ?? 1)
+  let width = 1
+  let requested = 0
+  let ended = false
+  let stalled = false
+  while (!ended && !stalled && requested < MAX_PAGES) {
+    const wave = Array.from({ length: Math.min(width, MAX_PAGES - requested) }, (_, i) => next + i)
+    const outcomes = await runWithConcurrency(wave, concurrency, async (pageNo) => {
+      try {
+        const page = normalizeRows(await client.call(endpointKey, { ...body, pageNo }))
+        const rows = Array.isArray(page) ? page : isPaginatedListResponse(page) ? pageRows(page) : (page as { list?: unknown } | null)?.list
+        if (!Array.isArray(rows)) throw new ResponseShapeError(`第 ${pageNo} 页的返回里没有 list（形状可能已变更）`, undefined, undefined, page)
+        return { pageNo, ok: true as const, rows }
+      } catch (err) {
+        if (signal?.aborted) throw err
+        return { pageNo, ok: false as const, error: errorMessage(err), cause: err }
+      }
+    }, signal)
+    requested += wave.length
+    next += wave.length
+    let full = true
+    for (const outcome of outcomes) {
+      if (!outcome.ok) {
+        failedPages.push({ pageNo: outcome.pageNo, error: outcome.error })
+        continue
+      }
+      if (outcome.rows.length === 0) {
+        ended = true
+        break
+      }
+      list.push(...outcome.rows)
+      if (outcome.rows.length < pageSize) full = false
+    }
+    if (!ended && outcomes.every((outcome) => !outcome.ok)) {
+      // 第一轮只有起始页：它失败时手里什么都没有，照常报错。
+      if (requested === wave.length) throw (outcomes[0] as { cause: unknown }).cause
+      stalled = true
+    }
+    width = full ? Math.min(concurrency, width * 2) : 1
+  }
+
+  const reasons: PartialReason[] = []
+  const details: Record<string, unknown> = {}
+  if (failedPages.length > 0) {
+    reasons.push("failed_pages")
+    details._failed_pages = stalled ? [...failedPages, { pageNo: next, error: "未请求：上一轮的页全部失败，已停止翻页，从这一页起续取" }] : failedPages
+  }
+  if (!ended && !stalled) {
+    reasons.push("page_cap")
+    details._page_cap = { maxPages: MAX_PAGES, nextPageNo: next }
+  }
+  return markPartial({ pages: requested, list }, reasons, details, "details-first")
 }

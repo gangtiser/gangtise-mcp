@@ -1,7 +1,7 @@
 import { z } from "zod"
 import { flagMissingFields, normalizeRows } from "../core/normalize.js"
 import { ValidationError } from "../core/errors.js"
-import { callKlinePerSecurity, callKlineWithSharding, estimateTradingDays, flagLimitTruncated, fullMarketOf, type BatchStrategy, type KlineBody } from "../core/batch.js"
+import { callPerSecurity, callKlineWithSharding, estimateTradingDays, flagLimitTruncated, fullMarketOf, type BatchStrategy, type KlineBody } from "../core/batch.js"
 import { dateString, dateTimeString } from "../core/dateContext.js"
 import { parseSecurityCode, type Market } from "../core/securityCode.js"
 import { assertDateOrder, defineTool, type FamilyModule, type ToolSpec } from "../mcp/define.js"
@@ -266,7 +266,7 @@ function klineRun(
       // 时只能逐只请求，否则整组分不开、只能丢掉。
       const groupable = !body.fieldList || body.fieldList.includes("securityCode")
       const groupSize = groupable ? Math.max(1, Math.floor((cap - 1) / tradingDays)) : 1
-      const result = await callKlinePerSecurity(client, endpointKey, securities, (codes) => ({ ...body, securityList: codes, limit: cap }), cap, groupSize)
+      const result = await callPerSecurity(client, endpointKey, securities, (codes) => ({ ...body, securityList: codes, limit: cap }), cap, groupSize)
       return contentResult(await buildToolContent(normalizeRows(withNote(flagMissingFields(result, body.fieldList), note, lateStartNote(result, body.startDate, "tradeDate", fullMarket ? undefined : securities)))))
     }
     const result = flagLimitTruncated(await client.call(endpointKey, { ...body, limit }), limit)
@@ -382,7 +382,7 @@ export const quoteFamily: FamilyModule = {
         const note = withIdentityFields(body as { fieldList?: string[] }, securities.length > 1, ["securityCode", "tradeTime"])
         // 接口一次只收一只（securityCode），多只在本地逐只请求再合并。
         const result = securities.length > 1
-          ? await callKlinePerSecurity(client, "quote.minute-kline", securities, (codes) => ({ ...body, securityCode: codes[0] }), effLimit)
+          ? await callPerSecurity(client, "quote.minute-kline", securities, (codes) => ({ ...body, securityCode: codes[0] }), effLimit)
           : flagLimitTruncated(await client.call("quote.minute-kline", { ...body, securityCode: securities[0] }), effLimit)
         // 分钟线可查的历史比日线短得多，整段落在它之前的区间返回空结果而不报错。
         const emptyHint = startTime || endTime ? "0 行结果：分钟线可查的历史比日线短得多，整段落在它之前的区间返回空结果而不报错——换一个近期区间核对；也请确认证券代码与后缀。" : undefined

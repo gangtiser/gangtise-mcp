@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { createRowTracker, planRemainingPages } from "../../../src/core/paginate.js"
+import { ApiError } from "../../../src/core/errors.js"
+import { createRowTracker, planRemainingPages, requestUntilEmptyPage } from "../../../src/core/paginate.js"
 
 describe("planRemainingPages", () => {
   it("splits the remaining range into maxPageSize chunks", () => {
@@ -243,5 +244,92 @@ describe("createRowTracker against the per-row reference", () => {
     expect(performance.now() - started).toBeLessThan(3_000)
     expect(t.state.changedRows).toBe(399)
     expect(t.state.idIsRowKey).toBe(false)
+  })
+})
+
+// 页码翻页、不回 total：桩按 pageNo 回 rows[pageNo - 1] 行（列式），之后是空页；fail 里的页抛错。
+function pageServer(rows: number[], fail: (pageNo: number) => unknown = () => undefined) {
+  const requested: number[] = []
+  const client = {
+    async call(_key: string, body?: unknown): Promise<unknown> {
+      const { pageNo } = body as { pageNo: number }
+      requested.push(pageNo)
+      const error = fail(pageNo)
+      if (error) throw error
+      return { fieldList: ["id"], list: Array.from({ length: rows[pageNo - 1] ?? 0 }, (_, i) => [`${pageNo}-${i}`]) }
+    },
+  }
+  return { client, requested }
+}
+
+describe("requestUntilEmptyPage", () => {
+  // 并发数显式传入，不读 GANGTISE_PAGE_CONCURRENCY：每轮宽度是这里要钉的行为，不能随环境变。
+  it("doubles the width while pages come back full, drops to one page after a short one, and stops at the first empty page", async () => {
+    // 7 个满页、1 个短页：各轮 1、2、4、5（并发 5）；第 8 页短、第 9 页空，同轮第 10–12 页多请求。
+    const { client, requested } = pageServer([2, 2, 2, 2, 2, 2, 2, 1])
+    const result = await requestUntilEmptyPage(client, "bond.announcement", { pageNo: 1, pageSize: 2 }, 5)
+    expect((result.list as unknown[]).length).toBe(15)
+    expect(result.pages).toBe(12)
+    expect(result._partial).toBeUndefined()
+    expect([...requested].sort((a, b) => a - b)).toEqual(Array.from({ length: 12 }, (_, i) => i + 1))
+    expect(result.list).toEqual(Array.from({ length: 15 }, (_, i) => ({ id: `${Math.floor(i / 2) + 1}-${i % 2}` })))
+  })
+
+  it("goes one page at a time with concurrency 1, requesting nothing past the empty page", async () => {
+    const { client, requested } = pageServer([2, 2, 2, 1])
+    const result = await requestUntilEmptyPage(client, "bond.announcement", { pageNo: 1, pageSize: 2 }, 1)
+    expect(requested).toEqual([1, 2, 3, 4, 5])
+    expect((result.list as unknown[]).length).toBe(7)
+    expect(result.pages).toBe(5)
+  })
+
+  it("takes {total: 0, list: null} as an empty page, like the other paging paths", async () => {
+    const client = { call: async (_key: string, body?: unknown) => ((body as { pageNo: number }).pageNo === 1 ? { fieldList: ["id"], list: [["1-0"]] } : { total: 0, list: null }) }
+    const result = await requestUntilEmptyPage(client, "bond.announcement", { pageNo: 1, pageSize: 2 }, 5)
+    expect(result.list).toEqual([{ id: "1-0" }])
+    expect(result._partial).toBeUndefined()
+  })
+
+  it("sends only the confirming page when results are small, and starts from the given pageNo", async () => {
+    const { client, requested } = pageServer([0, 0, 0, 5, 3])
+    const result = await requestUntilEmptyPage(client, "bond.announcement", { pageNo: 4, pageSize: 5 }, 5)
+    expect(requested).toEqual([4, 5, 6])
+    expect((result.list as unknown[]).length).toBe(8)
+  })
+
+  it("records a failed page and keeps going; a page without a list counts as failed", async () => {
+    // 第 2 页报错、同轮第 3 页照常；第 4 页没有 list，同轮第 5 页短、第 6 页空。
+    const { client } = pageServer([2, 2, 2, 2, 1], (pageNo) => (pageNo === 2 ? new ApiError("服务繁忙", "999999") : undefined))
+    const shaped = { call: async (key: string, body?: unknown) => ((body as { pageNo: number }).pageNo === 4 ? { unexpected: true } : client.call(key, body)) }
+    const result = await requestUntilEmptyPage(shaped, "bond.announcement", { pageNo: 1, pageSize: 2 }, 5)
+    expect((result.list as unknown[]).length).toBe(5)
+    expect(result._partial_reason).toBe("failed_pages")
+    expect((result._failed_pages as Array<{ pageNo: number; error: string }>).map((page) => page.pageNo)).toEqual([2, 4])
+    expect((result._failed_pages as Array<{ error: string }>)[1].error).toMatch(/第 4 页的返回里没有 list/)
+  })
+
+  it("stops when a whole wave fails and says from which page nothing was requested", async () => {
+    const { client, requested } = pageServer([2, 2, 2, 2], (pageNo) => (pageNo > 1 ? new ApiError("额度不足", "999004") : undefined))
+    const result = await requestUntilEmptyPage(client, "bond.announcement", { pageNo: 1, pageSize: 2 }, 5)
+    expect(requested.sort()).toEqual([1, 2, 3])
+    expect((result.list as unknown[]).length).toBe(2)
+    expect(result._failed_pages).toEqual([
+      { pageNo: 2, error: expect.stringMatching(/额度不足/) },
+      { pageNo: 3, error: expect.stringMatching(/额度不足/) },
+      { pageNo: 4, error: expect.stringMatching(/未请求/) },
+    ])
+  })
+
+  it("throws when the first page fails: nothing was fetched", async () => {
+    const { client } = pageServer([2], () => new ApiError("参数值非法", "100003"))
+    await expect(requestUntilEmptyPage(client, "bond.announcement", { pageNo: 1, pageSize: 2 }, 5)).rejects.toThrow(/参数值非法/)
+  })
+
+  it("stops at the page cap and says where to resume", async () => {
+    const { client, requested } = pageServer(Array.from({ length: 1200 }, () => 1))
+    const result = await requestUntilEmptyPage(client, "bond.announcement", { pageNo: 1, pageSize: 1 }, 5)
+    expect(requested).toHaveLength(1000)
+    expect(result._partial_reason).toBe("page_cap")
+    expect(result._page_cap).toEqual({ maxPages: 1000, nextPageNo: 1001 })
   })
 })

@@ -25,7 +25,7 @@ import { toolEndpoints } from "../tools/tool.endpoints.js"
 export type Billing =
   | { kind: "free" }
   | { kind: "local" }
-  | { kind: "fixed"; per: "call" | "page" | "row" | "document"; price: number; maxUnits?: number; unit?: "篇" | "张" | "指标"; amplify?: string }
+  | { kind: "fixed"; per: "call" | "page" | "row" | "document"; price: number; maxUnits?: number; unit?: "篇" | "张" | "指标" | "只" | "发行人"; amplify?: string }
   | { kind: "variable"; note: string; amplify?: string; basis?: string }
   | { kind: "downstream"; note: string }
   | { kind: "unknown"; note: string }
