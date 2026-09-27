@@ -43,10 +43,12 @@ export const quoteExamples: ToolExamples = {
         { method: "POST", path: "/application/open-quote/kline-hk/daily", body: { securityList: ["all"], startDate: "2026-09-09", endDate: "2026-09-10", limit: 10000 } },
       ] } },
     { title: "美股代码本地拒绝", args: { security: "AAPL.O" }, expect: { rejects: /是美股代码/ } },
+    { title: "all 只给一个日期本地拒绝（与 day_kline 同一套全市场约束）", args: { security: "all", startDate: "2026-09-01" }, expect: { rejects: /security='all' 全市场查询须同时提供 startDate 和 endDate/ } },
   ],
   gangtise_day_kline_us: [
     { title: "美股代码", args: { security: "AAPL.O", startDate: "2026-09-01", endDate: "2026-09-05", limit: 100 }, expect: { requests: [{ method: "POST", path: "/application/open-quote/kline-us/daily", body: { securityList: ["AAPL.O"], startDate: "2026-09-01", endDate: "2026-09-05", limit: 100 } }] } },
     { title: "港股代码本地拒绝", args: { security: "00700.HK" }, expect: { rejects: /是港股代码/ } },
+    { title: "all 缺日期本地拒绝", args: { security: "all" }, expect: { rejects: /security='all' 全市场查询须同时提供 startDate 和 endDate/ } },
     { title: "单独的市场字面量也按市场本地拒绝", args: { security: ["AAPL.O", "HK"] }, expect: { rejects: /'HK' 是港股代码/ } },
   ],
   gangtise_index_day_kline: [

@@ -10,30 +10,37 @@ import { missingToolRefs } from "../helpers/instructionRefs.js"
  *  快照取的是**线上原始出站**的 tools/list（见 harness.rawToolsList），不是 SDK client 解析
  *  之后的对象：字节预算按客户端实际收到的算。 */
 
-let harness: Harness
-
-beforeAll(async () => {
-  harness = await startHarness()
-})
-
-afterAll(async () => {
-  await harness.close()
-})
-
 const bytes = (value: unknown) => Buffer.byteLength(typeof value === "string" ? value : JSON.stringify(value), "utf8")
 
-describe("surface snapshot (default profile)", () => {
+/** 每个档位一组快照：默认档之外，extended 与 legacy 的表面同样要有人钉住（点名加载的客户照样按它付上下文）。 */
+const PROFILES: Array<{ label: string; tools?: string }> = [
+  { label: "default" },
+  { label: "all", tools: "all" },
+  { label: "core-legacy", tools: "core,legacy" },
+]
+
+describe.each(PROFILES)("surface snapshot ($label profile)", ({ label, tools: profile }) => {
+  let harness: Harness
+
+  beforeAll(async () => {
+    harness = await startHarness({ tools: profile })
+  })
+
+  afterAll(async () => {
+    await harness.close()
+  })
+
   it("tools/list", async () => {
     const tools = await harness.rawToolsList()
-    await expect(`${JSON.stringify(tools, null, 2)}\n`).toMatchFileSnapshot("./__snapshots__/tools-list.default.json")
+    await expect(`${JSON.stringify(tools, null, 2)}\n`).toMatchFileSnapshot(`./__snapshots__/tools-list.${label}.json`)
   })
 
   it("instructions", async () => {
-    await expect(`${harness.instructions() ?? ""}\n`).toMatchFileSnapshot("./__snapshots__/instructions.default.txt")
+    await expect(`${harness.instructions() ?? ""}\n`).toMatchFileSnapshot(`./__snapshots__/instructions.${label}.txt`)
   })
 
   /** 字节口径：`tools` 数组的紧凑 JSON（不含 JSON-RPC 信封与 `result` 外壳），与
-   *  scripts/prerelease-check.mjs ⑤ 的 150KB 门禁同口径，适合做前后对比。 */
+   *  scripts/prerelease-check.mjs ⑤ 的 150KB 门禁同口径（门禁只对默认档），适合做前后对比。 */
   it("byte summary", async () => {
     const tools = (await harness.rawToolsList()) as Array<{ name: string }>
     const lines = [
@@ -43,7 +50,7 @@ describe("surface snapshot (default profile)", () => {
       "",
       ...tools.map((tool) => `${String(bytes(tool)).padStart(6)}  ${tool.name}`),
     ]
-    await expect(`${lines.join("\n")}\n`).toMatchFileSnapshot("./__snapshots__/bytes.default.txt")
+    await expect(`${lines.join("\n")}\n`).toMatchFileSnapshot(`./__snapshots__/bytes.${label}.txt`)
   })
 
   /** instructions 里点名的工具必须在该 profile 下真的存在：分档 / 合并之后，一条指向不存在
