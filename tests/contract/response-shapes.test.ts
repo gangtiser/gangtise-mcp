@@ -149,6 +149,8 @@ const SCENARIOS: Scenario[] = [
   { name: "partial-malformed-securities", tool: "gangtise_day_kline", args: { security: ["600519.SH", "000858.SZ", "00700.HK", "AAPL.O"], startDate: "2008-01-01", endDate: "2026-06-30" }, upstream: perSecurityRows("quote.day-kline", { "AAPL.O": { data: { total: 1 } } }) },
   // 最早一行比请求的起点晚两周以上：区间可能超出了账号的可查窗口，用 _note 说明。
   { name: "present-late-start", tool: "gangtise_day_kline", args: { security: "600519.SH", startDate: "2015-01-01", endDate: "2026-09-30" }, upstream: on("quote.day-kline", () => ({ data: { total: 2, fieldList: ["securityCode", "tradeDate", "close"], list: [["600519.SH", "2021-09-01", 1], ["600519.SH", "2021-09-02", 2]] } })) },
+  // legacy 美股日 K 长区间多只、只点 close：逐只请求，每只的行都保留（旧返回列不变）。
+  { name: "legacy-day-kline-close-only", tool: "gangtise_day_kline_us", args: { security: ["AAPL.O", "TSLA.O"], startDate: "2013-01-01", endDate: "2026-09-01", fieldList: ["close"] }, upstream: on("quote.day-kline-us", (req) => ({ data: { total: 1, fieldList: ["close"], list: [[(bodyOf(req).securityList as string[])[0] === "AAPL.O" ? 101 : 202]] } })) },
   // 多只 + fieldList 只点了 close：身份列补到最前，结果用 _note 说明。
   { name: "present-identity-fields", tool: "gangtise_day_kline", args: { security: ["600519.SH", "000858.SZ"], startDate: "2026-09-01", endDate: "2026-09-01", fieldList: ["close"] }, upstream: perSecurityRows("quote.day-kline") },
   { name: "partial-truncated-securities", tool: "gangtise_minute_kline", args: { security: ["600519.SH", "512800.SH"], startTime: "2026-09-01 09:30:00", endTime: "2026-09-01 15:00:00", limit: 1 }, upstream: on("quote.minute-kline", (req) => ({ data: { total: 1, fieldList: ["securityCode", "tradeTime", "close"], list: [[bodyOf(req).securityCode, "2026-09-01 09:31:00", 1]] } })) },

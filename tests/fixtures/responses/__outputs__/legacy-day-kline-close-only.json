@@ -1,0 +1,14 @@
+{
+  "isError": false,
+  "result": {
+    "total": 2,
+    "list": [
+      {
+        "close": 101
+      },
+      {
+        "close": 202
+      }
+    ]
+  }
+}

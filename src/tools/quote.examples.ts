@@ -44,6 +44,10 @@ export const quoteExamples: ToolExamples = {
         { method: "POST", path: "/application/open-quote/kline-hk/daily", body: { securityList: ["all"], startDate: "2026-09-09", endDate: "2026-09-10", limit: 10000 } },
       ] } },
     { title: "美股代码本地拒绝", args: { security: "AAPL.O" }, expect: { rejects: /是美股代码/ } },
+    { title: "长区间多只、只点 close：没有 securityCode 分不清各只，逐只请求", args: { security: ["00700.HK", "09988.HK"], startDate: "2013-01-01", endDate: "2026-09-01", fieldList: ["close"] }, upstream: (req) => (req.endpoint === "quote.day-kline-hk" ? { data: { total: 1, fieldList: ["close"], list: [[(req.body as { securityList: string[] }).securityList[0] === "00700.HK" ? 101 : 202]] } } : undefined), expect: { requests: [
+        { method: "POST", path: "/application/open-quote/kline-hk/daily", body: { securityList: ["00700.HK"], startDate: "2013-01-01", endDate: "2026-09-01", fieldList: ["close"], limit: 10000 } },
+        { method: "POST", path: "/application/open-quote/kline-hk/daily", body: { securityList: ["09988.HK"], startDate: "2013-01-01", endDate: "2026-09-01", fieldList: ["close"], limit: 10000 } },
+      ] } },
     { title: "多只 + fieldList：旧工具不自动补身份列", args: { security: ["00700.HK", "09988.HK"], startDate: "2026-09-01", endDate: "2026-09-30", fieldList: ["close"] }, expect: { requests: [{ method: "POST", path: "/application/open-quote/kline-hk/daily", body: { securityList: ["00700.HK", "09988.HK"], startDate: "2026-09-01", endDate: "2026-09-30", fieldList: ["close"], limit: 6000 } }] } },
     { title: "all 只给一个日期本地拒绝（与 day_kline 同一套全市场约束）", args: { security: "all", startDate: "2026-09-01" }, expect: { rejects: /security='all' 全市场查询须同时提供 startDate 和 endDate/ } },
   ],

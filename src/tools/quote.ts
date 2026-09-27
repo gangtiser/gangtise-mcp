@@ -262,7 +262,10 @@ function klineRun(
     // 每个请求都守着它，一只就超的仍单独一组、照旧标截断。
     if (securities.length > 1 && securities.length * tradingDays >= limit) {
       const cap = body.limit ?? strategy.cap
-      const groupSize = Math.max(1, Math.floor((cap - 1) / tradingDays))
+      // 多只合在一个请求里要靠 securityCode 分清各只的行；点名的列里没有它（旧工具不自动补身份列）
+      // 时只能逐只请求，否则整组分不开、只能丢掉。
+      const groupable = !body.fieldList || body.fieldList.includes("securityCode")
+      const groupSize = groupable ? Math.max(1, Math.floor((cap - 1) / tradingDays)) : 1
       const result = await callKlinePerSecurity(client, endpointKey, securities, (codes) => ({ ...body, securityList: codes, limit: cap }), cap, groupSize)
       return contentResult(await buildToolContent(normalizeRows(withNote(flagMissingFields(result, body.fieldList), note, lateStartNote(result, body.startDate, "tradeDate", fullMarket ? undefined : securities)))))
     }
