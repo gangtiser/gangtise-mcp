@@ -2,6 +2,43 @@
 
 > README 顶部只放最近 5 个版本的一行摘要 + 历史里程碑；本文件是完整历史明细（中文），回溯至 0.1.3。
 
+### 0.3.0 (2026-09-27)
+
+默认工具面重组：同类工具合并，新增债券、会议线索、联网搜索与云盘管理共 17 个工具（另有统一下载工具 `gangtise_download`），按条计费的多页拉取加积分预估保护。默认列出 89 个工具（0.2.11 为 103 个）。**含破坏性变更，升级前请看 README「从 0.2.x 升级」的对照表。**
+
+**⚠️ 破坏性变更**
+
+- **合并后的工具**：
+  - 三张财报表：`gangtise_income_statement` / `_balance_sheet` / `_cash_flow` 按代码后缀选择 A 股、港股或美股，A 股单季口径传 `quarterly: true`。
+  - 公告：`gangtise_announcement_list` 覆盖 A 股、港股、美股，按 `securityList` 的后缀选市场，一次只查一个市场；**不传证券时必须传 `market`**（A 股用 `aShares`）。
+  - 下载：15 个 `*_download` 工具合为 `gangtise_download`。`kind` 取原工具名去掉前缀 `gangtise_` 与后缀 `_download`（如 `research`、`announcement_hk`、`record`），原来的 ID 参数统一传 `id`，`fileType` / `contentType` / `resourceType` 的取值不变。
+  - `gangtise_day_kline_hk` / `_us` 改用 `gangtise_day_kline`（`'all'` 对应 `'hkStocks'` / `'usStocks'`）。
+- **legacy 档**：被合并的 27 个旧工具不再默认列出，`GANGTISE_MCP_TOOLS` 含 `legacy` 时列出（如 `core,legacy`），0.4.0 删除。它们同样受下面的积分预估保护与全市场双日期约束；两个旧日 K 工具不自动补身份列。
+- **观点与题材默认走低价档**：`gangtise_opinion_list` / `gangtise_foreign_opinion_list` 的 `withContent` 缺省为 `false`（只回标题与 200 字摘要，1 积分/条），要正文传 `true`（30 积分/条）或用 `gangtise_opinion_detail` 按 ID 取。`gangtise_concept_info` / `gangtise_concept_securities` 的 `full` 缺省为 `false`（50 积分/次），要催化事件、重点标记与纳入理由传 `true`（500 积分/次）。
+- **积分预估保护**：按条计费的列表一次要拉多页时（`fetchAll`，或 `size` 超过单页上限），先按计划行数 × 单价估算；超过 `GANGTISE_MCP_COST_LIMIT`（默认 1000，`0` 关闭）且未传 `confirmCost: true` 时拒绝，报错写明预计行数与积分。一整页就超过 50 积分的列表先取 1 条获知总数：被拒时只花这 1 条，放行时这 1 条会再计一次（估算已含这一条），结果带 `_cost_probe`。`gangtise_opinion_detail` 按去重后的 ID 数 × 30 估算，超过阈值时不发请求。单页请求不在保护范围内。
+- **全市场日 K 必须同时给 `startDate` 与 `endDate`**（`aShares` / `hkStocks` / `usStocks`，含旧工具的 `all`），缺一个即本地拒绝。
+- **多只或全市场时 `fieldList` 自动补身份列**：日 K、指数日 K 补 `securityCode` / `tradeDate`，分钟 K 补 `securityCode` / `tradeTime`，实时行情补 `securityCode`，补在最前，结果带 `_note`。单只不补；只点了一列的调用方会多拿到这几列。
+
+**🔴 会拿到错数据或漏数据的**
+
+- **行情结果标注首行晚于起点**：日 K、分钟 K、资金流的最早一行比请求起点晚 14 天以上时带 `_note`——可能上市或复牌晚于起点，也可能区间超出了账号对这类数据的可查窗口，窗口外的部分不报错、直接不返回。显式多只时逐只判断，并列出一行都没返回的代码。分钟 K 在给定区间内为空时，提示分钟线可查的历史比日线短。
+- **美股多股份类别的写法提醒**放在 `gangtise_day_kline` 与 `gangtise_realtime` 上：写法不统一（`FOXA.O` / `FOX.O`、`BRK_A.N` / `BRK_B.N`，Bio-Rad A 类就是 `BIO.N`），拼错可能命中同一公司的另一类别，拿到看着合理的错数。
+
+**新增**
+
+- **债券**（12 个，工具组 `bond`）：基本资料、日行情（交易所 + 银行间）、上清所估值、现金流、评级一览、公告、发行人资料、债项与主体评级变动默认列出；发行明细、利率债发行计划、行权安排点名加载。只收标准代码（如 `019742.SH` / `220205.IB`）；多数 0.4 积分/次，评级一览与两类评级变动按返回条数 / 债券只数 / 发行人数计。查询条件下全部没有数据时返回空结果；基本资料、评级一览与按代码查的发行人资料对没有数据的代码仍占一行（代码之外全为 null），其余工具没有数据的代码不出行——行数不等于有数据的只数。
+- **`gangtise_highlight_list`**：会议线索（会议核心要点信息流），5 积分/条，按偏移最多取到第 10000 条。
+- **`gangtise_web_search`**：投研定向的联网搜索（转载去重、信源分级 T0–T3、内容打标），1 积分/次，`includeContent` 可取网页正文。annotations 标 `openWorldHint: true`。
+- **云盘**：`gangtise_drive_folder_list` 逐层查看文件夹（免费，默认列出）；`gangtise_drive_manage`（新建、改名、移动、跨空间复制、删除，删除须 `confirm: true`）与 `gangtise_drive_upload`（单个文件最多 100MB）点名加载。
+- **工具分档**：`GANGTISE_MCP_TOOLS` 新增 `legacy`；`all` 在默认档之外加上点名加载的 5 个工具（债券事件三个、云盘管理与上传）；新工具组 `bond`、`download`、`tool`。`gangtise_download` 只下载来源列表工具已启用的资源：只选部分组时把 `download` 一并写上（如 `insight,download`）；禁用一组后也不下载这一组的资源（如 `core,-vault` 时的云盘、录音、会议）。
+- **`GANGTISE_MCP_COST_LIMIT`**：积分预估保护的阈值。
+
+**性能**
+
+- **多证券日 K 按单请求行数上限分组请求**，组内按传入顺序合并：20 只 × 约 6.5 年由 20 次请求降到 4 次。某组因证券代码无效失败时逐只重试，只标出无效的那只。
+- **全市场分片按工作日装满**：港股两日一片不再为周末单独请求，一个月约少四分之一请求。
+- **云盘上传按需从磁盘读取文件**，不把整个文件读入内存；上传与下载共用一组并发名额，不占查询名额。
+
 ### 0.2.11 (2026-09-26)
 
 内部重构，**无工具 / 参数增删**：默认的 `tools/list` 与 `instructions` 与 0.2.10 逐字节相同，发出的请求不变。

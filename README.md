@@ -6,11 +6,11 @@
 
 README 仅列最近 5 个版本的一行摘要，完整明细见 [CHANGELOG.md](CHANGELOG.md)：
 
+- **0.3.0 — 2026-09-27**：默认工具面重组，**含破坏性变更，见下方「从 0.2.x 升级」**。三张财报表、公告列表按代码后缀选市场，15 个下载工具合为 `gangtise_download`，被合并的 27 个旧工具进 legacy 档（`GANGTISE_MCP_TOOLS=core,legacy` 可用，0.4.0 删除）。观点、题材默认走低价档（1 积分/条、50 积分/次）；按条计费的多页拉取超过 `GANGTISE_MCP_COST_LIMIT`（默认 1000）须 `confirmCost: true`。新增债券 12 个、会议线索、联网搜索与云盘管理。多证券日 K 按行数上限合批，全市场日 K 须同时给起止日期，多只时 `fieldList` 自动补身份列；行情首行晚于起点时以 `_note` 提示。
 - **0.2.11 — 2026-09-26**：内部重构，工具与参数同 0.2.10。列式行情结果整理与落盘提速约四分之一（全市场分片内存峰值降约四成），ID 不重复时翻页去重几乎不再占开销，启动约快 5%；大结果落盘指针保留全部不完整明细。新增可选环境变量 `GANGTISE_MCP_TOOLS`（按工具组或工具名选择、禁用工具，基础工具始终启用）与 `GANGTISE_MCP_GLOBAL_CONCURRENCY`（跨调用的在飞请求总数上限，查询与下载各自计数）。
 - **0.2.10 — 2026-09-26**：部分同步 CLI v0.41.1–v0.43.0，不传新参数时返回与价格不变。🔴 翻页结果去掉跨页重复行并标 `duplicate_rows` / `changed_rows`，`total` 封顶判定补偏移窗口与越界被拒两种情形；`valuation_analysis` 显式下发 `limit`（默认 2000），撞满标 `limit_truncated`（缺的是区间开头）；`index_day_kline` 不再收 `all`（该接口对 `all` 返空）。新增 `gangtise_opinion_detail`，观点列表加 `withContent`、题材加 `full` 两个低价档开关；`constant_list` 的 `category` 放开到接口现有的 17 类。`stock_summary` / `earning_forecast` / 带正文的观点列表不再自动重发。
 - **0.2.9 — 2026-09-20**：健壮性修复，无工具/参数/字段增删。🔴 并发下载不再被临时目录回收误删（此前下载收尾报「文件不存在」，在计费接口上等于已付过费的内容拿不到）；异步生成（`earnings_review` / `viewpoint_debate`）等待到期后不再继续重发请求，`dataId` 仍可用 `*_check` 取回。临时目录清理失败不再让一次已成功的直链下载报错，下载失败时抛出的也始终是下载本身的错误；大响应落盘失败后目录能正常回收。
 - **0.2.8 — 2026-09-19**：同步 CLI v0.40.0–v0.40.1。**新增 5 个自选股池写工具**（建池 / 改名 / 加股 / 移除 / 删池，本服务仅有的写操作，全部免费）：删池须显式 `confirm: true` 且不可恢复，逐条失败标 `_partial` + `failedItems`。🔴 token 缓存改为绑定凭证——**换过 `GANGTISE_ACCESS_KEY` 的请复核换号前后取到的数据**，此前会继续使用上一个账号未过期的 token 且不报错。🔴 `indicator_time_series` 的 `calendarType` 不传时按指标类型自动选轴，接口默认是 `ND` 不是 `TD`；给报告期类指标传 `TD` 会整片返 `null` 且不报错。EDE 截面 / 时序单次 3 万单元格上限。
-- **0.2.7 — 2026-09-13**：同步 CLI v0.39.0，无工具/参数/字段增删。`stock_summary` 的 `securityList` 单次上限 5000 → 6000（接口上限），全 A 股可一次提交完；无看点的证券不在返回列表里，返回行数少于提交数是正常的。
 
 ### 历史里程碑
 
@@ -37,21 +37,57 @@ README 仅列最近 5 个版本的一行摘要，完整明细见 [CHANGELOG.md](
 
 ## 功能覆盖
 
-103 个工具，分十一类。除 5 个自选股池写操作外全部只读。完整清单与每个参数的语义由 `tools/list` 提供，此处只列范围。
+默认列出 89 个工具（`GANGTISE_MCP_TOOLS=all` 为 94 个，见下方「工具分档与选择」）。写操作只有自选股池的 5 个与点名加载的云盘管理、上传，其余全部只读。完整清单与每个参数的语义由 `tools/list` 提供，此处只列范围。
 
 | 类别 | 覆盖 |
 |---|---|
 | 上下文 | 运行时当前日期、年份、时间与时区（用于换算「今天 / 最近 / 今年」） |
 | 检索与 ID 解析 | 证券搜索；行业 / 城市 / 公告分类 / 区域 / 债券与基金分类等常量；题材与板块成分股；首席分析师、机构、公众号 ID |
-| 观点与研报 | 国内首席观点与外资观点（可按 ID 取全文）、会议纪要、帕米尔专家纪要（独立库，需单独购买）、券商研报、外资研报、独立观点、A/港/美股公告、产业公众号资讯、投资者问答、研报图表 |
+| 观点与研报 | 国内首席观点与外资观点（可按 ID 取全文）、会议纪要、会议线索（核心要点信息流）、帕米尔专家纪要（独立库，需单独购买）、券商研报、外资研报、独立观点、A/港/美股公告、产业公众号资讯、投资者问答、研报图表；研报、纪要、公告、独立观点、公众号文章与研报图表的原文用 `gangtise_download` 下载，机构观点正文用 `gangtise_opinion_detail` 按 ID 取 |
 | 会议日程 | 路演、调研、策略会、论坛（日程；正文走会议纪要） |
 | 财报日历 | 业绩预告 / 快报 / 公告的发布排期（含未来已排期）与原文 PDF |
 | 行情 | A/港/美股日 K 与实时快照、分钟 K、指数日 K、A 股个股资金流向；日 K / 实时 / 分钟 K 另覆盖沪深 ETF 与 20 个全球指数 |
-| 基本面 | A/港/美股三大报表（累计 / 单季）、主营业务、估值、股东、盈利预测 |
+| 基本面 | A/港/美股三大报表（按代码后缀选市场，A 股可取单季）、主营业务、估值、股东、盈利预测 |
+| 债券 | 基本资料、日行情（交易所 + 银行间）、上清所估值、现金流、评级一览与评级变动、公告、发行人资料；点名加载：发行明细、利率债发行计划、行权安排 |
 | 数据指标（EDE） | 证券级指标搜索；截面与时序（二维矩阵展平为宽表）；条件选股（变量绑指标 + 表达式筛选） |
 | 另类数据 | EDB 宏观与行业经济指标；题材指数基本信息与成分股 |
 | AI 能力 | 知识库检索、个股看点、一页通、投资逻辑、同业对比、投研线索、主题跟踪、业绩点评、观点辩证、管理层讨论 |
-| 云盘与语音 | 网盘文件、录音转写、我的会议、微信群消息、自选股池（含建池 / 改名 / 加股 / 移除 / 删池，本服务仅有的写操作） |
+| 联网搜索 | 投研定向的公开网页检索（信源分级、转载去重、可取正文） |
+| 云盘与语音 | 网盘文件与文件夹、录音转写、我的会议、微信群消息、自选股池（含建池 / 改名 / 加股 / 移除 / 删池）；点名加载：云盘新建 / 改名 / 移动 / 复制 / 删除与上传 |
+
+## 工具分档与选择
+
+工具分三档：**默认档**（89 个，不设置时列出）、**点名加载**（5 个：债券发行明细、发行计划、行权安排，云盘管理与上传）、**legacy**（0.3.0 合并掉的 27 个旧工具，0.4.0 删除）。用环境变量 `GANGTISE_MCP_TOOLS` 选择，逗号分隔取并集：
+
+| 写法 | 列出的工具 |
+|---|---|
+| 不设置 / `core` | 默认档 |
+| `all` | 默认档 + 点名加载的 |
+| `core,legacy` | 默认档 + 旧工具（升级过渡用） |
+| `core,bond` | 默认档 + 债券全部 12 个 |
+| `core,-vault` | 默认档去掉云盘、录音、会议、群消息与自选股池 |
+
+组名：`context` `lookup` `reference` `insight` `quote` `fundamental` `bond` `ai` `vault` `download` `alternative` `indicator` `tool` `response`，也可写单个工具名；前加 `-` 禁用。被禁用的工具既不列出也调不到。`gangtise_download` 属于 `download` 组，且只下载来源列表工具已启用的资源（研报下载要 `gangtise_research_list`、云盘下载要 `gangtise_drive_list`，依此类推）：只选部分组时把 `download` 一并写上，如 `insight,download`。`gangtise_current_date`、`gangtise_read_response`、`gangtise_securities_search` 始终启用。
+
+工具定义每次会话都会进入模型上下文，工具越多占用越大。建议：日常股票投研用默认档；要用债券事件或云盘管理时加对应组名或写 `all`。**Claude Code** 默认开启 MCP tool search，按需加载工具定义，可以直接用 `all`；设 `ENABLE_TOOL_SEARCH=false` 可关闭。`ANTHROPIC_BASE_URL` 指向非官方主机时默认不启用，代理支持 `tool_reference` 时可设 `ENABLE_TOOL_SEARCH=true` 开启（据 Claude Code 官方文档，核对于 2026-09-27）。
+
+### 从 0.2.x 升级
+
+| 0.2.x | 0.3.0 |
+|---|---|
+| `gangtise_income_statement_hk` / `_us`、`gangtise_balance_sheet_hk` / `_us`、`gangtise_cash_flow_hk` / `_us` | 同名去掉后缀的工具，按 `securityCode` 的后缀选市场 |
+| `gangtise_income_statement_quarterly`、`gangtise_cash_flow_quarterly` | `gangtise_income_statement` / `gangtise_cash_flow` 传 `quarterly: true`（仅 A 股） |
+| `gangtise_announcement_hk_list` / `_us_list` | `gangtise_announcement_list`，按 `securityList` 的后缀选市场；不传证券时传 `market`（`aShares` / `hkStocks` / `usStocks`） |
+| `gangtise_announcement_list` 不传证券查 A 股全量 | 须传 `market: "aShares"` |
+| `gangtise_<资源>_download`（15 个） | `gangtise_download`：`kind` 为原工具名中间那段（如 `research`、`announcement_hk`、`knowledge_resource`、`record`），原 ID 参数统一传 `id`，`fileType` / `contentType` / `resourceType` 不变。只选部分组的配置要加上 `download` 组 |
+| `gangtise_day_kline_hk` / `_us`（`security: 'all'`） | `gangtise_day_kline`（`'hkStocks'` / `'usStocks'`） |
+| 观点列表缺省带正文（30 积分/条） | 缺省只回标题与 200 字摘要（1 积分/条）；要正文传 `withContent: true`，或用 `gangtise_opinion_detail` |
+| 题材画像与成分股缺省为完整版（500 积分/次） | 缺省 50 积分/次；要催化事件、重点标记与纳入理由传 `full: true` |
+| `fetchAll` 或大 `size` 直接拉取；`gangtise_opinion_detail` 一次传很多 ID | 按条计费的多页拉取与按 ID 批量取观点正文，预估超过 `GANGTISE_MCP_COST_LIMIT`（默认 1000）时报错并给出估算，确认后传 `confirmCost: true` |
+| 全市场日 K 可只给一个日期 | 须同时给 `startDate` 与 `endDate` |
+| 多只 / 全市场时 `fieldList` 只返回点名的列 | 自动在最前补上身份列：日 K、指数日 K 补 `securityCode` / `tradeDate`，分钟 K 补 `securityCode` / `tradeTime`，实时行情只补 `securityCode`（旧日 K 工具不补） |
+
+暂时不改调用的，设 `GANGTISE_MCP_TOOLS=core,legacy` 即可继续使用旧工具名；旧工具同样受积分预估保护与全市场双日期约束。
 
 ## 前置要求
 
@@ -197,10 +233,11 @@ Get-ChildItem "$env:LOCALAPPDATA\npm-cache\_npx" -Recurse -Filter package.json |
 | `GANGTISE_MCP_ASYNC_TIMEOUT_MS` | `55000` | 异步 AI 任务默认等待超时（毫秒）；保持在 MCP 客户端请求超时（约 60s）以下，超时返回 dataId 供 `*_check` 续查。需更长等待可调高本值或按调用传 `waitSeconds`（最大 180） |
 | `GANGTISE_TOKEN_CACHE_PATH` | `~/.config/gangtise/token.json` | Token 缓存文件路径 |
 | `GANGTISE_PAGE_CONCURRENCY` | `5` | 分页、全市场分片与逐只请求的并发数（1–32）；连接池随之放大，至少 16 |
-| `GANGTISE_MCP_GLOBAL_CONCURRENCY` | `max(16, 分页并发)` | 同时在飞的请求总数上限，跨所有调用共享，查询与下载各自计数（1–64）；默认与连接池同大，单次调用不受影响，只在多个调用同时分页 / 分片时封顶总量 |
+| `GANGTISE_MCP_GLOBAL_CONCURRENCY` | `max(16, 分页并发)` | 同时在飞的请求总数上限，跨所有调用共享，查询与传输（下载、上传）各自计数（1–64）；默认与连接池同大，单次调用不受影响，只在多个调用同时分页 / 分片时封顶总量 |
 | `GANGTISE_INLINE_MAX_BYTES` | `65536` | 工具结果内联字节上限；超过则落盘为临时文件并返回可翻页的预览指针。默认 64KB（约 1.5–2 万 token）控制单次响应体积；批量导出可调大（最低 8192） |
 | `GANGTISE_MAX_DOWNLOAD_BYTES` | `1073741824` | 单个下载文件的字节上限（默认 1 GiB）。超出时在落盘前拒绝（有 `Content-Length`）或流式中止（无该头），避免一次超大下载占满临时磁盘。`/tmp` 较小的部署可调低（最低 1 MB） |
-| `GANGTISE_MCP_TOOLS` | `core` | 列出并启用哪些工具，逗号分隔取并集：`core` / `all`、工具组名（`context` `lookup` `reference` `insight` `quote` `fundamental` `ai` `vault` `alternative` `indicator` `response`）或工具名；前加 `-` 禁用该组或该工具（不列出，也调不到），如 `core,-vault`。`gangtise_current_date` / `gangtise_read_response` / `gangtise_securities_search` 始终启用，选了异步提交工具时其 `*_check` 一并启用。写错名字、禁用基础工具时启动即报错。目前全部工具都在 `core` |
+| `GANGTISE_MCP_TOOLS` | `core` | 列出并启用哪些工具，逗号分隔取并集：`core` / `all` / `legacy`、工具组名或工具名；前加 `-` 禁用该组或该工具（不列出，也调不到），如 `core,-vault`。写法与组名见「工具分档与选择」。选了异步提交工具时其 `*_check` 一并启用；写错名字、禁用基础工具时启动即报错 |
+| `GANGTISE_MCP_COST_LIMIT` | `1000` | 积分预估保护的阈值：按条计费的多页拉取（`fetchAll`，或 `size` 超过单页上限）与按 ID 批量取观点正文，预估超过它时先报错给出估算，确认后传 `confirmCost: true`。`0` 关闭；非法值回退默认。单页请求不在保护范围内 |
 | `GANGTISE_VERBOSE` | — | 设为 `1` 开启请求耗时日志（输出到 stderr） |
 
 认证优先级：`GANGTISE_TOKEN` > Token 缓存文件 > `GANGTISE_ACCESS_KEY` + `GANGTISE_SECRET_KEY`（自动换取并缓存 Token）。
@@ -227,6 +264,8 @@ Get-ChildItem "$env:LOCALAPPDATA\npm-cache\_npx" -Recurse -Filter package.json |
 | `security_only_row_cap` | 财报日历只按 `securityList` 筛选时最多取 1000 行；取满且 `total` 显示还有剩余，说明该筛选可能没有生效 | `_hint` |
 
 拿到 `_partial` 后的常规处置：按标记指出的那几天 / 那几只 / 那几列缩小范围重拉，而不是把结果当完整集继续算。
+
+另有两个说明字段，不属于不完整标记：`_note`（如行情的最早一行晚于请求起点、没有返回任何行的代码、`fieldList` 自动补了哪几列）与 `_cost_probe`（为估算积分先取的那 1 条在正式拉取时又计了一次）。
 
 ## 大响应处理
 
@@ -305,6 +344,8 @@ npm view gangtise-mcp version        # 可能滞后几分钟，以 Actions 日�
 **取到的数据会进入你配置的 AI 客户端。** 本服务是一条管道：云盘文件、语音转写、我的会议、微信群消息、研报全文等**私域内容**，一旦被工具取回，就会进入你所连接的模型上下文，并按该客户端自己的策略被处理或留存。把这些工具接给第三方客户端前，请先确认对方的数据处理条款。
 
 **凭据不要外传。** `GANGTISE_ACCESS_KEY` / `GANGTISE_SECRET_KEY` / `GANGTISE_TOKEN` 与 token 缓存文件（默认 `~/.config/gangtise/token.json`）等同于账号本身。提 issue、贴日志前先把它们去掉；`GANGTISE_VERBOSE=1` 的 stderr 输出不含凭据，但请求 URL 里可能带有你的查询内容。
+
+**联网搜索返回的是公开网页内容**，不是 Gangtise 平台数据；可靠性按结果里的信源等级 `tier` 与内容标记 `flags` 判断。
 
 **计费口径。** 工具描述里的【积分】标签是发布时的单价快照，用于让模型在调用前估算成本；**实际扣费以你的账户权限与平台当时的计费规则为准**。标注为免费的工具同样受账户数据权限约束。
 
