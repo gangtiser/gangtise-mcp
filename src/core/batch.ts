@@ -287,8 +287,11 @@ function inInputOrder(rows: unknown[], fields: string[] | undefined, group: stri
   if (column < 0 && rows.some(Array.isArray)) return undefined
   const rank = new Map(group.map((code, i) => [code.toUpperCase(), i]))
   const codeOf = (row: unknown): unknown => (Array.isArray(row) ? row[column] : (row as Record<string, unknown> | null)?.securityCode)
+  const at = rows.map((row) => rank.get(String(codeOf(row)).toUpperCase()) ?? group.length)
+  // 已经是传入顺序（调用方按代码顺序传时就是）就原样返回，不为每行分配排序用的临时对象。
+  if (at.every((value, i) => i === 0 || at[i - 1] <= value)) return rows
   return rows
-    .map((row, i) => ({ row, i, at: rank.get(String(codeOf(row)).toUpperCase()) ?? group.length }))
+    .map((row, i) => ({ row, i, at: at[i] }))
     .sort((a, b) => a.at - b.at || a.i - b.i)
     .map(({ row }) => row)
 }

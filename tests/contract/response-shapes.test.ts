@@ -44,7 +44,8 @@ function perSecurityRows(endpoint: string, override: Record<string, UpstreamRepl
     const codes = bodyOf(req).securityList as string[]
     const hit = codes.find((code) => override[code])
     if (hit) return override[hit]
-    return { data: { total: codes.length, fieldList: ["securityCode", "tradeDate", "close"], list: [...codes].sort().map((code) => [code, "2026-09-01", 1]) } }
+    const day = String(bodyOf(req).startDate ?? "2026-09-01")
+    return { data: { total: codes.length, fieldList: ["securityCode", "tradeDate", "close"], list: [...codes].sort().map((code) => [code, day, 1]) } }
   })
 }
 
@@ -144,6 +145,8 @@ const SCENARIOS: Scenario[] = [
   // 4 只 × 约 4826 个交易日：每组 2 只（limit 抬到 10000），失败 / 坏形状按整组记名；成功那组按传入顺序还原。
   { name: "partial-failed-securities", tool: "gangtise_day_kline", args: { security: ["600519.SH", "000858.SZ", "00700.HK", "AAPL.O"], startDate: "2008-01-01", endDate: "2026-06-30" }, upstream: perSecurityRows("quote.day-kline", { "00700.HK": errorEnvelope("120001", "证券代码无效") }) },
   { name: "partial-malformed-securities", tool: "gangtise_day_kline", args: { security: ["600519.SH", "000858.SZ", "00700.HK", "AAPL.O"], startDate: "2008-01-01", endDate: "2026-06-30" }, upstream: perSecurityRows("quote.day-kline", { "AAPL.O": { data: { total: 1 } } }) },
+  // 最早一行比请求的起点晚两周以上：区间可能超出了账号的可查窗口，用 _note 说明。
+  { name: "present-late-start", tool: "gangtise_day_kline", args: { security: "600519.SH", startDate: "2015-01-01", endDate: "2026-09-30" }, upstream: on("quote.day-kline", () => ({ data: { total: 2, fieldList: ["securityCode", "tradeDate", "close"], list: [["600519.SH", "2021-09-01", 1], ["600519.SH", "2021-09-02", 2]] } })) },
   // 多只 + fieldList 只点了 close：身份列补到最前，结果用 _note 说明。
   { name: "present-identity-fields", tool: "gangtise_day_kline", args: { security: ["600519.SH", "000858.SZ"], startDate: "2026-09-01", endDate: "2026-09-01", fieldList: ["close"] }, upstream: perSecurityRows("quote.day-kline") },
   { name: "partial-truncated-securities", tool: "gangtise_minute_kline", args: { security: ["600519.SH", "512800.SH"], startTime: "2026-09-01 09:30:00", endTime: "2026-09-01 15:00:00", limit: 1 }, upstream: on("quote.minute-kline", (req) => ({ data: { total: 1, fieldList: ["securityCode", "tradeTime", "close"], list: [[bodyOf(req).securityCode, "2026-09-01 09:31:00", 1]] } })) },

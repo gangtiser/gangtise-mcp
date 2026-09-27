@@ -48,7 +48,36 @@ function withIdentityFields(body: { fieldList?: string[] }, several: boolean, id
   return `fieldList 已自动在最前补上 ${missing.join(" / ")}，否则多只或全市场的各行无法归属`
 }
 
-function withNote(result: unknown, note: string | undefined): unknown {
+/** 首行比请求的起点晚这么多天以上才提示：两周内的差距是节假日与停牌。 */
+const LATE_START_DAYS = 14
+
+/** 最早一行比请求的起点晚两周以上时说一声：可能上市或复牌晚于起点，也可能区间超出了账号对这类数据的
+ *  可查窗口——窗口外的部分不报错、直接不返回，结果读起来像覆盖了整个区间。分片失败本身就会让序列晚
+ *  开始，它有自己的标记，这里不再重复归因。多只合并时首行不一定最早，所以扫全部行。 */
+function lateStartNote(result: unknown, start: unknown, field: string): string | undefined {
+  if (typeof start !== "string" || !result || typeof result !== "object" || Array.isArray(result)) return undefined
+  const rec = result as { fieldList?: unknown; list?: unknown; _partial_reason?: unknown }
+  if (!Array.isArray(rec.list) || String(rec._partial_reason ?? "").includes("failed_shards")) return undefined
+  const index = Array.isArray(rec.fieldList) ? rec.fieldList.indexOf(field) : -1
+  // 同一列的日期 / 时间串格式一致，整串的字典序就是先后顺序：逐行比整串、最后只切一次日期，
+  // 全市场十万行级的结果不必每行分配一个子串。
+  let min: string | undefined
+  for (const row of rec.list) {
+    const value = Array.isArray(row) ? (index >= 0 ? row[index] : undefined) : (row as Record<string, unknown> | null)?.[field]
+    if (typeof value === "string" && (min === undefined || value < min)) min = value
+  }
+  const earliest = min?.slice(0, 10)
+  const from = start.slice(0, 10)
+  if (!earliest || !/^\d{4}-\d{2}-\d{2}$/.test(earliest)) return undefined
+  const lateDays = (Date.parse(`${earliest}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000
+  return lateDays > LATE_START_DAYS
+    ? `最早一行是 ${earliest}，比请求的起点 ${from} 晚 ${lateDays} 天：可能上市或复牌晚于起点，也可能区间超出了账号对这类数据的可查窗口——窗口外的部分不报错、直接不返回`
+    : undefined
+}
+
+/** 结果上的 `_note`：身份列自动补全与首行晚到，两条都有时用分号连起来。 */
+function withNote(result: unknown, ...notes: Array<string | undefined>): unknown {
+  const note = notes.filter(Boolean).join("；")
   return note && result && typeof result === "object" && !Array.isArray(result) ? { ...result, _note: note } : result
 }
 
@@ -180,7 +209,7 @@ function klineRun(
         calendar: strategy.calendar,
         cap: strategy.cap,
       })
-      return contentResult(await buildToolContent(normalizeRows(withNote(flagMissingFields(result, body.fieldList), note))))
+      return contentResult(await buildToolContent(normalizeRows(withNote(flagMissingFields(result, body.fieldList), note, lateStartNote(result, body.startDate, "tradeDate")))))
     }
     // Explicit-security request: pin the effective row cap in the body so the
     // limit-truncation check is exact regardless of any server-default drift
@@ -195,10 +224,10 @@ function klineRun(
       const cap = body.limit ?? strategy.cap
       const groupSize = Math.max(1, Math.floor((cap - 1) / tradingDays))
       const result = await callKlinePerSecurity(client, endpointKey, securities, (codes) => ({ ...body, securityList: codes, limit: cap }), cap, groupSize)
-      return contentResult(await buildToolContent(normalizeRows(withNote(flagMissingFields(result, body.fieldList), note))))
+      return contentResult(await buildToolContent(normalizeRows(withNote(flagMissingFields(result, body.fieldList), note, lateStartNote(result, body.startDate, "tradeDate")))))
     }
     const result = flagLimitTruncated(await client.call(endpointKey, { ...body, limit }), limit)
-    return contentResult(await buildToolContent(normalizeRows(withNote(flagMissingFields(result, body.fieldList), note))))
+    return contentResult(await buildToolContent(normalizeRows(withNote(flagMissingFields(result, body.fieldList), note, lateStartNote(result, body.startDate, "tradeDate")))))
   }
 }
 
@@ -312,7 +341,9 @@ export const quoteFamily: FamilyModule = {
         const result = securities.length > 1
           ? await callKlinePerSecurity(client, "quote.minute-kline", securities, (codes) => ({ ...body, securityCode: codes[0] }), effLimit)
           : flagLimitTruncated(await client.call("quote.minute-kline", { ...body, securityCode: securities[0] }), effLimit)
-        return contentResult(await buildToolContent(normalizeRows(withNote(flagMissingFields(result, body.fieldList as string[] | undefined), note))))
+        // 分钟线可查的历史比日线短得多，整段落在它之前的区间返回空结果而不报错。
+        const emptyHint = startTime || endTime ? "0 行结果：分钟线可查的历史比日线短得多，整段落在它之前的区间返回空结果而不报错——换一个近期区间核对；也请确认证券代码与后缀。" : undefined
+        return contentResult(await buildToolContent(normalizeRows(withNote(flagMissingFields(result, body.fieldList as string[] | undefined), note, lateStartNote(result, startTime, "tradeTime"))), { emptyHint }))
       },
     }),
     defineTool({
@@ -379,12 +410,12 @@ export const quoteFamily: FamilyModule = {
             throw new ValidationError("security='aShares' 全市场资金流向须同时提供 startDate 和 endDate（按日分片拉取）")
           }
           const result = await callKlineWithSharding(client, "quote.fund-flow", body, { shardDays: FUND_FLOW.fullMarketKeywords.aShares, fullMarketValue: "aShares", tool: "gangtise_fund_flow", calendar: FUND_FLOW.calendar, cap: FUND_FLOW.cap })
-          return contentResult(await buildToolContent(normalizeRows(flagMissingFields(result, body.fieldList))))
+          return contentResult(await buildToolContent(normalizeRows(withNote(flagMissingFields(result, body.fieldList), lateStartNote(result, body.startDate, "tradeDate")))))
         }
         // Pin the row cap so limit-truncation detection is exact (mirrors CLI DEFAULT_QUOTE_LIMIT).
         const limit = body.limit ?? DEFAULT_QUOTE_LIMIT
         const flagged = flagLimitTruncated(await client.call("quote.fund-flow", { ...body, limit }), limit)
-        return contentResult(await buildToolContent(normalizeRows(flagMissingFields(flagged, body.fieldList))))
+        return contentResult(await buildToolContent(normalizeRows(withNote(flagMissingFields(flagged, body.fieldList), lateStartNote(flagged, body.startDate, "tradeDate")))))
       },
     }),
   ],

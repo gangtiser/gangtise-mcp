@@ -709,3 +709,26 @@ describe("volume unit is stated on every tool that returns it", () => {
     }
   })
 })
+
+// 账号窗口外的部分不报错、直接不返回：最早一行比起点晚两周以上才提示，两周内是节假日与停牌。
+describe("late first row note", () => {
+  const rowsFrom = (day: string) => ({ call: vi.fn().mockResolvedValue({ total: 1, fieldList: ["securityCode", "tradeDate", "close"], list: [["600519.SH", day, 1]] }), download: vi.fn() }) as unknown as GangtiseClient
+  const noteOf = async (client: GangtiseClient, args: Record<string, unknown>) => {
+    const result = await (await connect(client)).callTool({ name: "gangtise_day_kline", arguments: args })
+    return (JSON.parse((result.content as Array<{ text: string }>)[0].text) as { _note?: string })._note
+  }
+
+  it("notes a first row more than two weeks after the requested start", async () => {
+    expect(await noteOf(rowsFrom("2021-09-01"), { security: "600519.SH", startDate: "2021-08-01", endDate: "2021-09-30" })).toMatch(/最早一行是 2021-09-01，比请求的起点 2021-08-01 晚 31 天/)
+  })
+
+  it("stays quiet within two weeks, and without a start date", async () => {
+    expect(await noteOf(rowsFrom("2021-08-10"), { security: "600519.SH", startDate: "2021-08-01", endDate: "2021-09-30" })).toBeUndefined()
+    expect(await noteOf(rowsFrom("2021-09-01"), { security: "600519.SH", endDate: "2021-09-30" })).toBeUndefined()
+  })
+
+  it("tells an empty minute-bar range apart from a quiet market", async () => {
+    const result = await (await connect(makeMockClient())).callTool({ name: "gangtise_minute_kline", arguments: { security: "600519.SH", startTime: "2015-01-05 09:30:00", endTime: "2015-01-05 15:00:00" } })
+    expect((result.content as Array<{ text: string }>)[0].text).toMatch(/分钟线可查的历史比日线短得多/)
+  })
+})
