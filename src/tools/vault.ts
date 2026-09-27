@@ -91,7 +91,7 @@ export const listSpecs: JsonToolSpec[] = [
 export const downloadSpecs: DownloadToolSpec[] = [
   {
     name: "gangtise_drive_download",
-    tier: "core",
+    tier: "legacy",
     description: "按 fileId 从 Gangtise 云盘下载文件。",
     endpointKey: "vault.drive.download",
     inputSchema: {
@@ -100,7 +100,7 @@ export const downloadSpecs: DownloadToolSpec[] = [
   },
   {
     name: "gangtise_record_download",
-    tier: "core",
+    tier: "legacy",
     description: "下载语音录音转写内容，可选原始音频、ASR 文字或 AI 摘要。",
     endpointKey: "vault.record.download",
     inputSchema: {
@@ -110,7 +110,7 @@ export const downloadSpecs: DownloadToolSpec[] = [
   },
   {
     name: "gangtise_my_conference_download",
-    tier: "core",
+    tier: "legacy",
     description: "下载会议录音资源，返回 ASR 转写或 AI 摘要。",
     endpointKey: "vault.my-conference.download",
     inputSchema: {

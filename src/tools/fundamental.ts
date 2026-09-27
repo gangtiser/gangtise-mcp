@@ -6,6 +6,8 @@ import { normalizeRows } from "../core/normalize.js"
 import { markPartial } from "../core/partial.js"
 import { dateString } from "../core/dateContext.js"
 import { nonEmptyString, uniqueFieldList, enumList } from "../mcp/schemas.js"
+import { parseSecurityCode } from "../core/securityCode.js"
+import { ValidationError } from "../core/errors.js"
 import { fundamentalEndpoints } from "./fundamental.endpoints.js"
 
 const periodEnum = enumList(z.enum(["q1", "interim", "q3", "annual", "latest"])).optional().describe("q1=一季报 | interim=中报 | q3=三季报 | annual=年报 | latest=最新")
@@ -92,25 +94,64 @@ function flagValuationRange(normalized: unknown, limit: number, startDate: unkno
 // 什么也测不出来。
 const PIT_NOTE = "做 point-in-time / 时点对齐时，announcementDate 是当前返回报表版本的公告日，earliestAnncDate 是接口记录的首次公告日。consolidated 也可能返回后来重述的数值，不能把它配上 earliestAnncDate 就当成首次披露值；category 仍可能是一季报/半年报告/三季报，不能靠它排除重述。应按返回版本的公告日控制数值可见时间；需要首次披露的原始数值时，请核对当时公告。"
 
-export const specs: JsonToolSpec[] = [
-  {
-    name: "gangtise_income_statement",
+/** 三表按代码后缀选市场。period 的取值闭集按「市场 × 累计 / 单季」各一套，与原来按市场拆开的
+ *  工具一致；对外 schema 是并集，resolve 定了市场再按那一套校验。单季口径只有 A 股利润表与现金流量表有。 */
+const STATEMENT_PERIODS = {
+  cn: ["q1", "interim", "q3", "annual", "latest"],
+  cnQuarterly: ["q1", "q2", "q3", "q4", "latest"],
+  hk: ["q1", "h1", "q3", "h2", "nsd", "annual", "latest"],
+  us: ["q1", "h1", "q3", "nsd", "annual", "latest"],
+} as const
+const STATEMENT_PERIOD_VALUES = ["q1", "q2", "q3", "q4", "interim", "h1", "h2", "nsd", "annual", "latest"] as const
+const MARKET_NAME = { cn: "A股", hk: "港股", us: "美股" } as const
+
+function statementSpec(config: {
+  name: string
+  description: string
+  endpoints: { cn: string; cnQuarterly?: string; hk: string; us: string }
+}): JsonToolSpec {
+  const { endpoints } = config
+  return {
+    name: config.name,
     tier: "core",
-    description: `查询A股利润表（累计口径），支持期间、财年、报告类型筛选。${PIT_NOTE}`,
-    endpointKey: "fundamental.income-statement",
+    description: config.description,
+    endpointKey: endpoints.cn,
     paginated: false,
     inputSchema: {
-      securityCode,
+      securityCode: nonEmptyString.describe("证券代码，按后缀选市场：A股 .SH/.SZ/.BJ（如 600519.SH）、港股 .HK（5 位数字前补零，如 00700.HK）、美股 .O/.N/.A（如 TSLA.O）"),
       ...dateRange,
       fiscalYear,
-      period: periodEnum,
+      period: enumList(z.enum(STATEMENT_PERIOD_VALUES)).optional().describe("按市场取值：A股累计 q1/interim/q3/annual/latest；A股单季 q1/q2/q3/q4/latest；港股 q1/h1/q3/h2/nsd/annual/latest；美股 q1/h1/q3/nsd/annual/latest（interim/h1=中报 h2=下半年报 nsd=不规则跨度）"),
+      ...(endpoints.cnQuarterly ? { quarterly: z.boolean().optional().describe("true=A股单季口径（港股、美股没有）") } : {}),
       reportType: reportTypeEnum,
       fieldList,
     },
-  },
+    resolve: ({ quarterly, ...body }) => {
+      const code = String(body.securityCode)
+      const market = parseSecurityCode(code).market
+      if (!market) throw new ValidationError(`无法从 '${code}' 的后缀判断市场：A股 .SH/.SZ/.BJ、港股 .HK、美股 .O/.N/.A。`)
+      if (quarterly === true && market !== "cn") throw new ValidationError(`单季口径（quarterly）只有 A 股有，'${code}' 是${MARKET_NAME[market]}代码：去掉 quarterly。`)
+      const scheme = market === "cn" ? (quarterly === true ? "cnQuarterly" : "cn") : market
+      const allowed: readonly string[] = STATEMENT_PERIODS[scheme]
+      const bad = (Array.isArray(body.period) ? body.period : []).filter((p) => !allowed.includes(String(p)))
+      if (bad.length > 0) {
+        throw new ValidationError(`${MARKET_NAME[market]}${scheme === "cnQuarterly" ? "单季" : ""}报表的 period 只收 ${allowed.join(" / ")}，'${bad[0]}' 不在其中。`)
+      }
+      const endpointKey = scheme === "cnQuarterly" ? endpoints.cnQuarterly! : endpoints[market]
+      return { endpointKey, body }
+    },
+  }
+}
+
+export const specs: JsonToolSpec[] = [
+  statementSpec({
+    name: "gangtise_income_statement",
+    description: `查询利润表，按代码后缀自动选市场：A股（累计口径，quarterly=true 为单季）、港股（中国会计准则）、美股；支持期间、财年、报告类型筛选。${PIT_NOTE}单季口径的 companyType 返回的是未映射的数字码，要读公司类型请取累计口径报表的同名字段。`,
+    endpoints: { cn: "fundamental.income-statement", cnQuarterly: "fundamental.income-statement-quarterly", hk: "fundamental.income-statement-hk", us: "fundamental.income-statement-us" },
+  }),
   {
     name: "gangtise_income_statement_quarterly",
-    tier: "core",
+    tier: "legacy",
     description: `查询A股单季利润表。${PIT_NOTE}本工具的 companyType 返回的是未映射的数字码，要读公司类型请取累计口径报表的同名字段。`,
     endpointKey: "fundamental.income-statement-quarterly",
     paginated: false,
@@ -123,39 +164,19 @@ export const specs: JsonToolSpec[] = [
       fieldList,
     },
   },
-  {
+  statementSpec({
     name: "gangtise_balance_sheet",
-    tier: "core",
-    description: `查询A股资产负债表，支持期间、财年、报告类型筛选。${PIT_NOTE}`,
-    endpointKey: "fundamental.balance-sheet",
-    paginated: false,
-    inputSchema: {
-      securityCode,
-      ...dateRange,
-      fiscalYear,
-      period: periodEnum,
-      reportType: reportTypeEnum,
-      fieldList,
-    },
-  },
-  {
+    description: `查询资产负债表，按代码后缀自动选市场：A股、港股（中国会计准则）、美股；支持期间、财年、报告类型筛选。${PIT_NOTE}`,
+    endpoints: { cn: "fundamental.balance-sheet", hk: "fundamental.balance-sheet-hk", us: "fundamental.balance-sheet-us" },
+  }),
+  statementSpec({
     name: "gangtise_cash_flow",
-    tier: "core",
-    description: `查询A股现金流量表（累计口径），支持期间、财年、报告类型筛选。${PIT_NOTE}`,
-    endpointKey: "fundamental.cash-flow",
-    paginated: false,
-    inputSchema: {
-      securityCode,
-      ...dateRange,
-      fiscalYear,
-      period: periodEnum,
-      reportType: reportTypeEnum,
-      fieldList,
-    },
-  },
+    description: `查询现金流量表，按代码后缀自动选市场：A股（累计口径，quarterly=true 为单季）、港股（中国会计准则）、美股；支持期间、财年、报告类型筛选。${PIT_NOTE}单季口径的 companyType 返回的是未映射的数字码，要读公司类型请取累计口径报表的同名字段。`,
+    endpoints: { cn: "fundamental.cash-flow", cnQuarterly: "fundamental.cash-flow-quarterly", hk: "fundamental.cash-flow-hk", us: "fundamental.cash-flow-us" },
+  }),
   {
     name: "gangtise_cash_flow_quarterly",
-    tier: "core",
+    tier: "legacy",
     description: `查询A股单季现金流量表。${PIT_NOTE}本工具的 companyType 返回的是未映射的数字码，要读公司类型请取累计口径报表的同名字段。`,
     endpointKey: "fundamental.cash-flow-quarterly",
     paginated: false,
@@ -210,7 +231,7 @@ export const specs: JsonToolSpec[] = [
   },
   {
     name: "gangtise_income_statement_hk",
-    tier: "core",
+    tier: "legacy",
     description: "查询港股利润表（中国会计准则），支持期间、财年、报告类型筛选。",
     endpointKey: "fundamental.income-statement-hk",
     paginated: false,
@@ -225,7 +246,7 @@ export const specs: JsonToolSpec[] = [
   },
   {
     name: "gangtise_balance_sheet_hk",
-    tier: "core",
+    tier: "legacy",
     description: "查询港股资产负债表（中国会计准则），支持期间、财年、报告类型筛选。",
     endpointKey: "fundamental.balance-sheet-hk",
     paginated: false,
@@ -240,7 +261,7 @@ export const specs: JsonToolSpec[] = [
   },
   {
     name: "gangtise_cash_flow_hk",
-    tier: "core",
+    tier: "legacy",
     description: "查询港股现金流量表（中国会计准则），支持期间、财年、报告类型筛选。",
     endpointKey: "fundamental.cash-flow-hk",
     paginated: false,
@@ -255,7 +276,7 @@ export const specs: JsonToolSpec[] = [
   },
   {
     name: "gangtise_income_statement_us",
-    tier: "core",
+    tier: "legacy",
     description: "查询美股利润表，支持期间、财年、报告类型筛选。证券代码如 'TSLA.O'。",
     endpointKey: "fundamental.income-statement-us",
     paginated: false,
@@ -270,7 +291,7 @@ export const specs: JsonToolSpec[] = [
   },
   {
     name: "gangtise_balance_sheet_us",
-    tier: "core",
+    tier: "legacy",
     description: "查询美股资产负债表，支持期间、财年、报告类型筛选。证券代码如 'TSLA.O'。",
     endpointKey: "fundamental.balance-sheet-us",
     paginated: false,
@@ -285,7 +306,7 @@ export const specs: JsonToolSpec[] = [
   },
   {
     name: "gangtise_cash_flow_us",
-    tier: "core",
+    tier: "legacy",
     description: "查询美股现金流量表，支持期间、财年、报告类型筛选。证券代码如 'TSLA.O'。",
     endpointKey: "fundamental.cash-flow-us",
     paginated: false,

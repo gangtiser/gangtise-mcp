@@ -44,7 +44,7 @@ export function billingLabel(source: string | Billing): string {
     case "downstream":
       return "【积分：按下游资源类型】"
     case "variable":
-      return "【积分：按所选指标】"
+      return `【积分：${billing.basis ?? "按所选指标"}】`
     case "unknown":
     case undefined:
       return "【积分：单价以平台计费为准】"

@@ -1438,151 +1438,7 @@
   },
   {
     "name": "gangtise_announcement_list",
-    "description": "查询 A 股公告列表，支持按证券、公告分类、时间范围筛选。【积分：0.1/条】",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "from": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "startTime": {
-          "type": "string",
-          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2}) ([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$"
-        },
-        "endTime": {
-          "type": "string",
-          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2}) ([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$"
-        },
-        "keyword": {
-          "type": "string",
-          "minLength": 1
-        },
-        "searchType": {
-          "type": "number",
-          "enum": [
-            1,
-            2
-          ],
-          "description": "1=标题搜索 | 2=全文搜索"
-        },
-        "rankType": {
-          "type": "number",
-          "enum": [
-            1,
-            2
-          ]
-        },
-        "securityList": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          },
-          "minItems": 1
-        },
-        "categoryList": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          },
-          "minItems": 1,
-          "description": "公告分类 ID，来自 gangtise_constant_list category=aShareAnnouncementCategory"
-        },
-        "size": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "fetchAll": {
-          "type": "boolean"
-        }
-      },
-      "additionalProperties": false
-    },
-    "annotations": {
-      "readOnlyHint": true,
-      "openWorldHint": false
-    },
-    "execution": {
-      "taskSupport": "forbidden"
-    }
-  },
-  {
-    "name": "gangtise_announcement_hk_list",
-    "description": "查询港股公告列表，支持按证券、类别、时间范围筛选。【积分：0.1/条】",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "from": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "startTime": {
-          "type": "string",
-          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2}) ([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$"
-        },
-        "endTime": {
-          "type": "string",
-          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2}) ([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$"
-        },
-        "keyword": {
-          "type": "string",
-          "minLength": 1
-        },
-        "searchType": {
-          "type": "number",
-          "enum": [
-            1,
-            2
-          ],
-          "description": "1=标题搜索 | 2=全文搜索"
-        },
-        "rankType": {
-          "type": "number",
-          "enum": [
-            1,
-            2
-          ]
-        },
-        "securityList": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          },
-          "minItems": 1
-        },
-        "categoryList": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          },
-          "minItems": 1,
-          "description": "公告类别 ID，来自 gangtise_constant_list category=hkShareAnnouncementCategory"
-        },
-        "size": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "fetchAll": {
-          "type": "boolean"
-        }
-      },
-      "additionalProperties": false
-    },
-    "annotations": {
-      "readOnlyHint": true,
-      "openWorldHint": false
-    },
-    "execution": {
-      "taskSupport": "forbidden"
-    }
-  },
-  {
-    "name": "gangtise_announcement_us_list",
-    "description": "查询美股公告列表，支持按证券、类别、时间范围筛选。【积分：0.1/条】",
+    "description": "查询公告列表（A股 / 港股 / 美股），支持按证券、公告分类、时间范围筛选。市场由 securityList 的代码后缀决定，一次只查一个市场；不传证券时须传 market。【积分：0.1/条】",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1624,7 +1480,16 @@
             "minLength": 1
           },
           "minItems": 1,
-          "description": "证券代码列表，如 ['TSLA.O']"
+          "description": "证券代码，带市场后缀：A股 .SH/.SZ/.BJ、港股 .HK、美股 .O/.N/.A"
+        },
+        "market": {
+          "type": "string",
+          "enum": [
+            "aShares",
+            "hkStocks",
+            "usStocks"
+          ],
+          "description": "不传 securityList 时必填"
         },
         "categoryList": {
           "type": "array",
@@ -1633,7 +1498,7 @@
             "minLength": 1
           },
           "minItems": 1,
-          "description": "公告类别 ID，来自 gangtise_constant_list category=usShareAnnouncementCategory"
+          "description": "公告分类 ID，来自 gangtise_constant_list：A股 category=aShareAnnouncementCategory、港股 hkShareAnnouncementCategory、美股 usShareAnnouncementCategory"
         },
         "size": {
           "type": "integer",
@@ -2071,7 +1936,7 @@
   },
   {
     "name": "gangtise_report_image_list",
-    "description": "按关键词搜索研报图表，返回 chunkId 及元数据（标题/券商/页码/图注/该页 OCR 文本）；原图用 gangtise_report_image_download 按 chunkId 下载。",
+    "description": "按关键词搜索研报图表，返回 chunkId 及元数据（标题/券商/页码/图注/该页 OCR 文本）；原图用 gangtise_download（kind=report_image）按 chunkId 下载。",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2102,356 +1967,6 @@
       },
       "required": [
         "keyword"
-      ],
-      "additionalProperties": false
-    },
-    "annotations": {
-      "readOnlyHint": true,
-      "openWorldHint": false
-    },
-    "execution": {
-      "taskSupport": "forbidden"
-    }
-  },
-  {
-    "name": "gangtise_summary_download",
-    "description": "按 summaryId 下载会议纪要文件，返回文本内容或文件路径。【积分：50/条】",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "summaryId": {
-          "type": "string",
-          "minLength": 1,
-          "description": "纪要 ID，来自 gangtise_summary_list"
-        },
-        "fileType": {
-          "type": "number",
-          "enum": [
-            1,
-            2
-          ],
-          "description": "1=原始文件（默认）| 2=HTML（仅限会议平台纪要）"
-        }
-      },
-      "required": [
-        "summaryId"
-      ],
-      "additionalProperties": false
-    },
-    "annotations": {
-      "readOnlyHint": true,
-      "openWorldHint": false
-    },
-    "execution": {
-      "taskSupport": "forbidden"
-    }
-  },
-  {
-    "name": "gangtise_pamirs_summary_download",
-    "description": "按 summaryId 下载帕米尔专家纪要文件，返回文本内容或文件路径。【积分：单价以平台计费为准】",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "summaryId": {
-          "type": "string",
-          "minLength": 1,
-          "description": "纪要 ID，来自 gangtise_pamirs_summary_list"
-        },
-        "fileType": {
-          "type": "number",
-          "enum": [
-            1,
-            2
-          ],
-          "description": "1=原始文件（默认）| 2=HTML"
-        }
-      },
-      "required": [
-        "summaryId"
-      ],
-      "additionalProperties": false
-    },
-    "annotations": {
-      "readOnlyHint": true,
-      "openWorldHint": false
-    },
-    "execution": {
-      "taskSupport": "forbidden"
-    }
-  },
-  {
-    "name": "gangtise_research_download",
-    "description": "按 reportId 下载券商研报，返回 Markdown 文本或 PDF 文件路径。【积分：10/条】",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "reportId": {
-          "type": "string",
-          "minLength": 1,
-          "description": "研报 ID，来自 gangtise_research_list"
-        },
-        "fileType": {
-          "type": "number",
-          "enum": [
-            1,
-            2
-          ],
-          "description": "1=PDF（默认）| 2=Markdown"
-        }
-      },
-      "required": [
-        "reportId"
-      ],
-      "additionalProperties": false
-    },
-    "annotations": {
-      "readOnlyHint": true,
-      "openWorldHint": false
-    },
-    "execution": {
-      "taskSupport": "forbidden"
-    }
-  },
-  {
-    "name": "gangtise_foreign_report_download",
-    "description": "下载外资研报，支持原文 PDF、Markdown、中文 PDF 和中文 Markdown 格式。【积分：50/条】",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "reportId": {
-          "type": "string",
-          "minLength": 1,
-          "description": "研报 ID，来自 gangtise_foreign_report_list"
-        },
-        "fileType": {
-          "type": "number",
-          "enum": [
-            1,
-            2,
-            3,
-            4
-          ],
-          "description": "1=PDF | 2=Markdown | 3=中文PDF | 4=中文Markdown"
-        }
-      },
-      "required": [
-        "reportId"
-      ],
-      "additionalProperties": false
-    },
-    "annotations": {
-      "readOnlyHint": true,
-      "openWorldHint": false
-    },
-    "execution": {
-      "taskSupport": "forbidden"
-    }
-  },
-  {
-    "name": "gangtise_announcement_download",
-    "description": "按 announcementId 下载 A 股公告文件。【积分：10/条】",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "announcementId": {
-          "type": "string",
-          "minLength": 1,
-          "description": "公告 ID，来自 gangtise_announcement_list"
-        },
-        "fileType": {
-          "type": "number",
-          "enum": [
-            1,
-            2
-          ],
-          "description": "1=PDF（默认）| 2=Markdown"
-        }
-      },
-      "required": [
-        "announcementId"
-      ],
-      "additionalProperties": false
-    },
-    "annotations": {
-      "readOnlyHint": true,
-      "openWorldHint": false
-    },
-    "execution": {
-      "taskSupport": "forbidden"
-    }
-  },
-  {
-    "name": "gangtise_announcement_hk_download",
-    "description": "下载港股公告文件。【积分：20/条】",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "announcementId": {
-          "type": "string",
-          "minLength": 1,
-          "description": "公告 ID，来自 gangtise_announcement_hk_list"
-        },
-        "fileType": {
-          "type": "number",
-          "enum": [
-            1,
-            2
-          ],
-          "description": "1=原始（默认）| 2=Markdown"
-        }
-      },
-      "required": [
-        "announcementId"
-      ],
-      "additionalProperties": false
-    },
-    "annotations": {
-      "readOnlyHint": true,
-      "openWorldHint": false
-    },
-    "execution": {
-      "taskSupport": "forbidden"
-    }
-  },
-  {
-    "name": "gangtise_announcement_us_download",
-    "description": "下载美股公告文件。【积分：20/条】",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "announcementId": {
-          "type": "string",
-          "minLength": 1,
-          "description": "公告 ID，来自 gangtise_announcement_us_list"
-        },
-        "fileType": {
-          "type": "number",
-          "enum": [
-            1,
-            2
-          ],
-          "description": "1=原始 PDF（默认）| 2=Markdown"
-        }
-      },
-      "required": [
-        "announcementId"
-      ],
-      "additionalProperties": false
-    },
-    "annotations": {
-      "readOnlyHint": true,
-      "openWorldHint": false
-    },
-    "execution": {
-      "taskSupport": "forbidden"
-    }
-  },
-  {
-    "name": "gangtise_independent_opinion_download",
-    "description": "下载境外独立研究员观点文件，返回 HTML 内容（原文或中文翻译）。【积分：30/条】",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "independentOpinionId": {
-          "type": "string",
-          "minLength": 1,
-          "description": "观点 ID，来自 gangtise_independent_opinion_list 的 independentOpinionId 字段"
-        },
-        "fileType": {
-          "type": "number",
-          "enum": [
-            1,
-            2
-          ],
-          "description": "1=原文 HTML | 2=中文翻译 HTML（必填）"
-        }
-      },
-      "required": [
-        "independentOpinionId",
-        "fileType"
-      ],
-      "additionalProperties": false
-    },
-    "annotations": {
-      "readOnlyHint": true,
-      "openWorldHint": false
-    },
-    "execution": {
-      "taskSupport": "forbidden"
-    }
-  },
-  {
-    "name": "gangtise_official_account_download",
-    "description": "按 articleId 下载产业公众号文章，返回 txt 文本或 HTML。【积分：10/条】",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "articleId": {
-          "type": "string",
-          "minLength": 1,
-          "description": "文章 ID，来自 gangtise_official_account_list"
-        },
-        "fileType": {
-          "type": "number",
-          "enum": [
-            1,
-            2
-          ],
-          "description": "1=txt（默认）| 2=HTML"
-        }
-      },
-      "required": [
-        "articleId"
-      ],
-      "additionalProperties": false
-    },
-    "annotations": {
-      "readOnlyHint": true,
-      "openWorldHint": false
-    },
-    "execution": {
-      "taskSupport": "forbidden"
-    }
-  },
-  {
-    "name": "gangtise_report_image_download",
-    "description": "按 chunkId 下载研报图表原图（JPEG 二进制）。chunkId 来自 gangtise_report_image_list。【积分：0.1/张】",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "chunkId": {
-          "type": "string",
-          "minLength": 1,
-          "description": "图片唯一标识，来自 gangtise_report_image_list 的 chunkId"
-        }
-      },
-      "required": [
-        "chunkId"
-      ],
-      "additionalProperties": false
-    },
-    "annotations": {
-      "readOnlyHint": true,
-      "openWorldHint": false
-    },
-    "execution": {
-      "taskSupport": "forbidden"
-    }
-  },
-  {
-    "name": "gangtise_performance_calendar_download",
-    "description": "按 performanceReportId 下载业绩报告原文 PDF。仅 gangtise_performance_calendar_list 中 hasAttachment=true 的记录可下载。港美股为 20/条。【积分：10/条】",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "performanceReportId": {
-          "type": "string",
-          "minLength": 1,
-          "description": "业绩报告 ID，来自 gangtise_performance_calendar_list"
-        }
-      },
-      "required": [
-        "performanceReportId"
       ],
       "additionalProperties": false
     },
@@ -2503,7 +2018,7 @@
   },
   {
     "name": "gangtise_performance_calendar_list",
-    "description": "查询财报日历：业绩预告 / 业绩快报 / 业绩公告三类事件的发布日程（含未来已排期）。按 publishDate 过滤，返回 performanceReportId（下载用）、securityCodeList（A+H 同时上市会有多个码）、securityName、category、publishDate、title、hasAttachment。查「某公司何时披露财报」用 securityList，查「某段时间谁要出业绩」用 startDate+endDate。本工具只给排期与标题，公告全文请用 gangtise_announcement_list / _download 系列。【积分：0.1/条】",
+    "description": "查询财报日历：业绩预告 / 业绩快报 / 业绩公告三类事件的发布日程（含未来已排期）。按 publishDate 过滤，返回 performanceReportId（下载用）、securityCodeList（A+H 同时上市会有多个码）、securityName、category、publishDate、title、hasAttachment。查「某公司何时披露财报」用 securityList，查「某段时间谁要出业绩」用 startDate+endDate。本工具只给排期与标题，公告全文请用 gangtise_announcement_list 查、gangtise_download 下载。【积分：0.1/条】",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2595,7 +2110,7 @@
   },
   {
     "name": "gangtise_day_kline",
-    "description": "查询历史日 K 线数据，单接口覆盖 A股/港股/美股个股 + 沪深 ETF + 交易所指数（沪深京）+ 概念指数（.GT）+ 申万行业指数（.SWI）+ 中信行业指数（.CI）+ 20 个全球指数，可在一次请求里混着传（仅历史；盘中实时请用 gangtise_realtime）。security 传市场关键字 'aShares' / 'hkStocks' / 'usStocks' 配合 startDate/endDate 可拉取该市场全部个股（自动分片）；关键字只覆盖个股——**aShares 不含 ETF**，ETF 与各类指数都要逐个传代码。⚠️ **港股部分标的有人民币柜台**：代码首位换成 8、名字带 -R 或 -WR（中国移动港币 00941.HK / 人民币 80941.HK；阿里 09988.HK / 89988.HK）。两者**后缀相同、exchange 字段也相同、返回里没有币种字段**，价差约等于汇率、看着完全正常——要港币报价就别用 8 开头的那只（不是每只港股都有柜台）。⚠️ **本接口查指数只返代码、不返 securityName**；指数名称用 gangtise_securities_search（category=['index']）查 gtsName。返回字段含 adjustFactor 复权因子（个股与 ETF 有，指数为 null）。⚠️ **volume 的单位是「股」**（ETF 为「份」），不是「手」——按手换算会差 100 倍，而数字看着仍像个成交量、不会报错。全球指数：amount 为 null、volume 正常，tradeDate 是交易所当地日期。⚠️ **确认拿到的是你要的那只票**：后缀合法但标的不存在时返空列表而不报错（空 ≠ 没数据）；核对请用 gangtise_securities_search **按公司名查**，再核对返回的 gtsName 与 gtsCode 后缀。三类会拿到「合理但错误」的数：① A+H 两地上市名字**逐字相同**（中国移动 600941.SH / 00941.HK，招商银行 600036.SH / 03968.HK），返回里没有市场字段、只有后缀能区分，拿错一边就是错币种错价格（招行两地价差方向还相反）；② 美股写错代码可能命中另一只名字相近的**真实**证券（BRK.N 实为 RBRK.N，另一家公司）；③ 搜得到 ≠ 查得到（B 股 900938.SH 搜索有、行情报「证券代码无效」），判据是行情接口返不返数据。",
+    "description": "查询历史日 K 线数据，单接口覆盖 A股/港股/美股个股 + 沪深 ETF + 交易所指数（沪深京）+ 概念指数（.GT）+ 申万行业指数（.SWI）+ 中信行业指数（.CI）+ 20 个全球指数，可在一次请求里混着传（仅历史；盘中实时请用 gangtise_realtime）。security 传市场关键字 'aShares' / 'hkStocks' / 'usStocks' 配合 startDate/endDate 可拉取该市场全部个股（自动分片）；关键字只覆盖个股——**aShares 不含 ETF**，ETF 与各类指数都要逐个传代码。⚠️ **港股部分标的有人民币柜台**：代码首位换成 8、名字带 -R 或 -WR（中国移动港币 00941.HK / 人民币 80941.HK；阿里 09988.HK / 89988.HK）。两者**后缀相同、exchange 字段也相同、返回里没有币种字段**，价差约等于汇率、看着完全正常——要港币报价就别用 8 开头的那只（不是每只港股都有柜台）。⚠️ **本接口查指数只返代码、不返 securityName**；指数名称用 gangtise_securities_search（category=['index']）查 gtsName。返回字段含 adjustFactor 复权因子（个股与 ETF 有，指数为 null）。⚠️ **volume 的单位是「股」**（ETF 为「份」），不是「手」——按手换算会差 100 倍，而数字看着仍像个成交量、不会报错。全球指数：amount 为 null、volume 正常，tradeDate 是交易所当地日期。⚠️ **确认拿到的是你要的那只票**：后缀合法但标的不存在时返空列表而不报错（空 ≠ 没数据）；核对请用 gangtise_securities_search **按公司名查**，再核对返回的 gtsName 与 gtsCode 后缀。三类会拿到「合理但错误」的数：① A+H 两地上市名字**逐字相同**（中国移动 600941.SH / 00941.HK，招商银行 600036.SH / 03968.HK），返回里没有市场字段、只有后缀能区分，拿错一边就是错币种错价格（招行两地价差方向还相反）；② 美股写错代码可能命中另一只**真实**证券（BRK.N 实为 RBRK.N，另一家公司）；多股份类别写法不统一、别自己拼（FOXA.O / FOX.O，BRK_A.N / BRK_B.N，Bio-Rad A 类就是 BIO.N 不带标记），拼错可能命中同公司另一类别（HVT.N 与 HVT_A.N 都存在、价格不同）；③ 搜得到 ≠ 查得到（B 股 900938.SH 搜索有、行情报「证券代码无效」），判据是行情接口返不返数据。",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2637,121 +2152,7 @@
               "minItems": 1
             }
           ],
-          "description": "证券代码 — A股 .SH/.SZ/.BJ、港股 .HK、美股 .O/.N/.A、沪深 ETF .SH/.SZ（512800.SH）、交易所指数 .SH/.SZ/.BJ、概念指数 .GT、申万行业指数 .SWI（801xxx.SWI）、中信行业指数 .CI（821xxx.CI）、全球指数按数据源后缀照抄（SPX.SPI 标普500 / DJI.SPI 道琼斯 / IXIC.O 纳指 / N225.NKI 日经225 / HSI.HI 恒生 / FTSE.FI 富时100 / GDAXI.FRA 德国DAX / KS11.KRX 韩国KOSPI 等 20 个），可混传，如 ['600519.SH','00700.HK','AAPL.O','000001.SH','SPX.SPI']；或传市场关键字 'aShares'（A股全市场）/ 'hkStocks'（港股全市场）/ 'usStocks'（美股全市场）拉取全市场（关键字须单独传，不能与证券代码或另一个关键字混传；须同时提供 startDate 和 endDate——只给一个日期时，全市场查询会因规模过大而报错或被截断，按接口而异）"
-        }
-      },
-      "additionalProperties": false
-    },
-    "annotations": {
-      "readOnlyHint": true,
-      "openWorldHint": false
-    },
-    "execution": {
-      "taskSupport": "forbidden"
-    }
-  },
-  {
-    "name": "gangtise_day_kline_hk",
-    "description": "【已被 gangtise_day_kline 覆盖，改用它】港股历史日 K 线。gangtise_day_kline 的 'hkStocks' 等价于本工具的 'all'，行数、字段与代码集合完全相同，且能与其他市场混查并对不合法后缀明确报错——没有必须用本工具的场景。",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "startDate": {
-          "type": "string",
-          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
-        },
-        "endDate": {
-          "type": "string",
-          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
-        },
-        "limit": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 10000,
-          "description": "单次请求最大返回行数（默认 6000，最大 10000）。截取从查询窗口开头开始——取「最近 N 条」须传日期区间而非只传 limit；分片 / 逐只拉取时作用于每一份，撞上限的会标 _partial"
-        },
-        "fieldList": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          },
-          "minItems": 1,
-          "description": "指定返回字段；行为与 gangtise_day_kline 的同名参数一致，说明见该工具"
-        },
-        "security": {
-          "anyOf": [
-            {
-              "type": "string",
-              "minLength": 1
-            },
-            {
-              "type": "array",
-              "items": {
-                "type": "string",
-                "minLength": 1
-              },
-              "minItems": 1
-            }
-          ],
-          "description": "港股代码，如 '00700.HK' 或 ['00700.HK','09988.HK']（5 位数字前补零）；传 'all' 拉取全市场（关键字须单独传，不能与证券代码或另一个关键字混传；须同时提供 startDate 和 endDate——只给一个日期时，全市场查询会因规模过大而报错或被截断，按接口而异）"
-        }
-      },
-      "additionalProperties": false
-    },
-    "annotations": {
-      "readOnlyHint": true,
-      "openWorldHint": false
-    },
-    "execution": {
-      "taskSupport": "forbidden"
-    }
-  },
-  {
-    "name": "gangtise_day_kline_us",
-    "description": "【已被 gangtise_day_kline 覆盖，改用它】美股历史日 K 线（NYSE/NASDAQ/AMEX）。gangtise_day_kline 的 'usStocks' 等价于本工具的 'all'，行数、字段与代码集合完全相同，且能与其他市场混查并对不合法后缀明确报错——没有必须用本工具的场景。",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "startDate": {
-          "type": "string",
-          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
-        },
-        "endDate": {
-          "type": "string",
-          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
-        },
-        "limit": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 10000,
-          "description": "单次请求最大返回行数（默认 6000，最大 10000）。截取从查询窗口开头开始——取「最近 N 条」须传日期区间而非只传 limit；分片 / 逐只拉取时作用于每一份，撞上限的会标 _partial"
-        },
-        "fieldList": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          },
-          "minItems": 1,
-          "description": "指定返回字段；行为与 gangtise_day_kline 的同名参数一致，说明见该工具"
-        },
-        "security": {
-          "anyOf": [
-            {
-              "type": "string",
-              "minLength": 1
-            },
-            {
-              "type": "array",
-              "items": {
-                "type": "string",
-                "minLength": 1
-              },
-              "minItems": 1
-            }
-          ],
-          "description": "美股代码，如 'AAPL.O' 或 ['AAPL.O','BRK_B.N']（.O=NASDAQ / .N=NYSE / .A=AMEX）。⚠️ **多股份类别的写法不统一，别自己拼**：有的把类别字母并进 ticker（福克斯 = FOXA.O / FOX.O），有的用下划线（伯克希尔 = BRK_A.N / BRK_B.N），**还有的 A 类根本不带标记**（Bio-Rad A = BIO.N、B = BIO_B.N）。拼错**不一定返空**——也可能命中同一家公司的另一个类别（哈弗蒂 HVT.N 与 HVT_A.N 都真实存在、价格不同），拿到一个完全合理的错数。按公司名查确切代码见下；传 'all' 拉取全市场（关键字须单独传，不能与证券代码或另一个关键字混传；须同时提供 startDate 和 endDate——只给一个日期时，全市场查询会因规模过大而报错或被截断，按接口而异）"
+          "description": "证券代码 — A股 .SH/.SZ/.BJ、港股 .HK（5 位数字前补零）、美股 .O/.N/.A、沪深 ETF .SH/.SZ（512800.SH）、交易所指数 .SH/.SZ/.BJ、概念指数 .GT、申万行业指数 .SWI（801xxx.SWI）、中信行业指数 .CI（821xxx.CI）、全球指数按数据源后缀照抄（SPX.SPI 标普500 / DJI.SPI 道琼斯 / IXIC.O 纳指 / N225.NKI 日经225 / HSI.HI 恒生 / FTSE.FI 富时100 / GDAXI.FRA 德国DAX / KS11.KRX 韩国KOSPI 等 20 个），可混传，如 ['600519.SH','00700.HK','AAPL.O','000001.SH','SPX.SPI']；或传市场关键字 'aShares'（A股全市场）/ 'hkStocks'（港股全市场）/ 'usStocks'（美股全市场）拉取全市场（关键字须单独传，不能与证券代码或另一个关键字混传；须同时提供 startDate 和 endDate——只给一个日期时，全市场查询会因规模过大而报错或被截断，按接口而异）"
         }
       },
       "additionalProperties": false
@@ -2883,7 +2284,7 @@
   },
   {
     "name": "gangtise_realtime",
-    "description": "查询实时行情快照，单接口覆盖 A 股 / 港股 / 美股个股 + 沪深 ETF + 各类指数（含 20 个全球指数），可代码混合传入。非交易时间返回最近一个交易日的收盘快照；停牌证券返回停牌前最后一个有效快照。日 K 线接口（day-kline*）不含盘中数据，问\"现在/此刻\"请走本工具。⚠️ **volume 的单位是「股」**（ETF 为「份」），不是「手」——按手换算会差 100 倍且不报错。**全部字段仅这 15 个：securityCode/exchange/tradeDate/tradeTime/tradeStatus/open/high/low/latestPrice(最新价)/preClose(昨收)/change/pctChange/volume/amount/amplitude——没有 close、没有市值，也没有 turnoverRate / volumeRatio**（传了会连字段名一起被静默丢掉；换手率走 gangtise_indicator_cross_section 的 qte_turn，A 股）；总市值请用 gangtise_indicator_cross_section 的 qte_mkt_cptl（A/港/美股均有数，默认返「元」，用 scale 缩放）。tradeStatus（未开市/连续竞价/收盘/停牌…）仅 A 股 / 港股个股有值，其余为 null。为 null 的字段：美股 amount（要美股成交额用 gangtise_day_kline 或 EDE qte_amt）；全球指数 volume / amount / amplitude。tradeDate / tradeTime：A 股 / 港股 / ETF / 沪深各类指数为北京时间，**美股与全球指数是交易所当地时间**（美股收盘快照的 tradeTime 是 16:00）。⚠️ **确认拿到的是你要的那只票**：后缀合法但标的不存在时返空列表而不报错（空 ≠ 没数据）；核对请用 gangtise_securities_search **按公司名查**，再核对返回的 gtsName 与 gtsCode 后缀。三类会拿到「合理但错误」的数：① A+H 两地上市名字**逐字相同**（中国移动 600941.SH / 00941.HK，招商银行 600036.SH / 03968.HK），返回里没有市场字段、只有后缀能区分，拿错一边就是错币种错价格（招行两地价差方向还相反）；② 美股写错代码可能命中另一只名字相近的**真实**证券（BRK.N 实为 RBRK.N，另一家公司）；③ 搜得到 ≠ 查得到（B 股 900938.SH 搜索有、行情报「证券代码无效」），判据是行情接口返不返数据。",
+    "description": "查询实时行情快照，单接口覆盖 A 股 / 港股 / 美股个股 + 沪深 ETF + 各类指数（含 20 个全球指数），可代码混合传入。非交易时间返回最近一个交易日的收盘快照；停牌证券返回停牌前最后一个有效快照。日 K 线接口（day-kline*）不含盘中数据，问\"现在/此刻\"请走本工具。⚠️ **volume 的单位是「股」**（ETF 为「份」），不是「手」——按手换算会差 100 倍且不报错。**全部字段仅这 15 个：securityCode/exchange/tradeDate/tradeTime/tradeStatus/open/high/low/latestPrice(最新价)/preClose(昨收)/change/pctChange/volume/amount/amplitude——没有 close、没有市值，也没有 turnoverRate / volumeRatio**（传了会连字段名一起被静默丢掉；换手率走 gangtise_indicator_cross_section 的 qte_turn，A 股）；总市值请用 gangtise_indicator_cross_section 的 qte_mkt_cptl（A/港/美股均有数，默认返「元」，用 scale 缩放）。tradeStatus（未开市/连续竞价/收盘/停牌…）仅 A 股 / 港股个股有值，其余为 null。为 null 的字段：美股 amount（要美股成交额用 gangtise_day_kline 或 EDE qte_amt）；全球指数 volume / amount / amplitude。tradeDate / tradeTime：A 股 / 港股 / ETF / 沪深各类指数为北京时间，**美股与全球指数是交易所当地时间**（美股收盘快照的 tradeTime 是 16:00）。⚠️ **确认拿到的是你要的那只票**：后缀合法但标的不存在时返空列表而不报错（空 ≠ 没数据）；核对请用 gangtise_securities_search **按公司名查**，再核对返回的 gtsName 与 gtsCode 后缀。三类会拿到「合理但错误」的数：① A+H 两地上市名字**逐字相同**（中国移动 600941.SH / 00941.HK，招商银行 600036.SH / 03968.HK），返回里没有市场字段、只有后缀能区分，拿错一边就是错币种错价格（招行两地价差方向还相反）；② 美股写错代码可能命中另一只**真实**证券（BRK.N 实为 RBRK.N，另一家公司）；多股份类别写法不统一、别自己拼（FOXA.O / FOX.O，BRK_A.N / BRK_B.N，Bio-Rad A 类就是 BIO.N 不带标记），拼错可能命中同公司另一类别（HVT.N 与 HVT_A.N 都存在、价格不同）；③ 搜得到 ≠ 查得到（B 股 900938.SH 搜索有、行情报「证券代码无效」），判据是行情接口返不返数据。",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2983,92 +2384,14 @@
   },
   {
     "name": "gangtise_income_statement",
-    "description": "查询A股利润表（累计口径），支持期间、财年、报告类型筛选。做 point-in-time / 时点对齐时，announcementDate 是当前返回报表版本的公告日，earliestAnncDate 是接口记录的首次公告日。consolidated 也可能返回后来重述的数值，不能把它配上 earliestAnncDate 就当成首次披露值；category 仍可能是一季报/半年报告/三季报，不能靠它排除重述。应按返回版本的公告日控制数值可见时间；需要首次披露的原始数值时，请核对当时公告。",
+    "description": "查询利润表，按代码后缀自动选市场：A股（累计口径，quarterly=true 为单季）、港股（中国会计准则）、美股；支持期间、财年、报告类型筛选。做 point-in-time / 时点对齐时，announcementDate 是当前返回报表版本的公告日，earliestAnncDate 是接口记录的首次公告日。consolidated 也可能返回后来重述的数值，不能把它配上 earliestAnncDate 就当成首次披露值；category 仍可能是一季报/半年报告/三季报，不能靠它排除重述。应按返回版本的公告日控制数值可见时间；需要首次披露的原始数值时，请核对当时公告。单季口径的 companyType 返回的是未映射的数字码，要读公司类型请取累计口径报表的同名字段。",
     "inputSchema": {
       "type": "object",
       "properties": {
         "securityCode": {
           "type": "string",
           "minLength": 1,
-          "description": "证券代码，如 '600519.SH'"
-        },
-        "startDate": {
-          "type": "string",
-          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
-        },
-        "endDate": {
-          "type": "string",
-          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
-        },
-        "fiscalYear": {
-          "type": "array",
-          "items": {
-            "type": "integer"
-          },
-          "minItems": 1,
-          "description": "财年列表，如 [2023, 2024]"
-        },
-        "period": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "enum": [
-              "q1",
-              "interim",
-              "q3",
-              "annual",
-              "latest"
-            ]
-          },
-          "minItems": 1,
-          "description": "q1=一季报 | interim=中报 | q3=三季报 | annual=年报 | latest=最新"
-        },
-        "reportType": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "enum": [
-              "consolidated",
-              "consolidatedRestated",
-              "standalone",
-              "standaloneRestated"
-            ]
-          },
-          "minItems": 1
-        },
-        "fieldList": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          },
-          "minItems": 1,
-          "description": "指定返回字段"
-        }
-      },
-      "required": [
-        "securityCode"
-      ],
-      "additionalProperties": false
-    },
-    "annotations": {
-      "readOnlyHint": true,
-      "openWorldHint": false
-    },
-    "execution": {
-      "taskSupport": "forbidden"
-    }
-  },
-  {
-    "name": "gangtise_income_statement_quarterly",
-    "description": "查询A股单季利润表。做 point-in-time / 时点对齐时，announcementDate 是当前返回报表版本的公告日，earliestAnncDate 是接口记录的首次公告日。consolidated 也可能返回后来重述的数值，不能把它配上 earliestAnncDate 就当成首次披露值；category 仍可能是一季报/半年报告/三季报，不能靠它排除重述。应按返回版本的公告日控制数值可见时间；需要首次披露的原始数值时，请核对当时公告。本工具的 companyType 返回的是未映射的数字码，要读公司类型请取累计口径报表的同名字段。",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "securityCode": {
-          "type": "string",
-          "minLength": 1,
-          "description": "证券代码，如 '600519.SH'"
+          "description": "证券代码，按后缀选市场：A股 .SH/.SZ/.BJ（如 600519.SH）、港股 .HK（5 位数字前补零，如 00700.HK）、美股 .O/.N/.A（如 TSLA.O）"
         },
         "startDate": {
           "type": "string",
@@ -3095,11 +2418,20 @@
               "q2",
               "q3",
               "q4",
+              "interim",
+              "h1",
+              "h2",
+              "nsd",
+              "annual",
               "latest"
             ]
           },
           "minItems": 1,
-          "description": "q1 | q2 | q3 | q4 | latest"
+          "description": "按市场取值：A股累计 q1/interim/q3/annual/latest；A股单季 q1/q2/q3/q4/latest；港股 q1/h1/q3/h2/nsd/annual/latest；美股 q1/h1/q3/nsd/annual/latest（interim/h1=中报 h2=下半年报 nsd=不规则跨度）"
+        },
+        "quarterly": {
+          "type": "boolean",
+          "description": "true=A股单季口径（港股、美股没有）"
         },
         "reportType": {
           "type": "array",
@@ -3139,14 +2471,14 @@
   },
   {
     "name": "gangtise_balance_sheet",
-    "description": "查询A股资产负债表，支持期间、财年、报告类型筛选。做 point-in-time / 时点对齐时，announcementDate 是当前返回报表版本的公告日，earliestAnncDate 是接口记录的首次公告日。consolidated 也可能返回后来重述的数值，不能把它配上 earliestAnncDate 就当成首次披露值；category 仍可能是一季报/半年报告/三季报，不能靠它排除重述。应按返回版本的公告日控制数值可见时间；需要首次披露的原始数值时，请核对当时公告。",
+    "description": "查询资产负债表，按代码后缀自动选市场：A股、港股（中国会计准则）、美股；支持期间、财年、报告类型筛选。做 point-in-time / 时点对齐时，announcementDate 是当前返回报表版本的公告日，earliestAnncDate 是接口记录的首次公告日。consolidated 也可能返回后来重述的数值，不能把它配上 earliestAnncDate 就当成首次披露值；category 仍可能是一季报/半年报告/三季报，不能靠它排除重述。应按返回版本的公告日控制数值可见时间；需要首次披露的原始数值时，请核对当时公告。",
     "inputSchema": {
       "type": "object",
       "properties": {
         "securityCode": {
           "type": "string",
           "minLength": 1,
-          "description": "证券代码，如 '600519.SH'"
+          "description": "证券代码，按后缀选市场：A股 .SH/.SZ/.BJ（如 600519.SH）、港股 .HK（5 位数字前补零，如 00700.HK）、美股 .O/.N/.A（如 TSLA.O）"
         },
         "startDate": {
           "type": "string",
@@ -3170,14 +2502,19 @@
             "type": "string",
             "enum": [
               "q1",
-              "interim",
+              "q2",
               "q3",
+              "q4",
+              "interim",
+              "h1",
+              "h2",
+              "nsd",
               "annual",
               "latest"
             ]
           },
           "minItems": 1,
-          "description": "q1=一季报 | interim=中报 | q3=三季报 | annual=年报 | latest=最新"
+          "description": "按市场取值：A股累计 q1/interim/q3/annual/latest；A股单季 q1/q2/q3/q4/latest；港股 q1/h1/q3/h2/nsd/annual/latest；美股 q1/h1/q3/nsd/annual/latest（interim/h1=中报 h2=下半年报 nsd=不规则跨度）"
         },
         "reportType": {
           "type": "array",
@@ -3217,92 +2554,14 @@
   },
   {
     "name": "gangtise_cash_flow",
-    "description": "查询A股现金流量表（累计口径），支持期间、财年、报告类型筛选。做 point-in-time / 时点对齐时，announcementDate 是当前返回报表版本的公告日，earliestAnncDate 是接口记录的首次公告日。consolidated 也可能返回后来重述的数值，不能把它配上 earliestAnncDate 就当成首次披露值；category 仍可能是一季报/半年报告/三季报，不能靠它排除重述。应按返回版本的公告日控制数值可见时间；需要首次披露的原始数值时，请核对当时公告。",
+    "description": "查询现金流量表，按代码后缀自动选市场：A股（累计口径，quarterly=true 为单季）、港股（中国会计准则）、美股；支持期间、财年、报告类型筛选。做 point-in-time / 时点对齐时，announcementDate 是当前返回报表版本的公告日，earliestAnncDate 是接口记录的首次公告日。consolidated 也可能返回后来重述的数值，不能把它配上 earliestAnncDate 就当成首次披露值；category 仍可能是一季报/半年报告/三季报，不能靠它排除重述。应按返回版本的公告日控制数值可见时间；需要首次披露的原始数值时，请核对当时公告。单季口径的 companyType 返回的是未映射的数字码，要读公司类型请取累计口径报表的同名字段。",
     "inputSchema": {
       "type": "object",
       "properties": {
         "securityCode": {
           "type": "string",
           "minLength": 1,
-          "description": "证券代码，如 '600519.SH'"
-        },
-        "startDate": {
-          "type": "string",
-          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
-        },
-        "endDate": {
-          "type": "string",
-          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
-        },
-        "fiscalYear": {
-          "type": "array",
-          "items": {
-            "type": "integer"
-          },
-          "minItems": 1,
-          "description": "财年列表，如 [2023, 2024]"
-        },
-        "period": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "enum": [
-              "q1",
-              "interim",
-              "q3",
-              "annual",
-              "latest"
-            ]
-          },
-          "minItems": 1,
-          "description": "q1=一季报 | interim=中报 | q3=三季报 | annual=年报 | latest=最新"
-        },
-        "reportType": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "enum": [
-              "consolidated",
-              "consolidatedRestated",
-              "standalone",
-              "standaloneRestated"
-            ]
-          },
-          "minItems": 1
-        },
-        "fieldList": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          },
-          "minItems": 1,
-          "description": "指定返回字段"
-        }
-      },
-      "required": [
-        "securityCode"
-      ],
-      "additionalProperties": false
-    },
-    "annotations": {
-      "readOnlyHint": true,
-      "openWorldHint": false
-    },
-    "execution": {
-      "taskSupport": "forbidden"
-    }
-  },
-  {
-    "name": "gangtise_cash_flow_quarterly",
-    "description": "查询A股单季现金流量表。做 point-in-time / 时点对齐时，announcementDate 是当前返回报表版本的公告日，earliestAnncDate 是接口记录的首次公告日。consolidated 也可能返回后来重述的数值，不能把它配上 earliestAnncDate 就当成首次披露值；category 仍可能是一季报/半年报告/三季报，不能靠它排除重述。应按返回版本的公告日控制数值可见时间；需要首次披露的原始数值时，请核对当时公告。本工具的 companyType 返回的是未映射的数字码，要读公司类型请取累计口径报表的同名字段。",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "securityCode": {
-          "type": "string",
-          "minLength": 1,
-          "description": "证券代码，如 '600519.SH'"
+          "description": "证券代码，按后缀选市场：A股 .SH/.SZ/.BJ（如 600519.SH）、港股 .HK（5 位数字前补零，如 00700.HK）、美股 .O/.N/.A（如 TSLA.O）"
         },
         "startDate": {
           "type": "string",
@@ -3329,11 +2588,20 @@
               "q2",
               "q3",
               "q4",
+              "interim",
+              "h1",
+              "h2",
+              "nsd",
+              "annual",
               "latest"
             ]
           },
           "minItems": 1,
-          "description": "q1 | q2 | q3 | q4 | latest"
+          "description": "按市场取值：A股累计 q1/interim/q3/annual/latest；A股单季 q1/q2/q3/q4/latest；港股 q1/h1/q3/h2/nsd/annual/latest；美股 q1/h1/q3/nsd/annual/latest（interim/h1=中报 h2=下半年报 nsd=不规则跨度）"
+        },
+        "quarterly": {
+          "type": "boolean",
+          "description": "true=A股单季口径（港股、美股没有）"
         },
         "reportType": {
           "type": "array",
@@ -3553,483 +2821,6 @@
           },
           "minItems": 1,
           "description": "netIncome=净利润 | netIncomeYoy=净利润增速 | eps | pe | bps | pb | peg | roe | ps"
-        }
-      },
-      "required": [
-        "securityCode"
-      ],
-      "additionalProperties": false
-    },
-    "annotations": {
-      "readOnlyHint": true,
-      "openWorldHint": false
-    },
-    "execution": {
-      "taskSupport": "forbidden"
-    }
-  },
-  {
-    "name": "gangtise_income_statement_hk",
-    "description": "查询港股利润表（中国会计准则），支持期间、财年、报告类型筛选。",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "securityCode": {
-          "type": "string",
-          "minLength": 1,
-          "description": "证券代码，如 '00700.HK'（5 位数字前补零）"
-        },
-        "startDate": {
-          "type": "string",
-          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
-        },
-        "endDate": {
-          "type": "string",
-          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
-        },
-        "fiscalYear": {
-          "type": "array",
-          "items": {
-            "type": "integer"
-          },
-          "minItems": 1,
-          "description": "财年列表，如 [2023, 2024]"
-        },
-        "period": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "enum": [
-              "q1",
-              "h1",
-              "q3",
-              "h2",
-              "nsd",
-              "annual",
-              "latest"
-            ]
-          },
-          "minItems": 1,
-          "description": "q1 | h1=中报 | q3 | h2=下半年报 | nsd=不规则跨度 | annual=年报 | latest"
-        },
-        "reportType": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "enum": [
-              "consolidated",
-              "consolidatedRestated",
-              "standalone",
-              "standaloneRestated"
-            ]
-          },
-          "minItems": 1
-        },
-        "fieldList": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          },
-          "minItems": 1,
-          "description": "指定返回字段"
-        }
-      },
-      "required": [
-        "securityCode"
-      ],
-      "additionalProperties": false
-    },
-    "annotations": {
-      "readOnlyHint": true,
-      "openWorldHint": false
-    },
-    "execution": {
-      "taskSupport": "forbidden"
-    }
-  },
-  {
-    "name": "gangtise_balance_sheet_hk",
-    "description": "查询港股资产负债表（中国会计准则），支持期间、财年、报告类型筛选。",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "securityCode": {
-          "type": "string",
-          "minLength": 1,
-          "description": "证券代码，如 '00700.HK'（5 位数字前补零）"
-        },
-        "startDate": {
-          "type": "string",
-          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
-        },
-        "endDate": {
-          "type": "string",
-          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
-        },
-        "fiscalYear": {
-          "type": "array",
-          "items": {
-            "type": "integer"
-          },
-          "minItems": 1,
-          "description": "财年列表，如 [2023, 2024]"
-        },
-        "period": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "enum": [
-              "q1",
-              "h1",
-              "q3",
-              "h2",
-              "nsd",
-              "annual",
-              "latest"
-            ]
-          },
-          "minItems": 1,
-          "description": "q1 | h1=中报 | q3 | h2=下半年报 | nsd=不规则跨度 | annual=年报 | latest"
-        },
-        "reportType": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "enum": [
-              "consolidated",
-              "consolidatedRestated",
-              "standalone",
-              "standaloneRestated"
-            ]
-          },
-          "minItems": 1
-        },
-        "fieldList": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          },
-          "minItems": 1,
-          "description": "指定返回字段"
-        }
-      },
-      "required": [
-        "securityCode"
-      ],
-      "additionalProperties": false
-    },
-    "annotations": {
-      "readOnlyHint": true,
-      "openWorldHint": false
-    },
-    "execution": {
-      "taskSupport": "forbidden"
-    }
-  },
-  {
-    "name": "gangtise_cash_flow_hk",
-    "description": "查询港股现金流量表（中国会计准则），支持期间、财年、报告类型筛选。",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "securityCode": {
-          "type": "string",
-          "minLength": 1,
-          "description": "证券代码，如 '00700.HK'（5 位数字前补零）"
-        },
-        "startDate": {
-          "type": "string",
-          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
-        },
-        "endDate": {
-          "type": "string",
-          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
-        },
-        "fiscalYear": {
-          "type": "array",
-          "items": {
-            "type": "integer"
-          },
-          "minItems": 1,
-          "description": "财年列表，如 [2023, 2024]"
-        },
-        "period": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "enum": [
-              "q1",
-              "h1",
-              "q3",
-              "h2",
-              "nsd",
-              "annual",
-              "latest"
-            ]
-          },
-          "minItems": 1,
-          "description": "q1 | h1=中报 | q3 | h2=下半年报 | nsd=不规则跨度 | annual=年报 | latest"
-        },
-        "reportType": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "enum": [
-              "consolidated",
-              "consolidatedRestated",
-              "standalone",
-              "standaloneRestated"
-            ]
-          },
-          "minItems": 1
-        },
-        "fieldList": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          },
-          "minItems": 1,
-          "description": "指定返回字段"
-        }
-      },
-      "required": [
-        "securityCode"
-      ],
-      "additionalProperties": false
-    },
-    "annotations": {
-      "readOnlyHint": true,
-      "openWorldHint": false
-    },
-    "execution": {
-      "taskSupport": "forbidden"
-    }
-  },
-  {
-    "name": "gangtise_income_statement_us",
-    "description": "查询美股利润表，支持期间、财年、报告类型筛选。证券代码如 'TSLA.O'。",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "securityCode": {
-          "type": "string",
-          "minLength": 1,
-          "description": "证券代码，如 'TSLA.O'（.O=NASDAQ / .N=NYSE / .A=AMEX）"
-        },
-        "startDate": {
-          "type": "string",
-          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
-        },
-        "endDate": {
-          "type": "string",
-          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
-        },
-        "fiscalYear": {
-          "type": "array",
-          "items": {
-            "type": "integer"
-          },
-          "minItems": 1,
-          "description": "财年列表，如 [2023, 2024]"
-        },
-        "period": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "enum": [
-              "q1",
-              "h1",
-              "q3",
-              "nsd",
-              "annual",
-              "latest"
-            ]
-          },
-          "minItems": 1,
-          "description": "q1 | h1=中报 | q3 | nsd=不规则跨度 | annual=年报 | latest"
-        },
-        "reportType": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "enum": [
-              "consolidated",
-              "consolidatedRestated",
-              "standalone",
-              "standaloneRestated"
-            ]
-          },
-          "minItems": 1
-        },
-        "fieldList": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          },
-          "minItems": 1,
-          "description": "指定返回字段"
-        }
-      },
-      "required": [
-        "securityCode"
-      ],
-      "additionalProperties": false
-    },
-    "annotations": {
-      "readOnlyHint": true,
-      "openWorldHint": false
-    },
-    "execution": {
-      "taskSupport": "forbidden"
-    }
-  },
-  {
-    "name": "gangtise_balance_sheet_us",
-    "description": "查询美股资产负债表，支持期间、财年、报告类型筛选。证券代码如 'TSLA.O'。",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "securityCode": {
-          "type": "string",
-          "minLength": 1,
-          "description": "证券代码，如 'TSLA.O'（.O=NASDAQ / .N=NYSE / .A=AMEX）"
-        },
-        "startDate": {
-          "type": "string",
-          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
-        },
-        "endDate": {
-          "type": "string",
-          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
-        },
-        "fiscalYear": {
-          "type": "array",
-          "items": {
-            "type": "integer"
-          },
-          "minItems": 1,
-          "description": "财年列表，如 [2023, 2024]"
-        },
-        "period": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "enum": [
-              "q1",
-              "h1",
-              "q3",
-              "nsd",
-              "annual",
-              "latest"
-            ]
-          },
-          "minItems": 1,
-          "description": "q1 | h1=中报 | q3 | nsd=不规则跨度 | annual=年报 | latest"
-        },
-        "reportType": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "enum": [
-              "consolidated",
-              "consolidatedRestated",
-              "standalone",
-              "standaloneRestated"
-            ]
-          },
-          "minItems": 1
-        },
-        "fieldList": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          },
-          "minItems": 1,
-          "description": "指定返回字段"
-        }
-      },
-      "required": [
-        "securityCode"
-      ],
-      "additionalProperties": false
-    },
-    "annotations": {
-      "readOnlyHint": true,
-      "openWorldHint": false
-    },
-    "execution": {
-      "taskSupport": "forbidden"
-    }
-  },
-  {
-    "name": "gangtise_cash_flow_us",
-    "description": "查询美股现金流量表，支持期间、财年、报告类型筛选。证券代码如 'TSLA.O'。",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "securityCode": {
-          "type": "string",
-          "minLength": 1,
-          "description": "证券代码，如 'TSLA.O'（.O=NASDAQ / .N=NYSE / .A=AMEX）"
-        },
-        "startDate": {
-          "type": "string",
-          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
-        },
-        "endDate": {
-          "type": "string",
-          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
-        },
-        "fiscalYear": {
-          "type": "array",
-          "items": {
-            "type": "integer"
-          },
-          "minItems": 1,
-          "description": "财年列表，如 [2023, 2024]"
-        },
-        "period": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "enum": [
-              "q1",
-              "h1",
-              "q3",
-              "nsd",
-              "annual",
-              "latest"
-            ]
-          },
-          "minItems": 1,
-          "description": "q1 | h1=中报 | q3 | nsd=不规则跨度 | annual=年报 | latest"
-        },
-        "reportType": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "enum": [
-              "consolidated",
-              "consolidatedRestated",
-              "standalone",
-              "standaloneRestated"
-            ]
-          },
-          "minItems": 1
-        },
-        "fieldList": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          },
-          "minItems": 1,
-          "description": "指定返回字段"
         }
       },
       "required": [
@@ -4494,48 +3285,6 @@
       "required": [
         "themeId",
         "date"
-      ],
-      "additionalProperties": false
-    },
-    "annotations": {
-      "readOnlyHint": true,
-      "openWorldHint": false
-    },
-    "execution": {
-      "taskSupport": "forbidden"
-    }
-  },
-  {
-    "name": "gangtise_knowledge_resource_download",
-    "description": "按资源类型和 sourceId 下载知识库资源文件。sourceId 来自 gangtise_knowledge_batch 返回结果。【积分：按下游资源类型】",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "resourceType": {
-          "type": "number",
-          "enum": [
-            10,
-            11,
-            20,
-            40,
-            50,
-            51,
-            60,
-            70,
-            80,
-            90
-          ],
-          "description": "资源类型（必填）：10=研报 | 11=外资研报 | 20=内部 | 40=观点 | 50=公告 | 51=港股公告 | 60=纪要 | 70=调研 | 80=网络纪要 | 90=公众号"
-        },
-        "sourceId": {
-          "type": "string",
-          "minLength": 1,
-          "description": "资源 ID，来自 gangtise_knowledge_batch 返回结果（必填）"
-        }
-      },
-      "required": [
-        "resourceType",
-        "sourceId"
       ],
       "additionalProperties": false
     },
@@ -5114,100 +3863,6 @@
     }
   },
   {
-    "name": "gangtise_drive_download",
-    "description": "按 fileId 从 Gangtise 云盘下载文件。",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "fileId": {
-          "type": "string",
-          "minLength": 1,
-          "description": "文件 ID，来自 gangtise_drive_list"
-        }
-      },
-      "required": [
-        "fileId"
-      ],
-      "additionalProperties": false
-    },
-    "annotations": {
-      "readOnlyHint": true,
-      "openWorldHint": false
-    },
-    "execution": {
-      "taskSupport": "forbidden"
-    }
-  },
-  {
-    "name": "gangtise_record_download",
-    "description": "下载语音录音转写内容，可选原始音频、ASR 文字或 AI 摘要。",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "recordId": {
-          "type": "string",
-          "minLength": 1,
-          "description": "录音 ID，来自 gangtise_record_list"
-        },
-        "contentType": {
-          "type": "string",
-          "enum": [
-            "original",
-            "asr",
-            "summary"
-          ],
-          "description": "original=原始音频 | asr=语音转文字 | summary=AI摘要（必填）"
-        }
-      },
-      "required": [
-        "recordId",
-        "contentType"
-      ],
-      "additionalProperties": false
-    },
-    "annotations": {
-      "readOnlyHint": true,
-      "openWorldHint": false
-    },
-    "execution": {
-      "taskSupport": "forbidden"
-    }
-  },
-  {
-    "name": "gangtise_my_conference_download",
-    "description": "下载会议录音资源，返回 ASR 转写或 AI 摘要。【积分：50/条】",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "conferenceId": {
-          "type": "string",
-          "minLength": 1,
-          "description": "会议 ID，来自 gangtise_my_conference_list"
-        },
-        "contentType": {
-          "type": "string",
-          "enum": [
-            "asr",
-            "summary"
-          ],
-          "description": "asr=语音转文字 | summary=AI摘要（必填，不支持原始音频）"
-        }
-      },
-      "required": [
-        "conferenceId",
-        "contentType"
-      ],
-      "additionalProperties": false
-    },
-    "annotations": {
-      "readOnlyHint": true,
-      "openWorldHint": false
-    },
-    "execution": {
-      "taskSupport": "forbidden"
-    }
-  },
-  {
     "name": "gangtise_wechat_chatroom_list",
     "description": "查询可用的微信群 ID 和群名称列表（服务端返回 {total, list}，按 total 自动并发翻页；省略 size 拉取全部群，传 size 取前 N 条）。",
     "inputSchema": {
@@ -5434,6 +4089,88 @@
       "readOnlyHint": false,
       "destructiveHint": true,
       "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "gangtise_download",
+    "description": "下载研报、纪要、公告、独立观点、公众号、图表、业绩报告、知识库资源、云盘文件与录音 / 会议转写：kind 选资源，id 填对应列表返回的 ID。文本类直接返回内容（大文件落盘返回路径），二进制返回文件路径。【积分：按下载类型】",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "summary",
+            "pamirs_summary",
+            "research",
+            "foreign_report",
+            "announcement",
+            "announcement_hk",
+            "announcement_us",
+            "independent_opinion",
+            "official_account",
+            "report_image",
+            "performance_calendar",
+            "knowledge_resource",
+            "drive",
+            "record",
+            "my_conference"
+          ],
+          "description": "summary=纪要（summaryId，来自 summary_list；50/条） | pamirs_summary=帕米尔专家纪要（summaryId，来自 pamirs_summary_list；单价以平台计费为准） | research=券商研报（reportId，来自 research_list；10/条） | foreign_report=外资研报（reportId，来自 foreign_report_list；50/条） | announcement=A股公告（announcementId，来自 announcement_list；10/条） | announcement_hk=港股公告（announcementId，来自 announcement_list；20/条） | announcement_us=美股公告（announcementId，来自 announcement_list；20/条） | independent_opinion=独立观点 HTML（independentOpinionId，来自 independent_opinion_list；30/条） | official_account=公众号文章（articleId，来自 official_account_list；10/条） | report_image=研报图表原图 JPEG（chunkId，来自 report_image_list；0.1/张） | performance_calendar=业绩报告原文 PDF（performanceReportId，来自 performance_calendar_list，仅 hasAttachment=true 的可下载；10/条，港美股为 20/条） | knowledge_resource=知识库资源（sourceId，来自 knowledge_batch；按下游资源类型计） | drive=云盘文件（fileId，来自 drive_list；免费） | record=录音（recordId，来自 record_list；免费） | my_conference=我的会议（conferenceId，来自 my_conference_list；50/条）"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "资源 ID，按 kind 说明里的来源取"
+        },
+        "fileType": {
+          "type": "number",
+          "enum": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "description": "格式，只有以下 kind 收：summary 1=原始文件（默认）2=HTML（仅限会议平台纪要）；pamirs_summary 1=原始文件（默认）2=HTML；research 1=PDF（默认）2=Markdown；foreign_report 1=PDF 2=Markdown 3=中文PDF 4=中文Markdown；announcement 1=PDF（默认）2=Markdown；announcement_hk 1=原始（默认）2=Markdown；announcement_us 1=原始 PDF（默认）2=Markdown；independent_opinion 1=原文 2=中文翻译，必填；official_account 1=txt（默认）2=HTML"
+        },
+        "contentType": {
+          "type": "string",
+          "enum": [
+            "original",
+            "asr",
+            "summary"
+          ],
+          "description": "只有 record（original=原始音频 | asr=语音转文字 | summary=AI摘要，必填）与 my_conference（asr=语音转文字 | summary=AI摘要，必填，不支持原始音频）收"
+        },
+        "resourceType": {
+          "type": "number",
+          "enum": [
+            10,
+            11,
+            20,
+            40,
+            50,
+            51,
+            60,
+            70,
+            80,
+            90
+          ],
+          "description": "只有 knowledge_resource 收，必填：10=研报 | 11=外资研报 | 20=内部 | 40=观点 | 50=公告 | 51=港股公告 | 60=纪要 | 70=调研 | 80=网络纪要 | 90=公众号"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
       "openWorldHint": false
     },
     "execution": {

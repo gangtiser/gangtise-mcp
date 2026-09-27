@@ -7,6 +7,7 @@ import { quoteExamples } from "./quote.examples.js"
 import { fundamentalExamples } from "./fundamental.examples.js"
 import { aiExamples } from "./ai.examples.js"
 import { vaultExamples } from "./vault.examples.js"
+import { downloadExamples } from "./download.examples.js"
 import { alternativeExamples } from "./alternative.examples.js"
 import { indicatorExamples } from "./indicator.examples.js"
 import { responseExamples } from "./response.examples.js"
@@ -21,6 +22,7 @@ export const EXAMPLES: ToolExamples = {
   ...fundamentalExamples,
   ...aiExamples,
   ...vaultExamples,
+  ...downloadExamples,
   ...alternativeExamples,
   ...indicatorExamples,
   ...responseExamples,

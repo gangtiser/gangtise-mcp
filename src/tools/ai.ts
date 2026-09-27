@@ -157,7 +157,7 @@ export const jsonSpecs: JsonToolSpec[] = [
 export const downloadSpecs: DownloadToolSpec[] = [
   {
     name: "gangtise_knowledge_resource_download",
-    tier: "core",
+    tier: "legacy",
     description: "按资源类型和 sourceId 下载知识库资源文件。sourceId 来自 gangtise_knowledge_batch 返回结果。",
     endpointKey: "ai.knowledge-resource.download",
     inputSchema: {

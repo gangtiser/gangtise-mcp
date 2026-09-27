@@ -18,8 +18,9 @@ async function liveInstructions(): Promise<string> {
   return client.getInstructions() ?? ""
 }
 
+/** 全部档位含 legacy：标签对每个可启用的工具都要成立。 */
 async function listLiveTools() {
-  const server = createGangtiseMcpServer(stubClient, { version: "0.0.0-test" })
+  const server = createGangtiseMcpServer(stubClient, { version: "0.0.0-test", tools: "all,legacy" })
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
   await server.connect(serverTransport)
   const client = new Client({ name: "test", version: "0.0.1" })
@@ -36,14 +37,14 @@ const FROZEN_LABELS = new Set([
   "", "【积分：按下游资源类型】", "【积分：按所选指标】", "【积分：单价以平台计费为准】",
   "【本地工具，不消耗 OpenAPI 积分】",
 ])
-const inFrozenVocabulary = (label: string) => FROZEN_LABELS.has(label) || /^【积分：[\d.]+\/(次|条|篇|张|指标)】$/.test(label)
+const inFrozenVocabulary = (label: string) => FROZEN_LABELS.has(label) || /^【积分：[\d.]+\/(次|条|篇|张|指标)】$/.test(label) || /^【积分：按[^】]{2,8}】$/.test(label)
 
 const AMPLIFY_HINTS = [...new Set(Object.values(ENDPOINTS).flatMap((e) => (e.billing && "amplify" in e.billing && e.billing.amplify ? [e.billing.amplify] : [])))]
 
 describe("billing labels", () => {
   it("labels every registered tool from the frozen vocabulary", async () => {
     const live = await listLiveTools()
-    expect(live).toHaveLength(103)
+    expect(live).toHaveLength(104)
     for (const tool of live) {
       const label = labelOf(tool.description ?? "")
       expect(inFrozenVocabulary(label), `${tool.name} 标签越界：${label}`).toBe(true)
@@ -60,6 +61,7 @@ describe("billing labels", () => {
     expect(billingLabel("ai.knowledge-resource.download")).toBe("【积分：按下游资源类型】")
     expect(billingLabel("reference.securities-search")).toBe("【积分：单价以平台计费为准】")
     expect(billingLabel("indicator.time-series")).toBe("【积分：按所选指标】")
+    expect(billingLabel({ kind: "variable", note: "x", basis: "按下载类型" })).toBe("【积分：按下载类型】")
     expect(billingLabel(LOCAL)).toBe("【本地工具，不消耗 OpenAPI 积分】")
   })
 
@@ -158,7 +160,7 @@ describe("billing labels", () => {
       if (label === "") return "free"
       if (label.startsWith("【本地工具")) return "local"
       if (label === "【积分：按下游资源类型】") return "downstream"
-      if (label === "【积分：按所选指标】") return "variable"
+      if (label.startsWith("【积分：按")) return "variable"
       if (label === "【积分：单价以平台计费为准】") return "unknown"
       return "fixed"
     })
@@ -166,7 +168,8 @@ describe("billing labels", () => {
     expect(count("free")).toBe(39)
     expect(count("fixed")).toBe(46)
     expect(count("downstream")).toBe(1)
-    expect(count("variable")).toBe(3)
+    // 3 个 EDE 取数（按所选指标）+ 下载网关（按下载类型）。
+    expect(count("variable")).toBe(4)
     // 11 = 7 个参考类 + 2 个续查 + 帕米尔两个：未确认 ≠ 免费。
     expect(count("unknown")).toBe(11)
     expect(count("local")).toBe(3)

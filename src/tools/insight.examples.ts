@@ -51,6 +51,11 @@ export const insightExamples: ToolExamples = {
     { title: "码表外的地区本地拒绝", args: { regionList: ["hk"] }, expect: { rejects: /Invalid enum value.*at regionList/ } },
   ],
   gangtise_announcement_list: [
+    { title: "港股代码走港股端点", args: { securityList: ["00700.HK"], keyword: "业绩" }, expect: { requests: [{ method: "POST", path: "/application/open-insight/announcement-hk/getList", body: { keyword: "业绩", securityList: ["00700.HK"], size: 20, from: 0 } }] } },
+    { title: "无证券按 market，开关不进 body", args: { market: "usStocks", startTime: "2026-09-01 00:00:00" }, expect: { requests: [{ method: "POST", path: "/application/open-insight/announcement-us/getList", body: { startTime: "2026-09-01 00:00:00", size: 20, from: 0 } }] } },
+    { title: "无证券又无 market 本地拒绝", args: { keyword: "回购" }, expect: { rejects: /不传 securityList 时须传 market/ } },
+    { title: "混合市场本地拒绝", args: { securityList: ["600519.SH", "00700.HK"] }, expect: { rejects: /一次只能查一个市场的公告/ } },
+    { title: "market 与后缀冲突本地拒绝", args: { securityList: ["600519.SH"], market: "hkStocks" }, expect: { rejects: /market=hkStocks 与 securityList 的市场不一致/ } },
     { title: "A 股公告", args: { securityList: ["600519.SH"], categoryList: ["cat-1"], startTime: "2026-01-01 00:00:00", endTime: "2026-06-30 23:59:59" }, expect: { requests: [{ method: "POST", path: "/application/open-insight/announcement/getList", body: { startTime: "2026-01-01 00:00:00", endTime: "2026-06-30 23:59:59", securityList: ["600519.SH"], categoryList: ["cat-1"], size: 20, from: 0 } }] } },
   ],
   gangtise_announcement_hk_list: [

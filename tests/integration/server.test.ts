@@ -34,8 +34,9 @@ function makeMockClient() {
   } as unknown as GangtiseClient
 }
 
-async function makeTestClient(mockClient: GangtiseClient) {
-  const server = createGangtiseMcpServer(mockClient, { asyncTimeoutMs: 5_000 })
+// 默认全部档位含 legacy：旧工具的行为照样要测。预算只按默认档算，那两条传 {}。
+async function makeTestClient(mockClient: GangtiseClient, { tools }: { tools?: string } = { tools: "all,legacy" }) {
+  const server = createGangtiseMcpServer(mockClient, { asyncTimeoutMs: 5_000, tools })
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
   await server.connect(serverTransport)
   const client = new Client({ name: "test-client", version: "0.0.1" })
@@ -274,7 +275,7 @@ describe("MCP server integration", () => {
   })
 
   it("keeps the tools/list payload under its context budget", async () => {
-    const { tools } = await mcpClient.listTools()
+    const { tools } = await (await makeTestClient(mockClient, {})).listTools()
     const bytes = Buffer.byteLength(JSON.stringify(tools), "utf8")
 
     // 天花板不是「当前值 + 1」——留了增长余量，新增工具不该动它。撞上了说明该先看
@@ -756,8 +757,9 @@ describe("MCP server integration", () => {
   //
   // 两个数字都记下来，便于下次判断增量落在哪一侧；合计是硬闸门。
   it("keeps the model-facing context within budget (instructions + tools/list)", async () => {
-    const instructions = mcpClient.getInstructions() ?? ""
-    const { tools } = await mcpClient.listTools()
+    const defaultClient = await makeTestClient(mockClient, {})
+    const instructions = defaultClient.getInstructions() ?? ""
+    const { tools } = await defaultClient.listTools()
     const instrBytes = Buffer.byteLength(instructions, "utf8")
     const listBytes = Buffer.byteLength(JSON.stringify(tools), "utf8")
 
@@ -957,6 +959,7 @@ const CLOSED_SET_SNAPSHOT = [
     "foreign_report_list.ratingChangeList",
     "announcement_list.searchType",
     "announcement_list.rankType",
+    "announcement_list.market",
     "announcement_hk_list.searchType",
     "announcement_hk_list.rankType",
     "announcement_us_list.searchType",
@@ -1032,6 +1035,10 @@ const CLOSED_SET_SNAPSHOT = [
     "wechat_message_list.tagList",
     "record_download.contentType",
     "my_conference_download.contentType",
+    "download.kind",
+    "download.fileType",
+    "download.contentType",
+    "download.resourceType",
     "indicator_cross_section.currency",
     "indicator_cross_section.scale",
     "indicator_time_series.calendarType",
@@ -1066,6 +1073,11 @@ describe("closed-set params reject illegal values before calling upstream", () =
   const isArrayParam = (v: Record<string, unknown>) => v.type === "array"
 
   // 用 schema 的 required 列表合成一组「除被测字段外完全合法」的入参。
+  // 跨字段约束：单看 schema 合成不出来的组合（公告不带证券时要 market；下载网关的附加参数由 kind 决定）。
+  const COMPANIONS: Record<string, (key: string) => Record<string, unknown>> = {
+    gangtise_announcement_list: (key) => (key === "market" ? {} : { market: "aShares" }),
+    gangtise_download: (key) => (key === "contentType" ? { kind: "record" } : key === "resourceType" ? { kind: "knowledge_resource" } : {}),
+  }
   const fillRequired = (schema: Record<string, unknown>, skip: string) => {
     const props = (schema.properties ?? {}) as Record<string, Record<string, unknown>>
     const required = (schema.required ?? []) as string[]
@@ -1112,7 +1124,7 @@ describe("closed-set params reject illegal values before calling upstream", () =
       for (const [key, spec] of Object.entries(props)) {
         const vals = enumValuesOf(spec)
         if (!vals || vals.length === 0) continue
-        const base = fillRequired(schema, key)
+        const base = { ...fillRequired(schema, key), ...COMPANIONS[tool.name]?.(key) }
         const wrap = (v: unknown) => (isArrayParam(spec) ? [v] : v)
 
         // ② 正向对照先跑：换成合法值必须打通。打不通说明这条用例的「红」另有原因

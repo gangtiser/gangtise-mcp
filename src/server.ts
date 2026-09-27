@@ -41,7 +41,7 @@ const ROUTING_LINES: Array<{ prefix?: string; clauses: RoutingClause[] }> = [
     prefix: "①行情/财务：",
     clauses: [
       { text: `日K/realtime 各一个工具覆盖三市场+指数；`, refs: ["day_kline"] },
-      { text: `三表按市场用 _hk/_us；`, refs: ["income_statement_hk", "income_statement_us", "balance_sheet_hk", "balance_sheet_us", "cash_flow_hk", "cash_flow_us"] },
+      { text: `三表按代码后缀自动选市场；`, refs: ["income_statement", "balance_sheet", "cash_flow"] },
       { text: `资金流仅 A 股。`, refs: ["fund_flow"] },
       { text: `单票财务/估值/盈利预测/股东/主营用专用工具；`, refs: ["income_statement", "valuation_analysis", "earning_forecast", "top_holders", "main_business"] },
       `多证券财务/估值指标优先 indicator_*(EDE) 截面/时序，长尾同；`,
@@ -54,7 +54,7 @@ const ROUTING_LINES: Array<{ prefix?: string; clauses: RoutingClause[] }> = [
       { text: `研报/观点/纪要/公告/公众号/问答 qa_list/研报图表 report_image 用对应 *_list；`, refs: ["research_list", "opinion_list", "summary_list", "announcement_list", "official_account_list"] },
       `跨类语义检索用 knowledge_batch；`,
       { text: `roadshow/site_visit/strategy/forum 只查日程、正文用 summary_list。`, refs: ["roadshow_list", "strategy_list", "forum_list"] },
-      { text: `研报与独立观点有专用下载工具，机构观点无（见其描述）。`, refs: ["research_download", "independent_opinion_download", "opinion_list"] },
+      { text: `研报/纪要/公告等正文用 gangtise_download，机构观点无下载（见其描述）。`, refs: ["opinion_list"] },
     ],
   },
   { prefix: "③AI：", clauses: [`除 earnings_review/viewpoint_debate 外均取平台已生成的内容，直接调即可；这两个是异步提交，超时只用对应 *_check 续查、勿重提（重提再计费）。`] },

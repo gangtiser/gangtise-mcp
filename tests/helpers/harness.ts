@@ -34,6 +34,8 @@ export interface HarnessOptions {
   /** 单个 HTTP 请求超时。 */
   timeoutMs?: number
   maxDownloadBytes?: number
+  /** GANGTISE_MCP_TOOLS 取值；缺省为默认档。 */
+  tools?: string
 }
 
 export async function startHarness(options: HarnessOptions = {}): Promise<Harness> {
@@ -47,7 +49,7 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
     asyncTimeoutMs: options.asyncTimeoutMs ?? DEFAULT_ASYNC_TIMEOUT_MS,
     maxDownloadBytes: options.maxDownloadBytes ?? 64 * 1024 * 1024,
   })
-  const server = createGangtiseMcpServer(client, { asyncTimeoutMs: options.asyncTimeoutMs ?? DEFAULT_ASYNC_TIMEOUT_MS })
+  const server = createGangtiseMcpServer(client, { asyncTimeoutMs: options.asyncTimeoutMs ?? DEFAULT_ASYNC_TIMEOUT_MS, tools: options.tools })
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
   await server.connect(serverTransport)
   const mcp = new Client({ name: "contract-harness", version: "0.0.0" })

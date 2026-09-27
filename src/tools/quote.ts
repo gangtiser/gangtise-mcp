@@ -187,7 +187,8 @@ const CODE_IDENTITY_WARNING =
   "核对请用 gangtise_securities_search **按公司名查**，再核对返回的 gtsName 与 gtsCode 后缀。" +
   "三类会拿到「合理但错误」的数：① A+H 两地上市名字**逐字相同**（中国移动 600941.SH / 00941.HK，招商银行 600036.SH / 03968.HK），" +
   "返回里没有市场字段、只有后缀能区分，拿错一边就是错币种错价格（招行两地价差方向还相反）；" +
-  "② 美股写错代码可能命中另一只名字相近的**真实**证券（BRK.N 实为 RBRK.N，另一家公司）；" +
+  "② 美股写错代码可能命中另一只**真实**证券（BRK.N 实为 RBRK.N，另一家公司）；多股份类别写法不统一、别自己拼" +
+  "（FOXA.O / FOX.O，BRK_A.N / BRK_B.N，Bio-Rad A 类就是 BIO.N 不带标记），拼错可能命中同公司另一类别（HVT.N 与 HVT_A.N 都存在、价格不同）；" +
   "③ 搜得到 ≠ 查得到（B 股 900938.SH 搜索有、行情报「证券代码无效」），判据是行情接口返不返数据。"
 
 /** 行情族的拆分策略：交易所周六日休市（calendar: workday），全市场请求抬到 10000 行上限。
@@ -222,7 +223,7 @@ export const quoteFamily: FamilyModule = {
         // 统一工具的全市场关键字是三个市场名，不是 `all`，所以走 securityDesc 的双参形式
         // 而不是 marketSecurity（后者固定给「传 'all'」）。
         security: z.union([nonEmptyString, nonEmptyList()]).optional().describe(securityDesc(
-          "证券代码 — A股 .SH/.SZ/.BJ、港股 .HK、美股 .O/.N/.A、沪深 ETF .SH/.SZ（512800.SH）、交易所指数 .SH/.SZ/.BJ、概念指数 .GT、申万行业指数 .SWI（801xxx.SWI）、中信行业指数 .CI（821xxx.CI）、全球指数按数据源后缀照抄（SPX.SPI 标普500 / DJI.SPI 道琼斯 / IXIC.O 纳指 / N225.NKI 日经225 / HSI.HI 恒生 / FTSE.FI 富时100 / GDAXI.FRA 德国DAX / KS11.KRX 韩国KOSPI 等 20 个），可混传，如 ['600519.SH','00700.HK','AAPL.O','000001.SH','SPX.SPI']",
+          "证券代码 — A股 .SH/.SZ/.BJ、港股 .HK（5 位数字前补零）、美股 .O/.N/.A、沪深 ETF .SH/.SZ（512800.SH）、交易所指数 .SH/.SZ/.BJ、概念指数 .GT、申万行业指数 .SWI（801xxx.SWI）、中信行业指数 .CI（821xxx.CI）、全球指数按数据源后缀照抄（SPX.SPI 标普500 / DJI.SPI 道琼斯 / IXIC.O 纳指 / N225.NKI 日经225 / HSI.HI 恒生 / FTSE.FI 富时100 / GDAXI.FRA 德国DAX / KS11.KRX 韩国KOSPI 等 20 个），可混传，如 ['600519.SH','00700.HK','AAPL.O','000001.SH','SPX.SPI']",
           "或传市场关键字 'aShares'（A股全市场）/ 'hkStocks'（港股全市场）/ 'usStocks'（美股全市场）",
         )),
       },
@@ -230,7 +231,7 @@ export const quoteFamily: FamilyModule = {
     }),
     defineTool({
       name: "gangtise_day_kline_hk",
-      tier: "core",
+      tier: "legacy",
       access: "read",
       endpoint: "quote.day-kline-hk",
       description: "【已被 gangtise_day_kline 覆盖，改用它】港股历史日 K 线。gangtise_day_kline 的 'hkStocks' 等价于本工具的 'all'，行数、字段与代码集合完全相同，且能与其他市场混查并对不合法后缀明确报错——没有必须用本工具的场景。",
@@ -239,7 +240,7 @@ export const quoteFamily: FamilyModule = {
     }),
     defineTool({
       name: "gangtise_day_kline_us",
-      tier: "core",
+      tier: "legacy",
       access: "read",
       endpoint: "quote.day-kline-us",
       description: "【已被 gangtise_day_kline 覆盖，改用它】美股历史日 K 线（NYSE/NASDAQ/AMEX）。gangtise_day_kline 的 'usStocks' 等价于本工具的 'all'，行数、字段与代码集合完全相同，且能与其他市场混查并对不合法后缀明确报错——没有必须用本工具的场景。",

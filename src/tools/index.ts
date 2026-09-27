@@ -7,6 +7,7 @@ import { quoteFamily } from "./quote.js"
 import { fundamentalFamily } from "./fundamental.js"
 import { aiFamily, type AiToolOptions } from "./ai.js"
 import { vaultFamily } from "./vault.js"
+import { downloadFamily } from "./download.js"
 import { alternativeFamily } from "./alternative.js"
 import { indicatorFamily } from "./indicator.js"
 import { responseFamily } from "./response.js"
@@ -22,6 +23,7 @@ export function createFamilies(options: AiToolOptions): FamilyModule[] {
     fundamentalFamily,
     aiFamily(options),
     vaultFamily,
+    downloadFamily,
     alternativeFamily,
     indicatorFamily,
     responseFamily,

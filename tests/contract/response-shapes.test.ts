@@ -196,7 +196,8 @@ function render(outcome: { isError: boolean; text: string }): string {
 let harness: Harness
 
 beforeAll(async () => {
-  harness = await startHarness({ asyncTimeoutMs: 5_000 })
+  // 全部档位含 legacy：legacy 旧工具的返回同样钉住。
+  harness = await startHarness({ asyncTimeoutMs: 5_000, tools: "all,legacy" })
 })
 
 afterAll(async () => {

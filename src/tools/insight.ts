@@ -10,6 +10,7 @@ import { nonEmptyString, nonEmptyList, intLiteralEnum, enumList } from "../mcp/s
 import { fetchOpinionDetails } from "../core/opinionDetail.js"
 import { markPartial } from "../core/partial.js"
 import { insightEndpoints } from "./insight.endpoints.js"
+import { parseSecurityCode } from "../core/securityCode.js"
 
 // insight.qa.list accepts either a plain date or a full datetime; the string is
 // passed through to the API as-is (no timestamp conversion).
@@ -46,6 +47,23 @@ const REGION_ENUM = z.enum(["cn", "cnHk", "cnTw", "us", "jp", "sea", "gl", "uk",
  *  开关只决定打哪个端点，不进请求体。 */
 function opinionListResolve(briefKey: string, withContentKey: string) {
   return ({ withContent, ...body }: Record<string, unknown>) => ({ endpointKey: withContent === true ? withContentKey : briefKey, body })
+}
+
+/** 公告按市场分三个端点。市场由证券后缀定，没有证券时由 market 定；混了市场、或两者对不上就拒绝，
+ *  不猜——猜错一个市场，返回的是另一个市场的公告或空表，看不出来。 */
+const ANNOUNCEMENT_ENDPOINTS = { cn: "insight.announcement.list", hk: "insight.announcement-hk.list", us: "insight.announcement-us.list" } as const
+const MARKET_KEYWORD = { aShares: "cn", hkStocks: "hk", usStocks: "us" } as const
+function announcementResolve({ market, ...body }: Record<string, unknown>): { endpointKey: string; body: Record<string, unknown> } {
+  const codes = Array.isArray(body.securityList) ? body.securityList.map(String) : []
+  const unknown = codes.find((code) => !parseSecurityCode(code).market)
+  if (unknown !== undefined) throw new ValidationError(`'${unknown}' 没有可识别的市场后缀：A股 .SH/.SZ/.BJ、港股 .HK、美股 .O/.N/.A。`)
+  const markets = [...new Set(codes.map((code) => parseSecurityCode(code).market!))]
+  if (markets.length > 1) throw new ValidationError("一次只能查一个市场的公告：securityList 里混了不同市场的代码，请按市场分开查。")
+  const wanted = typeof market === "string" ? MARKET_KEYWORD[market as keyof typeof MARKET_KEYWORD] : undefined
+  if (markets.length === 1 && wanted && markets[0] !== wanted) throw new ValidationError(`market=${String(market)} 与 securityList 的市场不一致。`)
+  const resolved = markets[0] ?? wanted
+  if (!resolved) throw new ValidationError("不传 securityList 时须传 market：aShares / hkStocks / usStocks。")
+  return { endpointKey: ANNOUNCEMENT_ENDPOINTS[resolved], body }
 }
 
 const REGION_DESC = "地区 ID，来自 gangtise_constant_list category=regionCategory：cn=中国 | cnHk=中国香港 | cnTw=中国台湾 | us=美国 | jp=日本 | sea=东南亚 | gl=全球 | uk=英国 | fr=法国 | de=德国 | kr=韩国 | in=印度 | ca=加拿大 | me=中东 | othAs=亚洲其他 | othEur=欧洲其他 | latAm=拉美 | oce=大洋洲 | af=非洲。⚠️ 取值须逐字匹配（中国香港是 cnHk 不是 hk；欧洲按国家/地区分列，没有 eu）"
@@ -255,8 +273,9 @@ export const listSpecs: JsonToolSpec[] = [
   {
     name: "gangtise_announcement_list",
     tier: "core",
-    description: "查询 A 股公告列表，支持按证券、公告分类、时间范围筛选。",
+    description: "查询公告列表（A股 / 港股 / 美股），支持按证券、公告分类、时间范围筛选。市场由 securityList 的代码后缀决定，一次只查一个市场；不传证券时须传 market。",
     endpointKey: "insight.announcement.list",
+    resolve: announcementResolve,
     paginated: true,
     inputSchema: {
       from: z.number().int().min(0).optional(),
@@ -265,13 +284,14 @@ export const listSpecs: JsonToolSpec[] = [
       keyword: nonEmptyString.optional(),
       searchType: SEARCH_TYPE.describe("1=标题搜索 | 2=全文搜索"),
       rankType: RANK_TYPE,
-      securityList: nonEmptyList().optional(),
-      categoryList: nonEmptyList().optional().describe("公告分类 ID，来自 gangtise_constant_list category=aShareAnnouncementCategory"),
+      securityList: nonEmptyList().optional().describe("证券代码，带市场后缀：A股 .SH/.SZ/.BJ、港股 .HK、美股 .O/.N/.A"),
+      market: z.enum(["aShares", "hkStocks", "usStocks"]).optional().describe("不传 securityList 时必填"),
+      categoryList: nonEmptyList().optional().describe("公告分类 ID，来自 gangtise_constant_list：A股 category=aShareAnnouncementCategory、港股 hkShareAnnouncementCategory、美股 usShareAnnouncementCategory"),
     },
   },
   {
     name: "gangtise_announcement_hk_list",
-    tier: "core",
+    tier: "legacy",
     description: "查询港股公告列表，支持按证券、类别、时间范围筛选。",
     endpointKey: "insight.announcement-hk.list",
     paginated: true,
@@ -288,7 +308,7 @@ export const listSpecs: JsonToolSpec[] = [
   },
   {
     name: "gangtise_announcement_us_list",
-    tier: "core",
+    tier: "legacy",
     description: "查询美股公告列表，支持按证券、类别、时间范围筛选。",
     endpointKey: "insight.announcement-us.list",
     paginated: true,
@@ -395,7 +415,7 @@ export const listSpecs: JsonToolSpec[] = [
     name: "gangtise_report_image_list",
     tier: "core",
     description:
-      "按关键词搜索研报图表，返回 chunkId 及元数据（标题/券商/页码/图注/该页 OCR 文本）；原图用 gangtise_report_image_download 按 chunkId 下载。",
+      "按关键词搜索研报图表，返回 chunkId 及元数据（标题/券商/页码/图注/该页 OCR 文本）；原图用 gangtise_download（kind=report_image）按 chunkId 下载。",
     endpointKey: "insight.report-image.list",
     paginated: false,
     inputSchema: {
@@ -411,7 +431,7 @@ export const listSpecs: JsonToolSpec[] = [
 export const downloadSpecs: DownloadToolSpec[] = [
   {
     name: "gangtise_summary_download",
-    tier: "core",
+    tier: "legacy",
     description: "按 summaryId 下载会议纪要文件，返回文本内容或文件路径。",
     endpointKey: "insight.summary.download",
     inputSchema: {
@@ -421,7 +441,7 @@ export const downloadSpecs: DownloadToolSpec[] = [
   },
   {
     name: "gangtise_pamirs_summary_download",
-    tier: "core",
+    tier: "legacy",
     description: "按 summaryId 下载帕米尔专家纪要文件，返回文本内容或文件路径。",
     endpointKey: "insight.pamirs-summary.download",
     inputSchema: {
@@ -431,7 +451,7 @@ export const downloadSpecs: DownloadToolSpec[] = [
   },
   {
     name: "gangtise_research_download",
-    tier: "core",
+    tier: "legacy",
     description: "按 reportId 下载券商研报，返回 Markdown 文本或 PDF 文件路径。",
     endpointKey: "insight.research.download",
     inputSchema: {
@@ -441,7 +461,7 @@ export const downloadSpecs: DownloadToolSpec[] = [
   },
   {
     name: "gangtise_foreign_report_download",
-    tier: "core",
+    tier: "legacy",
     description: "下载外资研报，支持原文 PDF、Markdown、中文 PDF 和中文 Markdown 格式。",
     endpointKey: "insight.foreign-report.download",
     inputSchema: {
@@ -451,7 +471,7 @@ export const downloadSpecs: DownloadToolSpec[] = [
   },
   {
     name: "gangtise_announcement_download",
-    tier: "core",
+    tier: "legacy",
     description: "按 announcementId 下载 A 股公告文件。",
     endpointKey: "insight.announcement.download",
     inputSchema: {
@@ -461,7 +481,7 @@ export const downloadSpecs: DownloadToolSpec[] = [
   },
   {
     name: "gangtise_announcement_hk_download",
-    tier: "core",
+    tier: "legacy",
     description: "下载港股公告文件。",
     endpointKey: "insight.announcement-hk.download",
     inputSchema: {
@@ -471,7 +491,7 @@ export const downloadSpecs: DownloadToolSpec[] = [
   },
   {
     name: "gangtise_announcement_us_download",
-    tier: "core",
+    tier: "legacy",
     description: "下载美股公告文件。",
     endpointKey: "insight.announcement-us.download",
     inputSchema: {
@@ -481,7 +501,7 @@ export const downloadSpecs: DownloadToolSpec[] = [
   },
   {
     name: "gangtise_independent_opinion_download",
-    tier: "core",
+    tier: "legacy",
     description: "下载境外独立研究员观点文件，返回 HTML 内容（原文或中文翻译）。",
     endpointKey: "insight.independent-opinion.download",
     inputSchema: {
@@ -491,7 +511,7 @@ export const downloadSpecs: DownloadToolSpec[] = [
   },
   {
     name: "gangtise_official_account_download",
-    tier: "core",
+    tier: "legacy",
     description: "按 articleId 下载产业公众号文章，返回 txt 文本或 HTML。",
     endpointKey: "insight.official-account.download",
     inputSchema: {
@@ -501,7 +521,7 @@ export const downloadSpecs: DownloadToolSpec[] = [
   },
   {
     name: "gangtise_report_image_download",
-    tier: "core",
+    tier: "legacy",
     description: "按 chunkId 下载研报图表原图（JPEG 二进制）。chunkId 来自 gangtise_report_image_list。",
     endpointKey: "insight.report-image.download",
     inputSchema: {
@@ -510,7 +530,7 @@ export const downloadSpecs: DownloadToolSpec[] = [
   },
   {
     name: "gangtise_performance_calendar_download",
-    tier: "core",
+    tier: "legacy",
     description: "按 performanceReportId 下载业绩报告原文 PDF。仅 gangtise_performance_calendar_list 中 hasAttachment=true 的记录可下载。",
     endpointKey: "insight.performance-calendar.download",
     inputSchema: {
@@ -594,7 +614,7 @@ export const insightFamily: FamilyModule = {
       tier: "core",
       access: "read",
       endpoint: "insight.performance-calendar.list",
-      description: "查询财报日历：业绩预告 / 业绩快报 / 业绩公告三类事件的发布日程（含未来已排期）。按 publishDate 过滤，返回 performanceReportId（下载用）、securityCodeList（A+H 同时上市会有多个码）、securityName、category、publishDate、title、hasAttachment。查「某公司何时披露财报」用 securityList，查「某段时间谁要出业绩」用 startDate+endDate。本工具只给排期与标题，公告全文请用 gangtise_announcement_list / _download 系列。",
+      description: "查询财报日历：业绩预告 / 业绩快报 / 业绩公告三类事件的发布日程（含未来已排期）。按 publishDate 过滤，返回 performanceReportId（下载用）、securityCodeList（A+H 同时上市会有多个码）、securityName、category、publishDate、title、hasAttachment。查「某公司何时披露财报」用 securityList，查「某段时间谁要出业绩」用 startDate+endDate。本工具只给排期与标题，公告全文请用 gangtise_announcement_list 查、gangtise_download 下载。",
       input: {
         from: z.number().int().min(0).optional(),
         // 通用语义（默认 20）在 server.instructions；这里只留本端点独有的两档行数封顶。

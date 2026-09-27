@@ -17,13 +17,14 @@ import { indicatorEndpoints } from "../tools/indicator.endpoints.js"
  *    （分页端点由页大小封顶）。`unit` 只改标签里的计量词（默认 次 / 页 / 条 / 条）。
  *  - `amplify`：高放大提示，排在标签**之前**、不进标签。分页列表的数字是按默认 size=20 调用一次的
  *    成本示例，**不是上限**（size 无上限、另有 fetchAll），所以写「单次约 N 积分」，绝不写「最多」。
+ *  - `variable.basis`：标签里的计价依据（「按下载类型」「按返回条数」），缺省「按所选指标」。
  *  - `local`：本地工具，不打 OpenAPI；只用在工具上，不用在端点上。
  *  - `unknown`：未公布价。未确认 ≠ 免费，标签不显示免费；缺失 `billing` 按它处理。 */
 export type Billing =
   | { kind: "free" }
   | { kind: "local" }
   | { kind: "fixed"; per: "call" | "page" | "row" | "document"; price: number; maxUnits?: number; unit?: "篇" | "张" | "指标"; amplify?: string }
-  | { kind: "variable"; note: string; amplify?: string }
+  | { kind: "variable"; note: string; amplify?: string; basis?: string }
   | { kind: "downstream"; note: string }
   | { kind: "unknown"; note: string }
 

@@ -74,11 +74,15 @@ async function connect(tools?: string) {
 }
 
 describe("GANGTISE_MCP_TOOLS on the real server", () => {
-  it("lists the same tools for core and all while every tool is in core", async () => {
-    const core = (await (await connect(undefined)).listTools()).tools.map((t) => t.name)
-    const all = (await (await connect("all")).listTools()).tools.map((t) => t.name)
-    expect(core).toHaveLength(103)
-    expect(all).toEqual(core)
+  const declared = createFamilies({ asyncTimeoutMs: 5_000 }).flatMap((family) => family.tools)
+  const ofTier = (...tiers: string[]) => declared.filter((tool) => tiers.includes(tool.tier)).map((tool) => tool.name)
+
+  it("lists core by default, adds extended with all, and legacy only when asked", async () => {
+    const names = async (tools?: string) => (await (await connect(tools)).listTools()).tools.map((t) => t.name)
+    expect(await names(undefined)).toEqual(ofTier("core"))
+    expect(await names("all")).toEqual(ofTier("core", "extended"))
+    expect(await names("all,legacy")).toEqual(ofTier("core", "extended", "legacy"))
+    expect(ofTier("legacy").length).toBeGreaterThan(0)
   })
 
   it("drops a disabled tool from the listing and refuses to call it", async () => {
@@ -87,7 +91,7 @@ describe("GANGTISE_MCP_TOOLS on the real server", () => {
     const names = (await client.listTools()).tools.map((t) => t.name)
     expect(names).not.toContain("gangtise_realtime")
     expect(names).toContain("gangtise_current_date")
-    expect(names).toHaveLength(102)
+    expect(names).toHaveLength(ofTier("core").length - 1)
     const result = await client.callTool({ name: "gangtise_realtime", arguments: { security: "600519.SH" } }).catch((err: unknown) => ({ isError: true, err }))
     expect((result as { isError?: boolean }).isError).toBe(true)
     expect(stubClient.call).not.toHaveBeenCalled()
@@ -133,7 +137,7 @@ describe("routingInstructions", () => {
     expect(text).toContain("①行情/财务：日K/realtime 各一个工具覆盖三市场+指数；资金流仅 A 股。\n")
     for (const gone of ["indicator_*", "edb_*", "三表按市场", "②内容", "③AI", "④其他", "除①批量外"]) expect(text).not.toContain(gone)
     // 一行里只剩「；」结尾的分句时改成句号
-    expect((await connect("fundamental")).getInstructions()).toContain("①行情/财务：三表按市场用 _hk/_us；单票财务/估值/盈利预测/股东/主营用专用工具。\n")
+    expect((await connect("fundamental")).getInstructions()).toContain("①行情/财务：三表按代码后缀自动选市场；单票财务/估值/盈利预测/股东/主营用专用工具。\n")
   })
 })
 
@@ -146,7 +150,8 @@ describe("tool dependencies", () => {
 
   it("always keeps the foundation tools and refuses to disable them", () => {
     expect(enabledNames("quote")).toEqual(expect.arrayContaining(["gangtise_current_date", "gangtise_read_response", "gangtise_securities_search"]))
-    expect(enabledNames("quote")).toHaveLength(7 + 3)
+    const quoteCore = families.find((family) => family.name === "quote")!.tools.filter((tool) => tool.tier === "core").length
+    expect(enabledNames("quote")).toHaveLength(quoteCore + 3)
     for (const name of ["gangtise_read_response", "gangtise_current_date", "gangtise_securities_search"]) {
       expect(() => parseProfile(`core,-${name}`, families)).toThrow(/基础工具/)
     }

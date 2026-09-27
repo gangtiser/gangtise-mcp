@@ -19,7 +19,8 @@ const TOOLS = createFamilies({ asyncTimeoutMs: 5_000 }).flatMap((family) => fami
 let harness: Harness
 
 beforeAll(async () => {
-  harness = await startHarness({ asyncTimeoutMs: 5_000 })
+  // 全部档位含 legacy：旧工具的黄金用例照跑。
+  harness = await startHarness({ asyncTimeoutMs: 5_000, tools: "all,legacy" })
 })
 
 afterAll(async () => {
