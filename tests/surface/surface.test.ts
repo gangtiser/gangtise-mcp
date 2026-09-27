@@ -12,11 +12,11 @@ import { missingToolRefs } from "../helpers/instructionRefs.js"
 
 const bytes = (value: unknown) => Buffer.byteLength(typeof value === "string" ? value : JSON.stringify(value), "utf8")
 
-/** 每个档位一组快照：默认档之外，extended 与 legacy 的表面同样要有人钉住（点名加载的客户照样按它付上下文）。 */
+/** 每个档位一组快照：默认档（= all）之外，精简的 core 与带 legacy 的表面同样要有人钉住（选了它们的客户照样按它付上下文）。 */
 const PROFILES: Array<{ label: string; tools?: string }> = [
   { label: "default" },
-  { label: "all", tools: "all" },
-  { label: "core-legacy", tools: "core,legacy" },
+  { label: "core", tools: "core" },
+  { label: "all-legacy", tools: "all,legacy" },
 ]
 
 describe.each(PROFILES)("surface snapshot ($label profile)", ({ label, tools: profile }) => {
@@ -40,7 +40,7 @@ describe.each(PROFILES)("surface snapshot ($label profile)", ({ label, tools: pr
   })
 
   /** 字节口径：`tools` 数组的紧凑 JSON（不含 JSON-RPC 信封与 `result` 外壳），与
-   *  scripts/prerelease-check.mjs ⑤ 的 150KB 门禁同口径（门禁只对默认档），适合做前后对比。 */
+   *  scripts/prerelease-check.mjs ⑤ 的 160KB 门禁同口径（门禁只对默认档），适合做前后对比。 */
   it("byte summary", async () => {
     const tools = (await harness.rawToolsList()) as Array<{ name: string }>
     const lines = [

@@ -15,7 +15,8 @@ export type ZodShape = Record<string, z.ZodTypeAny>
 /** 一个 MCP 工具的完整声明。只经 invokeOperation 调用（mcp/invoke.ts）。 */
 export interface ToolSpec {
   name: string
-  /** core = 默认列出；extended = 点名才列出；legacy = 被合并的旧工具，保留一个周期。 */
+  /** core = 主流程与各品种入口（`core` 档只列它）；extended = 同族低频长尾（默认档 `all` 列出）；
+   *  legacy = 被合并的旧工具，点名 `legacy` 才列出，保留一个周期。 */
   tier: "core" | "extended" | "legacy"
   /** annotations 由它派生（register.ts）。 */
   access: "read" | "write" | "destructive"

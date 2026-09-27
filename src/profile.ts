@@ -15,9 +15,9 @@ const KEYWORDS = new Set(["core", "all", "legacy"])
  *  按名称查代码），任何选择下都启用，不能禁用——少了它们，别的工具给出的下一步就走不通。 */
 export const FOUNDATION_TOOLS: ReadonlySet<string> = new Set(["gangtise_current_date", "gangtise_read_response", "gangtise_securities_search"])
 
-/** 逗号分隔、取并集：`core`（默认）= 各族 core 档；`all` = core + extended；`legacy` = 被合并的旧工具；
+/** 逗号分隔、取并集：`all`（默认）= core + extended；`core` = 各族 core 档；`legacy` = 被合并的旧工具；
  *  族名 = 该族 core + extended；工具名 = 该工具。前加 `-` 禁用该族或该工具，优先于任何选中。
- *  只写了禁用项时以 `core` 为底。选中的工具声明的 `requires` 一并启用；基础工具始终启用。
+ *  只写了禁用项时以 `all` 为底。选中的工具声明的 `requires` 一并启用；基础工具始终启用。
  *  不认识的名字、禁用基础工具、禁用了选中工具依赖的工具，都直接报错——配置写错不能静默变成
  *  另一套工具。 */
 export function parseProfile(raw: string | undefined, families: FamilyModule[]): Profile {
@@ -47,7 +47,7 @@ export function parseProfile(raw: string | undefined, families: FamilyModule[]):
     }
     ;(negated ? excluded : selected).add(name)
   }
-  if (selected.size === 0) selected.add("core")
+  if (selected.size === 0) selected.add("all")
 
   const isExcluded = (name: string) => excluded.has(name) || excluded.has(familyOf.get(name) ?? "")
   const picked = (spec: ToolSpec): boolean => {

@@ -158,7 +158,7 @@ check("④ commit", "最近一条 message 无自曝措辞", msgHits.length === 0
 //
 // 三个上限都留了增长余量，新增工具不该撞上。撞了先看下面打印的重复度：能去重就去重，
 // 确认省无可省再**主动**抬数字并在 commit 里说明。悄悄涨回去才是这一节要拦的事。
-const TOOLS_LIST_CEILING = 150_000
+const TOOLS_LIST_CEILING = 160_000
 const SINGLE_TOOL_CEILING = 10_000
 const INSTRUCTIONS_CEILING = 3_000
 const DUP_WASTE_CEILING = 18_000
@@ -243,7 +243,7 @@ if (listBytes > TOOLS_LIST_CEILING || dupWaste > DUP_WASTE_CEILING || sentWaste 
 
 // 其余档位不设门禁（点名才加载），但字节要看得见：点名加载的客户同样按它付上下文。
 const profileBytes = []
-for (const tools of ["all", "all,legacy"]) {
+for (const tools of ["core", "all,legacy"]) {
   const client = await connect(tools)
   const listed = (await client.listTools()).tools
   profileBytes.push(`${tools}：${listed.length} 工具 ${b(listed)}B + instructions ${Buffer.byteLength(client.getInstructions() ?? "", "utf8")}B`)

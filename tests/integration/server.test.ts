@@ -284,7 +284,7 @@ describe("MCP server integration", () => {
     // 天花板不是「当前值 + 1」——留了增长余量，新增工具不该动它。撞上了说明该先看
     // 重复度（scripts/prerelease-check.mjs 的 ⑤ 会列出最大的几个工具），确认省无可省之后
     // 再**主动**抬这个数字并说明为什么。悄悄涨回去才是要拦的事。
-    expect(bytes).toBeLessThan(150_000)
+    expect(bytes).toBeLessThan(160_000)
   })
 
   it("gangtise_current_date returns runtime Asia/Shanghai date context", async () => {
@@ -769,10 +769,10 @@ describe("MCP server integration", () => {
     // instructions 单项仍有上界：它是**每次会话都全量注入**的，不该无限长。
     expect(instrBytes, "instructions 超出单项上界").toBeLessThanOrEqual(3_000)
     // 合计才是模型真正付的钱。上限取发版门禁（scripts/prerelease-check.mjs ⑤）两项上限之和：
-    // tools/list 150,000B + instructions 3,000B。这里不另设一个更严的数——那会让一次门禁允许的
-    // 增量在测试里红，而两边的上限本该是同一个决定。tools/list 单项仍由上面那条 150,000B 钉住。
+    // tools/list 160,000B + instructions 3,000B。这里不另设一个更严的数——那会让一次门禁允许的
+    // 增量在测试里红，而两边的上限本该是同一个决定。tools/list 单项仍由上面那条 160,000B 钉住。
     expect(instrBytes + listBytes, `合计上下文 ${instrBytes + listBytes}B（instructions ${instrBytes} + tools/list ${listBytes}）超出预算`)
-      .toBeLessThanOrEqual(153_000)
+      .toBeLessThanOrEqual(163_000)
   })
 
   it("routes with real tool prefixes, not src filenames", async () => {

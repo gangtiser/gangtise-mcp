@@ -31,8 +31,8 @@ const pick = (raw: string | undefined) => {
 
 describe("parseProfile", () => {
   it.each([
-    [undefined, ["gangtise_a1", "gangtise_b1"]],
-    ["", ["gangtise_a1", "gangtise_b1"]],
+    [undefined, ["gangtise_a1", "gangtise_a2", "gangtise_b1", "gangtise_b2"]],
+    ["", ["gangtise_a1", "gangtise_a2", "gangtise_b1", "gangtise_b2"]],
     ["core", ["gangtise_a1", "gangtise_b1"]],
     ["all", ["gangtise_a1", "gangtise_a2", "gangtise_b1", "gangtise_b2"]],
     ["legacy", ["gangtise_a3"]],
@@ -43,10 +43,10 @@ describe("parseProfile", () => {
     // 工具名单独点名，任何档都行
     ["core,gangtise_b2", ["gangtise_a1", "gangtise_b1", "gangtise_b2"]],
     ["gangtise_a3", ["gangtise_a3"]],
-    // 禁用优先于选中；只写禁用项时以 core 为底
+    // 禁用优先于选中；只写禁用项时以 all 为底
     ["all,-alpha", ["gangtise_b1", "gangtise_b2"]],
     ["all,-gangtise_a2", ["gangtise_a1", "gangtise_b1", "gangtise_b2"]],
-    ["-gangtise_b1", ["gangtise_a1"]],
+    ["-gangtise_b1", ["gangtise_a1", "gangtise_a2", "gangtise_b2"]],
     [" core , gangtise_b2 ", ["gangtise_a1", "gangtise_b1", "gangtise_b2"]],
   ])("GANGTISE_MCP_TOOLS=%j", (raw, expected) => {
     expect(pick(raw)).toEqual(expected)
@@ -77,10 +77,10 @@ describe("GANGTISE_MCP_TOOLS on the real server", () => {
   const declared = createFamilies({ asyncTimeoutMs: 5_000 }).flatMap((family) => family.tools)
   const ofTier = (...tiers: string[]) => declared.filter((tool) => tiers.includes(tool.tier)).map((tool) => tool.name)
 
-  it("lists core by default, adds extended with all, and legacy only when asked", async () => {
+  it("lists core and extended by default, core alone when asked, and legacy only when asked", async () => {
     const names = async (tools?: string) => (await (await connect(tools)).listTools()).tools.map((t) => t.name)
-    expect(await names(undefined)).toEqual(ofTier("core"))
-    expect(await names("all")).toEqual(ofTier("core", "extended"))
+    expect(await names(undefined)).toEqual(ofTier("core", "extended"))
+    expect(await names("core")).toEqual(ofTier("core"))
     expect(await names("all,legacy")).toEqual(ofTier("core", "extended", "legacy"))
     expect(ofTier("legacy").length).toBeGreaterThan(0)
   })
