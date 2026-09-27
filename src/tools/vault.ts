@@ -1,3 +1,4 @@
+import { openAsBlob } from "node:fs"
 import fs from "node:fs/promises"
 import path from "node:path"
 import { z } from "zod"
@@ -341,8 +342,9 @@ export const vaultFamily: FamilyModule = {
         if (stat.size > DRIVE_UPLOAD_MAX_BYTES) throw new ValidationError(`文件 ${(stat.size / 1024 / 1024).toFixed(1)}MB，云盘单个文件最多 100MB。`)
         const filename = path.basename(resolved)
         if (title === undefined && filename.length > 200) throw new ValidationError(`本地文件名有 ${filename.length} 个字符，云盘最多 200 个：请传一个更短的 title。`)
-        const data = await fs.readFile(resolved)
-        const result = await client.uploadFile("vault.drive.upload", { filename, data }, { spaceType: space ?? 1, folderId, title })
+        // 按需读磁盘的 Blob：发送时流式读出，不把整个文件先读进内存。
+        const blob = await openAsBlob(resolved)
+        const result = await client.uploadFile("vault.drive.upload", { filename, blob }, { spaceType: space ?? 1, folderId, title })
         return contentResult(await buildToolContent(normalizeRows(result)))
       },
     }),

@@ -385,7 +385,9 @@ export class HttpClient {
     // replay path is needed.
     // 每次尝试占一个全局名额，退避等待期间不占。登录（useAuth=false）不排队：在飞的请求
     // 可能正等着它刷新 token，它再去排队就会在名额满时互相卡死。
-    return withRetry(() => (useAuth ? withGlobalSlot(attemptOnce, signal) : attemptOnce()), {
+    // 上传与下载一样是长传输（大文件要传几分钟），走下载那组名额，不占查询的名额。
+    const withSlot = endpoint.kind === 'upload' ? withDownloadSlot : withGlobalSlot
+    return withRetry(() => (useAuth ? withSlot(attemptOnce, signal) : attemptOnce()), {
       policy: endpoint.retry,
       signal,
       onRetry: (attempt: number, error: unknown, delay: number) => {

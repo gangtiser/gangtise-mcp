@@ -86,8 +86,8 @@ export function withGlobalSlot<T>(fn: () => Promise<T>, signal?: AbortSignal): P
   return globalGate.run(fn, signal)
 }
 
-/** 下载有自己的一组名额。一次下载要持有名额直到正文读完（常常跳转到另一个源、传好几秒），
- *  与查询共用名额时，几个慢下载就能把同时进来的查询全堵住，而 API 这边的连接其实是空的。 */
+/** 下载与上传有自己的一组名额。一次下载要持有名额直到正文读完（常常跳转到另一个源、传好几秒），上传
+ *  大文件要传几分钟；与查询共用名额时，几个慢传输就能把同时进来的查询全堵住，而 API 这边的连接其实是空的。 */
 export function withDownloadSlot<T>(fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
   return downloadGate.run(fn, signal)
 }

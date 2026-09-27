@@ -44,12 +44,13 @@ export class GangtiseClient extends HttpClient {
   }
 
   /** 以 multipart/form-data 上传一个文件（字段名 `file`），外加文本字段（undefined 的不发）。鉴权、重试策略、
-   *  信封处理与 JSON 请求共用 requestJson，只有请求体不同。 */
-  async uploadFile(endpointKey: string, file: { filename: string; data: Uint8Array }, fields: Record<string, string | number | undefined> = {}): Promise<unknown> {
+   *  信封处理与 JSON 请求共用 requestJson，只有请求体不同。文件以 Blob 传入：`fs.openAsBlob` 得到的是按需读
+   *  磁盘的 Blob，发送时流式读出，不会先把整个文件读进内存。 */
+  async uploadFile(endpointKey: string, file: { filename: string; blob: Blob }, fields: Record<string, string | number | undefined> = {}): Promise<unknown> {
     const endpoint = ENDPOINTS[endpointKey]
     if (endpoint?.kind !== 'upload') throw new ApiError(`${endpointKey} 不是上传端点`)
     const form = new FormData()
-    form.append('file', new Blob([file.data as BlobPart], { type: 'application/octet-stream' }), file.filename)
+    form.append('file', file.blob, file.filename)
     for (const [name, value] of Object.entries(fields)) {
       if (value !== undefined) form.append(name, String(value))
     }
