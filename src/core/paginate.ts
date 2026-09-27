@@ -17,6 +17,25 @@ const MAX_PAGES = CALL_LIMITS.maxPages
 /** 整页积分超过它的端点，额度保护先取 1 条探 total（见 requestPaginated）。 */
 const PROBE_ABOVE_CREDITS = 50
 
+/** 按条计费的积分预估：超过阈值、且本次调用没确认花费（confirmCost）时拒绝并报出估算。分页层与
+ *  按 ID 取正文共用这一句话。`duplicated` 是探总数时会重复计费的行，算进积分；`fetched` 是为估算
+ *  已经取了多少行（没发请求就不写）。 */
+export function assertWithinCostLimit(
+  estimate: { rows: number; duplicated?: number; fetched?: number },
+  billing: { price: number; unit?: string },
+  advice: string,
+  costLimit: number = COST_LIMIT,
+): void {
+  if (costLimit <= 0 || costConfirmed()) return
+  const { rows, duplicated = 0, fetched } = estimate
+  const credits = Math.round((rows + duplicated) * billing.price * 100) / 100
+  if (credits <= costLimit) return
+  const unit = billing.unit ?? "条"
+  const probe = duplicated > 0 ? `（含探总数时重复计费的 ${duplicated} ${unit}）` : ""
+  const spent = fetched === undefined ? "尚未发出请求" : `为获知总数已取 ${fetched} ${unit}`
+  throw new ValidationError(`本次预计取 ${rows} ${unit}（${billing.price} 积分/${unit}），约 ${credits} 积分${probe}，超过积分预估保护（${costLimit} 积分）；${spent}。${advice}；确认要全部取回，再传 confirmCost: true 重试。`)
+}
+
 export interface PageRequest {
   from: number
   size: number
@@ -276,13 +295,10 @@ export async function requestPaginated(http: PageFetcher, endpoint: EndpointDefi
   const rowCeiling = Math.min(windowRoom, requestedSize ?? Number.POSITIVE_INFINITY, MAX_PAGES * maxPageSize)
   const guarded = billing !== undefined && costLimit > 0 && (requestedSize === undefined || requestedSize > maxPageSize)
     && rowCeiling * billing.price > costLimit && !costConfirmed()
-  const refuseIfCostly = (reportedTotal: number, fetched: number): void => {
+  const refuseIfCostly = (reportedTotal: number, fetched: number, duplicated: number): void => {
     if (!guarded || !billing) return
     const rows = Math.min(Math.max(reportedTotal - startFrom, 0), rowCeiling)
-    const credits = Math.round(rows * billing.price * 100) / 100
-    if (credits <= costLimit) return
-    const unit = billing.unit ?? "条"
-    throw new ValidationError(`本次预计取 ${rows} ${unit}（${billing.price} 积分/${unit}），约 ${credits} 积分，超过多页拉取的积分预估保护（${costLimit} 积分）；为获知总数已取 ${fetched} ${unit}。请用较小的 size 或更窄的筛选只取一部分；确认要全部取回，再传 confirmCost: true 重试。`)
+    assertWithinCostLimit({ rows, duplicated, fetched }, billing, "请用较小的 size 或更窄的筛选只取一部分", costLimit)
   }
   let probe: Record<string, unknown> | undefined
   let extraProbeRows = 0
@@ -293,9 +309,10 @@ export async function requestPaginated(http: PageFetcher, endpoint: EndpointDefi
       probe = reply
     } else {
       const rows = pageRows(reply).length
-      refuseIfCostly(reply.total, rows)
-      // 探针已经是全部结果（0 或 1 行）时直接当首页。
-      if (rows === Math.min(Math.max(reply.total - startFrom, 0), windowRoom)) probe = reply
+      // 探针已经是全部结果（0 或 1 行）时直接当首页；否则正式拉取会把这 1 条再计一次，估算里算上它。
+      const reusable = rows === Math.min(Math.max(reply.total - startFrom, 0), windowRoom)
+      refuseIfCostly(reply.total, rows, reusable ? 0 : rows)
+      if (reusable) probe = reply
       else extraProbeRows = rows
     }
   }
@@ -436,7 +453,7 @@ export async function requestPaginated(http: PageFetcher, endpoint: EndpointDefi
   }
 
   // 扇出前按首页的 total 核一次：便宜的端点在这里第一次核，探过的端点防 total 在两次请求之间涨过线。
-  refuseIfCostly(total, extraProbeRows + firstRows.length)
+  refuseIfCostly(total, extraProbeRows + firstRows.length, extraProbeRows)
 
   // Build remaining page requests
   const nextFrom = startFrom + firstRows.length

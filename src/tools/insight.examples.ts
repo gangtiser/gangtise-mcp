@@ -7,7 +7,7 @@ export const insightExamples: ToolExamples = {
     { title: "withContent=false 与缺省同为只回 brief 的端点，开关不进 body", args: { securityList: ["600519.SH"], withContent: false }, expect: { requests: [{ method: "POST", path: "/application/open-insight/chief-opinion/v2/getList", body: { securityList: ["600519.SH"], size: 20, from: 0 } }] } },
     { title: "withContent=true 走带正文的端点", args: { securityList: ["600519.SH"], withContent: true }, expect: { requests: [{ method: "POST", path: "/application/open-insight/chief-opinion/getList", body: { securityList: ["600519.SH"], size: 20, from: 0 } }] } },
     { title: "显式 size 与 from", args: { keyword: "机器人", from: 40, size: 5, llmTagList: ["strongRcmd"], sourceList: ["realTime"] }, expect: { requests: [{ method: "POST", path: "/application/open-insight/chief-opinion/v2/getList", body: { from: 40, keyword: "机器人", llmTagList: ["strongRcmd"], sourceList: ["realTime"], size: 5 } }] } },
-    { title: "withContent + fetchAll 按 30/条估算：整页超 50 积分先探 1 条，超阈值拒绝", args: { securityList: ["600519.SH"], withContent: true, fetchAll: true }, upstream: paged(100), expect: { rejects: /预计取 100 条（30 积分\/条），约 3000 积分.*confirmCost: true/, requests: [
+    { title: "withContent + fetchAll 按 30/条估算：整页超 50 积分先探 1 条，超阈值拒绝", args: { securityList: ["600519.SH"], withContent: true, fetchAll: true }, upstream: paged(100), expect: { rejects: /预计取 100 条（30 积分\/条），约 3030 积分（含探总数时重复计费的 1 条）.*confirmCost: true/, requests: [
         { method: "POST", path: "/application/open-insight/chief-opinion/getList", body: { securityList: ["600519.SH"], from: 0, size: 1 } },
       ] } },
     { title: "confirmCost 放行：不估算不探针，也不进 body", args: { securityList: ["600519.SH"], withContent: true, fetchAll: true, confirmCost: true }, upstream: paged(60), expect: { requests: [
@@ -143,6 +143,11 @@ export const insightExamples: ToolExamples = {
       ] } },
     { title: "外资：ID 列表键是 foreignOpinionIdList", args: { kind: "foreign", ids: ["fo-1"] }, upstream: (req) => (req.endpoint === "insight.foreign-opinion.detail" ? { data: [] } : undefined), expect: { requests: [{ method: "POST", path: "/application/open-insight/foreign-opinion/getDetail", body: { foreignOpinionIdList: ["fo-1"] } }] } },
     { title: "第一批就有不是对象的元素时整次报错", args: { kind: "domestic", ids: ["co-1"] }, upstream: (req) => (req.endpoint === "insight.opinion.detail" ? { data: [null] } : undefined), expect: { rejects: /不是对象的元素/, requests: [{ method: "POST", path: "/application/open-insight/chief-opinion/getDetail", body: { chiefOpinionIdList: ["co-1"] } }] } },
+    { title: "去重后 34 个 × 30 积分超过阈值：零请求拒绝", args: { kind: "domestic", ids: Array.from({ length: 34 }, (_, i) => `co-${i}`).concat(["co-0"]) }, expect: { rejects: /预计取 34 条（30 积分\/条），约 1020 积分，超过积分预估保护.*尚未发出请求.*confirmCost: true/ } },
+    { title: "confirmCost 放行、不进 body", args: { kind: "domestic", ids: Array.from({ length: 34 }, (_, i) => `co-${i}`), confirmCost: true }, upstream: (req) => (req.endpoint === "insight.opinion.detail" ? { data: [] } : undefined), expect: { requests: [
+        { method: "POST", path: "/application/open-insight/chief-opinion/getDetail", body: { chiefOpinionIdList: Array.from({ length: 20 }, (_, i) => `co-${i}`) } },
+        { method: "POST", path: "/application/open-insight/chief-opinion/getDetail", body: { chiefOpinionIdList: Array.from({ length: 14 }, (_, i) => `co-${i + 20}`) } },
+      ] } },
     { title: "返回不是数组时整次报错（第一批）", args: { kind: "domestic", ids: ["co-1"] }, upstream: (req) => (req.endpoint === "insight.opinion.detail" ? { data: { list: [] } } : undefined), expect: { rejects: /不是预期的数组结构/, requests: [{ method: "POST", path: "/application/open-insight/chief-opinion/getDetail", body: { chiefOpinionIdList: ["co-1"] } }] } },
   ],
   gangtise_performance_calendar_list: [

@@ -41,11 +41,11 @@ describe("families ↔ ENDPOINTS consistency", () => {
     }
   })
 
-  // confirmCost 由端点计费派生：按条计费的分页工具都有、别的都没有——少了，积分预估保护拦下的调用
-  // 无从确认；多了，是一个什么都不做的参数。
-  it("gives confirmCost to exactly the per-row billed paginated tools", () => {
+  // confirmCost 由端点计费派生：按条计费的分页工具都有，另加按 ID 批量取正文的那一个，别的都没有——
+  // 少了，积分预估保护拦下的调用无从确认；多了，是一个什么都不做的参数。
+  it("gives confirmCost to exactly the per-row billed paginated tools and the batch detail fetch", () => {
     const keysOf = (tool: (typeof TOOLS)[number]) => Object.keys(tool.input instanceof z.ZodObject ? tool.input.shape : tool.input)
-    const expected = TOOLS.filter((tool) => keysOf(tool).includes("fetchAll") && tool.endpoint && perRowBilling(ENDPOINTS[tool.endpoint])).map((tool) => tool.name)
+    const expected = TOOLS.filter((tool) => (keysOf(tool).includes("fetchAll") || tool.name === "gangtise_opinion_detail") && tool.endpoint && perRowBilling(ENDPOINTS[tool.endpoint])).map((tool) => tool.name)
     const actual = TOOLS.filter((tool) => keysOf(tool).includes("confirmCost")).map((tool) => tool.name)
     expect(actual).toEqual(expected)
     expect(actual.length).toBeGreaterThanOrEqual(19)

@@ -8,6 +8,8 @@ import { ValidationError } from "../core/errors.js"
 import { dateString, dateTimeString } from "../core/dateContext.js"
 import { nonEmptyString, nonEmptyList, intLiteralEnum, enumList } from "../mcp/schemas.js"
 import { fetchOpinionDetails } from "../core/opinionDetail.js"
+import { ENDPOINTS, perRowBilling } from "../core/endpoints.js"
+import { assertWithinCostLimit } from "../core/paginate.js"
 import { markPartial } from "../core/partial.js"
 import { insightEndpoints } from "./insight.endpoints.js"
 import { parseSecurityCode } from "../core/securityCode.js"
@@ -615,11 +617,16 @@ export const insightFamily: FamilyModule = {
       input: {
         kind: z.enum(["domestic", "foreign"]).describe("domestic=内资 chiefOpinionId | foreign=外资 foreignOpinionId（另有 contentTranslate）"),
         ids: nonEmptyList().describe("观点 ID，20 个一批串行请求"),
+        confirmCost: z.boolean().optional(),
       },
       run: async ({ client }, { kind, ids }) => {
+        // 按条计费、ID 个数不设上限：成本在发请求前就完全已知（去重后的 ID 数 × 单价），超阈值零请求拒绝。
+        const endpointKey = kind === "foreign" ? "insight.foreign-opinion.detail" : "insight.opinion.detail"
+        const billing = perRowBilling(ENDPOINTS[endpointKey])
+        if (billing) assertWithinCostLimit({ rows: new Set(ids as string[]).size }, billing, "请减少 ID 个数分批取")
         const result = kind === "foreign"
-          ? await fetchOpinionDetails(client, "insight.foreign-opinion.detail", "foreignOpinionIdList", "foreignOpinionId", ids as string[])
-          : await fetchOpinionDetails(client, "insight.opinion.detail", "chiefOpinionIdList", "chiefOpinionId", ids as string[])
+          ? await fetchOpinionDetails(client, endpointKey, "foreignOpinionIdList", "foreignOpinionId", ids as string[])
+          : await fetchOpinionDetails(client, endpointKey, "chiefOpinionIdList", "chiefOpinionId", ids as string[])
         return contentResult(await buildToolContent(result))
       },
     }),

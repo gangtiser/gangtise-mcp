@@ -2114,6 +2114,9 @@
           },
           "minItems": 1,
           "description": "观点 ID，20 个一批串行请求"
+        },
+        "confirmCost": {
+          "type": "boolean"
         }
       },
       "required": [

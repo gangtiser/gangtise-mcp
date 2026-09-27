@@ -1,6 +1,6 @@
 tools: 116
-tools/list bytes: 170775
-instructions bytes: 2942
+tools/list bytes: 170808
+instructions bytes: 2970
 
    396  gangtise_current_date
    763  gangtise_lookup
@@ -42,7 +42,7 @@ instructions bytes: 2942
    548  gangtise_official_account_download
    505  gangtise_report_image_download
    586  gangtise_performance_calendar_download
-   837  gangtise_opinion_detail
+   870  gangtise_opinion_detail
   2410  gangtise_performance_calendar_list
   4424  gangtise_day_kline
   1534  gangtise_day_kline_hk

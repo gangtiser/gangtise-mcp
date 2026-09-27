@@ -39,8 +39,19 @@ describe("cost guard on per-row billed multi-page fetches", () => {
   it("probes one row first where a full page alone costs more than 50 credits, and pays only that row when refused", async () => {
     const { http, requests } = server(100)
     const error = await requestPaginated(http, PRICEY, {}, 1000).catch((e: Error) => e)
-    expect(String(error)).toMatch(/预计取 100 条（20 积分\/条），约 2000 积分.*已取 1 条/)
+    expect(String(error)).toMatch(/预计取 100 条（20 积分\/条），约 2020 积分（含探总数时重复计费的 1 条）.*已取 1 条/)
     expect(requests).toEqual([{ from: 0, size: 1 }])
+  })
+
+  // 探针那 1 条在正式拉取时会再计一次，估算要算上它：33 × 30 = 990 本身没过线，加上它是 1020。
+  it("counts the probe row that will be billed twice", async () => {
+    const withContent = endpoint({ kind: "fixed", per: "row", price: 30 })
+    const { http, requests } = server(33)
+    const error = await requestPaginated(http, withContent, {}, 1000).catch((e: Error) => e)
+    expect(String(error)).toMatch(/预计取 33 条（30 积分\/条），约 1020 积分（含探总数时重复计费的 1 条）/)
+    expect(requests).toEqual([{ from: 0, size: 1 }])
+    // 探针本身就是全部结果时不会重取，不算重复。
+    expect(String(await requestPaginated(server(1).http, withContent, {}, 20).catch((e: Error) => e))).toMatch(/预计取 1 条.*约 30 积分，超过/)
   })
 
   it("refetches from the same offset at full page size once the probe passes, and notes the row billed twice", async () => {
@@ -66,7 +77,7 @@ describe("cost guard on per-row billed multi-page fetches", () => {
     let calls = 0
     const { http, requests } = server(() => (++calls === 1 ? 40 : 400))
     const error = await requestPaginated(http, PRICEY, {}, 1000).catch((e: Error) => e)
-    expect(String(error)).toMatch(/预计取 400 条.*约 8000 积分.*已取 51 条/)
+    expect(String(error)).toMatch(/预计取 400 条.*约 8020 积分.*已取 51 条/)
     expect(requests).toEqual([{ from: 0, size: 1 }, { from: 0, size: 50 }])
   })
 
@@ -89,7 +100,7 @@ describe("cost guard on per-row billed multi-page fetches", () => {
   it("prices an explicit size by the rows it will actually fetch, not by total", async () => {
     const { http } = server(100_000)
     const error = await requestPaginated(http, PRICEY, { size: 60 }, 1000).catch((e: Error) => e)
-    expect(String(error)).toMatch(/预计取 60 条（20 积分\/条），约 1200 积分/)
+    expect(String(error)).toMatch(/预计取 60 条（20 积分\/条），约 1220 积分/)
   })
 
   it("prices by rows left after from, capped by the offset window and by the page cap", async () => {
@@ -105,7 +116,7 @@ describe("cost guard on per-row billed multi-page fetches", () => {
   it("uses the endpoint's own unit", async () => {
     const perArticle = endpoint({ kind: "fixed", per: "row", price: 50, unit: "篇" }, 20)
     const error = await requestPaginated(server(100).http, perArticle, {}, 1000).catch((e: Error) => e)
-    expect(String(error)).toMatch(/预计取 100 篇（50 积分\/篇），约 5000 积分.*已取 1 篇/)
+    expect(String(error)).toMatch(/预计取 100 篇（50 积分\/篇），约 5050 积分（含探总数时重复计费的 1 篇）.*已取 1 篇/)
   })
 
   it("lets a confirmed call through, and a confirmation never leaks into a concurrent call", async () => {
