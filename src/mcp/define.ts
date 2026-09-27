@@ -20,6 +20,8 @@ export interface ToolSpec {
   access: "read" | "write" | "destructive"
   /** 写操作声明了才发 destructiveHint / idempotentHint。 */
   idempotent?: boolean
+  /** 结果来自平台之外的公开世界（联网搜索）时置 true，annotations 发 openWorldHint: true。 */
+  openWorld?: true
   /** 本工具的结果会指引调用方去调的工具（如异步提交超时后的 `_check`）：选中本工具时一并启用。 */
   requires?: string[]
   /** 固定端点时填；积分标签由它派生。 */

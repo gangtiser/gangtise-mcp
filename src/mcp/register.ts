@@ -33,11 +33,12 @@ export function registerTools(server: McpServer, client: GangtiseClient, specs: 
 }
 
 /** 只读 → readOnlyHint；写操作声明了幂等性时一并给出 destructiveHint / idempotentHint。
- *  全部 openWorldHint:false（只访问本平台）。 */
+ *  openWorldHint 只有联网搜索这类结果来自公开网页的工具为 true，其余只访问本平台。 */
 function annotationsFor(spec: ToolSpec) {
-  if (spec.access === "read") return { readOnlyHint: true, openWorldHint: false }
-  if (spec.idempotent === undefined) return { readOnlyHint: false, openWorldHint: false }
-  return { readOnlyHint: false, destructiveHint: spec.access === "destructive", idempotentHint: spec.idempotent, openWorldHint: false }
+  const openWorldHint = spec.openWorld === true
+  if (spec.access === "read") return { readOnlyHint: true, openWorldHint }
+  if (spec.idempotent === undefined) return { readOnlyHint: false, openWorldHint }
+  return { readOnlyHint: false, destructiveHint: spec.access === "destructive", idempotentHint: spec.idempotent, openWorldHint }
 }
 
 /** 把 raw shape 收成 **strict** ZodObject —— 未声明的键**报错**，而不是被静默剥掉。

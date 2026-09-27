@@ -1,5 +1,5 @@
 tools: 89
-tools/list bytes: 145628
+tools/list bytes: 145627
 instructions bytes: 2970
 
    396  gangtise_current_date
@@ -89,5 +89,5 @@ instructions bytes: 2970
   7616  gangtise_indicator_cross_section
   6234  gangtise_indicator_time_series
   8646  gangtise_indicator_screener
-  2014  gangtise_web_search
+  2013  gangtise_web_search
   1147  gangtise_read_response

@@ -6710,7 +6710,7 @@
     },
     "annotations": {
       "readOnlyHint": true,
-      "openWorldHint": false
+      "openWorldHint": true
     },
     "execution": {
       "taskSupport": "forbidden"

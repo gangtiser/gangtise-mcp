@@ -139,9 +139,8 @@ describe("MCP server integration", () => {
     // 不可逆的那些必须自报 destructiveHint，客户端才好在调用前要确认。
     const destructive = tools.filter(t => t.annotations?.destructiveHint === true).map(t => t.name).sort()
     expect(destructive).toEqual(["gangtise_drive_manage", "gangtise_stock_pool_delete", "gangtise_stock_pool_remove_stock"])
-    // Every tool hits a single closed-domain API (or local data), never the open
-    // world — so all declare openWorldHint: false.
-    expect(tools.every(t => t.annotations?.openWorldHint === false)).toBe(true)
+    // 只有联网搜索的结果来自公开网页（openWorldHint: true），其余只访问本平台或本地数据。
+    expect(tools.filter(t => t.annotations?.openWorldHint !== false).map(t => t.name)).toEqual(["gangtise_web_search"])
   })
 
   it("declares date guidance once in server instructions, not per-tool descriptions", async () => {
