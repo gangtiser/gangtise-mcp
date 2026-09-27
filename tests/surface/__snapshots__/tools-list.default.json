@@ -2168,7 +2168,7 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 10000,
-          "description": "单次请求最大返回行数（默认 6000，最大 10000）。截取从查询窗口开头开始——取「最近 N 条」须传日期区间而非只传 limit；分片 / 逐只拉取时作用于每一份，撞上限的会标 _partial"
+          "description": "单次请求最大返回行数（默认 6000，最大 10000）。截取从查询窗口开头开始——取「最近 N 条」须传日期区间而非只传 limit；分片 / 分组拉取时作用于每一份，撞上限的会标 _partial"
         },
         "fieldList": {
           "type": "array",
@@ -2177,7 +2177,7 @@
             "minLength": 1
           },
           "minItems": 1,
-          "description": "指定返回字段，如 ['securityCode','tradeDate','open','close','pctChange']。只回点名的列，身份列（securityCode / tradeDate）要自己写进来；名字写错不报错、只少一列并标 missingFields，不确定就不传（=全量最稳）"
+          "description": "指定返回字段，如 ['securityCode','tradeDate','open','close','pctChange']。只回点名的列，多只或全市场时自动在最前补上 securityCode / tradeDate（单只不补）；名字写错不报错、只少一列并标 missingFields，不确定就不传（=全量最稳）"
         },
         "security": {
           "anyOf": [
@@ -2194,7 +2194,7 @@
               "minItems": 1
             }
           ],
-          "description": "证券代码 — A股 .SH/.SZ/.BJ、港股 .HK（5 位数字前补零）、美股 .O/.N/.A、沪深 ETF .SH/.SZ（512800.SH）、交易所指数 .SH/.SZ/.BJ、概念指数 .GT、申万行业指数 .SWI（801xxx.SWI）、中信行业指数 .CI（821xxx.CI）、全球指数按数据源后缀照抄（SPX.SPI 标普500 / DJI.SPI 道琼斯 / IXIC.O 纳指 / N225.NKI 日经225 / HSI.HI 恒生 / FTSE.FI 富时100 / GDAXI.FRA 德国DAX / KS11.KRX 韩国KOSPI 等 20 个），可混传，如 ['600519.SH','00700.HK','AAPL.O','000001.SH','SPX.SPI']；或传市场关键字 'aShares'（A股全市场）/ 'hkStocks'（港股全市场）/ 'usStocks'（美股全市场）拉取全市场（关键字须单独传，不能与证券代码或另一个关键字混传；须同时提供 startDate 和 endDate——只给一个日期时，全市场查询会因规模过大而报错或被截断，按接口而异）"
+          "description": "证券代码 — A股 .SH/.SZ/.BJ、港股 .HK（5 位数字前补零）、美股 .O/.N/.A、沪深 ETF .SH/.SZ（512800.SH）、交易所指数 .SH/.SZ/.BJ、概念指数 .GT、申万行业指数 .SWI（801xxx.SWI）、中信行业指数 .CI（821xxx.CI）、全球指数按数据源后缀照抄（SPX.SPI 标普500 / DJI.SPI 道琼斯 / IXIC.O 纳指 / N225.NKI 日经225 / HSI.HI 恒生 / FTSE.FI 富时100 / GDAXI.FRA 德国DAX / KS11.KRX 韩国KOSPI 等 20 个），可混传，如 ['600519.SH','00700.HK','AAPL.O','000001.SH','SPX.SPI']；或传市场关键字 'aShares'（A股全市场）/ 'hkStocks'（港股全市场）/ 'usStocks'（美股全市场）拉取全市场（关键字须单独传，不能与证券代码或另一个关键字混传；须同时提供 startDate 和 endDate）"
         }
       },
       "additionalProperties": false
@@ -2225,7 +2225,7 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 10000,
-          "description": "单次请求最大返回行数（默认 6000，最大 10000）。截取从查询窗口开头开始——取「最近 N 条」须传日期区间而非只传 limit；分片 / 逐只拉取时作用于每一份，撞上限的会标 _partial"
+          "description": "单次请求最大返回行数（默认 6000，最大 10000）。截取从查询窗口开头开始——取「最近 N 条」须传日期区间而非只传 limit；分片 / 分组拉取时作用于每一份，撞上限的会标 _partial"
         },
         "fieldList": {
           "type": "array",
@@ -2234,7 +2234,7 @@
             "minLength": 1
           },
           "minItems": 1,
-          "description": "指定返回字段，如 ['securityCode','tradeDate','open','close','pctChange']。只回点名的列，身份列（securityCode / tradeDate）要自己写进来；名字写错不报错、只少一列并标 missingFields，不确定就不传（=全量最稳）"
+          "description": "指定返回字段，如 ['securityCode','tradeDate','open','close','pctChange']。只回点名的列，多只或全市场时自动在最前补上 securityCode / tradeDate（单只不补）；名字写错不报错、只少一列并标 missingFields，不确定就不传（=全量最稳）"
         },
         "security": {
           "anyOf": [
@@ -2308,7 +2308,7 @@
             "minLength": 1
           },
           "minItems": 1,
-          "description": "指定返回字段，如 ['securityCode','tradeTime','open','close','volume']。只回点名的列，身份列（securityCode / tradeTime）要自己写进来；名字写错不报错、只少一列并标 missingFields，不确定就不传（=全量最稳）"
+          "description": "指定返回字段，如 ['securityCode','tradeTime','open','close','volume']。只回点名的列，多只或全市场时自动在最前补上 securityCode / tradeTime（单只不补）；名字写错不报错、只少一列并标 missingFields，不确定就不传（=全量最稳）"
         }
       },
       "required": [
@@ -2354,7 +2354,7 @@
             "minLength": 1
           },
           "minItems": 1,
-          "description": "【默认不传 = 返回全量字段，最稳】仅当用户明确要精简、或查全市场（aShares/hkStocks/usStocks）想省 token 时才传。示例：['securityCode','tradeDate','tradeTime','latestPrice','pctChange','volume']。**只传本工具真实存在的 15 个字段名**（见描述；注意没有 close、turnoverRate、volumeRatio）。只回点名的列，身份列（securityCode（需要时点再加 tradeDate / tradeTime））要自己写进来；名字写错不报错、只少一列并标 missingFields，不确定就不传（=全量最稳）"
+          "description": "【默认不传 = 返回全量字段，最稳】仅当用户明确要精简、或查全市场（aShares/hkStocks/usStocks）想省 token 时才传。示例：['securityCode','tradeDate','tradeTime','latestPrice','pctChange','volume']。**只传本工具真实存在的 15 个字段名**（见描述；注意没有 close、turnoverRate、volumeRatio）。只回点名的列，多只或全市场时自动在最前补上 securityCode（单只不补）；名字写错不报错、只少一列并标 missingFields，不确定就不传（=全量最稳）；要时点自己加 tradeDate / tradeTime"
         }
       },
       "additionalProperties": false

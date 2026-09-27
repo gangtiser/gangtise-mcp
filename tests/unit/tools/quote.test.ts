@@ -76,13 +76,21 @@ describe("gangtise_day_kline date validation", () => {
   // A whole-market keyword with only one date can't shard, but must still go through
   // the sharding helper so the 10000-row limit lift applies — otherwise the
   // raw body is sent and upstream silently truncates at its 6000 default.
-  it("lifts the limit for a whole-market keyword when endDate is omitted", async () => {
+  it("refuses a whole-market keyword without both dates, before sending anything", async () => {
     const client = makeMockClient()
     const mcp = await connect(client)
-    const result = await mcp.callTool({
-      name: "gangtise_day_kline",
-      arguments: { security: "aShares", startDate: "2026-04-01" },
-    })
+    for (const dates of [{ startDate: "2026-04-01" }, { endDate: "2026-04-01" }, {}]) {
+      const result = await mcp.callTool({ name: "gangtise_day_kline", arguments: { security: "aShares", ...dates } })
+      expect(result.isError).toBe(true)
+      expect((result.content as Array<{ text: string }>)[0].text).toMatch(/须同时提供 startDate 和 endDate/)
+    }
+    expect(client.call).not.toHaveBeenCalled()
+  })
+
+  it("lifts the limit for a whole-market keyword on a one-day range", async () => {
+    const client = makeMockClient()
+    const mcp = await connect(client)
+    const result = await mcp.callTool({ name: "gangtise_day_kline", arguments: { security: "aShares", startDate: "2026-04-01", endDate: "2026-04-01" } })
     expect(result.isError).toBeFalsy()
     expect(client.call).toHaveBeenCalledTimes(1)
     const body = (client.call as ReturnType<typeof vi.fn>).mock.calls[0][1] as Record<string, unknown>
@@ -193,7 +201,7 @@ describe("quote market keywords", () => {
   it("still accepts 'all' on the HK day-kline tool", async () => {
     const client = makeMockClient()
     const mcp = await connect(client)
-    const hk = await mcp.callTool({ name: "gangtise_day_kline_hk", arguments: { security: "all", startDate: "2026-04-01" } })
+    const hk = await mcp.callTool({ name: "gangtise_day_kline_hk", arguments: { security: "all", startDate: "2026-04-01", endDate: "2026-04-02" } })
     expect(hk.isError).toBeFalsy()
   })
 
@@ -373,8 +381,9 @@ describe("quote shard granularity", () => {
 
   // hkStocks tolerates 2-day windows (~2.8K rows/day), and multi-day shards are not
   // weekend-filtered: 30 calendar days / 2 = 15.
-  it("shards hkStocks two days at a time", async () => {
-    expect(await shardCount("gangtise_day_kline", "hkStocks", "2026-04-01", "2026-04-30")).toBe(15)
+  it("shards hkStocks two weekdays at a time", async () => {
+    // 2026 年 4 月有 22 个工作日 → 11 片；按自然日开窗是 15 片，其中周末那几片是空请求。
+    expect(await shardCount("gangtise_day_kline", "hkStocks", "2026-04-01", "2026-04-30")).toBe(11)
   })
 
 })

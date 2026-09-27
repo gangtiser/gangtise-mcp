@@ -4,12 +4,21 @@ import { oneQuoteRow } from "../mcp/contract.examples.js"
 export const quoteExamples: ToolExamples = {
   gangtise_day_kline: [
     { title: "单只：钉住 limit=6000", args: { security: "600519.SH", startDate: "2026-09-01", endDate: "2026-09-05", fieldList: ["securityCode", "tradeDate", "close"] }, expect: { requests: [{ method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["600519.SH"], startDate: "2026-09-01", endDate: "2026-09-05", fieldList: ["securityCode", "tradeDate", "close"], limit: 6000 } }] } },
-    { title: "多只且单请求装不下（4 只 × 约 1695 个交易日 > 6000）：逐只请求", args: { security: ["600519.SH", "000858.SZ", "00700.HK", "AAPL.O"], startDate: "2020-01-01", endDate: "2026-06-30" }, upstream: oneQuoteRow(), expect: { requests: [
-        { method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["000858.SZ"], startDate: "2020-01-01", endDate: "2026-06-30", limit: 6000 } },
-        { method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["00700.HK"], startDate: "2020-01-01", endDate: "2026-06-30", limit: 6000 } },
-        { method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["600519.SH"], startDate: "2020-01-01", endDate: "2026-06-30", limit: 6000 } },
-        { method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["AAPL.O"], startDate: "2020-01-01", endDate: "2026-06-30", limit: 6000 } },
+    { title: "多只且 6000 行装不下（4 只 × 1695 个交易日 ≥ 6000）：按 10000 行上限分组，4 只一组", args: { security: ["600519.SH", "000858.SZ", "00700.HK", "AAPL.O"], startDate: "2020-01-01", endDate: "2026-06-30" }, upstream: oneQuoteRow(), expect: { requests: [
+        { method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["600519.SH", "000858.SZ", "00700.HK", "AAPL.O"], startDate: "2020-01-01", endDate: "2026-06-30", limit: 10000 } },
       ] } },
+    { title: "一组装不下：每组 floor(9999 / 4826) = 2 只", args: { security: ["600519.SH", "000858.SZ", "00700.HK", "AAPL.O", "601318.SH"], startDate: "2008-01-01", endDate: "2026-06-30" }, upstream: oneQuoteRow(), expect: { requests: [
+        { method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["600519.SH", "000858.SZ"], startDate: "2008-01-01", endDate: "2026-06-30", limit: 10000 } },
+        { method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["00700.HK", "AAPL.O"], startDate: "2008-01-01", endDate: "2026-06-30", limit: 10000 } },
+        { method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["601318.SH"], startDate: "2008-01-01", endDate: "2026-06-30", limit: 10000 } },
+      ] } },
+    { title: "传了 limit：每组守着它，一只就超的单独一组", args: { security: ["600519.SH", "000858.SZ"], startDate: "2020-01-01", endDate: "2026-06-30", limit: 1000 }, upstream: oneQuoteRow(), expect: { requests: [
+        { method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["600519.SH"], startDate: "2020-01-01", endDate: "2026-06-30", limit: 1000 } },
+        { method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["000858.SZ"], startDate: "2020-01-01", endDate: "2026-06-30", limit: 1000 } },
+      ] } },
+    { title: "多只 + fieldList：身份列补到最前", args: { security: ["600519.SH", "00700.HK"], startDate: "2026-09-01", endDate: "2026-09-30", fieldList: ["close"] }, expect: { requests: [{ method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["600519.SH", "00700.HK"], startDate: "2026-09-01", endDate: "2026-09-30", fieldList: ["securityCode", "tradeDate", "close"], limit: 6000 } }] } },
+    { title: "单只 + fieldList：不补", args: { security: "600519.SH", startDate: "2026-09-01", endDate: "2026-09-30", fieldList: ["close"] }, expect: { requests: [{ method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["600519.SH"], startDate: "2026-09-01", endDate: "2026-09-30", fieldList: ["close"], limit: 6000 } }] } },
+    { title: "全市场只给一个日期本地拒绝", args: { security: "aShares", startDate: "2026-09-01" }, expect: { rejects: /全市场查询须同时提供 startDate 和 endDate/ } },
     { title: "多只但装得下：一个请求", args: { security: ["600519.SH", "00700.HK"], startDate: "2026-09-01", endDate: "2026-09-30" }, expect: { requests: [{ method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["600519.SH", "00700.HK"], startDate: "2026-09-01", endDate: "2026-09-30", limit: 6000 } }] } },
     { title: "aShares 全市场：1 天/片、跳周末、limit=10000", args: { security: "aShares", startDate: "2026-09-04", endDate: "2026-09-08" }, upstream: oneQuoteRow(), expect: { requests: [
         { method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["aShares"], startDate: "2026-09-04", endDate: "2026-09-04", limit: 10000 } },
@@ -19,6 +28,10 @@ export const quoteExamples: ToolExamples = {
     { title: "hkStocks 全市场：2 天/片，关键字大小写归一", args: { security: "HKSTOCKS", startDate: "2026-09-07", endDate: "2026-09-10" }, upstream: oneQuoteRow(), expect: { requests: [
         { method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["hkStocks"], startDate: "2026-09-07", endDate: "2026-09-08", limit: 10000 } },
         { method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["hkStocks"], startDate: "2026-09-09", endDate: "2026-09-10", limit: 10000 } },
+      ] } },
+    { title: "hkStocks 跨周末：每片装 2 个工作日，周末不占片", args: { security: "hkStocks", startDate: "2026-09-04", endDate: "2026-09-09" }, upstream: oneQuoteRow(), expect: { requests: [
+        { method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["hkStocks"], startDate: "2026-09-04", endDate: "2026-09-07", limit: 10000 } },
+        { method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["hkStocks"], startDate: "2026-09-08", endDate: "2026-09-09", limit: 10000 } },
       ] } },
     { title: "全市场关键字与代码混传本地拒绝", args: { security: ["aShares", "600519.SH"], startDate: "2026-09-01", endDate: "2026-09-02" }, expect: { rejects: /全市场关键字必须单独传/ } },
     { title: "all 不是本工具的关键字", args: { security: "all", startDate: "2026-09-01", endDate: "2026-09-02" }, expect: { rejects: /'all' 不是 gangtise_day_kline 的全市场关键字/ } },
@@ -42,6 +55,10 @@ export const quoteExamples: ToolExamples = {
   ],
   gangtise_minute_kline: [
     { title: "单只：securityCode 标量", args: { security: "600519.SH", startTime: "2026-09-01 09:30:00", endTime: "2026-09-01 15:00:00" }, expect: { requests: [{ method: "POST", path: "/application/open-quote/kline/minute", body: { startTime: "2026-09-01 09:30:00", endTime: "2026-09-01 15:00:00", limit: 6000, securityCode: "600519.SH" } }] } },
+    { title: "多只：逐只请求，fieldList 补上身份列", args: { security: ["600519.SH", "512800.SH"], startTime: "2026-09-01 09:30:00", endTime: "2026-09-01 15:00:00", limit: 500, fieldList: ["close"] }, upstream: oneQuoteRow(), expect: { requests: [
+        { method: "POST", path: "/application/open-quote/kline/minute", body: { startTime: "2026-09-01 09:30:00", endTime: "2026-09-01 15:00:00", limit: 500, fieldList: ["securityCode", "tradeTime", "close"], securityCode: "512800.SH" } },
+        { method: "POST", path: "/application/open-quote/kline/minute", body: { startTime: "2026-09-01 09:30:00", endTime: "2026-09-01 15:00:00", limit: 500, fieldList: ["securityCode", "tradeTime", "close"], securityCode: "600519.SH" } },
+      ] } },
     { title: "多只：逐只请求", args: { security: ["600519.SH", "512800.SH"], startTime: "2026-09-01 09:30:00", endTime: "2026-09-01 15:00:00", limit: 500 }, upstream: oneQuoteRow(), expect: { requests: [
         { method: "POST", path: "/application/open-quote/kline/minute", body: { startTime: "2026-09-01 09:30:00", endTime: "2026-09-01 15:00:00", limit: 500, securityCode: "512800.SH" } },
         { method: "POST", path: "/application/open-quote/kline/minute", body: { startTime: "2026-09-01 09:30:00", endTime: "2026-09-01 15:00:00", limit: 500, securityCode: "600519.SH" } },
@@ -49,6 +66,8 @@ export const quoteExamples: ToolExamples = {
   ],
   gangtise_realtime: [
     { title: "混合市场 + fieldList", args: { security: ["600519.SH", "00700.HK", "AAPL.O"], fieldList: ["securityCode", "latestPrice"] }, expect: { requests: [{ method: "POST", path: "/application/open-quote/quote/realtime", body: { securityList: ["600519.SH", "00700.HK", "AAPL.O"], fieldList: ["securityCode", "latestPrice"] } }] } },
+    { title: "多只 + fieldList 缺 securityCode：补到最前", args: { security: ["600519.SH", "00700.HK"], fieldList: ["latestPrice"] }, expect: { requests: [{ method: "POST", path: "/application/open-quote/quote/realtime", body: { securityList: ["600519.SH", "00700.HK"], fieldList: ["securityCode", "latestPrice"] } }] } },
+    { title: "单只 + fieldList：不补", args: { security: "600519.SH", fieldList: ["latestPrice"] }, expect: { requests: [{ method: "POST", path: "/application/open-quote/quote/realtime", body: { securityList: ["600519.SH"], fieldList: ["latestPrice"] } }] } },
     { title: "全市场关键字大小写归一", args: { security: "usstocks" }, expect: { requests: [{ method: "POST", path: "/application/open-quote/quote/realtime", body: { securityList: ["usStocks"] } }] } },
   ],
   gangtise_fund_flow: [

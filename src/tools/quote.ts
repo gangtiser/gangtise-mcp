@@ -17,7 +17,7 @@ import { quoteEndpoints } from "./quote.endpoints.js"
 const DEFAULT_QUOTE_LIMIT = 6000
 
 const securityDesc = (codeHelp: string, keywordHelp: string) =>
-  `${codeHelp}；${keywordHelp}拉取全市场（关键字须单独传，不能与证券代码或另一个关键字混传；须同时提供 startDate 和 endDate——只给一个日期时，全市场查询会因规模过大而报错或被截断，按接口而异）`
+  `${codeHelp}；${keywordHelp}拉取全市场（关键字须单独传，不能与证券代码或另一个关键字混传；须同时提供 startDate 和 endDate）`
 
 /** 市场专用工具各自的 security 说明。示例必须用**本工具真正收的代码**——它们带市场校验，
  * 共用一套 A 股示例时，照着参数说明写会被本地直接拒掉。 */
@@ -30,11 +30,27 @@ const marketSecurity = (codeHelp: string) =>
 const legacyFieldList = uniqueFieldList("指定返回字段；行为与 gangtise_day_kline 的同名参数一致，说明见该工具")
 
 /** 行情类接口对不认识的字段名是名和值一起丢，且 `fieldList` 只回点名的列。两件事都要说：
- *  身份列不会自动附带（多只查询的行否则无法归属），写错的列名不报错（去看 `missingFields`）。
+ *  多只或全市场时身份列自动补在最前（见 withIdentityFields），写错的列名不报错（去看 `missingFields`）。
  *  ⚠️ 写得**紧**是有原因的：这段会随 `commonKlineSchema` 复制到 6 个工具的 schema 里，
  *  每多一句就在 tools/list 里付 6 遍（发版门禁 ⑤ 的句级重复上限盯着这一项）。 */
 const FIELD_LIST_NOTE = (identity: string) =>
-  `只回点名的列，身份列（${identity}）要自己写进来；名字写错不报错、只少一列并标 missingFields，不确定就不传（=全量最稳）`
+  `只回点名的列，多只或全市场时自动在最前补上 ${identity}（单只不补）；名字写错不报错、只少一列并标 missingFields，不确定就不传（=全量最稳）`
+
+/** 行情接口只回点名的列：多只或全市场时只点了 close，各行就分不清属于哪只、哪天，而单请求（按代码
+ *  排序）与分组合并（按传入顺序）的行序又不同，按位置也对不上。缺的身份列补到最前，结果里用 `_note`
+ *  说一声。单只不补：它的行不会和别的证券混，补上日期列反而改变了单只调用拿到的列。 */
+function withIdentityFields(body: { fieldList?: string[] }, several: boolean, identity: string[]): string | undefined {
+  if (!several || !body.fieldList) return undefined
+  const fieldList = body.fieldList
+  const missing = identity.filter((field) => !fieldList.includes(field))
+  if (missing.length === 0) return undefined
+  body.fieldList = [...missing, ...fieldList]
+  return `fieldList 已自动在最前补上 ${missing.join(" / ")}，否则多只或全市场的各行无法归属`
+}
+
+function withNote(result: unknown, note: string | undefined): unknown {
+  return note && result && typeof result === "object" && !Array.isArray(result) ? { ...result, _note: note } : result
+}
 
 /** 🔴 有意**不含** `security`——每个 K 线工具必须自己声明，用本市场真正收的代码做示例。
  * 放一个通用的进来就等于给下一个市场工具准备好了一个别的市场的示例，而那是静默错误
@@ -42,7 +58,7 @@ const FIELD_LIST_NOTE = (identity: string) =>
 const commonKlineSchema = {
   startDate: dateString.optional(),
   endDate: dateString.optional(),
-  limit: z.number().int().min(1).max(10_000).optional().describe("单次请求最大返回行数（默认 6000，最大 10000）。截取从查询窗口开头开始——取「最近 N 条」须传日期区间而非只传 limit；分片 / 逐只拉取时作用于每一份，撞上限的会标 _partial"),
+  limit: z.number().int().min(1).max(10_000).optional().describe("单次请求最大返回行数（默认 6000，最大 10000）。截取从查询窗口开头开始——取「最近 N 条」须传日期区间而非只传 limit；分片 / 分组拉取时作用于每一份，撞上限的会标 _partial"),
   fieldList: uniqueFieldList(`指定返回字段，如 ['securityCode','tradeDate','open','close','pctChange']。${FIELD_LIST_NOTE("securityCode / tradeDate")}`),
 }
 
@@ -148,6 +164,12 @@ function klineRun(
     body.securityList = canonicalizeKeywords(body.securityList, accepted)
     if (market) assertMarketMatch(body.securityList, market)
     const fullMarket = fullMarketOf(body.securityList, strategy)
+    // 不带区间的全市场请求服务端直接以「查询规模过大」拒绝，而分片也需要区间——发请求前就拒。
+    if (fullMarket && (!body.startDate || !body.endDate)) {
+      throw new ValidationError(`security='${fullMarket.keyword}' 全市场查询须同时提供 startDate 和 endDate（按日分片拉取）`)
+    }
+    const securities = body.securityList ?? []
+    const note = withIdentityFields(body, fullMarket !== undefined || securities.length > 1, ["securityCode", "tradeDate"])
     if (fullMarket) {
       // All-market goes through the sharding helper: it lifts the cap to 10K, shards
       // the range, and carries its own per-shard failure/truncation markers.
@@ -158,21 +180,25 @@ function klineRun(
         calendar: strategy.calendar,
         cap: strategy.cap,
       })
-      return contentResult(await buildToolContent(normalizeRows(flagMissingFields(result, body.fieldList))))
+      return contentResult(await buildToolContent(normalizeRows(withNote(flagMissingFields(result, body.fieldList), note))))
     }
     // Explicit-security request: pin the effective row cap in the body so the
     // limit-truncation check is exact regardless of any server-default drift
     // (mirrors the CLI, which sends `limit ?? DEFAULT_QUOTE_LIMIT`).
     const limit = body.limit ?? DEFAULT_QUOTE_LIMIT
-    const securities = body.securityList ?? []
-    // 显式多证券且单请求装不下（证券数 × 交易日数 > limit）时逐只请求再合并：单请求会在
-    // 窗口开头截断，只剩前几只的前几个月，且只有一个 _partial 说不清缺了谁。
-    if (securities.length > 1 && securities.length * estimateTradingDays(body.startDate, body.endDate) > limit) {
-      const result = await callKlinePerSecurity(client, endpointKey, securities, (code) => ({ ...body, securityList: [code], limit }), limit)
-      return contentResult(await buildToolContent(normalizeRows(flagMissingFields(result, body.fieldList))))
+    const tradingDays = estimateTradingDays(body.startDate, body.endDate)
+    // 显式多证券且单请求装不下（证券数 × 交易日数 ≥ limit）时分组请求再按传入顺序合并：单请求会在
+    // 窗口开头截断，只剩前几只的前几个月，且只有一个 _partial 说不清缺了谁。每组规划到**严格低于**
+    // 单请求上限——恰好等于上限的完整结果读起来像被截断。没传 limit 时每组用接口的行数上限；传了就
+    // 每个请求都守着它，一只就超的仍单独一组、照旧标截断。
+    if (securities.length > 1 && securities.length * tradingDays >= limit) {
+      const cap = body.limit ?? strategy.cap
+      const groupSize = Math.max(1, Math.floor((cap - 1) / tradingDays))
+      const result = await callKlinePerSecurity(client, endpointKey, securities, (codes) => ({ ...body, securityList: codes, limit: cap }), cap, groupSize)
+      return contentResult(await buildToolContent(normalizeRows(withNote(flagMissingFields(result, body.fieldList), note))))
     }
     const result = flagLimitTruncated(await client.call(endpointKey, { ...body, limit }), limit)
-    return contentResult(await buildToolContent(normalizeRows(flagMissingFields(result, body.fieldList))))
+    return contentResult(await buildToolContent(normalizeRows(withNote(flagMissingFields(result, body.fieldList), note))))
   }
 }
 
@@ -281,11 +307,12 @@ export const quoteFamily: FamilyModule = {
         body.limit = effLimit
         if (fieldList) body.fieldList = fieldList
         const securities = Array.isArray(security) ? (security as string[]) : [security as string]
+        const note = withIdentityFields(body as { fieldList?: string[] }, securities.length > 1, ["securityCode", "tradeTime"])
         // 接口一次只收一只（securityCode），多只在本地逐只请求再合并。
         const result = securities.length > 1
-          ? await callKlinePerSecurity(client, "quote.minute-kline", securities, (code) => ({ ...body, securityCode: code }), effLimit)
+          ? await callKlinePerSecurity(client, "quote.minute-kline", securities, (codes) => ({ ...body, securityCode: codes[0] }), effLimit)
           : flagLimitTruncated(await client.call("quote.minute-kline", { ...body, securityCode: securities[0] }), effLimit)
-        return contentResult(await buildToolContent(normalizeRows(flagMissingFields(result, fieldList))))
+        return contentResult(await buildToolContent(normalizeRows(withNote(flagMissingFields(result, body.fieldList as string[] | undefined), note))))
       },
     }),
     defineTool({
@@ -296,10 +323,10 @@ export const quoteFamily: FamilyModule = {
       description: "查询实时行情快照，单接口覆盖 A 股 / 港股 / 美股个股 + 沪深 ETF + 各类指数（含 20 个全球指数），可代码混合传入。非交易时间返回最近一个交易日的收盘快照；停牌证券返回停牌前最后一个有效快照。日 K 线接口（day-kline*）不含盘中数据，问\"现在/此刻\"请走本工具。⚠️ **volume 的单位是「股」**（ETF 为「份」），不是「手」——按手换算会差 100 倍且不报错。**全部字段仅这 15 个：securityCode/exchange/tradeDate/tradeTime/tradeStatus/open/high/low/latestPrice(最新价)/preClose(昨收)/change/pctChange/volume/amount/amplitude——没有 close、没有市值，也没有 turnoverRate / volumeRatio**（传了会连字段名一起被静默丢掉；换手率走 gangtise_indicator_cross_section 的 qte_turn，A 股）；总市值请用 gangtise_indicator_cross_section 的 qte_mkt_cptl（A/港/美股均有数，默认返「元」，用 scale 缩放）。tradeStatus（未开市/连续竞价/收盘/停牌…）仅 A 股 / 港股个股有值，其余为 null。为 null 的字段：美股 amount（要美股成交额用 gangtise_day_kline 或 EDE qte_amt）；全球指数 volume / amount / amplitude。tradeDate / tradeTime：A 股 / 港股 / ETF / 沪深各类指数为北京时间，**美股与全球指数是交易所当地时间**（美股收盘快照的 tradeTime 是 16:00）。" + CODE_IDENTITY_WARNING,
       input: {
         security: z.union([nonEmptyString, nonEmptyList()]).optional().describe("证券代码或全市场关键字：单/多只代码（'600519.SH' / ['600519.SH','00700.HK','AAPL.O','512800.SH','SPX.SPI']，沪深 ETF .SH/.SZ、交易所指数 .SH/.SZ/.BJ、概念指数 .GT、申万行业指数 .SWI（801xxx.SWI）、中信行业指数 .CI（821xxx.CI）、全球指数按数据源后缀照抄（SPX.SPI / DJI.SPI / IXIC.O / N225.NKI / HSI.HI / FTSE.FI / GDAXI.FRA 等 20 个）也可传），或市场关键字 'aShares' / 'hkStocks' / 'usStocks' 拉取全市场（关键字须单独传，不能与证券代码或另一个关键字混传；关键字只覆盖个股——指数没有全市场关键字，aShares 也不含 ETF）。"),
-        fieldList: uniqueFieldList(`【默认不传 = 返回全量字段，最稳】仅当用户明确要精简、或查全市场（aShares/hkStocks/usStocks）想省 token 时才传。示例：['securityCode','tradeDate','tradeTime','latestPrice','pctChange','volume']。**只传本工具真实存在的 15 个字段名**（见描述；注意没有 close、turnoverRate、volumeRatio）。${FIELD_LIST_NOTE("securityCode（需要时点再加 tradeDate / tradeTime）")}`),
+        fieldList: uniqueFieldList(`【默认不传 = 返回全量字段，最稳】仅当用户明确要精简、或查全市场（aShares/hkStocks/usStocks）想省 token 时才传。示例：['securityCode','tradeDate','tradeTime','latestPrice','pctChange','volume']。**只传本工具真实存在的 15 个字段名**（见描述；注意没有 close、turnoverRate、volumeRatio）。${FIELD_LIST_NOTE("securityCode")}；要时点自己加 tradeDate / tradeTime`),
       },
       run: async ({ client }, { security, fieldList }) => {
-        const body: Record<string, unknown> = {}
+        const body: { securityList?: string[]; fieldList?: string[] } = {}
         if (security) {
           const list = Array.isArray(security) ? security as string[] : [security as string]
           // Realtime rejects a keyword sent alongside codes with a bare 120001 that points
@@ -307,9 +334,11 @@ export const quoteFamily: FamilyModule = {
           assertMarketKeywords(list, REALTIME_MARKETS, "gangtise_realtime")
           body.securityList = canonicalizeKeywords(list, REALTIME_MARKETS)
         }
-        if (fieldList) body.fieldList = fieldList
+        if (fieldList) body.fieldList = fieldList as string[]
+        const list = body.securityList ?? []
+        const note = withIdentityFields(body, list.length > 1 || REALTIME_MARKETS.includes(list[0]), ["securityCode"])
         const result = await client.call("quote.realtime", body)
-        return contentResult(await buildToolContent(normalizeRows(flagMissingFields(result, fieldList))))
+        return contentResult(await buildToolContent(normalizeRows(withNote(flagMissingFields(result, body.fieldList), note))))
       },
     }),
     defineTool({

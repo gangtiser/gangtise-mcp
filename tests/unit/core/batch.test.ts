@@ -92,13 +92,14 @@ describe("callKlineWithSharding", () => {
   // HK kline runs 2-day shards in production but every test used shardDays: 1,
   // leaving the shard boundary math (no overlap, no gap, truncated tail) and
   // the merged `total` semantics unpinned.
-  it("builds gap-free 2-day shards with a truncated tail and recomputes total from merged rows", async () => {
+  it("builds 2-weekday shards with a short tail and recomputes total from merged rows", async () => {
     const seen: Array<[string, string]> = []
     const call = vi.fn().mockImplementation(async (_key: string, body: Record<string, unknown>) => {
       seen.push([body.startDate as string, body.endDate as string])
       return { fieldList: ["tradeDate"], list: [[body.startDate]], total: 1 }
     })
 
+    // 2026-04-01 周三 … 04-05 周日
     const result = await callKlineWithSharding({ call }, "quote.day-kline-hk", {
       securityList: ["all"],
       startDate: "2026-04-01",
@@ -107,12 +108,25 @@ describe("callKlineWithSharding", () => {
 
     expect(seen).toEqual([
       ["2026-04-01", "2026-04-02"],
+      ["2026-04-03", "2026-04-03"],
+    ])
+    expect((result.list as unknown[]).length).toBe(2)
+    // total must describe the merged result, not leak the first shard's count.
+    expect(result.total).toBe(2)
+  })
+
+  it("opens gap-free calendar-day windows on a natural calendar, weekends included", async () => {
+    const seen: Array<[string, string]> = []
+    const call = vi.fn().mockImplementation(async (_key: string, body: Record<string, unknown>) => {
+      seen.push([body.startDate as string, body.endDate as string])
+      return { fieldList: ["tradeDate"], list: [[body.startDate]], total: 1 }
+    })
+    await callKlineWithSharding({ call }, "quote.day-kline-hk", { securityList: ["all"], startDate: "2026-04-01", endDate: "2026-04-05" }, { shardDays: 2, calendar: "natural" })
+    expect(seen).toEqual([
+      ["2026-04-01", "2026-04-02"],
       ["2026-04-03", "2026-04-04"],
       ["2026-04-05", "2026-04-05"],
     ])
-    expect((result.list as unknown[]).length).toBe(3)
-    // total must describe the merged result, not leak the first shard's count.
-    expect(result.total).toBe(3)
   })
 
   // A multi-year range would fire thousands of shard requests and merge more
@@ -214,7 +228,7 @@ describe("weekend skip for 1-day shards", () => {
     expect(result).toEqual({ list: [] })
   })
 
-  it("keeps weekend days inside multi-day shards", async () => {
+  it("fills multi-day shards with weekdays only, so a shard may straddle a weekend", async () => {
     const seen: Array<{ start: string; end: string }> = []
     const call = vi.fn().mockImplementation(async (_key: string, body: Record<string, unknown>) => {
       seen.push({ start: String(body.startDate), end: String(body.endDate) })
@@ -227,10 +241,14 @@ describe("weekend skip for 1-day shards", () => {
       endDate: "2026-07-13", // Monday
     }, { shardDays: 2 })
 
-    expect(seen).toEqual([
-      { start: "2026-07-10", end: "2026-07-11" },
-      { start: "2026-07-12", end: "2026-07-13" },
-    ])
+    expect(seen).toEqual([{ start: "2026-07-10", end: "2026-07-13" }])
+  })
+
+  it("sends nothing for a 2-day range that is all weekend", async () => {
+    const call = vi.fn()
+    const result = await callKlineWithSharding({ call }, "quote.day-kline-hk", { securityList: ["all"], startDate: "2026-07-11", endDate: "2026-07-12" }, { shardDays: 2 })
+    expect(result).toEqual({ list: [] })
+    expect(call).not.toHaveBeenCalled()
   })
 })
 
@@ -456,7 +474,7 @@ describe("callKlinePerSecurity", () => {
 
     const out = await callKlinePerSecurity(
       { call }, "quote.day-kline", ["600519.SH", "000858.SZ"],
-      (code) => ({ securityList: [code] }), 6000,
+      (codes) => ({ securityList: codes }), 6000,
     ) as Record<string, unknown>
 
     expect(out.list).toEqual([["600519.SH"], ["000858.SZ"]])
@@ -472,7 +490,7 @@ describe("callKlinePerSecurity", () => {
 
     const out = await callKlinePerSecurity(
       { call }, "quote.day-kline", ["600519.SH", "000858.SZ"],
-      (code) => ({ securityList: [code] }), 2,
+      (codes) => ({ securityList: codes }), 2,
     ) as Record<string, unknown>
 
     expect(out._partial).toBe(true)
@@ -488,7 +506,7 @@ describe("callKlinePerSecurity", () => {
 
     const out = await callKlinePerSecurity(
       { call }, "quote.day-kline", ["600519.SH", "000858.SZ"],
-      (code) => ({ securityList: [code] }), 6000,
+      (codes) => ({ securityList: codes }), 6000,
     ) as Record<string, unknown>
 
     expect(String(out._partial_reason)).toContain("failed_securities")
@@ -500,8 +518,64 @@ describe("callKlinePerSecurity", () => {
     const call = vi.fn().mockRejectedValue(new Error("auth expired"))
     await expect(callKlinePerSecurity(
       { call }, "quote.day-kline", ["600519.SH", "000858.SZ"],
-      (code) => ({ securityList: [code] }), 6000,
+      (codes) => ({ securityList: codes }), 6000,
     )).rejects.toThrow("auth expired")
+  })
+})
+
+// 多只一组：服务端按 securityCode 排序返回，合并按传入顺序还原；截断、坏形状按整组记名；
+// 请求失败的组逐只重试，只把真正失败的那只记名。
+describe("callKlinePerSecurity in groups", () => {
+  const rowsOf = (codes: string[], fields = ["securityCode", "tradeDate"]) => ({
+    fieldList: fields,
+    list: [...codes].sort().flatMap((code) => [[code, "2026-09-01"], [code, "2026-09-02"]].map((row) => (fields.includes("securityCode") ? row : row.slice(1)))),
+  })
+
+  it("puts each group back in the order the caller listed, keeping each security's dates in order", async () => {
+    const call = vi.fn().mockImplementation(async (_k: string, body: Record<string, unknown>) => rowsOf(body.securityList as string[]))
+    const out = await callKlinePerSecurity({ call }, "quote.day-kline", ["600519.SH", "000858.SZ", "00700.HK"], (codes) => ({ securityList: codes }), 10_000, 2) as Record<string, unknown>
+    expect(call.mock.calls.map(([, body]) => body.securityList)).toEqual([["600519.SH", "000858.SZ"], ["00700.HK"]])
+    expect(out.list).toEqual([
+      ["600519.SH", "2026-09-01"], ["600519.SH", "2026-09-02"],
+      ["000858.SZ", "2026-09-01"], ["000858.SZ", "2026-09-02"],
+      ["00700.HK", "2026-09-01"], ["00700.HK", "2026-09-02"],
+    ])
+  })
+
+  it("matches codes case-blind when restoring the order", async () => {
+    const call = vi.fn().mockImplementation(async (_k: string, body: Record<string, unknown>) => rowsOf((body.securityList as string[]).map((c) => c.toUpperCase())))
+    const out = await callKlinePerSecurity({ call }, "quote.day-kline", ["600519.sh", "000858.sz"], (codes) => ({ securityList: codes }), 10_000, 2) as Record<string, unknown>
+    expect((out.list as unknown[][]).map((row) => row[0])).toEqual(["600519.SH", "600519.SH", "000858.SZ", "000858.SZ"])
+  })
+
+  it("names every security of a group whose rows reach the cap", async () => {
+    const call = vi.fn().mockImplementation(async (_k: string, body: Record<string, unknown>) => rowsOf(body.securityList as string[]))
+    const out = await callKlinePerSecurity({ call }, "quote.day-kline", ["600519.SH", "000858.SZ", "00700.HK"], (codes) => ({ securityList: codes }), 4, 2) as Record<string, unknown>
+    expect(out._truncated_securities).toEqual(["600519.SH", "000858.SZ"])
+  })
+
+  it("retries a failed group one security at a time, so only the bad code is named", async () => {
+    const call = vi.fn().mockImplementation(async (_k: string, body: Record<string, unknown>) => {
+      const codes = body.securityList as string[]
+      if (codes.includes("BAD.SH")) throw new Error("证券代码无效")
+      return rowsOf(codes)
+    })
+    const out = await callKlinePerSecurity({ call }, "quote.day-kline", ["600519.SH", "BAD.SH", "00700.HK"], (codes) => ({ securityList: codes }), 10_000, 2) as Record<string, unknown>
+    expect(call.mock.calls.map(([, body]) => body.securityList)).toEqual([["600519.SH", "BAD.SH"], ["00700.HK"], ["600519.SH"], ["BAD.SH"]])
+    expect(out._failed_securities).toEqual([{ security: "BAD.SH", error: "证券代码无效" }])
+    expect((out.list as unknown[][]).map((row) => row[0])).toEqual(["600519.SH", "600519.SH", "00700.HK", "00700.HK"])
+  })
+
+  it("will not merge a group whose rows carry no securityCode column: its securities cannot be told apart", async () => {
+    const call = vi.fn().mockImplementation(async (_k: string, body: Record<string, unknown>) => {
+      const codes = body.securityList as string[]
+      return codes.length > 1 ? rowsOf(codes, ["tradeDate"]) : rowsOf(codes)
+    })
+    const out = await callKlinePerSecurity({ call }, "quote.day-kline", ["00700.HK", "600519.SH", "000858.SZ"], (codes) => ({ securityList: codes }), 10_000, 2) as Record<string, unknown>
+    expect(out._malformed_securities).toEqual(["00700.HK", "600519.SH"])
+    // 被拒的那组不能定下合并结果的列：否则后面的组的 securityCode 会被当成多出来的列丢掉。
+    expect(out.fieldList).toEqual(["securityCode", "tradeDate"])
+    expect(out._dropped_columns).toBeUndefined()
   })
 })
 
@@ -561,7 +635,7 @@ describe("shard column supersets are reported, not silently dropped", () => {
 
     const out = await callKlinePerSecurity(
       { call }, "quote.day-kline", ["600519.SH", "000858.SZ"],
-      (securityCode) => ({ securityCode }), 6000,
+      ([securityCode]) => ({ securityCode }), 6000,
     ) as Record<string, unknown>
 
     expect(String(out._partial_reason)).toContain("dropped_columns")

@@ -37,10 +37,14 @@ function shardRows(endpoint: string, override: Record<string, UpstreamReply> = {
 }
 
 /** 逐只拆分：每只回一行；`override` 按证券代码换应答。 */
+/** 每只一行。一个请求里有多只时按 securityCode 排序返回（合并要还原成传入顺序）；组里任一只有
+ *  override 时整组按它应答。 */
 function perSecurityRows(endpoint: string, override: Record<string, UpstreamReply> = {}): Responder {
   return on(endpoint, (req) => {
-    const code = (bodyOf(req).securityList as string[])[0]
-    return override[code] ?? { data: { total: 1, fieldList: ["securityCode", "tradeDate", "close"], list: [[code, "2026-09-01", 1]] } }
+    const codes = bodyOf(req).securityList as string[]
+    const hit = codes.find((code) => override[code])
+    if (hit) return override[hit]
+    return { data: { total: codes.length, fieldList: ["securityCode", "tradeDate", "close"], list: [...codes].sort().map((code) => [code, "2026-09-01", 1]) } }
   })
 }
 
@@ -133,8 +137,11 @@ const SCENARIOS: Scenario[] = [
   { name: "partial-malformed-shards", tool: "gangtise_day_kline", args: { security: "aShares", startDate: "2026-09-07", endDate: "2026-09-09" }, upstream: shardRows("quote.day-kline", { "2026-09-08": { data: { total: 5 } } }) },
   { name: "partial-truncated-shards", tool: "gangtise_day_kline", args: { security: "aShares", startDate: "2026-09-07", endDate: "2026-09-08", limit: 1 }, upstream: shardRows("quote.day-kline") },
   { name: "partial-dropped-columns", tool: "gangtise_day_kline", args: { security: "aShares", startDate: "2026-09-07", endDate: "2026-09-08" }, upstream: shardRows("quote.day-kline", { "2026-09-08": { data: { total: 1, fieldList: ["securityCode", "tradeDate", "close", "extraCol"], list: [["600519.SH", "2026-09-08", 2, "x"]] } } }) },
-  { name: "partial-failed-securities", tool: "gangtise_day_kline", args: { security: ["600519.SH", "000858.SZ", "00700.HK", "AAPL.O"], startDate: "2020-01-01", endDate: "2026-06-30" }, upstream: perSecurityRows("quote.day-kline", { "00700.HK": errorEnvelope("120001", "证券代码无效") }) },
-  { name: "partial-malformed-securities", tool: "gangtise_day_kline", args: { security: ["600519.SH", "000858.SZ", "00700.HK", "AAPL.O"], startDate: "2020-01-01", endDate: "2026-06-30" }, upstream: perSecurityRows("quote.day-kline", { "AAPL.O": { data: { total: 1 } } }) },
+  // 4 只 × 约 4826 个交易日：每组 2 只（limit 抬到 10000），失败 / 坏形状按整组记名；成功那组按传入顺序还原。
+  { name: "partial-failed-securities", tool: "gangtise_day_kline", args: { security: ["600519.SH", "000858.SZ", "00700.HK", "AAPL.O"], startDate: "2008-01-01", endDate: "2026-06-30" }, upstream: perSecurityRows("quote.day-kline", { "00700.HK": errorEnvelope("120001", "证券代码无效") }) },
+  { name: "partial-malformed-securities", tool: "gangtise_day_kline", args: { security: ["600519.SH", "000858.SZ", "00700.HK", "AAPL.O"], startDate: "2008-01-01", endDate: "2026-06-30" }, upstream: perSecurityRows("quote.day-kline", { "AAPL.O": { data: { total: 1 } } }) },
+  // 多只 + fieldList 只点了 close：身份列补到最前，结果用 _note 说明。
+  { name: "present-identity-fields", tool: "gangtise_day_kline", args: { security: ["600519.SH", "000858.SZ"], startDate: "2026-09-01", endDate: "2026-09-01", fieldList: ["close"] }, upstream: perSecurityRows("quote.day-kline") },
   { name: "partial-truncated-securities", tool: "gangtise_minute_kline", args: { security: ["600519.SH", "512800.SH"], startTime: "2026-09-01 09:30:00", endTime: "2026-09-01 15:00:00", limit: 1 }, upstream: on("quote.minute-kline", (req) => ({ data: { total: 1, fieldList: ["securityCode", "tradeTime", "close"], list: [[bodyOf(req).securityCode, "2026-09-01 09:31:00", 1]] } })) },
   { name: "partial-missing-fields", tool: "gangtise_realtime", args: { security: "600519.SH", fieldList: ["securityCode", "latestPrice", "turnoverRate"] }, upstream: on("quote.realtime", () => ({ data: { total: 1, fieldList: ["securityCode", "latestPrice"], list: [["600519.SH", 1510.2]] } })) },
   { name: "partial-failed-items", tool: "gangtise_stock_pool_add_stock", args: { poolId: "pool-1", securityCodeList: ["600519.SH", "600519.XX"] }, upstream: on("vault.stock-pool.add-stock", () => ({ data: fixture("stock-pool-item-failures") })) },

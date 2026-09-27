@@ -18,8 +18,8 @@ export interface KlineBody {
 export interface BatchStrategy {
   /** 全市场关键字 → 每片天数（按单日行数定，保证单片不超 `cap`）。空表 = 没有全市场关键字。 */
   fullMarketKeywords: Record<string, number>
-  /** 哪些日子会有数据。"workday"：周六日休市，单日片落在周末直接跳过；多日片整片保留（边界上
-   *  可能多一个空请求，但不会丢交易日）。"natural"：每天都可能有数据，一天都不跳。 */
+  /** 哪些日子会有数据。"workday"：周六日休市，每片装 `shardDays` 个工作日、周末不占片。
+   *  "natural"：每天都可能有数据，按自然日开窗，一天都不跳。 */
   calendar: "workday" | "natural"
   /** 全市场请求把 limit 抬到的单请求行数上限。 */
   cap: number
@@ -116,27 +116,23 @@ export function estimateTradingDays(startDate?: string, endDate?: string): numbe
   return days
 }
 
+/** 每片装 `shardDays` 个有数据的日子。工作日历跳过周六日：休市日没有行，按自然日开窗会为它们发空
+ *  请求（港股 2 天一片时每个周六 + 周日、每个周五 + 周六）。一片从组内第一个工作日到最后一个，跨周末
+ *  的片（周五 + 周一）仍只含 `shardDays` 个交易日，行数照样落在为它选的单请求上限内。 */
 function buildShards(start: Date, end: Date, shardDays: number, calendar: BatchStrategy["calendar"]): Array<{ startDate: string; endDate: string }> {
   const shards: Array<{ startDate: string; endDate: string }> = []
-  let cursor = start.getTime()
-  const endTime = end.getTime()
-  while (cursor <= endTime) {
-    const shardEnd = Math.min(cursor + (shardDays - 1) * DAY_MS, endTime)
-    // A/HK/US markets close Sat/Sun, so a 1-day weekend shard is a
-    // guaranteed-empty request — skip it (~28% of a long range, and daily
-    // quota). Multi-day shards (hkStocks=2, index=15) are kept whole: this is a
-    // deliberate simplification, not a claim that they always contain a weekday —
-    // a 2-day shard starting on a Saturday is Sat+Sun and returns nothing. That
-    // costs one wasted request at a range boundary and never drops a trading day,
-    // whereas filtering multi-day windows correctly means walking each window.
-    if (!(calendar === "workday" && shardDays === 1 && isWeekend(cursor))) {
-      shards.push({
-        startDate: formatDate(new Date(cursor)),
-        endDate: formatDate(new Date(shardEnd)),
-      })
-    }
-    cursor = shardEnd + DAY_MS
+  let group: number[] = []
+  const flush = (): void => {
+    if (group.length === 0) return
+    shards.push({ startDate: formatDate(new Date(group[0])), endDate: formatDate(new Date(group[group.length - 1])) })
+    group = []
   }
+  for (let day = start.getTime(); day <= end.getTime(); day += DAY_MS) {
+    if (calendar === "workday" && isWeekend(day)) continue
+    group.push(day)
+    if (group.length === shardDays) flush()
+  }
+  flush()
   return shards
 }
 
@@ -219,7 +215,7 @@ interface MergedParts {
  * 🔴 数组行**按列名对齐**，不按位置：合并采用首片的 fieldList 解释全部部件，而各部件的
  * 列顺序并没有谁保证一致——第二片把 open/close 调个位置，按位置并进来就是开盘价与收盘价
  * 互换，列数相同、长度校验抓不到、也不标 _partial。对不上列名集合的部件按坏形状记名。 */
-function mergeParts(results: PartOutcome[], perLimit: number): MergedParts {
+function mergeParts(results: PartOutcome[], perLimit: number, groups?: string[][]): MergedParts {
   let header: Record<string, unknown> | null = null
   let fieldList: string[] | undefined
   const merged: unknown[] = []
@@ -249,17 +245,30 @@ function mergeParts(results: PartOutcome[], perLimit: number): MergedParts {
       malformed.push(i)
       continue
     }
-    if (!fieldList && partFields) fieldList = partFields
-    if (columnar && fieldList && partFields) {
-      const remap = columnRemap(fieldList, partFields)
+    // 合并结果的列取自第一个**被接受**的部件：被拒的部件不能定下它。
+    const fields = fieldList ?? partFields
+    let extra: string[] = []
+    if (columnar && fields && partFields) {
+      const remap = columnRemap(fields, partFields)
       if (remap === undefined) {
         malformed.push(i)
         continue
       }
-      for (const field of remap.extra) droppedColumns.add(field)
+      extra = remap.extra
       const map = remap.map
       if (map) rows = rows.map((row) => (Array.isArray(row) ? map.map((k) => row[k]) : row))
     }
+    const group = groups?.[i]
+    if (group && group.length > 1 && rows.length > 1) {
+      const ordered = inInputOrder(rows, columnar ? fields : undefined, group)
+      if (!ordered) {
+        malformed.push(i)
+        continue
+      }
+      rows = ordered
+    }
+    fieldList = fields
+    for (const field of extra) droppedColumns.add(field)
     if (!header) header = part.rec
     // A part whose row count reaches the per-request limit was itself capped, so
     // its slice is incomplete — record it so a consumer can re-pull exactly that
@@ -268,6 +277,20 @@ function mergeParts(results: PartOutcome[], perLimit: number): MergedParts {
     merged.push(...rows)
   }
   return { header, fieldList, merged, truncated, malformed, partReasons: [...partReasons], droppedColumns: [...droppedColumns] }
+}
+
+/** 一个请求里有多只时服务端按 securityCode 排序返回，而合并承诺按传入顺序：组内按传入顺序稳定重排
+ *  （每只内部的日期顺序不变），代码不分大小写（服务端收 `600519.sh`、回 `600519.SH`）。列式行里没有
+ *  securityCode 列时返回 undefined——几只的行分不开，这一组不能并进来。 */
+function inInputOrder(rows: unknown[], fields: string[] | undefined, group: string[]): unknown[] | undefined {
+  const column = fields ? fields.indexOf("securityCode") : -1
+  if (column < 0 && rows.some(Array.isArray)) return undefined
+  const rank = new Map(group.map((code, i) => [code.toUpperCase(), i]))
+  const codeOf = (row: unknown): unknown => (Array.isArray(row) ? row[column] : (row as Record<string, unknown> | null)?.securityCode)
+  return rows
+    .map((row, i) => ({ row, i, at: rank.get(String(codeOf(row)).toUpperCase()) ?? group.length }))
+    .sort((a, b) => a.at - b.at || a.i - b.i)
+    .map(({ row }) => row)
 }
 
 /** 合并结果里多出来的列被丢掉时，按列名记名并标 `_partial`。分片与逐只两条路共用。 */
@@ -321,26 +344,20 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
     return callSingle()
   }
 
-  const totalDays = Math.floor((end.getTime() - start.getTime()) / DAY_MS) + 1
-  if (totalDays <= config.shardDays) {
-    // Same weekend rule as the sharded path below: with 1-day shards the window
-    // is exactly one day here, and a Sat/Sun day is a guaranteed-empty request.
-    if (calendar === "workday" && config.shardDays === 1 && isWeekend(start.getTime())) {
-      return { list: [] }
-    }
-    return callSingle()
-  }
-
   const shards = buildShards(start, end, config.shardDays, calendar)
-  // Every day in the range was a skipped weekend: markets closed, nothing to fetch.
+  // 整段都是周末：休市，没有要取的。
   if (shards.length === 0) {
     return { list: [] }
+  }
+  const totalDays = Math.floor((end.getTime() - start.getTime()) / DAY_MS) + 1
+  if (totalDays <= config.shardDays) {
+    return callSingle()
   }
   if (shards.length > MAX_SHARDS) {
     throw new ValidationError(`全市场查询区间过大（${shards.length} 个分片 > ${MAX_SHARDS}）：合并结果将超出单次响应安全上限，请缩小日期区间分批拉取`)
   }
   if (isVerbose()) {
-    process.stderr.write(`[gangtise] sharding ${endpointKey} into ${shards.length} requests (${config.shardDays} day(s) each)\n`)
+    process.stderr.write(`[gangtise] sharding ${endpointKey} into ${shards.length} requests (${config.shardDays} ${calendar === "workday" ? "weekday" : "day"}(s) each)\n`)
   }
 
   const results = await fetchParts(shards, config.concurrency ?? PAGE_CONCURRENCY, (shard) =>
@@ -397,30 +414,56 @@ export async function callKlineWithSharding(client: KlineClient, endpointKey: st
 }
 
 /**
- * 显式多证券、单请求装不下时逐只请求再按传入顺序合并。每只各自受 `perLimit` 约束，
- * 撞上限的证券记进 `_truncated_securities`；请求失败 / 载荷并不进来的分别记进
- * `_failed_securities` / `_malformed_securities`，与全市场分片的标记对称。
+ * 显式多证券：每 `groupSize` 只一个请求（缺省 1 只，接口只收单只时就是逐只），按传入顺序合并。
+ * 每个请求各自受 `perLimit` 约束，撞上限的那组证券记进 `_truncated_securities`；请求失败 / 载荷并不
+ * 进来的那组分别记进 `_failed_securities` / `_malformed_securities`，与全市场分片的标记对称。
  */
 export async function callKlinePerSecurity(
   client: KlineClient,
   endpointKey: string,
   securities: string[],
-  makeBody: (security: string) => Record<string, unknown>,
+  makeBody: (codes: string[]) => Record<string, unknown>,
   perLimit: number,
+  groupSize = 1,
 ): Promise<unknown> {
+  let groups: string[][] = []
+  for (let i = 0; i < securities.length; i += groupSize) groups.push(securities.slice(i, i + groupSize))
   if (isVerbose()) {
-    process.stderr.write(`[gangtise] splitting ${endpointKey} into ${securities.length} per-security requests\n`)
+    process.stderr.write(`[gangtise] splitting ${endpointKey} into ${groups.length} requests (${groupSize} securit${groupSize === 1 ? "y" : "ies"} each)\n`)
   }
-  const results = await fetchParts(securities, PAGE_CONCURRENCY, (code) => client.call(endpointKey, makeBody(code)))
+  const fetchGroups = (parts: string[][]) => fetchParts(parts, PAGE_CONCURRENCY, (codes) => client.call(endpointKey, makeBody(codes)))
+  let results = await fetchGroups(groups)
+  // 多只一组的请求失败时逐只重试：组里一只代码无效（120001）整组都失败，按组记名会把同组的有效代码
+  // 也报成失败、丢掉它们的数据。只在失败时多花请求。
+  if (results.some((r, i) => !r.ok && groups[i].length > 1)) {
+    const singles = groups.flatMap((group, i) => (!results[i].ok && group.length > 1 ? group.map((code) => [code]) : []))
+    const retried = await fetchGroups(singles)
+    const nextGroups: string[][] = []
+    const nextResults: PartOutcome[] = []
+    let k = 0
+    groups.forEach((group, i) => {
+      if (results[i].ok || group.length === 1) {
+        nextGroups.push(group)
+        nextResults.push(results[i])
+      } else {
+        for (const code of group) {
+          nextGroups.push([code])
+          nextResults.push(retried[k++])
+        }
+      }
+    })
+    groups = nextGroups
+    results = nextResults
+  }
 
   const failed = results
     .map((r, i) => ({ r, i }))
     .filter((x): x is { r: Extract<PartOutcome, { ok: false }>; i: number } => !x.r.ok)
-  if (failed.length === securities.length) {
+  if (failed.length === groups.length) {
     throw failed[0].r.cause
   }
 
-  const { header, fieldList, merged, truncated, malformed, partReasons, droppedColumns } = mergeParts(results, perLimit)
+  const { header, fieldList, merged, truncated, malformed, partReasons, droppedColumns } = mergeParts(results, perLimit, groups)
   if (!header) {
     if (malformed.length > 0) {
       const alsoFailed = failed.length > 0 ? `，另有 ${failed.length} 只请求失败（${failed[0].r.error}）` : ""
@@ -437,15 +480,15 @@ export async function callKlinePerSecurity(
   const details: Record<string, unknown> = {}
   if (failed.length > 0) {
     reasons.push("failed_securities")
-    details._failed_securities = failed.map(({ r, i }) => ({ security: securities[i], error: r.error }))
+    details._failed_securities = failed.flatMap(({ r, i }) => groups[i].map((security) => ({ security, error: r.error })))
   }
   if (truncated.length > 0) {
     reasons.push("limit_truncated")
-    details._truncated_securities = truncated.map((i) => securities[i])
+    details._truncated_securities = truncated.flatMap((i) => groups[i])
   }
   if (malformed.length > 0) {
     reasons.push("malformed_securities")
-    details._malformed_securities = malformed.map((i) => securities[i])
+    details._malformed_securities = malformed.flatMap((i) => groups[i])
   }
   flagDroppedColumns(reasons, details, droppedColumns)
   for (const reason of partReasons) if (!reasons.includes(reason)) reasons.push(reason)
