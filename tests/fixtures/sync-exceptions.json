@@ -25,11 +25,6 @@
     "reason": "平台文档按返回条数计价，单价未单列：标 variable（按返回条数），不写死按次 0.4"
   },
   {
-    "key": "fundamental.valuation-analysis",
-    "field": "expects",
-    "reason": "本仓尚未给估值分析加形状守卫，下一个功能版本评估"
-  },
-  {
     "key": "insight.performance-calendar.download",
     "field": "billing",
     "reason": "A 股 10/条、港美股 20/条两档：标签取 A 股档，港美股档写在标签前的尾注里"

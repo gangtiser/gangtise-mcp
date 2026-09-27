@@ -50,6 +50,8 @@ export const fundamentalEndpoints: EndpointTable = {
     kind: "json",
     description: "Query valuation analysis",
     billing: { kind: "free" },
+    // 有没有数据都回 `{indicator, fieldList, list}`（区间内没有交易日也回一行空值），别的形状即异常。
+    expects: "list",
   },
   "fundamental.top-holders": {
     method: "POST",
