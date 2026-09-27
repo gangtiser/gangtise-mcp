@@ -115,7 +115,7 @@ export interface DownloadResponse {
 
 /** 端点声明的返回形状是否成立（见 EndpointDefinition.expects）。 */
 function hasExpectedShape(expects: "list" | "array", payload: unknown): boolean {
-  if (expects === "array") return Array.isArray(payload)
+  if (expects === "array") return Array.isArray(payload) && payload.every((row) => row === null || (typeof row === "object" && !Array.isArray(row)))
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false
   const { total, list } = payload as { total?: unknown; list?: unknown }
   return Array.isArray(list) || (total === 0 && (list === null || list === undefined))
@@ -374,8 +374,8 @@ export class HttpClient {
         // 形状校验放在这里而不是工具层：`data: null` 挂不上信封的 traceId，下沉之后就报不出
         // 可追溯的错。不带错误码、HTTP 200，不会被重试。
         if (endpoint.expects && !hasExpectedShape(endpoint.expects, payload)) {
-          const got = payload === null ? "null" : Array.isArray(payload) ? "数组" : typeof payload === "object" ? "没有 list 的对象" : typeof payload
-          const want = endpoint.expects === "list" ? "列表（{…, list: [...]}）" : "数组"
+          const got = payload === null ? "null" : Array.isArray(payload) ? (endpoint.expects === "array" ? "含非对象元素的数组" : "数组") : typeof payload === "object" ? "没有 list 的对象" : typeof payload
+          const want = endpoint.expects === "list" ? "列表（{…, list: [...]}）" : "对象数组"
           throw new ResponseShapeError(`响应不是预期的${want}结构（收到${got}），形状可能已变更——请重试；持续出现请带上工具名与入参报障。`, response.statusCode, parsed, payload)
         }
         return payload as T

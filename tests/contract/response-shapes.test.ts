@@ -134,10 +134,11 @@ const SCENARIOS: Scenario[] = [
     if (ids[0] === "fo-20") return { json: { code: "999999", msg: "系统错误", data: null, traceId: "trace-d2" }, status: 200 }
     return { data: ids.map((id) => ({ foreignOpinionId: id, content: "body", contentTranslate: "正文" })) }
   }) },
-  // 第二批返回了不是对象的元素：第一批已付费的正文照常返回，第二批按未取处理。
-  { name: "partial-unfetched-ids-malformed-batch", tool: "gangtise_opinion_detail", args: { kind: "domestic", ids: Array.from({ length: 21 }, (_, i) => `co-${i}`) }, upstream: on("insight.opinion.detail", (req) => {
+  // 第二批混进了不是对象的元素：两批里能认出 ID 的正文（已付费）照常返回，第二批其余的 ID 按未取处理，报错带 traceId。
+  { name: "partial-unfetched-ids-malformed-batch", tool: "gangtise_opinion_detail", args: { kind: "domestic", ids: Array.from({ length: 22 }, (_, i) => `co-${i}`) }, upstream: on("insight.opinion.detail", (req) => {
     const ids = bodyOf(req).chiefOpinionIdList as string[]
-    return { data: ids[0] === "co-20" ? [null] : ids.map((id) => ({ chiefOpinionId: id, content: "<p>正文</p>" })) }
+    if (ids[0] === "co-20") return { json: { code: "000000", msg: "ok", data: [{ chiefOpinionId: "co-20", content: "<p>正文</p>" }, "<p>正文</p>"], traceId: "trace-m" } }
+    return { data: ids.map((id) => ({ chiefOpinionId: id, content: "<p>正文</p>" })) }
   }) },
   { name: "partial-limit-truncated", tool: "gangtise_day_kline", args: { security: "600519.SH", startDate: "2026-09-01", endDate: "2026-09-03", limit: 3 }, upstream: on("quote.day-kline", () => ({ data: fixture("kline-columnar") })) },
   { name: "partial-failed-shards", tool: "gangtise_day_kline", args: { security: "aShares", startDate: "2026-09-07", endDate: "2026-09-09" }, upstream: shardRows("quote.day-kline", { "2026-09-08": errorEnvelope("100005", "参数错误") }) },
@@ -154,6 +155,8 @@ const SCENARIOS: Scenario[] = [
   // 多只 + fieldList 只点了 close：身份列补到最前，结果用 _note 说明。
   { name: "present-identity-fields", tool: "gangtise_day_kline", args: { security: ["600519.SH", "000858.SZ"], startDate: "2026-09-01", endDate: "2026-09-01", fieldList: ["close"] }, upstream: perSecurityRows("quote.day-kline") },
   { name: "partial-truncated-securities", tool: "gangtise_minute_kline", args: { security: ["600519.SH", "512800.SH"], startTime: "2026-09-01 09:30:00", endTime: "2026-09-01 15:00:00", limit: 1 }, upstream: on("quote.minute-kline", (req) => ({ data: { total: 1, fieldList: ["securityCode", "tradeTime", "close"], list: [[bodyOf(req).securityCode, "2026-09-01 09:31:00", 1]] } })) },
+  // 一批里夹着 null：按该 ID 没有正文处理，同批其余已付费的正文照常返回，不进未取。
+  { name: "partial-missing-ids-null-element", tool: "gangtise_opinion_detail", args: { kind: "domestic", ids: ["co-1", "co-2"] }, upstream: on("insight.opinion.detail", () => ({ data: [{ chiefOpinionId: "co-1", title: "观点一", content: "<p>正文</p>" }, null] })) },
   { name: "partial-missing-fields", tool: "gangtise_realtime", args: { security: "600519.SH", fieldList: ["securityCode", "latestPrice", "turnoverRate"] }, upstream: on("quote.realtime", () => ({ data: { total: 1, fieldList: ["securityCode", "latestPrice"], list: [["600519.SH", 1510.2]] } })) },
   { name: "partial-failed-items", tool: "gangtise_stock_pool_add_stock", args: { poolId: "pool-1", securityCodeList: ["600519.SH", "600519.XX"] }, upstream: on("vault.stock-pool.add-stock", () => ({ data: fixture("stock-pool-item-failures") })) },
   { name: "partial-security-only-row-cap", tool: "gangtise_performance_calendar_list", args: { securityList: ["600519.SH"], fetchAll: true }, upstream: paged(1500) },

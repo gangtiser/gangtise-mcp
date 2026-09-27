@@ -62,7 +62,8 @@ export interface EndpointDefinition {
   rowIdUnverified?: true
   /** 返回形状声明，在 `requestJson` 仍握有信封（traceId）时校验，不符抛 `ResponseShapeError`。
    *  "list"：成功响应必是 `{…, list: [...]}`；`{total: 0, list: null}` 是合法的零行写法，照常放行。
-   *  "array"：成功响应必是裸数组。形状不符不能读成「零行」——那会把一次异常当成正常的空结果。 */
+   *  "array"：成功响应必是裸数组，元素是对象或 `null`。形状不符不能读成「零行」——那会把一次异常当成正常的
+   *  空结果；载荷留在 `ResponseShapeError.payload`，调用方可以从中取回能认出的行。 */
   expects?: "list" | "array"
   /** "double"：`data` 里还包着一层 `{code, status, data}`（EDE），由 shape.ts 的 unwrapPayload 剥掉，
    *  内层失败码照常抛出。缺省为单层信封。 */

@@ -1477,6 +1477,17 @@ describe("expects 形状守卫", () => {
     await expect(tokenClient().requestJson(arrayEndpoint, {})).rejects.toBeInstanceOf(ResponseShapeError)
   })
 
+  // 元素也要是对象或 null：别的元素在这里报，才带得上 traceId；载荷留在 payload，调用方能取回可认出的行。
+  it("checks the elements of an array endpoint, keeping the payload and the traceId", async () => {
+    requestMock.mockResolvedValue(withTrace([{ id: 1 }, null]))
+    await expect(tokenClient().requestJson(arrayEndpoint, {})).resolves.toEqual([{ id: 1 }, null])
+    requestMock.mockResolvedValue(withTrace([{ id: 1 }, "x"]))
+    const err = await tokenClient().requestJson(arrayEndpoint, {}).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(ResponseShapeError)
+    expect((err as ResponseShapeError).payload).toEqual([{ id: 1 }, "x"])
+    expect(errorMessage(err)).toMatch(/对象数组.*含非对象元素的数组.*trace trace-9/)
+  })
+
   it("leaves endpoints without a declaration alone", async () => {
     requestMock.mockResolvedValue(withTrace(null))
     await expect(tokenClient().requestJson(ENDPOINTS["reference.constant-list"], {})).resolves.toBeNull()

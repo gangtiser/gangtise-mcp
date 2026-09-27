@@ -16,8 +16,12 @@ export const OPINION_DETAIL_BATCH = 20
  *
  *  每批按返回的正文计费，因此串行发、且某一批失败时**保留已经付费的正文**：未取的 ID 记
  *  `unfetchedIds` + `unfetchedError`，调用方只需重跑这几个。只有第一批就失败才整体报错——
- *  那时手里什么都没有。数组形状由端点的 `expects: "array"` 在 client 里保证、元素是不是对象在这里
- *  逐批校验，形状不对时整批按失败处理，而不会把已付费的正文报成「缺正文」或整次丢掉。 */
+ *  那时手里什么都没有。
+ *
+ *  元素形状由端点的 `expects: "array"` 在 HTTP 层校验（元素须是对象或 `null`，校验时还握着信封，报错带
+ *  traceId）。`null` 按「该 ID 没有正文」跳过，由对账记进 `missingIds`。混进数字、字符串、数组时说明
+ *  形状变了：从异常的载荷里取回同批能认出 ID 的正文（已付费，丢掉就要重付），这一批其余的 ID 与后面
+ *  各批记 `unfetchedIds`，不再往下发。 */
 export async function fetchOpinionDetails(
   client: DetailClient,
   endpointKey: string,
@@ -30,21 +34,29 @@ export async function fetchOpinionDetails(
   let unfetched: string[] = []
   let unfetchedError: Record<string, unknown> | undefined
   for (let i = 0; i < unique.length; i += OPINION_DETAIL_BATCH) {
+    const batch = unique.slice(i, i + OPINION_DETAIL_BATCH)
+    let rows: unknown[]
+    let malformed: ResponseShapeError | undefined
     try {
-      const rows = await client.call(endpointKey, { [idListField]: unique.slice(i, i + OPINION_DETAIL_BATCH) })
-      // 数组形状由端点的 expects 保证，元素还得逐个是对象，才能按 ID 对账。有异常元素的一批按形状
-      // 不符处理：走下面的失败路径，前面批次已付费的正文照常保留。
-      if (!Array.isArray(rows) || !rows.every((row) => row !== null && typeof row === "object" && !Array.isArray(row))) {
-        throw new ResponseShapeError("观点正文的返回里有不是对象的元素（形状可能已变更），这一批无法按 ID 逐条对上。请重试；持续出现请带上工具名与入参报障。", undefined, undefined, rows)
-      }
-      list.push(...(rows as Record<string, unknown>[]))
+      rows = (await client.call(endpointKey, { [idListField]: batch })) as unknown[]
     } catch (error) {
-      if (i === 0) throw error
-      unfetched = unique.slice(i)
-      unfetchedError = {
-        message: error instanceof Error ? error.message : String(error),
-        ...(error instanceof ApiError ? { code: error.code, traceId: error.traceId } : {}),
+      if (error instanceof ResponseShapeError && Array.isArray(error.payload)) {
+        rows = error.payload
+        malformed = error
+      } else {
+        if (i === 0) throw error
+        unfetched = unique.slice(i)
+        unfetchedError = describe(error)
+        break
       }
+    }
+    const bodies = rows.filter(isRecord)
+    list.push(...bodies)
+    if (malformed) {
+      if (i === 0 && bodies.length === 0) throw malformed
+      const got = new Set(bodies.map((row) => String(row[idField])))
+      unfetched = [...batch.filter((id) => !got.has(id)), ...unique.slice(i + OPINION_DETAIL_BATCH)]
+      unfetchedError = describe(malformed)
       break
     }
   }
@@ -62,4 +74,15 @@ export async function fetchOpinionDetails(
     details.unfetchedError = unfetchedError
   }
   return markPartial({ total: list.length, list }, reasons, details, "details-first")
+}
+
+function isRecord(row: unknown): row is Record<string, unknown> {
+  return row !== null && typeof row === "object" && !Array.isArray(row)
+}
+
+function describe(error: unknown): Record<string, unknown> {
+  return {
+    message: error instanceof Error ? error.message : String(error),
+    ...(error instanceof ApiError ? { code: error.code, traceId: error.traceId } : {}),
+  }
 }
