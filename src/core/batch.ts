@@ -433,6 +433,10 @@ export async function callKlinePerSecurity(
 ): Promise<unknown> {
   let groups: string[][] = []
   for (let i = 0; i < securities.length; i += groupSize) groups.push(securities.slice(i, i + groupSize))
+  // 与全市场分片同一个上限：请求数再多，合并结果会逼近单次响应的安全上限。发请求之前就拒。
+  if (groups.length > MAX_SHARDS) {
+    throw new ValidationError(`本次要拆成 ${groups.length} 个请求（${securities.length} 只，每个请求最多 ${groupSize} 只），超过单次调用上限 ${MAX_SHARDS}：合并结果将超出单次响应安全上限。请把证券分批，每批不超过 ${groupSize * MAX_SHARDS} 只${groupSize > 1 ? "，或缩短日期区间" : ""}。`)
+  }
   if (isVerbose()) {
     process.stderr.write(`[gangtise] splitting ${endpointKey} into ${groups.length} requests (${groupSize} securit${groupSize === 1 ? "y" : "ies"} each)\n`)
   }
@@ -442,8 +446,10 @@ export async function callKlinePerSecurity(
   // 有效代码也报成失败、丢掉它们的数据。只认这一个码——权限、限流、服务故障拆开重试解决不了，每组
   // 都会再失败一遍，只是把请求数放大。
   const splittable = (r: PartOutcome, i: number) => !r.ok && groups[i].length > 1 && r.cause instanceof ApiError && r.cause.code === INVALID_CODE
-  if (results.some(splittable)) {
-    const singles = groups.flatMap((group, i) => (splittable(results[i], i) ? group.map((code) => [code]) : []))
+  const singles = groups.flatMap((group, i) => (splittable(results[i], i) ? group.map((code) => [code]) : []))
+  // 首轮与逐只重试合计守着单次调用的请求上限；超了就不拆，失败的组整组记名并说明原因。
+  const retrySkipped = singles.length > 0 && groups.length + singles.length > MAX_SHARDS
+  if (singles.length > 0 && !retrySkipped) {
     const retried = await fetchGroups(singles)
     const nextGroups: string[][] = []
     const nextResults: PartOutcome[] = []
@@ -467,7 +473,12 @@ export async function callKlinePerSecurity(
     .map((r, i) => ({ r, i }))
     .filter((x): x is { r: Extract<PartOutcome, { ok: false }>; i: number } => !x.r.ok)
   if (failed.length === groups.length) {
-    throw failed[0].r.cause
+    const { r, i } = failed[0]
+    // 因请求上限没拆开时，原错误只会说「证券代码无效」，看不出同组的有效代码也在里面：补上原因与处置。
+    if (retrySkipped && splittable(r, i) && r.cause instanceof ApiError) {
+      throw new ApiError(`${r.cause.message}（${groups.length} 组全部失败；逐只重试会超出单次调用的请求上限，未拆开——请分批查询，分出有效代码）`, r.cause.code, r.cause.statusCode, r.cause.details)
+    }
+    throw r.cause
   }
 
   const { header, fieldList, merged, truncated, malformed, partReasons, droppedColumns } = mergeParts(results, perLimit, groups)
@@ -487,7 +498,8 @@ export async function callKlinePerSecurity(
   const details: Record<string, unknown> = {}
   if (failed.length > 0) {
     reasons.push("failed_securities")
-    details._failed_securities = failed.flatMap(({ r, i }) => groups[i].map((security) => ({ security, error: r.error })))
+    const skippedNote = (i: number) => (retrySkipped && splittable(results[i], i) ? `（本组 ${groups[i].length} 只一起失败；逐只重试会超出单次调用的请求上限，未拆开——分批重查可以分出有效代码）` : "")
+    details._failed_securities = failed.flatMap(({ r, i }) => groups[i].map((security) => ({ security, error: `${r.error}${skippedNote(i)}` })))
   }
   if (truncated.length > 0) {
     reasons.push("limit_truncated")

@@ -566,6 +566,40 @@ describe("callKlinePerSecurity in groups", () => {
     expect((out.list as unknown[][]).map((row) => row[0])).toEqual(["600519.SH", "600519.SH", "00700.HK", "00700.HK"])
   })
 
+  it("keeps the retry within the per-call request cap", async () => {
+    // 91 组 × 2 只，每组都有一只无效代码：逐只重试要 182 个请求，超过上限就不拆，整组记名。
+    const codes = Array.from({ length: 182 }, (_, i) => (i % 2 === 0 ? `BAD${i}.SH` : `6${String(i).padStart(5, "0")}.SH`))
+    const call = vi.fn().mockImplementation(async (_k: string, body: Record<string, unknown>) => {
+      const group = body.securityList as string[]
+      if (group.some((c) => c.startsWith("BAD"))) throw new ApiError("证券代码无效", "120001")
+      return rowsOf(group)
+    })
+    await expect(callKlinePerSecurity({ call }, "quote.day-kline", codes, (c) => ({ securityList: c }), 10_000, 2)).rejects.toMatchObject({ code: "120001" })
+    expect(call).toHaveBeenCalledTimes(91)
+  })
+
+  it("counts the first round against the cap too: 90 groups + 180 retries would exceed it", async () => {
+    // 90 组 × 2 只，每组一只无效：首轮 90 个、逐只 180 个，合计 270 > 180，不拆；有效的那只随组记名并说明原因。
+    const codes = Array.from({ length: 180 }, (_, i) => (i % 2 === 0 ? `BAD${i}.SH` : `6${String(i).padStart(5, "0")}.SH`))
+    const call = vi.fn().mockImplementation(async (_k: string, body: Record<string, unknown>) => {
+      const group = body.securityList as string[]
+      if (group.some((c) => c.startsWith("BAD"))) throw new ApiError("证券代码无效", "120001")
+      return rowsOf(group)
+    })
+    await expect(callKlinePerSecurity({ call }, "quote.day-kline", codes, (c) => ({ securityList: c }), 10_000, 2)).rejects.toMatchObject({ code: "120001", message: expect.stringMatching(/90 组全部失败.*请分批查询/) })
+    expect(call).toHaveBeenCalledTimes(90)
+    // 只有部分组失败时同样按合计判：结果里写明未拆开的原因。
+    const mixed = vi.fn().mockImplementation(async (_k: string, body: Record<string, unknown>) => {
+      const group = body.securityList as string[]
+      if (group.some((c) => c.startsWith("BAD"))) throw new ApiError("证券代码无效", "120001")
+      return rowsOf(group)
+    })
+    const partlyBad = Array.from({ length: 180 }, (_, i) => (i < 176 && i % 2 === 0 ? `BAD${i}.SH` : `6${String(i).padStart(5, "0")}.SH`))
+    const out = await callKlinePerSecurity({ call: mixed }, "quote.day-kline", partlyBad, (c) => ({ securityList: c }), 10_000, 2) as Record<string, unknown>
+    expect(mixed).toHaveBeenCalledTimes(90)
+    expect((out._failed_securities as Array<{ error: string }>)[0].error).toMatch(/逐只重试会超出单次调用的请求上限，未拆开/)
+  })
+
   // 权限、限流、服务故障拆开重试解决不了：每组都会再失败一遍，只是把请求数放大。
   it("does not split on errors that splitting cannot fix", async () => {
     for (const error of [new ApiError("无权限", "999004"), new ApiError("请求过于频繁", undefined, 429), new Error("socket hang up")]) {
@@ -582,6 +616,18 @@ describe("callKlinePerSecurity in groups", () => {
     const out = await callKlinePerSecurity({ call }, "quote.day-kline", ["600519.SH", "000858.SZ", "00700.HK"], (codes) => ({ securityList: codes }), 10_000, 2) as Record<string, unknown>
     expect(call).toHaveBeenCalledTimes(2)
     expect((out._failed_securities as Array<{ security: string }>).map((f) => f.security)).toEqual(["600519.SH", "000858.SZ"])
+  })
+
+  // 与全市场分片同一个上限：拆出的请求超过它时发请求前就拒，报出每批最多多少只。
+  it("refuses a split that would exceed the per-call request cap, before sending anything", async () => {
+    const call = vi.fn()
+    const codes = Array.from({ length: 181 }, (_, i) => `6${String(i).padStart(5, "0")}.SH`)
+    await expect(callKlinePerSecurity({ call }, "quote.minute-kline", codes, ([code]) => ({ securityCode: code }), 6000)).rejects.toThrow(/拆成 181 个请求.*每批不超过 180 只/)
+    await expect(callKlinePerSecurity({ call }, "quote.day-kline", [...codes, ...codes].slice(0, 362), (c) => ({ securityList: c }), 10_000, 2)).rejects.toThrow(/拆成 181 个请求.*每批不超过 360 只，或缩短日期区间/)
+    expect(call).not.toHaveBeenCalled()
+    const ok = vi.fn().mockImplementation(async (_k: string, body: Record<string, unknown>) => rowsOf(body.securityList as string[]))
+    await callKlinePerSecurity({ call: ok }, "quote.day-kline", codes.slice(0, 180), (c) => ({ securityList: c }), 10_000, 1)
+    expect(ok).toHaveBeenCalledTimes(180)
   })
 
   it("will not merge a group whose rows carry no securityCode column: its securities cannot be told apart", async () => {
