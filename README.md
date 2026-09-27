@@ -6,14 +6,15 @@
 
 README 仅列最近 5 个版本的一行摘要，完整明细见 [CHANGELOG.md](CHANGELOG.md)：
 
+- **0.3.1 — 2026-09-27**：🔴 修正 legacy 港美股日 K 多只长区间、`fieldList` 不含 `securityCode` 时整组丢数据（0.3.0 引入，用 `core,legacy` 的请升级后重查）。新增文件解析（`gangtise_file_parse` / `_check`，点名加载，0.8 积分/页）；显式多证券行情拆出的请求数超过单次调用上限 180 时本地拒绝；估值分析响应不是列表结构时报错。
 - **0.3.0 — 2026-09-27**：默认工具面重组，**含破坏性变更，见下方「从 0.2.x 升级」**。三张财报表、公告列表按代码后缀选市场，15 个下载工具合为 `gangtise_download`，被合并的 27 个旧工具进 legacy 档（`GANGTISE_MCP_TOOLS=core,legacy` 可用，0.4.0 删除）。观点、题材默认走低价档（1 积分/条、50 积分/次）；按条计费的多页拉取超过 `GANGTISE_MCP_COST_LIMIT`（默认 1000）须 `confirmCost: true`。新增债券 12 个、会议线索、联网搜索与云盘管理。多证券日 K 按行数上限合批，全市场日 K 须同时给起止日期，多只时 `fieldList` 自动补身份列；行情首行晚于起点时以 `_note` 提示。
 - **0.2.11 — 2026-09-26**：内部重构，工具与参数同 0.2.10。列式行情结果整理与落盘提速约四分之一（全市场分片内存峰值降约四成），ID 不重复时翻页去重几乎不再占开销，启动约快 5%；大结果落盘指针保留全部不完整明细。新增可选环境变量 `GANGTISE_MCP_TOOLS`（按工具组或工具名选择、禁用工具，基础工具始终启用）与 `GANGTISE_MCP_GLOBAL_CONCURRENCY`（跨调用的在飞请求总数上限，查询与下载各自计数）。
 - **0.2.10 — 2026-09-26**：部分同步 CLI v0.41.1–v0.43.0，不传新参数时返回与价格不变。🔴 翻页结果去掉跨页重复行并标 `duplicate_rows` / `changed_rows`，`total` 封顶判定补偏移窗口与越界被拒两种情形；`valuation_analysis` 显式下发 `limit`（默认 2000），撞满标 `limit_truncated`（缺的是区间开头）；`index_day_kline` 不再收 `all`（该接口对 `all` 返空）。新增 `gangtise_opinion_detail`，观点列表加 `withContent`、题材加 `full` 两个低价档开关；`constant_list` 的 `category` 放开到接口现有的 17 类。`stock_summary` / `earning_forecast` / 带正文的观点列表不再自动重发。
 - **0.2.9 — 2026-09-20**：健壮性修复，无工具/参数/字段增删。🔴 并发下载不再被临时目录回收误删（此前下载收尾报「文件不存在」，在计费接口上等于已付过费的内容拿不到）；异步生成（`earnings_review` / `viewpoint_debate`）等待到期后不再继续重发请求，`dataId` 仍可用 `*_check` 取回。临时目录清理失败不再让一次已成功的直链下载报错，下载失败时抛出的也始终是下载本身的错误；大响应落盘失败后目录能正常回收。
-- **0.2.8 — 2026-09-19**：同步 CLI v0.40.0–v0.40.1。**新增 5 个自选股池写工具**（建池 / 改名 / 加股 / 移除 / 删池，本服务仅有的写操作，全部免费）：删池须显式 `confirm: true` 且不可恢复，逐条失败标 `_partial` + `failedItems`。🔴 token 缓存改为绑定凭证——**换过 `GANGTISE_ACCESS_KEY` 的请复核换号前后取到的数据**，此前会继续使用上一个账号未过期的 token 且不报错。🔴 `indicator_time_series` 的 `calendarType` 不传时按指标类型自动选轴，接口默认是 `ND` 不是 `TD`；给报告期类指标传 `TD` 会整片返 `null` 且不报错。EDE 截面 / 时序单次 3 万单元格上限。
 
 ### 历史里程碑
 
+- **0.2.8**：新增 5 个自选股池写工具（删池须显式确认）；🔴 token 缓存改为绑定凭证，换过 `GANGTISE_ACCESS_KEY` 的请复核换号前后取到的数据；`indicator_time_series` 不传 `calendarType` 时按指标类型自动选轴。
 - **0.2.6**：修六处静默错数（`valuation_analysis` 的 `skipNull`+`fieldList` 会把正常数据全过滤成 0 行、全市场分片按位置合并可致开收盘价互换等）；行情 `fieldList` 只返回点名的列、缺列标 `missingFields`；`volume` 的单位是「股」不是「手」。
 - **0.2.4**：三处静默丢数据（分页空页、首包裸数组、全市场分片缺 `list`）改为归一或显式标记；发布的 `inputSchema` 改为自包含（客户端无需解引用）。输入校验收紧：空白值、空列表、重复 `fieldList`、冲突参数、倒置日期区间改为本地拒绝。
 - **0.2.0**：同步 CLI v0.33.0–v0.34.1。🔴 破坏性：日 K 全市场关键字由 `all` 改为 `aShares`/`hkStocks`/`usStocks`（须单独传）；三大报表时点对齐改用 `earliestAnncDate`。
@@ -37,7 +38,7 @@ README 仅列最近 5 个版本的一行摘要，完整明细见 [CHANGELOG.md](
 
 ## 功能覆盖
 
-默认列出 89 个工具（`GANGTISE_MCP_TOOLS=all` 为 94 个，见下方「工具分档与选择」）。写操作只有自选股池的 5 个与点名加载的云盘管理、上传，其余全部只读。完整清单与每个参数的语义由 `tools/list` 提供，此处只列范围。
+默认列出 89 个工具（`GANGTISE_MCP_TOOLS=all` 为 96 个，见下方「工具分档与选择」）。会改动账号数据的只有自选股池的 5 个与点名加载的云盘管理、上传；业绩点评、观点辩证与文件解析的提交每次都会新建一个计费任务，也标为非只读；其余全部只读。完整清单与每个参数的语义由 `tools/list` 提供，此处只列范围。
 
 | 类别 | 覆盖 |
 |---|---|
@@ -52,12 +53,12 @@ README 仅列最近 5 个版本的一行摘要，完整明细见 [CHANGELOG.md](
 | 数据指标（EDE） | 证券级指标搜索；截面与时序（二维矩阵展平为宽表）；条件选股（变量绑指标 + 表达式筛选） |
 | 另类数据 | EDB 宏观与行业经济指标；题材指数基本信息与成分股 |
 | AI 能力 | 知识库检索、个股看点、一页通、投资逻辑、同业对比、投研线索、主题跟踪、业绩点评、观点辩证、管理层讨论 |
-| 联网搜索 | 投研定向的公开网页检索（信源分级、转载去重、可取正文） |
+| 联网搜索与文件解析 | 投研定向的公开网页检索（信源分级、转载去重、可取正文）；点名加载：本机 PDF 解析成 Markdown 正文与图片 |
 | 云盘与语音 | 网盘文件与文件夹、录音转写、我的会议、微信群消息、自选股池（含建池 / 改名 / 加股 / 移除 / 删池）；点名加载：云盘新建 / 改名 / 移动 / 复制 / 删除与上传 |
 
 ## 工具分档与选择
 
-工具分三档：**默认档**（89 个，不设置时列出）、**点名加载**（5 个：债券发行明细、发行计划、行权安排，云盘管理与上传）、**legacy**（0.3.0 合并掉的 27 个旧工具，0.4.0 删除）。用环境变量 `GANGTISE_MCP_TOOLS` 选择，逗号分隔取并集：
+工具分三档：**默认档**（89 个，不设置时列出）、**点名加载**（7 个：债券发行明细、发行计划、行权安排，云盘管理与上传，文件解析与取结果）、**legacy**（0.3.0 合并掉的 27 个旧工具，0.4.0 删除）。用环境变量 `GANGTISE_MCP_TOOLS` 选择，逗号分隔取并集：
 
 | 写法 | 列出的工具 |
 |---|---|
@@ -67,7 +68,7 @@ README 仅列最近 5 个版本的一行摘要，完整明细见 [CHANGELOG.md](
 | `core,bond` | 默认档 + 债券全部 12 个 |
 | `core,-vault` | 默认档去掉云盘、录音、会议、群消息与自选股池 |
 
-组名：`context` `lookup` `reference` `insight` `quote` `fundamental` `bond` `ai` `vault` `download` `alternative` `indicator` `tool` `response`，也可写单个工具名；前加 `-` 禁用。被禁用的工具既不列出也调不到。`gangtise_download` 属于 `download` 组，且只下载来源列表工具已启用的资源（研报下载要 `gangtise_research_list`、云盘下载要 `gangtise_drive_list`，依此类推）：只选部分组时把 `download` 一并写上，如 `insight,download`。`gangtise_current_date`、`gangtise_read_response`、`gangtise_securities_search` 始终启用。
+组名：`context` `lookup` `reference` `insight` `quote` `fundamental` `bond` `ai` `vault` `download` `alternative` `indicator` `tool` `response`，也可写单个工具名；前加 `-` 禁用。被禁用的工具既不列出也调不到。`gangtise_download` 属于 `download` 组，只选部分组时把 `download` 一并写上（如 `insight,download`）；禁用某一组或某个列表工具后（如 `-vault`），它也不下载对应的资源。`gangtise_current_date`、`gangtise_read_response`、`gangtise_securities_search` 始终启用。
 
 工具定义每次会话都会进入模型上下文，工具越多占用越大。建议：日常股票投研用默认档；要用债券事件或云盘管理时加对应组名或写 `all`。**Claude Code** 默认开启 MCP tool search，按需加载工具定义，可以直接用 `all`；设 `ENABLE_TOOL_SEARCH=false` 可关闭。`ANTHROPIC_BASE_URL` 指向非官方主机时默认不启用，代理支持 `tool_reference` 时可设 `ENABLE_TOOL_SEARCH=true` 开启（据 Claude Code 官方文档，核对于 2026-09-27）。
 
@@ -303,6 +304,7 @@ npm install
 npm run dev      # 直接运行源码（tsx，无需 build）
 npm run build    # 编译 TypeScript → dist/
 npm test         # 运行测试（含 tools/list 快照、逐工具请求契约与响应形状 fixture）
+npm run coverage # 覆盖率（发布流水线按阈值把关）
 npm run lint
 npm run build && npm run check:release   # 发版门禁：对外措辞、dist 无注释、上下文预算
 node --expose-gc --import tsx scripts/bench/run.ts   # 性能基线（本机假服务端，不进 CI）
@@ -319,13 +321,14 @@ node scripts/upstream-diff.mjs   # 与 gangtise-openapi-cli 的端点契约对�
 npm version patch --no-git-tag-version
 # 完整明细写进 CHANGELOG.md；README 的 Changelog 顶部加一行摘要、删掉第 6 行
 npm test
+npm run coverage                    # 发布流水线有覆盖率阈值，本地先跑
 npx tsc --noEmit
 npm run build && npm run check:release
 git add .
 git commit -m "fix: <message>"
-git tag -a v0.2.x -m v0.2.x          # 必须是 annotated tag
-git push origin main v0.2.x
-git ls-remote --tags origin v0.2.x   # 有输出才说明 tag 已推上去、发布流水线会触发
+git tag -a v0.x.y -m v0.x.y          # 必须是 annotated tag
+git push origin main v0.x.y
+git ls-remote --tags origin v0.x.y   # 有输出才说明 tag 已推上去、发布流水线会触发
 ```
 
 tag 名须与 `package.json` 的 `version` 一致，被打 tag 的提交须已在 `main` 上。发布完成后确认：
@@ -340,6 +343,8 @@ npm view gangtise-mcp version        # 可能滞后几分钟，以 Actions 日�
 ## 数据、凭据与授权
 
 **MIT 只覆盖本连接器的代码。** Gangtise OpenAPI 本身、经由它取得的行情/研报/纪要/公告等数据与内容，均按你与 Gangtise 的服务协议授权，不随本包一并授予。是否可再分发、可否用于对外产品，以该协议为准。
+
+**云盘上传与文件解析会把本机文件发送到 Gangtise 平台处理。**
 
 **取到的数据会进入你配置的 AI 客户端。** 本服务是一条管道：云盘文件、语音转写、我的会议、微信群消息、研报全文等**私域内容**，一旦被工具取回，就会进入你所连接的模型上下文，并按该客户端自己的策略被处理或留存。把这些工具接给第三方客户端前，请先确认对方的数据处理条款。
 
