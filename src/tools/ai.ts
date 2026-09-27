@@ -200,6 +200,8 @@ function defineAsyncPair(
     // endpoint carries retry: "no-replay"). Leave the hint false so agentic clients
     // confirm before auto-invoking. The _check poll tool below stays read-only.
     access: "write",
+    // 新建一个计费任务，不改动已有数据；重复提交会再计费一次。
+    idempotent: false,
     // 超时只返回 dataId，要靠续查工具取回结果（重新提交会再计费）。
     requires: [config.checkName],
     endpoint: config.submitEndpoint,

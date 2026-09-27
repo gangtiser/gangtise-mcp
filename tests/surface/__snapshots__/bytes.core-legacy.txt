@@ -1,5 +1,5 @@
 tools: 116
-tools/list bytes: 171019
+tools/list bytes: 171113
 instructions bytes: 2970
 
    396  gangtise_current_date
@@ -87,9 +87,9 @@ instructions bytes: 2970
    443  gangtise_investment_logic
    448  gangtise_peer_comparison
    444  gangtise_research_outline
-  1062  gangtise_earnings_review
+  1109  gangtise_earnings_review
    590  gangtise_earnings_review_check
-   873  gangtise_viewpoint_debate
+   920  gangtise_viewpoint_debate
    592  gangtise_viewpoint_debate_check
    999  gangtise_drive_list
   1057  gangtise_record_list
