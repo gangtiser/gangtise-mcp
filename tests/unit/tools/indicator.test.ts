@@ -879,7 +879,7 @@ describe("gangtise_indicator_screener", () => {
 // 自 2026-08-01 起 EDE 无数据不再返回 999999，所以此码基本只剩真故障。
 // 参数排查清单仍要保留，且必须两半都在——它们是**相反**的：参数**名**写错（臆造的、
 // 或错但真实的如把 sDate 写成 startDate）现在硬报 100003 并指名；而**日期取值/口径不对、
-// 或漏掉非日期的 required 键**才不报错（表现为 null 占位、或区间指标的默认区间错数；
+// 或漏传 required 的 fiscalYear**才不报错（表现为 null 占位、或默认区间 / 默认年度的错数；
 // **不是**空表）。合成一句「参数写错不会报错」会与截面描述自相矛盾。
 const FETCH_CASES = [
   ["gangtise_indicator_cross_section", CS_ARGS],
@@ -1030,7 +1030,7 @@ describe("EDE placeholder is a single declaration: missing data is always null",
   it("pins all three declarations verbatim", () => {
     expect(EDE_NULL_ONLY).toBe("取不到数时唯一的占位值是 `null`，不会填数值 0")
     expect(PARAM_NAME_HARD_FAIL).toBe("参数**名**写错（臆造的键、或错但真实的键）会被接口拒绝并指名该键，照 msg 改即可")
-    expect(PARAM_VALUE_SILENT).toBe("**日期取值/口径不对、或漏掉非日期的 required 键**才不报错——那种情况下拿到的是 null 单元格，或一个来自默认值的合理错数")
+    expect(PARAM_VALUE_SILENT).toBe("**日期取值/口径不对、或漏传 required 的 fiscalYear**才不报错——拿到的是 null 单元格，或一个来自默认值的合理错数（缺 fiscalYear 时按默认年度取数，该年度无数据才是 null）；其他 required 键缺失一般报 100001 并指名")
   })
 
   // ⚠️ 循环前**先钉面数与面名**。此前直接 `for...of` 一个对象：把它改成返回空对象、或少

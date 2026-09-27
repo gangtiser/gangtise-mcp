@@ -65,12 +65,16 @@ export const EDE_NULL_ONLY = "取不到数时唯一的占位值是 `null`，不�
 /** 参数出错的**两类相反行为**。两句都是声明，都逐字钉住——只钉其中一句，另一句可以被
  * 静默删掉或被一句反话盖过去（两种漏法都实测过）。
  *
- * 实测（2026-08-30）：臆造键 `bogusKey` 与错但真实的键 `startDate` 都硬报 `100003` 并指名；
- * 而 `div_cash_yr` 漏传非日期的 required 键 `fiscalYear` 返 200 + `null`。 */
+ * 实测（2026-08-30）：臆造键 `bogusKey` 与错但真实的键 `startDate` 都硬报 `100003` 并指名。
+ * 缺 required 键（2026-09-27 复核，截面，各带补齐参数的对照）：`fiscalYear` 缺失返 200，按固定的默认
+ * 年度取数（当时为 2026，不随 tradeDate 变）——`frcst_pe` 与 fiscalYear=2026 逐位相同；`div_cash_yr` 在
+ * 300750.SZ / 601318.SH 上等于 FY2026 的值，在 600519.SH 上为 `null` 只因其 FY2026 无数据。
+ * `tradeDate` / `reportDate` / `periodNum` / `industryType` / `industryLevel` 缺失都报 `100001` 并指名。
+ * 分界是 fiscalYear 这一个键，不是「日期键 vs 非日期键」。 */
 export const PARAM_NAME_HARD_FAIL =
   "参数**名**写错（臆造的键、或错但真实的键）会被接口拒绝并指名该键，照 msg 改即可"
 export const PARAM_VALUE_SILENT =
-  "**日期取值/口径不对、或漏掉非日期的 required 键**才不报错——那种情况下拿到的是 null 单元格，或一个来自默认值的合理错数"
+  "**日期取值/口径不对、或漏传 required 的 fiscalYear**才不报错——拿到的是 null 单元格，或一个来自默认值的合理错数（缺 fiscalYear 时按默认年度取数，该年度无数据才是 null）；其他 required 键缺失一般报 100001 并指名"
 
 /** 999999 的补充提示，只挂在取数端点（`callMatrix`）上。
  *
@@ -80,7 +84,7 @@ export const PARAM_VALUE_SILENT =
  * `indicator.search keeps the generic 999999 hint` 反向钉住。
  *
  * ⚠️ **「参数写错」要分两类说，它们的行为相反**，两句都在下面逐字拼进来：参数**名**
- * 写错现在会被接口硬拒并指名该键；而日期取值/口径不对、或漏掉非日期的 required 键
+ * 写错现在会被接口硬拒并指名该键；而日期取值/口径不对、或漏传 required 的 fiscalYear
  * 才可能静默返回 `null` 或一个来自默认值的合理错数。早先这里把两类合成一句「参数写错
  * 不会报错」，与截面描述里「参数名写错会被接口拒绝并指名」直接矛盾——同一个包里发出去
  * 两句相反的话。 */
@@ -443,7 +447,7 @@ const PARAM_GUIDANCE_RANGE =
   PARAM_GUIDANCE_COMMON
 
 const NO_QUERY_DATE_DESC =
-  "声明**这个指标不接受查询日期**，本工具就不给它注入 date 下发的 tradeDate。用于 parameterList 里既没有 tradeDate 也没有 reportDate 的指标——公司属性 pty_*（主营业务/经营范围/注册地/法定代表人…）与证券属性 scr_*（上市市场/上市板块/上市日期/ISIN…）两族，以及 div_cash_paid_ratio（股利支付率）/ div_cash_yr（年度现金分红总额）/ pty_shr_reg（注册资本）。不加这个开关，它们一律报 100003「不支持参数 tradeDate」而取不到数。可与真实参数共存（如 { indicatorCode: 'div_cash_yr', parameters: [{ paramKey: 'fiscalYear', paramValue: '2025' }], noQueryDate: true }）。🔴 **加了这个开关就必须把该指标 parameterList 里其余 required 键一并补齐**：日期键缺失会硬报错，而 fiscalYear 这类**非日期必填键缺失不报错**——返回的是 `null`（或某些指标一个来自默认年份的合理数值），HTTP 200、不标 _partial，与「该证券没有这项数据」无法区分（如 div_cash_yr 漏传 fiscalYear 返 null，补上 fiscalYear 才返真值）。⚠️ 只对**确实不要日期**的指标加：给要日期的指标加上会变成「缺少必填参数 tradeDate」——注意 scr_ 里的 scr_indu / scr_indu_citic / scr_indu_sw / scr_indu_gics / scr_concept 反而**必填 tradeDate**，别给它们加。哪些指标属于这一类以 gangtise_indicator_search 返回的 parameterList 为准，别按 code 前缀推断（同一前缀下两类都有）。"
+  "声明**这个指标不接受查询日期**，本工具就不给它注入 date 下发的 tradeDate。用于 parameterList 里既没有 tradeDate 也没有 reportDate 的指标——公司属性 pty_*（主营业务/经营范围/注册地/法定代表人…）与证券属性 scr_*（上市市场/上市板块/上市日期/ISIN…）两族，以及 div_cash_paid_ratio（股利支付率）/ div_cash_yr（年度现金分红总额）/ pty_shr_reg（注册资本）。不加这个开关，它们一律报 100003「不支持参数 tradeDate」而取不到数。可与真实参数共存（如 { indicatorCode: 'div_cash_yr', parameters: [{ paramKey: 'fiscalYear', paramValue: '2025' }], noQueryDate: true }）。🔴 **加了这个开关就必须把该指标 parameterList 里其余 required 键一并补齐**：其他键缺失一般会报 100001 并指名，但 **fiscalYear 缺失不报错**——按默认年度取数（不随查询日期变），HTTP 200、不标 _partial：拿到的是那个年度的数值，或该年度无数据时的 `null`，既看不出年度不对，也分不清「该证券没有这项数据」。必须显式传 fiscalYear。⚠️ 只对**确实不要日期**的指标加：给要日期的指标加上会变成「缺少必填参数 tradeDate」——注意 scr_ 里的 scr_indu / scr_indu_citic / scr_indu_sw / scr_indu_gics / scr_concept 反而**必填 tradeDate**，别给它们加。哪些指标属于这一类以 gangtise_indicator_search 返回的 parameterList 为准，别按 code 前缀推断（同一前缀下两类都有）。"
 
 /** 选股的 noQueryDate 补充说明：它比截面多一层用处——能拿静态属性当筛选条件。
  * ⚠️ 这段进 tools/list，只写当前行为：历史沿革（这类绑定曾被静默丢弃）留在
