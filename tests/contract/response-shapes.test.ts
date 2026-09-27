@@ -115,6 +115,8 @@ const SCENARIOS: Scenario[] = [
   }) },
   // 整页超 50 积分的按条计费列表先探 1 条再按整页重取：那 1 条计费两次，结果里记 _cost_probe。
   { name: "present-cost-probe", tool: "gangtise_roadshow_list", args: { keyword: "AI", fetchAll: true }, upstream: paged(3) },
+  // 文件解析：提交后未等到结果时交回 taskId（超出安全整数的数字按字符串读出），不报错。
+  { name: "file-parse-pending", tool: "gangtise_file_parse", args: { filePath: "tests/fixtures/upload/sample.pdf", waitSeconds: 0 }, upstream: on("tool.file-parse.submit", () => ({ text: '{"code":"000000","msg":"ok","data":{"taskId":123456789012345678901}}', headers: { "content-type": "application/json" } })) },
   // 债券：没有数据时服务端回 HTTP 404 + 130001，收成零行而不是报错。
   { name: "bond-empty-130001", tool: "gangtise_bond_cash_flow", args: { securityList: ["019742.SH"] }, upstream: on("bond.cash-flow", () => ({ status: 404, json: { code: "130001", msg: "数据未找到", data: null } })) },
   // 债券基本资料每个代码固定一行：库中没有的那只除代码外全为 null，原样保留。

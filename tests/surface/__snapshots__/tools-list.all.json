@@ -5605,6 +5605,64 @@
     }
   },
   {
+    "name": "gangtise_file_parse",
+    "description": "把本机 PDF 解析成 Markdown 正文与图片，结果是 ZIP（file.md + images/），返回落盘路径。提交时按实际页数一次性计费；单文件最多 100MB、500 页，同时最多 10 个解析任务。filePath 是运行本服务的这台机器上的路径。提交后等待最多 waitSeconds 秒，没完成就返回 taskId：用 gangtise_file_parse_check 取结果，切勿重新提交（重新提交会再计费）。平台内的研报、公告先用 gangtise_download 的 Markdown 格式（fileType=2），不必解析。【积分：0.8/页】",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "filePath": {
+          "type": "string",
+          "minLength": 1,
+          "description": "本机 PDF 文件路径，绝对路径最稳"
+        },
+        "waitSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 180,
+          "description": "最长等待秒数（默认 55，最大 180）；解析一般要几分钟，超时返回 taskId"
+        }
+      },
+      "required": [
+        "filePath"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "gangtise_file_parse_check",
+    "description": "按 taskId 取 PDF 解析结果 ZIP（file.md + images/），返回落盘路径；还没完成时返回 pending，约 1 分钟后再取。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "解析任务 ID，来自 gangtise_file_parse"
+        }
+      },
+      "required": [
+        "taskId"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
     "name": "gangtise_read_response",
     "description": "读取被截断的大响应。当其他工具返回 `_truncated: true` 且包含 `_saved_to` 临时文件路径时，用此工具按 offset/limit 分片读取完整数据。仅可读取本进程在系统临时目录下生成的 gangtise-mcp- 前缀文件。【本地工具，不消耗 OpenAPI 积分】",
     "inputSchema": {

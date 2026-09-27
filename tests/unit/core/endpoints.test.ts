@@ -61,6 +61,8 @@ const NO_REPLAY_KEYS = [
   // 按条计费的会议线索、按次计费的联网搜索。
   "insight.highlight.list",
   "tool.web-search",
+  // 文件解析：提交即按页计费。
+  "tool.file-parse.submit",
   // 以下几条与计费无关。池名不允许重复，重发一个其实已经建成的创建请求会撞上 230006，
   // 把一次成功报成失败。
   "vault.stock-pool.create",
@@ -151,8 +153,8 @@ describe("ENDPOINTS retry/timeout annotations", () => {
       .filter((e) => e.timeoutMs != null)
       .map((e) => e.key)
       .sort()
-    // 云盘上传另有 5 分钟下限：100MB 的文件传几分钟是常态，默认 30 秒会把传到一半的请求掐掉。
-    expect(annotated).toEqual([...SLOW_AI_KEYS, "vault.drive.upload"].sort())
+    // 云盘上传与文件解析提交另有 5 分钟下限：100MB 的文件传几分钟是常态，默认 30 秒会把传到一半的请求掐掉。
+    expect(annotated).toEqual([...SLOW_AI_KEYS, "tool.file-parse.submit", "vault.drive.upload"].sort())
     for (const endpoint of Object.values(ENDPOINTS)) {
       if (endpoint.timeoutMs != null) expect(endpoint.timeoutMs).toBeGreaterThanOrEqual(120_000)
     }

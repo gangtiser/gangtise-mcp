@@ -61,6 +61,8 @@ export async function downloadToResult(
   client: GangtiseClient,
   endpoint: EndpointDefinition,
   query: Record<string, string | number>,
+  /** POST 型下载的 JSON 请求体。 */
+  body?: unknown,
 ): Promise<DownloadResult> {
   // For binary downloads, generate a unique temp dir first
   const tempDir = await createManagedTempDir()
@@ -68,7 +70,7 @@ export async function downloadToResult(
 
   let raw: Awaited<ReturnType<typeof client.download>>
   try {
-    raw = await client.download(endpoint, query, { streamTo: tempPath })
+    raw = await client.download(endpoint, query, { streamTo: tempPath, body })
   } catch (err) {
     // A mid-stream failure can leave a truncated download.bin behind; drop the
     // whole temp dir so a failed download never lingers as a partial file.

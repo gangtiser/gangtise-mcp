@@ -99,6 +99,9 @@ export interface EndpointDefinition {
    * 🔴 **只对 `kind: "json"` 且未启用分页的端点有效**：`client.call` 对下载与分页端点
    * 提前 return，标在那两类上不会被执行。`endpoints.test.ts` 钉住这个约束。 */
   itemFailures?: true
+  /** 可能以超出安全整数的**数字**返回的 ID 字段：解析前加上引号，按字符串读出。数字形式的大整数经
+   *  `JSON.parse` 会被静默舍入——对按页计费的解析任务，舍入后的 taskId 意味着付过费的结果取不回来。 */
+  bigIntFields?: readonly string[]
 }
 
 /** 按条计费且有单价的端点的计费声明：分页层的积分预估保护与分页工具的 `confirmCost` 参数都由它派生。 */

@@ -95,6 +95,26 @@ export async function pollAsyncContent(
   dataId: string,
   timeoutMs: number,
 ): Promise<{ content: string }> {
+  return pollUntilReady(
+    () => client.call(getContentEndpoint, { dataId }),
+    (result) => {
+      const content = (result as { content?: string } | null)?.content
+      return content != null ? { content } : undefined
+    },
+    dataId,
+    timeoutMs,
+  )
+}
+
+/** 轮询到就绪：`fetch` 每轮取一次，`ready` 从结果里认出「已就绪」的值（返回 undefined 表示还没好）。
+ *  未就绪码与瞬时故障继续等，失败码与其他错误直接抛，到期抛 `AsyncTimeoutError(id)`。AI 生成与
+ *  文件解析共用这一套退避与截止规则。 */
+export async function pollUntilReady<T>(
+  fetch: () => Promise<unknown>,
+  ready: (result: unknown) => T | undefined,
+  dataId: string,
+  timeoutMs: number,
+): Promise<T> {
   const deadline = Date.now() + timeoutMs
   // 客户端取消后不再轮询也不再等待。已提交的任务不受影响——dataId 在服务端仍然有效，
   // 但客户端既已放弃本次调用，任何返回都到不了它手上，继续轮询只是空烧请求。
@@ -106,10 +126,8 @@ export async function pollAsyncContent(
     const remaining = deadline - Date.now()
     if (remaining <= 0) throw new AsyncTimeoutError(dataId)
     try {
-      const result = await withPollDeadline(() => client.call(getContentEndpoint, { dataId }), remaining, dataId, signal) as { content?: string }
-      if (result?.content != null) {
-        return { content: result.content }
-      }
+      const value = ready(await withPollDeadline(fetch, remaining, dataId, signal))
+      if (value !== undefined) return value
     } catch (error) {
       // A deadline abort is never "transient" — its message contains "timeout",
       // which the transient classifier would otherwise match.

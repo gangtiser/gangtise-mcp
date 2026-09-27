@@ -29,7 +29,7 @@ export function createFamilies(options: AiToolOptions): FamilyModule[] {
     downloadFamily,
     alternativeFamily,
     indicatorFamily,
-    toolFamily,
+    toolFamily(options),
     responseFamily,
   ]
 }

@@ -37,14 +37,14 @@ const FROZEN_LABELS = new Set([
   "", "【积分：按下游资源类型】", "【积分：按所选指标】", "【积分：单价以平台计费为准】",
   "【本地工具，不消耗 OpenAPI 积分】",
 ])
-const inFrozenVocabulary = (label: string) => FROZEN_LABELS.has(label) || /^【积分：[\d.]+\/(次|条|篇|张|指标)】$/.test(label) || /^【积分：按[^】]{2,8}】$/.test(label)
+const inFrozenVocabulary = (label: string) => FROZEN_LABELS.has(label) || /^【积分：[\d.]+\/(次|条|篇|张|页|指标)】$/.test(label) || /^【积分：按[^】]{2,8}】$/.test(label)
 
 const AMPLIFY_HINTS = [...new Set(Object.values(ENDPOINTS).flatMap((e) => (e.billing && "amplify" in e.billing && e.billing.amplify ? [e.billing.amplify] : [])))]
 
 describe("billing labels", () => {
   it("labels every registered tool from the frozen vocabulary", async () => {
     const live = await listLiveTools()
-    expect(live).toHaveLength(121)
+    expect(live).toHaveLength(123)
     for (const tool of live) {
       const label = labelOf(tool.description ?? "")
       expect(inFrozenVocabulary(label), `${tool.name} 标签越界：${label}`).toBe(true)
@@ -165,8 +165,8 @@ describe("billing labels", () => {
       return "fixed"
     })
     const count = (kind: string) => kinds.filter((k) => k === kind).length
-    expect(count("free")).toBe(42)
-    expect(count("fixed")).toBe(57)
+    expect(count("free")).toBe(43)
+    expect(count("fixed")).toBe(58)
     expect(count("downstream")).toBe(1)
     // 3 个 EDE 取数（按所选指标）+ 下载网关（按下载类型）+ 3 个债券评级（按条 / 债券 / 发行人）。
     expect(count("variable")).toBe(7)

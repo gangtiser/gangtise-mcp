@@ -6,6 +6,7 @@ import { gzipSync } from "node:zlib"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { GangtiseClient } from "../../../src/core/client.js"
+import { quoteBigIntFields } from "../../../src/core/http.js"
 import { ENDPOINTS, type EndpointDefinition } from "../../../src/core/endpoints.js"
 import { ResponseShapeError, errorMessage } from "../../../src/core/errors.js"
 import { credentialFingerprint } from "../../../src/core/auth.js"
@@ -1500,5 +1501,24 @@ describe("non-offset pagination modes", () => {
     } finally {
       delete ENDPOINTS[key]
     }
+  })
+})
+
+// 数字形式的大整数经 JSON.parse 会被静默舍入；端点声明的字段在解析前加引号、按字符串读出。
+describe("quoteBigIntFields", () => {
+  const parse = (text: string, fields?: readonly string[]) => JSON.parse(quoteBigIntFields(text, fields)) as Record<string, unknown>
+
+  it("reads a declared numeric field as its exact digits", () => {
+    expect(parse('{"data":{"taskId":123456789012345678901}}', ["taskId"])).toEqual({ data: { taskId: "123456789012345678901" } })
+    expect(parse('{"taskId" : -42}', ["taskId"]).taskId).toBe("-42")
+  })
+
+  it("leaves a string value, other fields and undeclared endpoints untouched", () => {
+    expect(parse('{"taskId":"abc123","total":7}', ["taskId"])).toEqual({ taskId: "abc123", total: 7 })
+    expect(parse('{"taskId":123456789012345678901}').taskId).toBeTypeOf("number")
+  })
+
+  it("handles several declared fields, including nested occurrences", () => {
+    expect(parse('{"a":1,"b":{"a":2,"c":3}}', ["a", "c"])).toEqual({ a: "1", b: { a: "2", c: "3" } })
   })
 })

@@ -33,15 +33,5 @@
     "key": "insight.performance-calendar.download",
     "field": "billing",
     "reason": "A 股 10/条、港美股 20/条两档：标签取 A 股档，港美股档写在标签前的尾注里"
-  },
-  {
-    "key": "tool.file-parse.result",
-    "field": "missing",
-    "reason": "文件解析未接入（计划 0.3.1）"
-  },
-  {
-    "key": "tool.file-parse.submit",
-    "field": "missing",
-    "reason": "文件解析未接入（计划 0.3.1）"
   }
 ]

@@ -1,0 +1,8 @@
+{
+  "isError": false,
+  "result": {
+    "taskId": "123456789012345678901",
+    "status": "pending",
+    "hint": "解析还没完成，约 1 分钟后用 gangtise_file_parse_check 取结果；不要重新提交（会再计费）"
+  }
+}

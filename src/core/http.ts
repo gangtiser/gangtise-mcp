@@ -18,6 +18,14 @@ import { currentSignal } from "./requestContext.js"
 import { withDownloadSlot, withGlobalSlot } from "./scheduler.js"
 import { getDispatcher, getDownloadDispatcher, isVerbose, logTiming, markRetryable, withRetry } from "./transport.js"
 
+/** 端点声明的 `bigIntFields` 在解析前加上引号，大整数按字符串读出，不被舍入。 */
+export function quoteBigIntFields(text: string, fields?: readonly string[]): string {
+  if (!fields?.length) return text
+  let out = text
+  for (const field of fields) out = out.replace(new RegExp(`("${field}"\\s*:\\s*)(-?\\d+)`, "g"), '$1"$2"')
+  return out
+}
+
 // 异步解压：同步版会把事件循环卡住整段解压时间，分页 / 分片扇出时几路响应只能排队解压。
 const gunzipAsync = promisify(gunzip)
 
@@ -345,7 +353,7 @@ export class HttpClient {
 
       let parsed: Envelope<T>
       try {
-        parsed = JSON.parse(text) as Envelope<T>
+        parsed = JSON.parse(quoteBigIntFields(text, endpoint.bigIntFields)) as Envelope<T>
       } catch {
         const message = response.statusCode >= 400
           ? `API request failed (HTTP ${response.statusCode})`
@@ -398,7 +406,8 @@ export class HttpClient {
     })
   }
 
-  async download(endpoint: EndpointDefinition, query: Record<string, string | number>, options?: { streamTo?: string }): Promise<DownloadResponse> {
+  /** `body` 只给 POST 型下载用（如解析结果按 `{taskId}` 取 ZIP），以 JSON 发送。 */
+  async download(endpoint: EndpointDefinition, query: Record<string, string | number>, options?: { streamTo?: string; body?: unknown }): Promise<DownloadResponse> {
     // 下载专用 dispatcher：跟随 30x（见 getDownloadDispatcher）。
     const dispatcher = getDownloadDispatcher()
     const url = new URL(endpoint.path, this.config.baseUrl)
@@ -413,9 +422,11 @@ export class HttpClient {
     return withRetry(() => withDownloadSlot(async () => {
       const authorization = await this.getAuthorizationHeader()
       const startedAt = Date.now()
+      const post = endpoint.method === 'POST'
       const response = await request(url, {
         method: endpoint.method,
-        headers: { Authorization: authorization },
+        headers: post ? { Authorization: authorization, 'content-type': 'application/json' } : { Authorization: authorization },
+        body: post ? JSON.stringify(options?.body ?? {}) : undefined,
         headersTimeout: timeoutMs,
         bodyTimeout: timeoutMs,
         dispatcher,

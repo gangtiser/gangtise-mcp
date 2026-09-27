@@ -129,6 +129,7 @@ describe("MCP server integration", () => {
       "gangtise_drive_manage",
       "gangtise_drive_upload",
       "gangtise_earnings_review",
+      "gangtise_file_parse",
       "gangtise_stock_pool_add_stock",
       "gangtise_stock_pool_create",
       "gangtise_stock_pool_delete",

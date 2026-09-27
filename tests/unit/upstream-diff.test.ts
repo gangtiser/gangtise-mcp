@@ -23,9 +23,9 @@ describe("upstream endpoint contract", () => {
     const { unexplained } = diffEndpoints(drifted, upstream.endpoints, exceptions)
     expect(unexplained).toEqual([{ key: "insight.research.list", field: "retry", ours: "no-replay", upstream: undefined }])
 
-    const ported = { ...ENDPOINTS, "tool.file-parse.submit": { key: "tool.file-parse.submit", ...upstream.endpoints["tool.file-parse.submit"], description: "t" } }
-    const { stale } = diffEndpoints(ported, upstream.endpoints, exceptions)
-    expect(stale.map((e: { key: string }) => e.key)).toEqual(["tool.file-parse.submit"])
+    // 一条已经不成立的例外（该端点其实接了）必须被报出来。
+    const { stale } = diffEndpoints(ENDPOINTS, upstream.endpoints, [...exceptions, { key: "insight.research.list", field: "missing", reason: "已接入的端点" }])
+    expect(stale.map((e: { key: string }) => e.key)).toEqual(["insight.research.list"])
   })
 
   it("compares only fixed prices and the presence of a destructive marker", () => {

@@ -1,5 +1,5 @@
-tools: 94
-tools/list bytes: 152474
+tools: 96
+tools/list bytes: 154099
 instructions bytes: 2970
 
    396  gangtise_current_date
@@ -95,4 +95,6 @@ instructions bytes: 2970
   6234  gangtise_indicator_time_series
   8646  gangtise_indicator_screener
   2013  gangtise_web_search
+  1134  gangtise_file_parse
+   489  gangtise_file_parse_check
   1147  gangtise_read_response
