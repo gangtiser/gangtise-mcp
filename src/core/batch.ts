@@ -61,6 +61,8 @@ const DAY_MS = 86_400_000
 const ALL_MARKET_LIMIT = 10_000
 /** 一次全市场拉取最多切的片数（见 scheduler.ts 的 CALL_LIMITS）。 */
 const MAX_SHARDS = CALL_LIMITS.maxShards
+/** 「证券代码无效」：多只一组时由其中一只引起，逐只重试能把有效的救回来。 */
+const INVALID_CODE = "120001"
 
 function parseDate(value: string): Date | null {
   // Accept yyyy-MM-dd; reject anything else so we can fall back to a single request.
@@ -436,16 +438,18 @@ export async function callKlinePerSecurity(
   }
   const fetchGroups = (parts: string[][]) => fetchParts(parts, PAGE_CONCURRENCY, (codes) => client.call(endpointKey, makeBody(codes)))
   let results = await fetchGroups(groups)
-  // 多只一组的请求失败时逐只重试：组里一只代码无效（120001）整组都失败，按组记名会把同组的有效代码
-  // 也报成失败、丢掉它们的数据。只在失败时多花请求。
-  if (results.some((r, i) => !r.ok && groups[i].length > 1)) {
-    const singles = groups.flatMap((group, i) => (!results[i].ok && group.length > 1 ? group.map((code) => [code]) : []))
+  // 多只一组的请求因「证券代码无效」失败时逐只重试：组里一只代码无效整组都失败，按组记名会把同组的
+  // 有效代码也报成失败、丢掉它们的数据。只认这一个码——权限、限流、服务故障拆开重试解决不了，每组
+  // 都会再失败一遍，只是把请求数放大。
+  const splittable = (r: PartOutcome, i: number) => !r.ok && groups[i].length > 1 && r.cause instanceof ApiError && r.cause.code === INVALID_CODE
+  if (results.some(splittable)) {
+    const singles = groups.flatMap((group, i) => (splittable(results[i], i) ? group.map((code) => [code]) : []))
     const retried = await fetchGroups(singles)
     const nextGroups: string[][] = []
     const nextResults: PartOutcome[] = []
     let k = 0
     groups.forEach((group, i) => {
-      if (results[i].ok || group.length === 1) {
+      if (!splittable(results[i], i)) {
         nextGroups.push(group)
         nextResults.push(results[i])
       } else {

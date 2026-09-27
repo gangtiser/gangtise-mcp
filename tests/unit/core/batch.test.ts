@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { callKlinePerSecurity, callKlineWithSharding, estimateTradingDays, fullMarketOf } from "../../../src/core/batch.js"
-import { ResponseShapeError } from "../../../src/core/errors.js"
+import { ApiError, ResponseShapeError } from "../../../src/core/errors.js"
 
 describe("callKlineWithSharding", () => {
   it("injects API-max limit (10000) for security='all' when user didn't set limit", async () => {
@@ -554,16 +554,34 @@ describe("callKlinePerSecurity in groups", () => {
     expect(out._truncated_securities).toEqual(["600519.SH", "000858.SZ"])
   })
 
-  it("retries a failed group one security at a time, so only the bad code is named", async () => {
+  it("retries a group that failed on an invalid code one security at a time, so only the bad code is named", async () => {
     const call = vi.fn().mockImplementation(async (_k: string, body: Record<string, unknown>) => {
       const codes = body.securityList as string[]
-      if (codes.includes("BAD.SH")) throw new Error("证券代码无效")
+      if (codes.includes("BAD.SH")) throw new ApiError("证券代码无效", "120001")
       return rowsOf(codes)
     })
     const out = await callKlinePerSecurity({ call }, "quote.day-kline", ["600519.SH", "BAD.SH", "00700.HK"], (codes) => ({ securityList: codes }), 10_000, 2) as Record<string, unknown>
     expect(call.mock.calls.map(([, body]) => body.securityList)).toEqual([["600519.SH", "BAD.SH"], ["00700.HK"], ["600519.SH"], ["BAD.SH"]])
-    expect(out._failed_securities).toEqual([{ security: "BAD.SH", error: "证券代码无效" }])
+    expect(out._failed_securities).toEqual([{ security: "BAD.SH", error: expect.stringMatching(/证券代码无效/) }])
     expect((out.list as unknown[][]).map((row) => row[0])).toEqual(["600519.SH", "600519.SH", "00700.HK", "00700.HK"])
+  })
+
+  // 权限、限流、服务故障拆开重试解决不了：每组都会再失败一遍，只是把请求数放大。
+  it("does not split on errors that splitting cannot fix", async () => {
+    for (const error of [new ApiError("无权限", "999004"), new ApiError("请求过于频繁", undefined, 429), new Error("socket hang up")]) {
+      const call = vi.fn().mockRejectedValue(error)
+      await expect(callKlinePerSecurity({ call }, "quote.day-kline", Array.from({ length: 20 }, (_, i) => `6000${String(i).padStart(2, "0")}.SH`), (codes) => ({ securityList: codes }), 10_000, 5)).rejects.toBe(error)
+      expect(call).toHaveBeenCalledTimes(4)
+    }
+    // 只有部分组失败时同样不拆：失败组整组记名。
+    const call = vi.fn().mockImplementation(async (_k: string, body: Record<string, unknown>) => {
+      const codes = body.securityList as string[]
+      if (codes.includes("000858.SZ")) throw new ApiError("服务暂不可用", "999999", 503)
+      return rowsOf(codes)
+    })
+    const out = await callKlinePerSecurity({ call }, "quote.day-kline", ["600519.SH", "000858.SZ", "00700.HK"], (codes) => ({ securityList: codes }), 10_000, 2) as Record<string, unknown>
+    expect(call).toHaveBeenCalledTimes(2)
+    expect((out._failed_securities as Array<{ security: string }>).map((f) => f.security)).toEqual(["600519.SH", "000858.SZ"])
   })
 
   it("will not merge a group whose rows carry no securityCode column: its securities cannot be told apart", async () => {
