@@ -29,7 +29,7 @@ export function resolveInlineMaxBytes(raw: string | undefined): number {
 }
 
 // Read once at load (a static threshold, mirroring the previous module consts in
-// registry.ts / response.ts that this replaces).
+// the former tools/registry.ts and response.ts that this replaces).
 export const INLINE_MAX_BYTES = resolveInlineMaxBytes(process.env.GANGTISE_INLINE_MAX_BYTES)
 
 // Request fan-out concurrency: how many paginated page requests (paginate.ts) or

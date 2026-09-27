@@ -87,7 +87,7 @@ const dirSizeCache = new Map<string, number>()
  * 收尾时 ENOENT —— 计费端点上意味着已经付过费的内容拿不到。
  *
  * 代价是「未结算」必须是个**暂态**：每个建目录的地方都要么最终结算（`enforceOwnedTempQuota`），
- * 要么失败时丢弃（`discardManagedTempDir`）。三个落盘点（`core/download.ts` 与 `tools/registry.ts`
+ * 要么失败时丢弃（`discardManagedTempDir`）。三个落盘点（`core/download.ts` 与 `core/present.ts`
  * 的两处）都已成对；新加落盘点时漏掉任何一侧，那个目录就变成**永不回收**的一格。
  *
  * ⚠️ 「成对」还有一层：摘登记**不能跟着删文件一起失败**。`fs.rm(..., { force: true })` 只消化
@@ -219,7 +219,7 @@ export function releaseOwnedTempDir(dir: string): void {
  *
  * 这也是失败路径要的语义：正在往外抛的是落盘 / 下载本身的错误，别让清理的二次失败盖住它。
  *
- * 🔴 此前这段逻辑在 `download.ts` 与 `tools/registry.ts` 各有一份，两份在「rm 抛错怎么办」
+ * 🔴 此前这段逻辑在 `download.ts` 与落盘呈现（今 `core/present.ts`）各有一份，两份在「rm 抛错怎么办」
  * 上恰好相反，而只有前者有静态守卫。合并成一个入口就是为了不再靠人记得同时改两处。 */
 export async function discardManagedTempDir(dir: string): Promise<void> {
   await fs.rm(dir, { recursive: true, force: true }).catch(() => {})

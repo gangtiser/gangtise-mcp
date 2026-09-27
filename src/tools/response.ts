@@ -28,7 +28,7 @@ const MAX_LIMIT = 500
  * 按序列化后的实际长度做，本常数只决定「最多试多长」。
  *
  * Exported for tests that construct fixtures on the chunk boundary. INLINE_MAX_BYTES is
- * the byte-based spill threshold, shared with registry.ts via config.js. */
+ * the byte-based spill threshold, shared with core/present.ts via config.js. */
 export const TEXT_CHUNK_CHARS = Math.floor(INLINE_MAX_BYTES * 0.27)
 
 /** 本页少于请求 limit 时附在 payload 上的说明。信封预估也要带上它。

@@ -37,7 +37,7 @@ async function writeTmpJson(payload: unknown): Promise<string> {
   const dir = await createManagedTempDir()
   const file = path.join(dir, "response.json")
   await fs.writeFile(file, JSON.stringify(payload), "utf8")
-  // 与 registry.ts 的溢出路径一致：写完即结算。未结算的目录不参与淘汰。
+  // 与 core/present.ts 的溢出路径一致：写完即结算。未结算的目录不参与淘汰。
   await enforceOwnedTempQuota(dir)
   return file
 }
