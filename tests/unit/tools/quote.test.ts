@@ -727,6 +727,18 @@ describe("late first row note", () => {
     expect(await noteOf(rowsFrom("2021-09-01"), { security: "600519.SH", endDate: "2021-09-30" })).toBeUndefined()
   })
 
+  // 一只覆盖完整会掩盖另一只缺了几年：多只时逐只判，并点出一行都没回的代码。
+  it("judges each security on its own when several were asked for", async () => {
+    const client = { call: vi.fn().mockResolvedValue({ total: 3, fieldList: ["securityCode", "tradeDate", "close"], list: [
+      ["000858.SZ", "2021-08-02", 1], ["600519.SH", "2021-08-02", 1], ["601318.SH", "2023-01-03", 1],
+    ] }), download: vi.fn() } as unknown as GangtiseClient
+    const note = await noteOf(client, { security: ["600519.SH", "000858.SZ", "601318.SH", "00700.HK"], startDate: "2021-08-02", endDate: "2023-06-30" })
+    expect(note).toMatch(/以下证券的最早一行比请求的起点 2021-08-02 晚 14 天以上：601318\.SH（2023-01-03）；以下证券没有返回任何行：00700\.HK。可能上市或复牌晚于起点、代码有误/)
+    expect(note).not.toMatch(/600519|000858/)
+    // 整个结果的最早一行没晚到，只看整体就发现不了。
+    expect(await noteOf(client, { security: "600519.SH", startDate: "2021-08-02", endDate: "2023-06-30" })).toBeUndefined()
+  })
+
   it("tells an empty minute-bar range apart from a quiet market", async () => {
     const result = await (await connect(makeMockClient())).callTool({ name: "gangtise_minute_kline", arguments: { security: "600519.SH", startTime: "2015-01-05 09:30:00", endTime: "2015-01-05 15:00:00" } })
     expect((result.content as Array<{ text: string }>)[0].text).toMatch(/分钟线可查的历史比日线短得多/)
