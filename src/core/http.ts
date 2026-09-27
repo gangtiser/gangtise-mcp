@@ -6,7 +6,7 @@ import { pipeline } from "node:stream/promises"
 import { promisify } from "node:util"
 import { gunzip } from "node:zlib"
 
-import { request } from "undici"
+import { request, type FormData } from "undici"
 
 import { DEFAULT_MAX_DOWNLOAD_BYTES, type CliConfig } from "./config.js"
 import { credentialFingerprint, isTokenCacheValid, normalizeToken, readTokenCache, readTokenCacheWithMtime, requireAccessCredentials, writeTokenCache, type TokenCache } from "./auth.js"
@@ -297,12 +297,14 @@ export class HttpClient {
     const signal = useAuth ? currentSignal() : undefined
 
     const attemptOnce = async (): Promise<T> => {
+      // 上传把 FormData 原样交给 undici，由它生成带 boundary 的 multipart content-type——这里再设一个会把请求弄坏。
+      const upload = endpoint.kind === 'upload'
       const headers: Record<string, string> = {
-        'content-type': 'application/json',
         // undici does not auto-decompress; the gunzip below handles it. Server-side
         // gzip cuts JSON payloads ~3-10x (CLI measured 3.6x on constant-list).
         'accept-encoding': 'gzip',
       }
+      if (!upload) headers['content-type'] = 'application/json'
       if (useAuth) {
         headers.Authorization = await this.getAuthorizationHeader()
       }
@@ -311,7 +313,7 @@ export class HttpClient {
       const response = await request(url, {
         method: endpoint.method,
         headers,
-        body: endpoint.method === 'GET' ? undefined : JSON.stringify(body ?? {}),
+        body: endpoint.method === 'GET' ? undefined : upload ? (body as FormData) : JSON.stringify(body ?? {}),
         headersTimeout: timeoutMs,
         bodyTimeout: timeoutMs,
         dispatcher,

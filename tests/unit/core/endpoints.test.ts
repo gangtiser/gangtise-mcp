@@ -45,9 +45,31 @@ const NO_REPLAY_KEYS = [
   "insight.foreign-opinion.detail",
   "alternative.concept-info-full",
   "alternative.concept-securities-full",
-  // 清单里唯一不是出于计费原因的一条：池名不允许重复，所以重发一个其实已经建成的
-  // 创建请求会撞上 230006，把一次成功报成失败。
+  // 债券整族按次（或按条 / 债券 / 发行人）计费。
+  "bond.basic-info",
+  "bond.issuer-info",
+  "bond.daily-quote",
+  "bond.valuation",
+  "bond.cash-flow",
+  "bond.announcement",
+  "bond.issuance-detail",
+  "bond.rating-overview",
+  "bond.rating-change",
+  "bond.issuer-rating-change",
+  "bond.issuance-plan",
+  "bond.exercise-notice",
+  // 按条计费的会议线索、按次计费的联网搜索。
+  "insight.highlight.list",
+  "tool.web-search",
+  // 以下几条与计费无关。池名不允许重复，重发一个其实已经建成的创建请求会撞上 230006，
+  // 把一次成功报成失败。
   "vault.stock-pool.create",
+  // 云盘允许同名：上传 / 新建 / 复制重发就多一份；删除重发会报「文件不存在」。
+  "vault.drive.upload",
+  "vault.drive.create-folder",
+  "vault.drive.copy",
+  "vault.drive.delete-file",
+  "vault.drive.delete-folder",
 ].sort()
 
 const NO_999999_KEYS = ["indicator.search", "indicator.cross-section", "indicator.time-series", "indicator.screener"].sort()
@@ -80,6 +102,9 @@ describe("ENDPOINTS retry/timeout annotations", () => {
   it("marks exactly the per-item batch writes as itemFailures", () => {
     const annotated = Object.values(ENDPOINTS).filter((e) => e.itemFailures).map((e) => e.key).sort()
     expect(annotated).toEqual([
+      "vault.drive.copy",
+      "vault.drive.delete-file",
+      "vault.drive.move-file",
       "vault.stock-pool.add-stock",
       "vault.stock-pool.delete",
       "vault.stock-pool.remove-stock",
@@ -106,7 +131,7 @@ describe("ENDPOINTS retry/timeout annotations", () => {
 
   it("marks exactly the irreversible endpoints as destructive", () => {
     const annotated = Object.values(ENDPOINTS).filter((e) => e.destructive).map((e) => e.key).sort()
-    expect(annotated).toEqual(["vault.stock-pool.delete"])
+    expect(annotated).toEqual(["vault.drive.delete-file", "vault.drive.delete-folder", "vault.stock-pool.delete"])
     // 文案由端点给：网关是通用的，共享一句话会在第二个不可逆端点出现时指名股票池。
     for (const key of annotated) {
       expect(ENDPOINTS[key].destructive!.warning.length, `${key} 的后果说明是空的`).toBeGreaterThan(10)
@@ -126,7 +151,8 @@ describe("ENDPOINTS retry/timeout annotations", () => {
       .filter((e) => e.timeoutMs != null)
       .map((e) => e.key)
       .sort()
-    expect(annotated).toEqual(SLOW_AI_KEYS)
+    // 云盘上传另有 5 分钟下限：100MB 的文件传几分钟是常态，默认 30 秒会把传到一半的请求掐掉。
+    expect(annotated).toEqual([...SLOW_AI_KEYS, "vault.drive.upload"].sort())
     for (const endpoint of Object.values(ENDPOINTS)) {
       if (endpoint.timeoutMs != null) expect(endpoint.timeoutMs).toBeGreaterThanOrEqual(120_000)
     }

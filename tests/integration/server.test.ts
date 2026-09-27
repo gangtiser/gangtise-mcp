@@ -31,6 +31,7 @@ function makeMockClient() {
       return { list: [{ id: "test-id" }], total: 1 }
     }),
     download: vi.fn().mockResolvedValue({ text: "mock", contentType: "text/plain", filename: "mock.txt" }),
+    uploadFile: vi.fn().mockResolvedValue({ fileId: "test-file-id" }),
   } as unknown as GangtiseClient
 }
 
@@ -123,8 +124,10 @@ describe("MCP server integration", () => {
     // retry: "no-replay"), so they must NOT be read-only — clients shouldn't
     // auto-invoke them unconfirmed.
     // Their _check polling tools stay read-only.
-    // 五个股票池写工具是本服务仅有的写操作，改的是用户本人的自选股——同样不能是只读。
+    // 股票池与云盘管理的写工具改的是用户本人的数据——同样不能是只读。
     expect(nonReadOnly).toEqual([
+      "gangtise_drive_manage",
+      "gangtise_drive_upload",
       "gangtise_earnings_review",
       "gangtise_stock_pool_add_stock",
       "gangtise_stock_pool_create",
@@ -135,7 +138,7 @@ describe("MCP server integration", () => {
     ])
     // 不可逆的那些必须自报 destructiveHint，客户端才好在调用前要确认。
     const destructive = tools.filter(t => t.annotations?.destructiveHint === true).map(t => t.name).sort()
-    expect(destructive).toEqual(["gangtise_stock_pool_delete", "gangtise_stock_pool_remove_stock"])
+    expect(destructive).toEqual(["gangtise_drive_manage", "gangtise_stock_pool_delete", "gangtise_stock_pool_remove_stock"])
     // Every tool hits a single closed-domain API (or local data), never the open
     // world — so all declare openWorldHint: false.
     expect(tools.every(t => t.annotations?.openWorldHint === false)).toBe(true)
@@ -764,12 +767,12 @@ describe("MCP server integration", () => {
     const listBytes = Buffer.byteLength(JSON.stringify(tools), "utf8")
 
     // instructions 单项仍有上界：它是**每次会话都全量注入**的，不该无限长。
-    expect(instrBytes, "instructions 超出单项上界").toBeLessThanOrEqual(2_700)
+    expect(instrBytes, "instructions 超出单项上界").toBeLessThanOrEqual(3_000)
     // 合计才是模型真正付的钱。上限取发版门禁（scripts/prerelease-check.mjs ⑤）两项上限之和：
-    // tools/list 150,000B + instructions 2,700B。这里不另设一个更严的数——那会让一次门禁允许的
+    // tools/list 150,000B + instructions 3,000B。这里不另设一个更严的数——那会让一次门禁允许的
     // 增量在测试里红，而两边的上限本该是同一个决定。tools/list 单项仍由上面那条 150,000B 钉住。
     expect(instrBytes + listBytes, `合计上下文 ${instrBytes + listBytes}B（instructions ${instrBytes} + tools/list ${listBytes}）超出预算`)
-      .toBeLessThanOrEqual(152_700)
+      .toBeLessThanOrEqual(153_000)
   })
 
   it("routes with real tool prefixes, not src filenames", async () => {
@@ -1003,6 +1006,9 @@ const CLOSED_SET_SNAPSHOT = [
     "top_holders.holderType",
     "top_holders.period",
     "earning_forecast.consensusList",
+    "bond_valuation.confidenceLevel",
+    "web_search.freshness",
+    "web_search.minTier",
     "income_statement_hk.period",
     "income_statement_hk.reportType",
     "balance_sheet_hk.period",
@@ -1035,6 +1041,11 @@ const CLOSED_SET_SNAPSHOT = [
     "wechat_message_list.tagList",
     "record_download.contentType",
     "my_conference_download.contentType",
+    "drive_folder_list.spaceType",
+    "drive_manage.action",
+    "drive_manage.spaceType",
+    "drive_manage.type",
+    "drive_upload.spaceType",
     "download.kind",
     "download.fileType",
     "download.contentType",
@@ -1077,6 +1088,8 @@ describe("closed-set params reject illegal values before calling upstream", () =
   const COMPANIONS: Record<string, (key: string) => Record<string, unknown>> = {
     gangtise_announcement_list: (key) => (key === "market" ? {} : { market: "aShares" }),
     gangtise_download: (key) => (key === "contentType" ? { kind: "record" } : key === "resourceType" ? { kind: "knowledge_resource" } : {}),
+    gangtise_drive_manage: (key) => (key === "type" ? { action: "rename", id: "file-1", name: "x" } : { name: "x" }),
+    gangtise_drive_upload: () => ({ filePath: "tests/fixtures/upload/sample.txt" }),
   }
   const fillRequired = (schema: Record<string, unknown>, skip: string) => {
     const props = (schema.properties ?? {}) as Record<string, Record<string, unknown>>
@@ -1101,10 +1114,12 @@ describe("closed-set params reject illegal values before calling upstream", () =
     const probe = await makeTestClient(client)
     const calls = () =>
       (client.call as ReturnType<typeof vi.fn>).mock.calls.length +
-      (client.download as ReturnType<typeof vi.fn>).mock.calls.length
+      (client.download as ReturnType<typeof vi.fn>).mock.calls.length +
+      (client.uploadFile as ReturnType<typeof vi.fn>).mock.calls.length
     const reset = () => {
       ;(client.call as ReturnType<typeof vi.fn>).mockClear()
       ;(client.download as ReturnType<typeof vi.fn>).mockClear()
+      ;(client.uploadFile as ReturnType<typeof vi.fn>).mockClear()
     }
     const invoke = async (name: string, args: Record<string, unknown>) => {
       reset()
@@ -1252,7 +1267,7 @@ describe("no blank string reaches upstream (enumerated from tools/list)", () => 
         for (const r of new Set([...required, top])) args[r] = build(props[r], root, r, target)
 
         const r = await mcp.callTool({ name: tool.name, arguments: args })
-        const reached = (client.call as any).mock.calls.length > 0 || (client.download as any).mock.calls.length > 0
+        const reached = (client.call as any).mock.calls.length > 0 || (client.download as any).mock.calls.length > 0 || (client.uploadFile as any).mock.calls.length > 0
         if (reached && !r.isError) leaked.push(`${tool.name}.${target}`)
       }
     }

@@ -1,4 +1,7 @@
+import fs from "node:fs/promises"
+import path from "node:path"
 import { z } from "zod"
+import { ValidationError } from "../core/errors.js"
 import { defineDownloadTool, defineJsonTool, defineTool, defineWriteTool, type DownloadToolSpec, type FamilyModule, type JsonToolSpec } from "../mcp/define.js"
 import { buildToolContent } from "../core/present.js"
 import { contentResult } from "../mcp/handler.js"
@@ -121,7 +124,7 @@ export const downloadSpecs: DownloadToolSpec[] = [
 ]
 
 // ─── 股票池写操作 ───
-// 本服务仅有的五个写工具，只动当前账号本人的自选股；其余 9x 个工具全是只读。
+// 只动当前账号本人的自选股。
 // 三个逐条端点的失败藏在成功信封里，由 client 按端点上的 itemFailures 标记统一标注；
 // 删池的确认闸门在 invokeOperation，读端点上的 destructive 标记。
 
@@ -137,6 +140,35 @@ const poolName = z
   .describe("池名，最多 10 个字符（中文算 1 个，超出报 230007）；不能与该账号已有的池重名（报 230006，判重是整串精确比较，首尾空格不 trim、大小写不归一）")
 const securityCodeList = nonEmptyList()
   .describe("证券代码列表，须带市场后缀且大小写敏感，如 ['600519.SH','00700.HK']。单池上限 10000 只")
+
+// ─── 云盘管理（全部免费）───
+// 云盘允许同名、只以 ID 区分；删除不可恢复，确认闸门读端点上的 destructive 标记（mcp/invoke.ts）。
+
+const spaceType = intLiteralEnum([1, 2]).optional()
+/** 服务端按 UTF-16 计长度（与 JS 的 length 相同），中文算 1、emoji 算 2；超出报 230004。首尾空格
+ *  不替调用方去掉——那会改掉用户指定的名字。 */
+const driveName = z.string().min(1).max(200).refine((value) => value.trim().length > 0, "名称不能全是空白字符")
+const DRIVE_UPLOAD_MAX_BYTES = 100 * 1024 * 1024
+
+/** 每个动作打的端点、收哪些参数（第一项起为必填，`optional` 之后为可选）与请求体。 */
+interface DriveAction {
+  endpoint: string
+  required: string[]
+  optional?: string[]
+  body: (args: Record<string, unknown>) => Record<string, unknown>
+}
+
+const DRIVE_ACTIONS: Record<string, DriveAction> = {
+  create_folder: { endpoint: "vault.drive.create-folder", required: ["name"], optional: ["spaceType", "parentId"], body: (a) => ({ folderName: a.name, spaceType: a.spaceType ?? 1, parentId: a.parentId }) },
+  rename: { endpoint: "vault.drive.rename", required: ["type", "id", "name"], body: (a) => ({ type: a.type, id: a.id, name: a.name }) },
+  move_file: { endpoint: "vault.drive.move-file", required: ["fileIdList", "targetFolderId"], body: (a) => ({ fileIdList: a.fileIdList, targetFolderId: a.targetFolderId }) },
+  move_folder: { endpoint: "vault.drive.move-folder", required: ["folderId", "targetParentId"], body: (a) => ({ folderId: a.folderId, targetParentId: a.targetParentId }) },
+  // 只复制文件：接口也收 copyType=folder，但那样只建出一个空文件夹。
+  copy: { endpoint: "vault.drive.copy", required: ["fileIdList", "targetFolderId"], body: (a) => ({ copyType: "file", fileIdList: a.fileIdList, targetFolderId: a.targetFolderId }) },
+  delete_file: { endpoint: "vault.drive.delete-file", required: ["fileIdList"], optional: ["confirm"], body: (a) => ({ fileIdList: a.fileIdList }) },
+  delete_folder: { endpoint: "vault.drive.delete-folder", required: ["folderId"], optional: ["confirm"], body: (a) => ({ folderId: a.folderId }) },
+}
+const DRIVE_ACTION_NAMES = Object.keys(DRIVE_ACTIONS) as [string, ...string[]]
 
 export const vaultFamily: FamilyModule = {
   name: "vault",
@@ -227,7 +259,7 @@ export const vaultFamily: FamilyModule = {
       access: "destructive",
       idempotent: true,
       endpointKey: "vault.stock-pool.delete",
-      description: `删除自选股池（写操作）。🔴 ${STOCK_POOL_DELETE_WARNING}另外四个写工具都能跑一次相反的操作还原，只有这一个不能——所以删之前先用 gangtise_stock_pool_list 核对 poolId 是哪个池、把池名念给用户确认，再把 confirm 置为 true。删一个不存在的池算幂等成功。返回与单条失败标记同 gangtise_stock_pool_add_stock。`,
+      description: `删除自选股池（写操作）。🔴 ${STOCK_POOL_DELETE_WARNING}股票池的另外四个写工具都能跑一次相反的操作还原，只有这一个不能——所以删之前先用 gangtise_stock_pool_list 核对 poolId 是哪个池、把池名念给用户确认，再把 confirm 置为 true。删一个不存在的池算幂等成功。返回与单条失败标记同 gangtise_stock_pool_add_stock。`,
       inputSchema: {
         poolIdList: nonEmptyList().describe("要删除的池 ID 列表，来自 gangtise_stock_pool_list"),
         // 有意用 optional boolean 而不是 literal(true)：literal 会让「没传」和「传了
@@ -238,6 +270,80 @@ export const vaultFamily: FamilyModule = {
           .boolean()
           .optional()
           .describe("必须显式传 true 才会发出请求。这是不可恢复操作的二次确认：请先向用户复述将被删除的池名并得到同意，不要仅因为被拒绝过就补上这个参数重试"),
+      },
+    }),
+    defineJsonTool({
+      name: "gangtise_drive_folder_list",
+      tier: "core",
+      description: "查看云盘某个文件夹的直接子文件夹（folderList）与直接文件（fileList），不递归；文件夹 ID 用本工具逐层看。parentId 必须属于 spaceType 那个空间，否则报 100003。",
+      endpointKey: "vault.drive.folder-list",
+      inputSchema: {
+        spaceType: spaceType.describe("1=我的云盘（默认）| 2=租户云盘"),
+        parentId: nonEmptyString.optional().describe("文件夹 ID；不传或传 root 为根目录"),
+      },
+      transformBody: (body) => ({ spaceType: 1, ...body }),
+    }),
+    defineTool({
+      name: "gangtise_drive_manage",
+      tier: "extended",
+      access: "destructive",
+      idempotent: false,
+      billingLabel: { kind: "free" },
+      endpointFor: (args) => DRIVE_ACTIONS[args.action as string]?.endpoint,
+      description: "管理云盘（写操作）：action 选动作，各参数注明了哪个动作用。⚠️ 云盘允许同名、只以 ID 区分：create_folder 与 copy 每执行一次就多一份，超时不会自动重发，别对同一内容重复执行。move_file / move_folder 只能在同一空间内；跨空间（我的云盘 ↔ 租户云盘）用 copy，只支持文件、源保留。delete_file / delete_folder 不可恢复，须传 confirm: true，delete_folder 连同全部子内容一起删。move_file / copy / delete_file 对单条失败仍返回成功，明细在 failList 并标 _partial。租户云盘对整个租户可见，在里面新建、复制、删除前先向用户确认。",
+      input: {
+        action: z.enum(DRIVE_ACTION_NAMES).describe("create_folder=新建文件夹 | rename=重命名 | move_file=移动文件 | move_folder=移动文件夹 | copy=跨空间复制文件 | delete_file=删除文件 | delete_folder=删除文件夹"),
+        name: driveName.optional().describe("create_folder 的文件夹名 / rename 的新名称，最多 200 个字符（emoji 算 2 个）"),
+        spaceType: spaceType.describe("create_folder 用：1=我的云盘（默认）| 2=租户云盘"),
+        parentId: nonEmptyString.optional().describe("create_folder 用：父文件夹 ID，须属于 spaceType 那个空间；不传或 root 为根目录"),
+        type: z.enum(["file", "folder"]).optional().describe("rename 用：id 是文件还是文件夹"),
+        id: nonEmptyString.optional().describe("rename 用：文件或文件夹 ID"),
+        fileIdList: nonEmptyList().optional().describe("move_file / copy / delete_file 用：文件 ID，来自 gangtise_drive_folder_list 的 fileList 或 gangtise_drive_list"),
+        folderId: nonEmptyString.optional().describe("move_folder / delete_folder 用：文件夹 ID"),
+        targetFolderId: nonEmptyString.optional().describe("move_file 用：同一空间的目标文件夹 ID；copy 用：另一空间的目标文件夹 ID；root 为根目录"),
+        targetParentId: nonEmptyString.optional().describe("move_folder 用：同一空间的目标父文件夹 ID 或 root，不能是它自己或其子文件夹"),
+        confirm: z.boolean().optional().describe("delete_file / delete_folder 必须显式传 true；先向用户列出将被删除的名称并得到同意，不要仅因为被拒绝过就补上重试"),
+      },
+      run: async ({ client }, args) => {
+        const { action: name, ...rest } = args as { action: string } & Record<string, unknown>
+        const action = DRIVE_ACTIONS[name]
+        // 每个动作的参数契约：该给的缺了拒，不属于它的传了拒——多余的参数不会被发出去，调用方却以为生效了。
+        const allowed = new Set([...action.required, ...(action.optional ?? [])])
+        const extra = Object.keys(rest).filter((key) => rest[key] !== undefined && !allowed.has(key))
+        if (extra.length > 0) throw new ValidationError(`action=${name} 不收 ${extra.join(" / ")}。`)
+        const missing = action.required.filter((key) => rest[key] === undefined)
+        if (missing.length > 0) throw new ValidationError(`action=${name} 须传 ${missing.join(" / ")}。`)
+        const result = await client.call(action.endpoint, action.body(rest))
+        return contentResult(await buildToolContent(normalizeRows(result)))
+      },
+    }),
+    defineTool({
+      name: "gangtise_drive_upload",
+      tier: "extended",
+      access: "write",
+      idempotent: false,
+      endpoint: "vault.drive.upload",
+      description: "把本机文件上传到云盘，单个文件最多 100MB；单日累计超出账号额度报 230008。filePath 是运行本服务的这台机器上的路径。⚠️ 云盘允许同名，每上传一次就多一份，超时不会自动重发——重传前先用 gangtise_drive_folder_list 看是否已经传上去了。上传到租户云盘（spaceType=2）对整个租户可见，先向用户确认。",
+      input: {
+        filePath: nonEmptyString.describe("本机文件路径，绝对路径最稳"),
+        spaceType: spaceType.describe("1=我的云盘（默认）| 2=租户云盘"),
+        folderId: nonEmptyString.optional().describe("目标文件夹 ID，须属于 spaceType 那个空间；不传或 root 为根目录"),
+        title: driveName.optional().describe("云盘里的文件名，最多 200 个字符（emoji 算 2 个）；不传用本地文件名"),
+      },
+      run: async ({ client }, args) => {
+        const { filePath, spaceType: space, folderId, title } = args as { filePath: string; spaceType?: number; folderId?: string; title?: string }
+        const resolved = path.resolve(filePath)
+        // 拒绝的理由都在发请求之前查完：一个注定失败的大文件不该先传一遍。
+        const stat = await fs.stat(resolved).catch(() => undefined)
+        if (!stat) throw new ValidationError(`找不到文件：${filePath}`)
+        if (!stat.isFile()) throw new ValidationError(`不是文件：${filePath}`)
+        if (stat.size === 0) throw new ValidationError(`文件是空的：${filePath}`)
+        if (stat.size > DRIVE_UPLOAD_MAX_BYTES) throw new ValidationError(`文件 ${(stat.size / 1024 / 1024).toFixed(1)}MB，云盘单个文件最多 100MB。`)
+        const filename = path.basename(resolved)
+        if (title === undefined && filename.length > 200) throw new ValidationError(`本地文件名有 ${filename.length} 个字符，云盘最多 200 个：请传一个更短的 title。`)
+        const data = await fs.readFile(resolved)
+        const result = await client.uploadFile("vault.drive.upload", { filename, data }, { spaceType: space ?? 1, folderId, title })
+        return contentResult(await buildToolContent(normalizeRows(result)))
       },
     }),
   ],

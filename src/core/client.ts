@@ -1,3 +1,5 @@
+import { FormData } from "undici"
+
 import { ApiError } from "./errors.js"
 import { flagFailedItems } from "./normalize.js"
 import { ENDPOINTS } from "./endpoints.js"
@@ -19,6 +21,9 @@ export class GangtiseClient extends HttpClient {
     if (endpoint.kind === 'download') {
       return this.download(endpoint, query ?? {}, options)
     }
+    if (endpoint.kind === 'upload') {
+      throw new ApiError(`${endpointKey} 是上传端点，请用 uploadFile`)
+    }
 
     if (endpoint.kind === 'json' && endpoint.pagination?.mode === 'offset') {
       return requestPaginated(this, endpoint, body)
@@ -36,5 +41,18 @@ export class GangtiseClient extends HttpClient {
     // 工具的 handler 自己记得调一次 —— 规则复制成两份，早晚只改其中一份：下一个加逐条
     // 端点的人标了 `itemFailures` 就会以为完事，落地的正是注释警告的那个后果。
     return endpoint.itemFailures ? flagFailedItems(data) : data
+  }
+
+  /** 以 multipart/form-data 上传一个文件（字段名 `file`），外加文本字段（undefined 的不发）。鉴权、重试策略、
+   *  信封处理与 JSON 请求共用 requestJson，只有请求体不同。 */
+  async uploadFile(endpointKey: string, file: { filename: string; data: Uint8Array }, fields: Record<string, string | number | undefined> = {}): Promise<unknown> {
+    const endpoint = ENDPOINTS[endpointKey]
+    if (endpoint?.kind !== 'upload') throw new ApiError(`${endpointKey} 不是上传端点`)
+    const form = new FormData()
+    form.append('file', new Blob([file.data as BlobPart], { type: 'application/octet-stream' }), file.filename)
+    for (const [name, value] of Object.entries(fields)) {
+      if (value !== undefined) form.append(name, String(value))
+    }
+    return this.requestJson(endpoint, form)
   }
 }

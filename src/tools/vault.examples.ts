@@ -1,6 +1,29 @@
 import type { ToolExamples } from "../mcp/contract.examples.js"
 
+const D = "/application/open-vault/drive"
+
 export const vaultExamples: ToolExamples = {
+  gangtise_drive_folder_list: [
+    { title: "默认我的云盘根目录", args: {}, expect: { requests: [{ method: "POST", path: `${D}/getFolderList`, body: { spaceType: 1 } }] } },
+    { title: "租户云盘的子文件夹", args: { spaceType: 2, parentId: "f-1" }, expect: { requests: [{ method: "POST", path: `${D}/getFolderList`, body: { spaceType: 2, parentId: "f-1" } }] } },
+  ],
+  gangtise_drive_manage: [
+    { title: "create_folder：name 发成 folderName，默认我的云盘", args: { action: "create_folder", name: "会议纪要" }, expect: { requests: [{ method: "POST", path: `${D}/createFolder`, body: { folderName: "会议纪要", spaceType: 1 } }] } },
+    { title: "rename", args: { action: "rename", type: "file", id: "file-1", name: "新名字" }, expect: { requests: [{ method: "POST", path: `${D}/rename`, body: { type: "file", id: "file-1", name: "新名字" } }] } },
+    { title: "move_file", args: { action: "move_file", fileIdList: ["file-1", "file-2"], targetFolderId: "root" }, expect: { requests: [{ method: "POST", path: `${D}/moveFile`, body: { fileIdList: ["file-1", "file-2"], targetFolderId: "root" } }] } },
+    { title: "move_folder", args: { action: "move_folder", folderId: "f-1", targetParentId: "f-2" }, expect: { requests: [{ method: "POST", path: `${D}/moveFolder`, body: { folderId: "f-1", targetParentId: "f-2" } }] } },
+    { title: "copy 只复制文件", args: { action: "copy", fileIdList: ["file-1"], targetFolderId: "root" }, expect: { requests: [{ method: "POST", path: `${D}/copy`, body: { copyType: "file", fileIdList: ["file-1"], targetFolderId: "root" } }] } },
+    { title: "delete_file 确认后下发，confirm 不进 body", args: { action: "delete_file", fileIdList: ["file-1"], confirm: true }, expect: { requests: [{ method: "POST", path: `${D}/deleteFile`, body: { fileIdList: ["file-1"] } }] } },
+    { title: "delete_folder 未确认零请求拒绝", args: { action: "delete_folder", folderId: "f-1" }, expect: { rejects: /连同其中全部子文件夹与文件一起删除.*confirm 置为 true/ } },
+    { title: "缺该动作的必填参数本地拒绝", args: { action: "move_file", fileIdList: ["file-1"] }, expect: { rejects: /action=move_file 须传 targetFolderId/ } },
+    { title: "不属于该动作的参数本地拒绝", args: { action: "rename", type: "file", id: "file-1", name: "x", parentId: "f-1" }, expect: { rejects: /action=rename 不收 parentId/ } },
+    { title: "名称超过 200 个字符在 schema 层拒绝", args: { action: "create_folder", name: "字".repeat(201) }, expect: { rejects: /name/ } },
+  ],
+  gangtise_drive_upload: [
+    { title: "multipart：file + 文本字段，默认我的云盘", args: { filePath: "tests/fixtures/upload/sample.txt", title: "样例.txt" }, expect: { requests: [{ method: "POST", path: `${D}/uploadFile`, body: { file: { filename: "sample.txt", bytes: 12 }, spaceType: "1", title: "样例.txt" } }] } },
+    { title: "文件不存在本地拒绝", args: { filePath: "tests/fixtures/upload/missing.txt" }, expect: { rejects: /找不到文件/ } },
+    { title: "目录本地拒绝", args: { filePath: "tests/fixtures/upload" }, expect: { rejects: /不是文件/ } },
+  ],
   gangtise_drive_list: [
     { title: "文件类型 + 空间", args: { keyword: "纪要", fileTypeList: [1], spaceTypeList: [2] }, expect: { requests: [{ method: "POST", path: "/application/open-vault/drive/getList", body: { keyword: "纪要", fileTypeList: [1], spaceTypeList: [2], size: 20, from: 0 } }] } },
   ],

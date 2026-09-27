@@ -114,6 +114,10 @@ const SCENARIOS: Scenario[] = [
   }) },
   // 整页超 50 积分的按条计费列表先探 1 条再按整页重取：那 1 条计费两次，结果里记 _cost_probe。
   { name: "present-cost-probe", tool: "gangtise_roadshow_list", args: { keyword: "AI", fetchAll: true }, upstream: paged(3) },
+  // 债券：没有数据时服务端回 HTTP 404 + 130001，收成零行而不是报错。
+  { name: "bond-empty-130001", tool: "gangtise_bond_cash_flow", args: { securityList: ["019742.SH"] }, upstream: on("bond.cash-flow", () => ({ status: 404, json: { code: "130001", msg: "数据未找到", data: null } })) },
+  // 债券基本资料每个代码固定一行：库中没有的那只除代码外全为 null，原样保留。
+  { name: "bond-fixed-row-per-code", tool: "gangtise_bond_basic_info", args: { securityList: ["019742.SH", "019999.SH"] }, upstream: on("bond.basic-info", () => ({ data: { total: 2, fieldList: ["securityCode", "securityName", "latestParValue"], list: [["019742.SH", "24国债01", 100], ["019999.SH", null, null]] } })) },
   // total 触及声明的偏移窗口：不发探针，直接按封顶标。
   { name: "partial-total-capped-window", tool: "gangtise_wechat_message_list", args: { keyword: "AI", from: 9960, fetchAll: true }, upstream: paged(10_000) },
   // 请求的行越过偏移窗口：只取窗口内的，标 window_cut。

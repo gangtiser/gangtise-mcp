@@ -66,6 +66,11 @@ export const insightExamples: ToolExamples = {
     { title: "地区闭集", args: { regionList: ["cnHk"], categoryList: ["company"], searchType: 1 }, expect: { requests: [{ method: "POST", path: "/application/open-insight/foreign-report/getList", body: { searchType: 1, regionList: ["cnHk"], categoryList: ["company"], size: 20, from: 0 } }] } },
     { title: "码表外的地区本地拒绝", args: { regionList: ["hk"] }, expect: { rejects: /Invalid enum value.*at regionList/ } },
   ],
+  gangtise_highlight_list: [
+    { title: "日期可只给到天，按条计费默认 size=20", args: { startTime: "2026-09-01", securityList: ["09992.HK"] }, expect: { requests: [{ method: "POST", path: "/application/open-insight/summary/highlight/getList", body: { startTime: "2026-09-01", securityList: ["09992.HK"], size: 20, from: 0 } }] } },
+    { title: "from 越过偏移窗口本地拒绝", args: { from: 10_000 }, expect: { rejects: /只能按偏移取到第 10000 行为止/ } },
+    { title: "本端点没有 keyword", args: { keyword: "AI" }, expect: { rejects: /Unrecognized key.*keyword/ } },
+  ],
   gangtise_announcement_list: [
     { title: "港股代码走港股端点", args: { securityList: ["00700.HK"], keyword: "业绩" }, expect: { requests: [{ method: "POST", path: "/application/open-insight/announcement-hk/getList", body: { keyword: "业绩", securityList: ["00700.HK"], size: 20, from: 0 } }] } },
     { title: "无证券按 market，开关不进 body", args: { market: "usStocks", startTime: "2026-09-01 00:00:00" }, expect: { requests: [{ method: "POST", path: "/application/open-insight/announcement-us/getList", body: { startTime: "2026-09-01 00:00:00", size: 20, from: 0 } }] } },

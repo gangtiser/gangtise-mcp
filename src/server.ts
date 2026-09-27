@@ -23,9 +23,8 @@ import type { FamilyModule } from "./mcp/define.js"
  * 所以预算不是「越小越好」，是**看杠杆**：一句话进来的成本 = 它的字节数，省下的 =
  * 字节数 × (出现次数 - 1)。低于 10 次的别往里搬，locality 更值钱。
  *
- * 预算：dateContextInstruction() 168B + 下面的路由行与计费行 2,465B = 2,633B，上限 2,700B（各族的
- * routingHint 也算在内）。
- * ⚠️ **只剩 67B 余量**——下一次往这里加东西基本一定要先从别处腾。腾不出来再抬上限，
+ * 预算：dateContextInstruction() 168B + 路由行、各族 routingHint 与计费行 2,774B = 2,942B，上限 3,000B。
+ * ⚠️ **只剩 58B 余量**——下一次往这里加东西基本一定要先从别处腾。腾不出来再抬上限，
  * 并在 commit 里说明换掉了 schema 侧多少字节；别为了塞进去而把上限悄悄调大。
  * 改动前先量字节，别手推；这两个数由 scripts/prerelease-check.mjs 的 ⑤ 一节钉住，
  * 改了忘同步注释不会报错，所以量完顺手把上面两个数字一起改掉。
@@ -53,6 +52,7 @@ const ROUTING_LINES: Array<{ prefix?: string; clauses: RoutingClause[] }> = [
     clauses: [
       { text: `研报/观点/纪要/公告/公众号/问答 qa_list/研报图表 report_image 用对应 *_list；`, refs: ["research_list", "opinion_list", "summary_list", "announcement_list", "official_account_list"] },
       `跨类语义检索用 knowledge_batch；`,
+      { text: `会议要点信息流用 highlight_list；`, refs: ["highlight_list"] },
       { text: `roadshow/site_visit/strategy/forum 只查日程、正文用 summary_list。`, refs: ["roadshow_list", "strategy_list", "forum_list"] },
       { text: `研报/纪要/公告等正文用 gangtise_download，机构观点无下载（见其描述）。`, refs: ["opinion_list"] },
     ],

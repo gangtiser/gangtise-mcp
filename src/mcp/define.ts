@@ -24,6 +24,8 @@ export interface ToolSpec {
   requires?: string[]
   /** 固定端点时填；积分标签由它派生。 */
   endpoint?: string
+  /** 按参数选端点的网关：给出这次调用实际要打的端点，确认闸门按它判（mcp/invoke.ts）。 */
+  endpointFor?: (args: Record<string, unknown>) => string | undefined
   /** 本地工具、多端点工具的标签。与 `endpoint` 二者必有其一，给了就优先。 */
   billingLabel?: Billing
   description: string

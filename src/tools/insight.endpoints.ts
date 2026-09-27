@@ -279,6 +279,18 @@ export const insightEndpoints: EndpointTable = {
     billing: { kind: "fixed", per: "row", price: 0.1 },
     pagination: { mode: "offset", maxPageSize: 500 },
   },
+  "insight.highlight.list": {
+    method: "POST",
+    path: "/application/open-insight/summary/highlight/getList",
+    kind: "json",
+    description: "List meeting highlights (核心要点信息流; content is an HTML fragment)",
+    billing: { kind: "fixed", per: "row", price: 5 },
+    pagination: { mode: "offset", maxPageSize: 50, maxWindow: 10000 },
+    rowId: "highlightId",
+    // 按条计费：重放一页会把已经给过的行再计一遍。
+    retry: "no-replay",
+    expects: "list",
+  },
   "insight.report-image.list": {
     method: "POST",
     path: "/application/open-insight/report-image/getList",

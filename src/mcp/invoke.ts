@@ -19,7 +19,9 @@ export interface CallContext {
 export async function invokeOperation(op: string, args: Record<string, unknown>, ctx: CallContext): Promise<ToolTextResult> {
   const spec = ctx.operations.get(op)
   if (!spec) throw new ValidationError(`未知工具：${op}`)
-  if (spec.access === "destructive" && spec.endpoint) assertConfirmed(spec.endpoint, args.confirm === true)
+  // 按这次调用实际要打的端点判：网关的动作可逆与否随参数而定。
+  const endpoint = spec.endpointFor?.(args) ?? spec.endpoint
+  if (endpoint) assertConfirmed(endpoint, args.confirm === true)
   // 费用确认只进本次调用的上下文、不进请求体；分页层据此放行积分预估保护（core/paginate.ts）。
   const { confirmCost, ...rest } = args
   return runWithCostConfirmation(confirmCost === true, () => spec.run(ctx, rest))

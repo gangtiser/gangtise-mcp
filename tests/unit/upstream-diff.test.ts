@@ -23,9 +23,9 @@ describe("upstream endpoint contract", () => {
     const { unexplained } = diffEndpoints(drifted, upstream.endpoints, exceptions)
     expect(unexplained).toEqual([{ key: "insight.research.list", field: "retry", ours: "no-replay", upstream: undefined }])
 
-    const ported = { ...ENDPOINTS, "tool.web-search": { key: "tool.web-search", ...upstream.endpoints["tool.web-search"], description: "t" } }
+    const ported = { ...ENDPOINTS, "tool.file-parse.submit": { key: "tool.file-parse.submit", ...upstream.endpoints["tool.file-parse.submit"], description: "t" } }
     const { stale } = diffEndpoints(ported, upstream.endpoints, exceptions)
-    expect(stale.map((e: { key: string }) => e.key)).toEqual(["tool.web-search"])
+    expect(stale.map((e: { key: string }) => e.key)).toEqual(["tool.file-parse.submit"])
   })
 
   it("compares only fixed prices and the presence of a destructive marker", () => {

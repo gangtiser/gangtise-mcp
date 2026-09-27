@@ -31,8 +31,8 @@ export function flagFailedItems(result: unknown): unknown {
   const failedItems = rec.failList.map((item) => {
     if (!item || typeof item !== "object") return String(item)
     const entry = item as Record<string, unknown>
-    // 两族写操作把失败挂在不同的键上：证券类是 securityCode，删池是 poolId。
-    const id = entry.securityCode ?? entry.poolId ?? JSON.stringify(entry)
+    // 各族写操作把失败挂在不同的键上：证券类是 securityCode，删池是 poolId，云盘是 fileId。
+    const id = entry.securityCode ?? entry.poolId ?? entry.fileId ?? JSON.stringify(entry)
     return entry.failReason ? `${String(id)}（${String(entry.failReason)}）` : String(id)
   })
   return markPartial(rec, "failed_items", { failedItems })

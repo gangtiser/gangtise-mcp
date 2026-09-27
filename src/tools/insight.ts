@@ -412,6 +412,21 @@ export const listSpecs: JsonToolSpec[] = [
     },
   },
   {
+    name: "gangtise_highlight_list",
+    tier: "core",
+    description:
+      "查询会议线索：Gangtise 会议内容的核心要点信息流，固定按发布时间倒序，适合做每日会议跟踪。content 是 HTML 片段（<p> 包裹，小标题用 <strong>）。⚠️ 要点可能不关联任何证券（securityList 为 []，宏观 / 行业会议尤其常见），按 securityList 筛会漏掉这批。按偏移最多取到第 10000 条，更多请缩短时间区间分段取。",
+    endpointKey: "insight.highlight.list",
+    paginated: true,
+    inputSchema: {
+      from: z.number().int().min(0).optional(),
+      startTime: qaTimeString.optional().describe("YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss"),
+      endTime: qaTimeString.optional().describe("YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss"),
+      securityList: nonEmptyList().optional().describe("证券代码，大小写敏感、须精确匹配：A 股 601702.SH、港股 5 位 09992.HK、美股 AAPL.O"),
+      researchAreaList: nonEmptyList().optional().describe("研究方向 ID：中信行业码 1008001xx（gangtise_constant_list category=citicIndustry）或方向码 122000xxx（category=gangtiseIndustry）；不认申万码（104xxxxxx）"),
+    },
+  },
+  {
     name: "gangtise_report_image_list",
     tier: "core",
     description:

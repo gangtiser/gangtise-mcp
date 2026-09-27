@@ -1974,6 +1974,81 @@
     }
   },
   {
+    "name": "gangtise_highlight_list",
+    "description": "查询会议线索：Gangtise 会议内容的核心要点信息流，固定按发布时间倒序，适合做每日会议跟踪。content 是 HTML 片段（<p> 包裹，小标题用 <strong>）。⚠️ 要点可能不关联任何证券（securityList 为 []，宏观 / 行业会议尤其常见），按 securityList 筛会漏掉这批。按偏移最多取到第 10000 条，更多请缩短时间区间分段取。【积分：5/条】",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "startTime": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
+            },
+            {
+              "type": "string",
+              "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2}) ([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$"
+            }
+          ],
+          "description": "YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss"
+        },
+        "endTime": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
+            },
+            {
+              "type": "string",
+              "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2}) ([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$"
+            }
+          ],
+          "description": "YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss"
+        },
+        "securityList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "证券代码，大小写敏感、须精确匹配：A 股 601702.SH、港股 5 位 09992.HK、美股 AAPL.O"
+        },
+        "researchAreaList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "研究方向 ID：中信行业码 1008001xx（gangtise_constant_list category=citicIndustry）或方向码 122000xxx（category=gangtiseIndustry）；不认申万码（104xxxxxx）"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "fetchAll": {
+          "type": "boolean"
+        },
+        "confirmCost": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
     "name": "gangtise_report_image_list",
     "description": "按关键词搜索研报图表，返回 chunkId 及元数据（标题/券商/页码/图注/该页 OCR 文本）；原图用 gangtise_download（kind=report_image）按 chunkId 下载。",
     "inputSchema": {
@@ -2939,6 +3014,427 @@
         "securityCode",
         "indicator"
       ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "gangtise_bond_basic_info",
+    "description": "查询债券基本资料（静态档案，无历史快照）：发行、期限、票息、评级、担保、特殊条款，ABS / 可转债另有专项字段。每个代码固定一行，库中没有的除代码外全为 null。parValue、issuePriceOrReferenceYield 是「/」分隔的展示值，要数值用 latestParValue；剩余期限按 actualMaturityDate（含提前赎回 / 回售 / 转股）算。【积分：0.4/次】",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "securityList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "债券代码，去重后最多 10000 只"
+        },
+        "fieldList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "指定返回字段，省略返回全部；securityCode 恒在最前"
+        }
+      },
+      "required": [
+        "securityList"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "gangtise_bond_daily_quote",
+    "description": "查询债券日收盘行情（交易所 + 银行间）：全价、净价、到期收益率、成交、久期、凸性。没有数据的代码不产生行。startDate 早于账号可回溯的下界时整批报 110003（不会只返回窗口内那段），把起点往后挪再查。【积分：0.4/次】",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "securityList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "债券代码"
+        },
+        "startDate": {
+          "type": "string",
+          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
+        },
+        "endDate": {
+          "type": "string",
+          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
+        },
+        "fieldList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "指定返回字段，省略返回全部；securityCode / tradeDate 恒在最前"
+        }
+      },
+      "required": [
+        "securityList",
+        "startDate",
+        "endDate"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "gangtise_bond_valuation",
+    "description": "查询上清所债券估值：估值价格、收益率、久期、凸性、基点价值（利率与利差各一套）。confidenceLevel 省略时只返回「推荐」的估值，要「不推荐」的另传一次。没有数据的代码不产生行。startDate 早于账号可回溯的下界时整批报 110003（不会只返回窗口内那段），把起点往后挪再查。【积分：0.4/次】",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "securityList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "债券代码"
+        },
+        "startDate": {
+          "type": "string",
+          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
+        },
+        "endDate": {
+          "type": "string",
+          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
+        },
+        "confidenceLevel": {
+          "type": "string",
+          "enum": [
+            "推荐",
+            "不推荐"
+          ]
+        },
+        "fieldList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "指定返回字段，省略返回全部；securityCode / tradeDate / confidenceLevel 恒在最前"
+        }
+      },
+      "required": [
+        "securityList",
+        "startDate",
+        "endDate"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "gangtise_bond_cash_flow",
+    "description": "查询债券付息与兑付计划。startDate / endDate 筛兑付日，省略返回全部。没有数据的代码不产生行。【积分：0.4/次】",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "securityList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "债券代码"
+        },
+        "startDate": {
+          "type": "string",
+          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
+        },
+        "endDate": {
+          "type": "string",
+          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
+        },
+        "fieldList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "指定返回字段，省略返回全部；securityCode / paymentDate 恒在最前"
+        }
+      },
+      "required": [
+        "securityList"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "gangtise_bond_rating_overview",
+    "description": "并列查询债项、发行人、担保人三套评级（每次去重后最多 10 只）。每个代码固定一行，没有数据的除代码外全为 null；国债本身没有评级。评级值可能紧跟小写后缀 sf / pi（如 AAApi），按档位比较或统计前先识别，否则 AAA 与 AAApi 会被当成两档。【积分：按返回条数】",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "securityList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "债券代码，去重后最多 10 只"
+        },
+        "fieldList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "指定返回字段，省略返回全部"
+        }
+      },
+      "required": [
+        "securityList"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "gangtise_bond_announcement_list",
+    "description": "查询债券公告，手动翻页：没有 total，pageNo 从 1 递增、取到空页为止；每页按次计费，批量翻页传 pageSize=200。securityList 与日期区间二选一。⚠️ 按日期查时返回的 securityCode 不带市场后缀，而其他 bond 工具只收带后缀的代码：用该行 securityName 经 gangtise_securities_search 换回 gtsCode，并核对去掉后缀后与原代码一致——别拿无后缀代码直接搜，相似度检索可能给出相邻的另一只。【积分：0.4/次】",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "securityList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "债券代码"
+        },
+        "startDate": {
+          "type": "string",
+          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
+        },
+        "endDate": {
+          "type": "string",
+          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
+        },
+        "pageNo": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "默认 1"
+        },
+        "pageSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200,
+          "description": "默认 50"
+        },
+        "fieldList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "指定返回字段，省略返回全部；announcementDate / securityCode 恒在最前"
+        }
+      },
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "gangtise_bond_issuer_info",
+    "description": "查询发债主体资料：企业性质、行业、注册信息、主体评级、存续债券。securityList（按债券找主体）与 issuerNameList 二选一；按 securityList 查时每个代码固定一行、没有的除代码外全为 null，按名称匹配不到则不产生行。行业有 swIndustry（申万）与 nationalIndustry（国民经济行业）两套。latestIssuerRating 形如「AAA(维持,2026-08-11)」但括号可能缺省；⚠️ 这一列混合境内外评级口径、不可直接比较，排序或筛选前一并取 ratingAgency。outstandingBondList 是存续债简称串，要代码用 gangtise_securities_search 换。【积分：0.4/次】",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "securityList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "债券代码"
+        },
+        "issuerNameList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "发行人全称或简称，模糊匹配，每个名称只取最匹配的一家"
+        },
+        "fieldList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "指定返回字段，省略返回全部；issuerName 恒在最前"
+        }
+      },
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "gangtise_bond_rating_change",
+    "description": "查询债项评级变动：本次 / 上次评级、方向、展望、评级类型与机构（每次去重后最多 10 只）。startDate / endDate 筛公告日，省略返回全部。每次变动一行，首次评级的 previousRating 为 null；没有数据的代码不产生行，国债没有评级。评级值可能紧跟小写后缀 sf / pi（如 AAApi），按档位比较或统计前先识别。【积分：按债券只数】",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "securityList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "债券代码，去重后最多 10 只"
+        },
+        "startDate": {
+          "type": "string",
+          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
+        },
+        "endDate": {
+          "type": "string",
+          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
+        },
+        "fieldList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "指定返回字段，省略返回全部；securityCode / announcementDate 恒在最前"
+        }
+      },
+      "required": [
+        "securityList"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "gangtise_bond_issuer_rating_change",
+    "description": "查询发债主体评级变动。securityList 与 issuerNameList 二选一；一次命中的发行人超过 10 个报 100006，缩小名单再查。startDate / endDate 筛公告日，省略返回全部。评级值可能紧跟小写后缀 sf / pi（如 AAApi），按档位比较或统计前先识别。【积分：按发行人数】",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "securityList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "债券代码"
+        },
+        "issuerNameList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "发行人全称或简称，模糊匹配，每个名称只取最匹配的一家"
+        },
+        "startDate": {
+          "type": "string",
+          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
+        },
+        "endDate": {
+          "type": "string",
+          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
+        },
+        "fieldList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "指定返回字段，省略返回全部；issuerName / announcementDate 恒在最前"
+        }
+      },
       "additionalProperties": false
     },
     "annotations": {
@@ -4113,7 +4609,7 @@
   },
   {
     "name": "gangtise_stock_pool_delete",
-    "description": "删除自选股池（写操作）。🔴 删除股票池会同时移除池内全部证券的关注关系，且不可恢复（个股的投资笔记独立保留、不受影响）。另外四个写工具都能跑一次相反的操作还原，只有这一个不能——所以删之前先用 gangtise_stock_pool_list 核对 poolId 是哪个池、把池名念给用户确认，再把 confirm 置为 true。删一个不存在的池算幂等成功。返回与单条失败标记同 gangtise_stock_pool_add_stock。",
+    "description": "删除自选股池（写操作）。🔴 删除股票池会同时移除池内全部证券的关注关系，且不可恢复（个股的投资笔记独立保留、不受影响）。股票池的另外四个写工具都能跑一次相反的操作还原，只有这一个不能——所以删之前先用 gangtise_stock_pool_list 核对 poolId 是哪个池、把池名念给用户确认，再把 confirm 置为 true。删一个不存在的池算幂等成功。返回与单条失败标记同 gangtise_stock_pool_add_stock。",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -4140,6 +4636,36 @@
       "readOnlyHint": false,
       "destructiveHint": true,
       "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "gangtise_drive_folder_list",
+    "description": "查看云盘某个文件夹的直接子文件夹（folderList）与直接文件（fileList），不递归；文件夹 ID 用本工具逐层看。parentId 必须属于 spaceType 那个空间，否则报 100003。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "spaceType": {
+          "type": "number",
+          "enum": [
+            1,
+            2
+          ],
+          "description": "1=我的云盘（默认）| 2=租户云盘"
+        },
+        "parentId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "文件夹 ID；不传或传 root 为根目录"
+        }
+      },
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
       "openWorldHint": false
     },
     "execution": {
@@ -4721,6 +5247,77 @@
         "expression",
         "securityCodeList",
         "date"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "gangtise_web_search",
+    "description": "投研定向检索公开网页：服务端已做转载去重、信源分级（tier T0–T3）与内容打标，零结果时 hints 给放宽建议。检索词原样发送、不做意图改写。⚠️ 排序是 tier 升序 → publishTime 降序 → 相关性，首条不等于最相关。publishTime 是规则判定的发布日期，判不出为 null（不代表网页没有日期）；indexTime 是索引记录的时间、不保证是发布时间，做时点判断用 publishTime。flags 标 rumor 传闻 / forward 转载 / disclaimer 免责声明 / toutSuspect 疑似荐股 / paywall 付费墙。【积分：1/次】",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "检索词，1–200 字；要限定站点用 siteList"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "description": "返回条数（去重过滤之后，不足不补），默认 10；includeContent 时最多 5、省略即 5"
+        },
+        "freshness": {
+          "type": "string",
+          "enum": [
+            "day",
+            "week",
+            "month",
+            "none"
+          ],
+          "description": "按 publishTime 限时效，默认 none；⚠️ day / week / month 会连带丢掉 publishTime 判不出（null）的结果"
+        },
+        "minTier": {
+          "type": "string",
+          "enum": [
+            "T0",
+            "T1",
+            "T2",
+            "T3"
+          ],
+          "description": "最低信源等级，默认 T3（不过滤）"
+        },
+        "siteList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "限定注册域或子域（如 csrc.gov.cn），相互为或、子域按后缀匹配，去重后最多 10 个"
+        },
+        "includeContent": {
+          "type": "boolean",
+          "description": "返回网页正文 content（Markdown），个别页面取不到时为 null"
+        },
+        "maxContentChars": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 20000,
+          "description": "每条正文字符上限，默认 8000，仅 includeContent 时生效；超出截断并标 contentTruncated"
+        }
+      },
+      "required": [
+        "query"
       ],
       "additionalProperties": false
     },

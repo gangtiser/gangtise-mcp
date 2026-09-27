@@ -6,73 +6,28 @@
   },
   {
     "key": "bond.announcement",
-    "field": "missing",
-    "reason": "债券族未接入（计划 0.3.0）"
-  },
-  {
-    "key": "bond.basic-info",
-    "field": "missing",
-    "reason": "债券族未接入（计划 0.3.0）"
-  },
-  {
-    "key": "bond.cash-flow",
-    "field": "missing",
-    "reason": "债券族未接入（计划 0.3.0）"
-  },
-  {
-    "key": "bond.daily-quote",
-    "field": "missing",
-    "reason": "债券族未接入（计划 0.3.0）"
-  },
-  {
-    "key": "bond.exercise-notice",
-    "field": "missing",
-    "reason": "债券族未接入（计划 0.3.0）"
-  },
-  {
-    "key": "bond.issuance-detail",
-    "field": "missing",
-    "reason": "债券族未接入（计划 0.3.0）"
-  },
-  {
-    "key": "bond.issuance-plan",
-    "field": "missing",
-    "reason": "债券族未接入（计划 0.3.0）"
-  },
-  {
-    "key": "bond.issuer-info",
-    "field": "missing",
-    "reason": "债券族未接入（计划 0.3.0）"
+    "field": "pagination",
+    "reason": "声明为 page 模式（pageNo / pageSize，无 total，不自动翻页），上游未声明分页"
   },
   {
     "key": "bond.issuer-rating-change",
-    "field": "missing",
-    "reason": "债券族未接入（计划 0.3.0）"
+    "field": "billing",
+    "reason": "平台文档按发行人计价，单价未单列：标 variable（按发行人数），不写死按次 0.4"
   },
   {
     "key": "bond.rating-change",
-    "field": "missing",
-    "reason": "债券族未接入（计划 0.3.0）"
+    "field": "billing",
+    "reason": "平台文档按有数据的债券只数计价，单价未单列：标 variable（按债券只数），不写死按次 0.4"
   },
   {
     "key": "bond.rating-overview",
-    "field": "missing",
-    "reason": "债券族未接入（计划 0.3.0）"
-  },
-  {
-    "key": "bond.valuation",
-    "field": "missing",
-    "reason": "债券族未接入（计划 0.3.0）"
+    "field": "billing",
+    "reason": "平台文档按返回条数计价，单价未单列：标 variable（按返回条数），不写死按次 0.4"
   },
   {
     "key": "fundamental.valuation-analysis",
     "field": "expects",
     "reason": "本仓尚未给估值分析加形状守卫，下一个功能版本评估"
-  },
-  {
-    "key": "insight.highlight.list",
-    "field": "missing",
-    "reason": "研报要点未接入（计划 0.3.0）"
   },
   {
     "key": "insight.performance-calendar.download",
@@ -88,55 +43,5 @@
     "key": "tool.file-parse.submit",
     "field": "missing",
     "reason": "文件解析未接入（计划 0.3.1）"
-  },
-  {
-    "key": "tool.web-search",
-    "field": "missing",
-    "reason": "联网搜索未接入（计划 0.3.0）"
-  },
-  {
-    "key": "vault.drive.copy",
-    "field": "missing",
-    "reason": "云盘管理与上传未接入（计划 0.3.0）"
-  },
-  {
-    "key": "vault.drive.create-folder",
-    "field": "missing",
-    "reason": "云盘管理与上传未接入（计划 0.3.0）"
-  },
-  {
-    "key": "vault.drive.delete-file",
-    "field": "missing",
-    "reason": "云盘管理与上传未接入（计划 0.3.0）"
-  },
-  {
-    "key": "vault.drive.delete-folder",
-    "field": "missing",
-    "reason": "云盘管理与上传未接入（计划 0.3.0）"
-  },
-  {
-    "key": "vault.drive.folder-list",
-    "field": "missing",
-    "reason": "云盘管理与上传未接入（计划 0.3.0）"
-  },
-  {
-    "key": "vault.drive.move-file",
-    "field": "missing",
-    "reason": "云盘管理与上传未接入（计划 0.3.0）"
-  },
-  {
-    "key": "vault.drive.move-folder",
-    "field": "missing",
-    "reason": "云盘管理与上传未接入（计划 0.3.0）"
-  },
-  {
-    "key": "vault.drive.rename",
-    "field": "missing",
-    "reason": "云盘管理与上传未接入（计划 0.3.0）"
-  },
-  {
-    "key": "vault.drive.upload",
-    "field": "missing",
-    "reason": "云盘管理与上传未接入（计划 0.3.0）"
   }
 ]

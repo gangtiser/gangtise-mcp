@@ -1,0 +1,18 @@
+{
+  "isError": false,
+  "result": {
+    "total": 2,
+    "list": [
+      {
+        "securityCode": "019742.SH",
+        "securityName": "24国债01",
+        "latestParValue": 100
+      },
+      {
+        "securityCode": "019999.SH",
+        "securityName": null,
+        "latestParValue": null
+      }
+    ]
+  }
+}

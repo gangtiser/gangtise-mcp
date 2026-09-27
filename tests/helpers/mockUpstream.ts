@@ -125,7 +125,12 @@ export async function startMockUpstream(responder?: Responder): Promise<MockUpst
         path: url.pathname,
       }
       if ([...url.searchParams.keys()].length > 0) recorded.query = Object.fromEntries(url.searchParams)
-      if (raw.length > 0) {
+      const contentType = req.headers["content-type"] ?? ""
+      if (contentType.startsWith("multipart/form-data")) {
+        // 上传：文本字段原样记，文件记文件名与字节数（boundary 每次随机，整段原文比不了）。
+        const form = await new Response(Buffer.concat(chunks), { headers: { "content-type": contentType } }).formData()
+        recorded.body = Object.fromEntries([...form.entries()].map(([name, value]) => [name, typeof value === "string" ? value : { filename: value.name, bytes: value.size }]))
+      } else if (raw.length > 0) {
         try {
           recorded.body = JSON.parse(raw)
         } catch {
