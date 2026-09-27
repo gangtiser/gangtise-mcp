@@ -2,6 +2,31 @@
 
 > README 顶部只放最近 5 个版本的一行摘要 + 历史里程碑；本文件是完整历史明细（中文），回溯至 0.1.3。
 
+### 0.3.2 (2026-09-27)
+
+默认列出全部 96 个工具；债券评级超过 10 只自动分批，债券公告可自动翻页；债券三个评级接口的积分标签改为按条 / 只 / 发行人；证券级指标缺 `fiscalYear` 的说明更正；观点正文某批返回异常时保留同批已计费的正文。
+
+**⚠️ 默认工具变化**
+
+- **默认列出全部 96 个工具**（0.3.1 为 89 个）：不设 `GANGTISE_MCP_TOOLS` 时等同 `all`，新增默认可见的有债券发行明细 / 利率债发行计划 / 行权安排、云盘管理（新建 / 改名 / 移动 / 复制 / 删除，删除须显式确认）与上传、文件解析与取结果。云盘管理与上传会改动账号数据，上传与文件解析会把本机文件发送到 Gangtise 平台。只要精简档时设 `GANGTISE_MCP_TOOLS=core`（工具定义约少 8KB）；只写禁用项时以 `all` 为底（如 `-vault`）；要旧工具名设 `all,legacy`。
+
+**新增**
+
+- **债券评级分批**：`gangtise_bond_rating_overview` / `gangtise_bond_rating_change` 超过 10 只时按 10 只一批请求、按传入顺序合并，单次最多 1800 只；评级一览分批时 `fieldList` 自动补 `securityCode`。某一批因代码无效整批失败时逐只重试，失败的代码记进 `_failed_securities`。计费与手动分批相同。
+- **债券公告自动翻页**：`gangtise_bond_announcement_list` 加 `fetchAll`，从 `pageNo` 起取到空页为止（`pageSize` 缺省 200），单次最多 1000 页。结果带 `pages`（实际请求的页数，每页按次计费；并发翻页时末尾可能多请求几个空页）。有页失败时记进 `_failed_pages` 并继续往后取；一整轮都失败时停下，`_failed_pages` 写明从哪一页起续取。
+
+**计费标签**
+
+- 债券三个评级接口各 0.4 积分，计量单位不同：`gangtise_bond_rating_overview` 按条（除代码外全为 `null` 的行不计），`gangtise_bond_rating_change` 按有数据的债券只数（与变动记录条数无关），`gangtise_bond_issuer_rating_change` 按命中的发行人（与记录条数无关）。每次最多 10 个单位，被错误码拒绝或全部无数据时不计费。
+
+**行为修正**
+
+- **`gangtise_opinion_detail` 某批返回里有异常元素**：`null` 按该 ID 没有正文处理（记进 `missingIds`）；混进数字、字符串这类非对象元素时，同批能认出 ID 的正文照常返回，这一批其余的 ID 与后面各批记进 `unfetchedIds`，`unfetchedError` 带 traceId。两种情况下同批已计费的正文都不会丢，按 `unfetchedIds` 重取不会重复计费。
+
+**说明更正**
+
+- **证券级指标（EDE）缺 required 键**：`fiscalYear` 缺失不报错，按默认年度取数（不随查询日期变）——拿到的是那个年度的数值，该年度没有数据时为 `null`，HTTP 200、不标 `_partial`；其他 required 键缺失一般报 `100001` 并指名（`industryType`、`periodNum` 这类非日期键也报）。`noQueryDate` 参数说明与 999999 提示已按此更正。凡是 `parameterList` 里有 `fiscalYear` 的指标，请显式传它。
+
 ### 0.3.1 (2026-09-27)
 
 新增文件解析（点名加载）；修正 legacy 港美股日 K 多只长区间查询丢数据；多证券行情的单次拆分请求数加上限；估值分析校验返回结构。
