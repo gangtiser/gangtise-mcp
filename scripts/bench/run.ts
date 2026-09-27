@@ -83,12 +83,12 @@ const SECURITIES_20 = Array.from({ length: 20 }, (_, i) => `${String(600000 + i 
 const SCENARIOS: Scenario[] = [
   {
     name: "kline-multi-security-long",
-    description: "20 只 × 2020-01-01..2026-06-30 日 K（逐只拆分，每只约 1695 行）",
+    description: "20 只 × 2020-01-01..2026-06-30 日 K（按 1 万行上限分组，每只约 1695 行）",
     run: async (h, counter, signal) => {
       h.upstream.setResponder((req) => {
-        const code = (bodyOf(req).securityList as string[])[0]
-        counter.rows += 1695
-        return { data: { total: 1695, fieldList: KLINE_FIELDS, list: klineRows(code, "2020-01-01", 1695) } }
+        const codes = bodyOf(req).securityList as string[]
+        counter.rows += 1695 * codes.length
+        return { data: { total: 1695 * codes.length, fieldList: KLINE_FIELDS, list: codes.flatMap((code) => klineRows(code, "2020-01-01", 1695)) } }
       })
       return single(h, "gangtise_day_kline", { security: SECURITIES_20, startDate: "2020-01-01", endDate: "2026-06-30" }, signal)
     },
@@ -110,7 +110,8 @@ const SCENARIOS: Scenario[] = [
     description: "按条计费列表 fetchAll：opinion_list total=2000（40 页）",
     run: async (h, counter, signal) => {
       h.upstream.setResponder(pagedDataset(2000, counter, 400))
-      return single(h, "gangtise_opinion_list", { keyword: "机器人", fetchAll: true }, signal)
+      // 已确认花费：本场景量的是翻页本身，不是积分预估保护。
+      return single(h, "gangtise_opinion_list", { keyword: "机器人", fetchAll: true, confirmCost: true }, signal)
     },
   },
   {
@@ -216,8 +217,9 @@ const SCENARIOS: Scenario[] = [
       await once(storage, "listening")
       const location = `http://127.0.0.1:${(storage.address() as AddressInfo).port}/file`
       h.upstream.setResponder((req) => (req.endpoint === "insight.research.download" ? { status: 302, headers: { location }, json: {} } : undefined))
-      const downloads = Promise.all(Array.from({ length: 16 }, (_, i) => h.call("gangtise_research_download", { reportId: `r-${i}` }, { signal, timeoutMs: 120_000 })))
-      await ready
+      const downloads = Promise.all(Array.from({ length: 16 }, (_, i) => h.call("gangtise_download", { kind: "research", id: `r-${i}` }, { signal, timeoutMs: 120_000 })))
+      // 下载在全部开始之前就都结束了（多半是报错），等「全部开始」会永远等下去——直接判场景前提不成立。
+      await Promise.race([ready, downloads.then(() => { throw new Error("mixed-download-query：下载没有全部开始就结束了，场景前提不成立") })])
       const t0 = performance.now()
       const out = await h.call("gangtise_securities_search", { keyword: "茅台" }, { signal, timeoutMs: 120_000 })
       const metricMs = performance.now() - t0
@@ -232,7 +234,7 @@ const SCENARIOS: Scenario[] = [
 /** 场景用到的工具 → 默认档端点（价格在端点上）。 */
 const TOOL_ENDPOINT: Record<string, string> = {
   gangtise_day_kline: "quote.day-kline",
-  gangtise_opinion_list: "insight.opinion.list-with-content",
+  gangtise_opinion_list: "insight.opinion.list",
   gangtise_research_list: "insight.research.list",
   gangtise_securities_search: "reference.securities-search",
 }

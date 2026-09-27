@@ -30,11 +30,16 @@ const check = (layer, name, ok, detail) => results.push({ layer, name, ok, detai
 // 自曝后端毛病。「上游」是供应链视角——客户只关心「这个接口会怎样」。
 const BANNED = ["实测", "缺陷", "已报后台", "旧行为", "上游", "本仓", "绕行", "won't-fix"]
 
-const server = createGangtiseMcpServer(new GangtiseClient(loadConfig()))
-const [ct, st] = InMemoryTransport.createLinkedPair()
-await server.connect(st)
-const mcp = new Client({ name: "prerelease", version: "0" })
-await mcp.connect(ct)
+/** 按档位起一个服务并连上。门禁只量默认档（tools 缺省）；其余档位只打印字节供参考。 */
+async function connect(tools) {
+  const server = createGangtiseMcpServer(new GangtiseClient(loadConfig()), { tools })
+  const [ct, st] = InMemoryTransport.createLinkedPair()
+  await server.connect(st)
+  const client = new Client({ name: "prerelease", version: "0" })
+  await client.connect(ct)
+  return client
+}
+const mcp = await connect(undefined)
 const toolsJson = JSON.stringify((await mcp.listTools()).tools)
 
 for (const word of BANNED) {
@@ -236,6 +241,14 @@ if (listBytes > TOOLS_LIST_CEILING || dupWaste > DUP_WASTE_CEILING || sentWaste 
   for (const d of sentDups.slice(0, 5)) console.log(`    ${String(d.waste).padStart(6)}B  x${d.n}  ${JSON.stringify(d.text.slice(0, 46))}`)
 }
 
+// 其余档位不设门禁（点名才加载），但字节要看得见：点名加载的客户同样按它付上下文。
+const profileBytes = []
+for (const tools of ["all", "all,legacy"]) {
+  const client = await connect(tools)
+  const listed = (await client.listTools()).tools
+  profileBytes.push(`${tools}：${listed.length} 工具 ${b(listed)}B + instructions ${Buffer.byteLength(client.getInstructions() ?? "", "utf8")}B`)
+}
+
 // ── 输出 ──────────────────────────────────────────────────────────────
 let failed = 0
 let lastLayer = ""
@@ -247,6 +260,7 @@ for (const r of results) {
   }
   console.log(`  ${r.ok ? "✅" : "❌"} ${r.name}${r.detail ? "  ← " + r.detail : ""}`)
 }
+console.log(`\n其他档位（不计入门禁）：\n${profileBytes.map((line) => `  ${line}`).join("\n")}`)
 console.log(
   failed === 0
     ? `\n全部通过（${results.length} 项）。可以发版。`
