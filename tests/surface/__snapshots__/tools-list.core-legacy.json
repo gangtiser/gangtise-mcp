@@ -2813,7 +2813,7 @@
             "minLength": 1
           },
           "minItems": 1,
-          "description": "指定返回字段；行为与 gangtise_day_kline 的同名参数一致，说明见该工具"
+          "description": "指定返回字段；只回点名的列，身份列（securityCode / tradeDate）要自己写进来；名字写错不报错、只少一列并标 missingFields，不确定就不传（=全量最稳）"
         },
         "security": {
           "anyOf": [
@@ -2870,7 +2870,7 @@
             "minLength": 1
           },
           "minItems": 1,
-          "description": "指定返回字段；行为与 gangtise_day_kline 的同名参数一致，说明见该工具"
+          "description": "指定返回字段；只回点名的列，身份列（securityCode / tradeDate）要自己写进来；名字写错不报错、只少一列并标 missingFields，不确定就不传（=全量最稳）"
         },
         "security": {
           "anyOf": [

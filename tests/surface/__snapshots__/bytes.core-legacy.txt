@@ -1,5 +1,5 @@
 tools: 116
-tools/list bytes: 170807
+tools/list bytes: 171019
 instructions bytes: 2970
 
    396  gangtise_current_date
@@ -45,8 +45,8 @@ instructions bytes: 2970
    870  gangtise_opinion_detail
   2410  gangtise_performance_calendar_list
   4424  gangtise_day_kline
-  1534  gangtise_day_kline_hk
-  2045  gangtise_day_kline_us
+  1640  gangtise_day_kline_hk
+  2151  gangtise_day_kline_us
   2157  gangtise_index_day_kline
   1753  gangtise_minute_kline
   4125  gangtise_realtime

@@ -24,10 +24,9 @@ const securityDesc = (codeHelp: string, keywordHelp: string) =>
 const marketSecurity = (codeHelp: string) =>
   z.union([nonEmptyString, nonEmptyList()]).optional().describe(securityDesc(codeHelp, "传 'all' "))
 
-/** 两个已被 `gangtise_day_kline` 覆盖的旧工具用它。字段行为与 day_kline 逐字相同，
- *  在这里再写一遍只是把同一段话在 tools/list 里多付两遍——它们的描述本来就写着「改用
- *  gangtise_day_kline」，指过去即可。 */
-const legacyFieldList = uniqueFieldList("指定返回字段；行为与 gangtise_day_kline 的同名参数一致，说明见该工具")
+/** 两个已被 `gangtise_day_kline` 覆盖的旧工具用它。它们保留旧的返回列契约——多只时**不**自动补
+ *  身份列（见 klineRun 的 `identityFields`），所以不能再指向 day_kline 的说明。 */
+const legacyFieldList = uniqueFieldList("指定返回字段；只回点名的列，身份列（securityCode / tradeDate）要自己写进来；名字写错不报错、只少一列并标 missingFields，不确定就不传（=全量最稳）")
 
 /** 行情类接口对不认识的字段名是名和值一起丢，且 `fieldList` 只回点名的列。两件事都要说：
  *  多只或全市场时身份列自动补在最前（见 withIdentityFields），写错的列名不报错（去看 `missingFields`）。
@@ -223,6 +222,8 @@ function klineRun(
   strategy: BatchStrategy,
   market?: Market,
   noKeywordReason?: string,
+  /** 多只或全市场时自动补身份列。legacy 旧工具关掉：它们保留旧的返回列，靠旧解析的调用方不受影响。 */
+  identityFields = true,
 ): ToolSpec["run"] {
   return async ({ client }, args) => {
     assertDateOrder(args)
@@ -237,7 +238,7 @@ function klineRun(
       throw new ValidationError(`security='${fullMarket.keyword}' 全市场查询须同时提供 startDate 和 endDate（按日分片拉取）`)
     }
     const securities = body.securityList ?? []
-    const note = withIdentityFields(body, fullMarket !== undefined || securities.length > 1, ["securityCode", "tradeDate"])
+    const note = identityFields ? withIdentityFields(body, fullMarket !== undefined || securities.length > 1, ["securityCode", "tradeDate"]) : undefined
     if (fullMarket) {
       // All-market goes through the sharding helper: it lifts the cap to 10K, shards
       // the range, and carries its own per-shard failure/truncation markers.
@@ -330,7 +331,7 @@ export const quoteFamily: FamilyModule = {
       endpoint: "quote.day-kline-hk",
       description: "【已被 gangtise_day_kline 覆盖，改用它】港股历史日 K 线。gangtise_day_kline 的 'hkStocks' 等价于本工具的 'all'，行数、字段与代码集合完全相同，且能与其他市场混查并对不合法后缀明确报错——没有必须用本工具的场景。",
       input: { ...commonKlineSchema, fieldList: legacyFieldList, security: marketSecurity("港股代码，如 '00700.HK' 或 ['00700.HK','09988.HK']（5 位数字前补零）") },
-      run: klineRun("quote.day-kline-hk", "gangtise_day_kline_hk", LEGACY_ALL(2), "hk"),
+      run: klineRun("quote.day-kline-hk", "gangtise_day_kline_hk", LEGACY_ALL(2), "hk", undefined, false),
     }),
     defineTool({
       name: "gangtise_day_kline_us",
@@ -339,7 +340,7 @@ export const quoteFamily: FamilyModule = {
       endpoint: "quote.day-kline-us",
       description: "【已被 gangtise_day_kline 覆盖，改用它】美股历史日 K 线（NYSE/NASDAQ/AMEX）。gangtise_day_kline 的 'usStocks' 等价于本工具的 'all'，行数、字段与代码集合完全相同，且能与其他市场混查并对不合法后缀明确报错——没有必须用本工具的场景。",
       input: { ...commonKlineSchema, fieldList: legacyFieldList, security: marketSecurity("美股代码，如 'AAPL.O' 或 ['AAPL.O','BRK_B.N']（.O=NASDAQ / .N=NYSE / .A=AMEX）。⚠️ **多股份类别的写法不统一，别自己拼**：有的把类别字母并进 ticker（福克斯 = FOXA.O / FOX.O），有的用下划线（伯克希尔 = BRK_A.N / BRK_B.N），**还有的 A 类根本不带标记**（Bio-Rad A = BIO.N、B = BIO_B.N）。拼错**不一定返空**——也可能命中同一家公司的另一个类别（哈弗蒂 HVT.N 与 HVT_A.N 都真实存在、价格不同），拿到一个完全合理的错数。按公司名查确切代码见下") },
-      run: klineRun("quote.day-kline-us", "gangtise_day_kline_us", LEGACY_ALL(1), "us"),
+      run: klineRun("quote.day-kline-us", "gangtise_day_kline_us", LEGACY_ALL(1), "us", undefined, false),
     }),
     defineTool({
       name: "gangtise_index_day_kline",
