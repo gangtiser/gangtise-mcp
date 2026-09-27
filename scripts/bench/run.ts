@@ -323,8 +323,9 @@ async function main(): Promise<void> {
         maxInFlight: harness.upstream.maxInFlight(),
         rowsServed: counter.rows,
         outputBytes: outcome.bytes,
-        peakHeapMB: Math.round(((peakHeap - baseHeap) / 1048576) * 10) / 10,
-        peakRssMB: Math.round(((peakRss - baseRss) / 1048576) * 10) / 10,
+        // 内存取各轮的最大值，不是最后一轮：峰值要看最坏的那次。
+        peakHeapMB: Math.max(last?.peakHeapMB ?? 0, Math.round(((peakHeap - baseHeap) / 1048576) * 10) / 10),
+        peakRssMB: Math.max(last?.peakRssMB ?? 0, Math.round(((peakRss - baseRss) / 1048576) * 10) / 10),
         estCredits: estimateCredits(outcome.tool, counter.rows, requests),
         errors: 0,
         ...(requestsAtCancel !== undefined ? { requestsAfterCancel: requests - requestsAtCancel } : {}),
