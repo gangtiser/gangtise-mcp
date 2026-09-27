@@ -66,9 +66,9 @@ describe("billing labels", () => {
   // 按参数选端点的工具，标签取默认档的端点。
   it("labels switchable tools by their default endpoint", async () => {
     const byName = new Map((await listLiveTools()).map((t) => [t.name, t.description ?? ""]))
-    expect(labelOf(byName.get("gangtise_opinion_list")!)).toBe("【积分：30/条】")
-    expect(labelOf(byName.get("gangtise_foreign_opinion_list")!)).toBe("【积分：30/条】")
-    expect(labelOf(byName.get("gangtise_concept_info")!)).toBe("【积分：500/次】")
+    expect(labelOf(byName.get("gangtise_opinion_list")!)).toBe("【积分：1/条】")
+    expect(labelOf(byName.get("gangtise_foreign_opinion_list")!)).toBe("【积分：1/条】")
+    expect(labelOf(byName.get("gangtise_concept_info")!)).toBe("【积分：50/次】")
     expect(labelOf(byName.get("gangtise_lookup")!)).toBe("【本地工具，不消耗 OpenAPI 积分】")
   })
 
@@ -102,9 +102,7 @@ describe("billing labels", () => {
       "indicator.cross-section",
       "indicator.screener",
       "indicator.time-series",
-      "insight.foreign-opinion.list-with-content",
       "insight.forum.list",
-      "insight.opinion.list-with-content",
       "insight.performance-calendar.download",
       "insight.roadshow.list",
       "insight.site-visit.list",
@@ -115,13 +113,11 @@ describe("billing labels", () => {
       .map((t) => t.name)
       .sort()
     expect(hinted).toEqual([
-      "gangtise_foreign_opinion_list",
       "gangtise_forum_list",
       "gangtise_hot_topic",
       "gangtise_indicator_cross_section",
       "gangtise_indicator_screener",
       "gangtise_indicator_time_series",
-      "gangtise_opinion_list",
       "gangtise_performance_calendar_download",
       "gangtise_roadshow_list",
       "gangtise_site_visit_list",
@@ -133,8 +129,6 @@ describe("billing labels", () => {
   // 逐工具不同的「单次约 N 积分」留在这里 —— 那一半搬不动，也正是估成本要用的。
   it("emits the amplification hint as a suffix outside the label, framed as an example not a cap", () => {
     expect(billingSuffix("ai.hot-topic")).toBe("单次约 1000 积分。")
-    expect(billingSuffix("insight.opinion.list-with-content")).toBe("单次约 600 积分。")
-    expect(billingSuffix("insight.foreign-opinion.list-with-content")).toBe("单次约 600 积分。")
     for (const n of ["roadshow", "site-visit", "strategy", "forum"]) {
       expect(billingSuffix(`insight.${n}.list`)).toBe("单次约 400 积分。")
     }

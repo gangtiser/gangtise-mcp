@@ -489,7 +489,7 @@ describe("MCP server integration", () => {
   it("gangtise_opinion_list calls API with default size: 20", async () => {
     await mcpClient.callTool({ name: "gangtise_opinion_list", arguments: {} })
     expect(mockClient.call).toHaveBeenCalledWith(
-      "insight.opinion.list-with-content",
+      "insight.opinion.list",
       expect.objectContaining({ size: 20 }),
     )
   })
@@ -497,7 +497,7 @@ describe("MCP server integration", () => {
   it("gangtise_opinion_list respects explicit size", async () => {
     await mcpClient.callTool({ name: "gangtise_opinion_list", arguments: { size: 5 } })
     expect(mockClient.call).toHaveBeenCalledWith(
-      "insight.opinion.list-with-content",
+      "insight.opinion.list",
       expect.objectContaining({ size: 5 }),
     )
   })
@@ -511,7 +511,7 @@ describe("MCP server integration", () => {
   it("gangtise_concept_info calls concept-info endpoint with conceptId", async () => {
     await mcpClient.callTool({ name: "gangtise_concept_info", arguments: { conceptId: "121000130" } })
     expect(mockClient.call).toHaveBeenCalledWith(
-      "alternative.concept-info-full",
+      "alternative.concept-info",
       expect.objectContaining({ conceptId: "121000130" }),
     )
   })
@@ -519,7 +519,7 @@ describe("MCP server integration", () => {
   it("gangtise_concept_securities calls concept-securities endpoint with conceptId", async () => {
     await mcpClient.callTool({ name: "gangtise_concept_securities", arguments: { conceptId: "121000130" } })
     expect(mockClient.call).toHaveBeenCalledWith(
-      "alternative.concept-securities-full",
+      "alternative.concept-securities",
       expect.objectContaining({ conceptId: "121000130" }),
     )
   })

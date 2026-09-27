@@ -3,10 +3,10 @@ import { paged } from "../mcp/contract.examples.js"
 
 export const insightExamples: ToolExamples = {
   gangtise_opinion_list: [
-    { title: "默认注入 size=20、from 原样", args: { securityList: ["600519.SH"], rankType: 2 }, expect: { requests: [{ method: "POST", path: "/application/open-insight/chief-opinion/getList", body: { rankType: 2, securityList: ["600519.SH"], size: 20, from: 0 } }] } },
-    { title: "withContent=false 走只回 brief 的端点，开关不进 body", args: { securityList: ["600519.SH"], withContent: false }, expect: { requests: [{ method: "POST", path: "/application/open-insight/chief-opinion/v2/getList", body: { securityList: ["600519.SH"], size: 20, from: 0 } }] } },
-    { title: "withContent=true 与缺省同端点", args: { securityList: ["600519.SH"], withContent: true }, expect: { requests: [{ method: "POST", path: "/application/open-insight/chief-opinion/getList", body: { securityList: ["600519.SH"], size: 20, from: 0 } }] } },
-    { title: "显式 size 与 from", args: { keyword: "机器人", from: 40, size: 5, llmTagList: ["strongRcmd"], sourceList: ["realTime"] }, expect: { requests: [{ method: "POST", path: "/application/open-insight/chief-opinion/getList", body: { from: 40, keyword: "机器人", llmTagList: ["strongRcmd"], sourceList: ["realTime"], size: 5 } }] } },
+    { title: "默认注入 size=20、from 原样", args: { securityList: ["600519.SH"], rankType: 2 }, expect: { requests: [{ method: "POST", path: "/application/open-insight/chief-opinion/v2/getList", body: { rankType: 2, securityList: ["600519.SH"], size: 20, from: 0 } }] } },
+    { title: "withContent=false 与缺省同为只回 brief 的端点，开关不进 body", args: { securityList: ["600519.SH"], withContent: false }, expect: { requests: [{ method: "POST", path: "/application/open-insight/chief-opinion/v2/getList", body: { securityList: ["600519.SH"], size: 20, from: 0 } }] } },
+    { title: "withContent=true 走带正文的端点", args: { securityList: ["600519.SH"], withContent: true }, expect: { requests: [{ method: "POST", path: "/application/open-insight/chief-opinion/getList", body: { securityList: ["600519.SH"], size: 20, from: 0 } }] } },
+    { title: "显式 size 与 from", args: { keyword: "机器人", from: 40, size: 5, llmTagList: ["strongRcmd"], sourceList: ["realTime"] }, expect: { requests: [{ method: "POST", path: "/application/open-insight/chief-opinion/v2/getList", body: { from: 40, keyword: "机器人", llmTagList: ["strongRcmd"], sourceList: ["realTime"], size: 5 } }] } },
   ],
   gangtise_summary_list: [
     { title: "sourceList 发数字", args: { securityList: ["600519.SH"], categoryList: ["earningsCall"], searchType: 2, sourceList: [1], marketList: ["aShares"] }, expect: { requests: [{ method: "POST", path: "/application/open-insight/summary/v2/getList", body: { searchType: 2, securityList: ["600519.SH"], categoryList: ["earningsCall"], marketList: ["aShares"], sourceList: [1], size: 20, from: 0 } }] } },
@@ -60,7 +60,7 @@ export const insightExamples: ToolExamples = {
     { title: "美股公告", args: { securityList: ["TSLA.O"], rankType: 2 }, expect: { requests: [{ method: "POST", path: "/application/open-insight/announcement-us/getList", body: { rankType: 2, securityList: ["TSLA.O"], size: 20, from: 0 } }] } },
   ],
   gangtise_foreign_opinion_list: [
-    { title: "申万码 + 外资观点机构", args: { industryList: ["104340000"], brokerList: ["F-1"], regionList: ["us"] }, expect: { requests: [{ method: "POST", path: "/application/open-insight/foreign-opinion/getList", body: { regionList: ["us"], industryList: ["104340000"], brokerList: ["F-1"], size: 20, from: 0 } }] } },
+    { title: "申万码 + 外资观点机构", args: { industryList: ["104340000"], brokerList: ["F-1"], regionList: ["us"] }, expect: { requests: [{ method: "POST", path: "/application/open-insight/foreign-opinion/v2/getList", body: { regionList: ["us"], industryList: ["104340000"], brokerList: ["F-1"], size: 20, from: 0 } }] } },
     { title: "withContent=false 走只回 brief 的端点", args: { securityList: ["AAPL.O"], withContent: false }, expect: { requests: [{ method: "POST", path: "/application/open-insight/foreign-opinion/v2/getList", body: { securityList: ["AAPL.O"], size: 20, from: 0 } }] } },
   ],
   gangtise_independent_opinion_list: [

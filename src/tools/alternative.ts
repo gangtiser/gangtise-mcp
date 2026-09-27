@@ -7,10 +7,10 @@ import { dateString } from "../core/dateContext.js"
 import { nonEmptyString, nonEmptyList } from "../mcp/schemas.js"
 import { alternativeEndpoints } from "./alternative.endpoints.js"
 
-/** 题材两档端点：full 缺省或为 true 走完整画像（v1），false 走不含催化事件 / 重点标记的低价端点。
+/** 题材两档端点：full 缺省或为 false 走不含催化事件 / 重点标记的低价端点，true 走完整画像。
  *  开关只决定打哪个端点，不进请求体。 */
-function conceptResolve(fullKey: string, liteKey: string) {
-  return ({ full, ...body }: Record<string, unknown>) => ({ endpointKey: full === false ? liteKey : fullKey, body })
+function conceptResolve(liteKey: string, fullKey: string) {
+  return ({ full, ...body }: Record<string, unknown>) => ({ endpointKey: full === true ? fullKey : liteKey, body })
 }
 
 export const specs: JsonToolSpec[] = [
@@ -30,12 +30,12 @@ export const specs: JsonToolSpec[] = [
     tier: "core",
     description:
       "查询题材指数（概念/主题）基本信息：返回题材整体画像（定义 / 投资逻辑 / 行业空间 / 竞争格局；催化事件见 full）。仅返回最新截面数据，不支持历史回溯。conceptId 与主题跟踪 gangtise_theme_tracking 的 themeId 为同一套 ID 体系，可用 gangtise_concept_search 按名称查询（如 机器人 → 121000130）。",
-    endpointKey: "alternative.concept-info-full",
-    resolve: conceptResolve("alternative.concept-info-full", "alternative.concept-info"),
+    endpointKey: "alternative.concept-info",
+    resolve: conceptResolve("alternative.concept-info", "alternative.concept-info-full"),
     paginated: false,
     inputSchema: {
       conceptId: nonEmptyString.describe("题材指数 ID，如 '121000130'（机器人）。来自 gangtise_concept_search（必填）"),
-      full: z.boolean().optional().describe("默认 true 含催化事件 keyEvents（价见标签）；false 不含，50 积分/次"),
+      full: z.boolean().optional().describe("默认 false 不含催化事件 keyEvents（价见标签）；true 含，500 积分/次"),
     },
   },
   {
@@ -43,12 +43,12 @@ export const specs: JsonToolSpec[] = [
     tier: "core",
     description:
       "查询题材指数（概念/主题）成分股（题材深度 F8）：按分组结构返回当前成分股（isKey / inclusionReason 见 full）。securityCount 是去重后的只数，逐组累加会多算。conceptId 与主题跟踪 gangtise_theme_tracking 的 themeId 为同一套 ID 体系，可用 gangtise_concept_search 按名称查询（如 机器人 → 121000130）。",
-    endpointKey: "alternative.concept-securities-full",
-    resolve: conceptResolve("alternative.concept-securities-full", "alternative.concept-securities"),
+    endpointKey: "alternative.concept-securities",
+    resolve: conceptResolve("alternative.concept-securities", "alternative.concept-securities-full"),
     paginated: false,
     inputSchema: {
       conceptId: nonEmptyString.describe("题材指数 ID，如 '121000130'（机器人）。来自 gangtise_concept_search（必填）"),
-      full: z.boolean().optional().describe("默认 true 每只带 isKey（是否重点）与 inclusionReason（纳入理由），价见标签；false 不带，50 积分/次"),
+      full: z.boolean().optional().describe("默认 false 不带 isKey（是否重点）与 inclusionReason（纳入理由），价见标签；true 每只带上，500 积分/次"),
     },
   },
 ]
