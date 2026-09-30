@@ -4,7 +4,10 @@ import { buildToolContent } from "../core/present.js"
 import { contentResult } from "../mcp/handler.js"
 import { normalizeRows } from "../core/normalize.js"
 import { markPartial } from "../core/partial.js"
-import { dateString } from "../core/dateContext.js"
+import { dateString, today } from "../core/dateContext.js"
+import { estimateTradingDays } from "../core/batch.js"
+import { ENDPOINTS, perRowBilling } from "../core/endpoints.js"
+import { assertWithinCostLimit } from "../core/paginate.js"
 import { nonEmptyString, uniqueFieldList, enumList } from "../mcp/schemas.js"
 import { parseSecurityCode } from "../core/securityCode.js"
 import { ValidationError } from "../core/errors.js"
@@ -143,6 +146,19 @@ function statementSpec(config: {
   }
 }
 
+/** 盈利预测每个日期的行数：每个预测年度一行（常见 3 个年度）。只用于积分预估——覆盖薄的证券会少。 */
+const FORECAST_ROWS_PER_DATE = 3
+
+/** 按条计费且行数随区间增长，缺省日期必须补成确定的区间才估得出积分：与 CLI 相同，结束日缺省为今天（北京），
+ *  起始日缺省为结束日前 365 天。 */
+function forecastRange(body: Record<string, unknown>): Record<string, unknown> {
+  const endDate = (body.endDate as string | undefined) ?? today()
+  const startDate = (body.startDate as string | undefined) ?? new Date(Date.parse(`${endDate}T00:00:00Z`) - 365 * 86_400_000).toISOString().slice(0, 10)
+  // endDate 是本地补的：别让报错点名一个调用方没传的参数。
+  if (body.endDate === undefined && startDate > endDate) throw new ValidationError(`startDate (${startDate}) 晚于今天 (${endDate})：一致预期没有未来日期的数据，请把 startDate 改到今天或之前。`)
+  return { ...body, startDate, endDate }
+}
+
 export const specs: JsonToolSpec[] = [
   statementSpec({
     name: "gangtise_income_statement",
@@ -220,13 +236,20 @@ export const specs: JsonToolSpec[] = [
   {
     name: "gangtise_earning_forecast",
     tier: "core",
-    description: "查询盈利预测一致预期（EPS、PE、净利润、ROE 等）。roe 的单位是百分比（35.6 即 35.6%），不要再做 ÷100 换算——换算后的数字看着仍像个 ROE，不会报错。",
+    description: "查询盈利预测一致预期（EPS、PE、净利润、ROE 等）。roe 的单位是百分比（35.6 即 35.6%），不要再做 ÷100 换算——换算后的数字看着仍像个 ROE，不会报错。日期省略时取截至 endDate（缺省今天）的近一年；每个日期约 3 行（每个预测年度一行），行数随区间增长，发请求前按「工作日数 × 3 条」预估。",
     endpointKey: "fundamental.earning-forecast",
     paginated: false,
     inputSchema: {
       securityCode,
       ...dateRange,
       consensusList: enumList(z.enum(["netIncome", "netIncomeYoy", "eps", "pe", "bps", "pb", "peg", "roe", "ps"])).optional().describe("netIncome=净利润 | netIncomeYoy=净利润增速 | eps | pe | bps | pb | peg | roe | ps"),
+      confirmCost: z.boolean().optional(),
+    },
+    transformBody: forecastRange,
+    call: (client, endpointKey, body) => {
+      const billing = perRowBilling(ENDPOINTS[endpointKey])
+      if (billing) assertWithinCostLimit({ rows: estimateTradingDays(body.startDate as string, body.endDate as string) * FORECAST_ROWS_PER_DATE }, billing, "请缩短日期区间分段取")
+      return client.call(endpointKey, body)
     },
   },
   {

@@ -3,6 +3,6 @@
   "result": {
     "dataId": "mock-data-id",
     "status": "timeout",
-    "hint": "Call gangtise_earnings_review_check with this dataId in ~3 minutes"
+    "hint": "约 1-3 分钟后用 gangtise_earnings_review_check 带这个 dataId 续查；不要重新提交（会再次计费）"
   }
 }

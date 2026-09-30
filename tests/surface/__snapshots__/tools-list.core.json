@@ -1808,8 +1808,7 @@
           "type": "array",
           "items": {
             "type": "string",
-            "minLength": 1,
-            "description": "需用数据中的具体词（如 泡泡玛特），不要用整句白话"
+            "minLength": 1
           },
           "minItems": 1,
           "description": "公众号 ID，来自 gangtise_official_account_search（或本工具此前返回的 accountId）"
@@ -1818,8 +1817,7 @@
           "type": "array",
           "items": {
             "type": "string",
-            "minLength": 1,
-            "description": "需用数据中的具体词（如 泡泡玛特），不要用整句白话"
+            "minLength": 1
           },
           "minItems": 1,
           "description": "证券代码列表，如 ['000001.SZ']"
@@ -1851,8 +1849,7 @@
           "type": "array",
           "items": {
             "type": "string",
-            "minLength": 1,
-            "description": "需用数据中的具体词（如 泡泡玛特），不要用整句白话"
+            "minLength": 1
           },
           "minItems": 1,
           "description": "行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx，全场景首选）"
@@ -2480,7 +2477,7 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 10000,
-          "description": "单次请求最大返回行数（默认 6000，最大 10000）。截取从查询窗口开头开始——取「最近 N 条」须传日期区间；返回行数撞上限时结果标 _partial（可能被截断）；全市场分片时该值作用于每个分片"
+          "description": "单次请求最大返回行数（默认 6000，最大 10000）。截取从查询窗口开头开始——取「最近 N 条」须传日期区间；多只装不下时自动按只分组；分片 / 分组拉取时作用于每一份，撞上限的会标 _partial"
         },
         "fieldList": {
           "type": "array",
@@ -2906,7 +2903,7 @@
   },
   {
     "name": "gangtise_earning_forecast",
-    "description": "查询盈利预测一致预期（EPS、PE、净利润、ROE 等）。roe 的单位是百分比（35.6 即 35.6%），不要再做 ÷100 换算——换算后的数字看着仍像个 ROE，不会报错。【积分：0.5/条】",
+    "description": "查询盈利预测一致预期（EPS、PE、净利润、ROE 等）。roe 的单位是百分比（35.6 即 35.6%），不要再做 ÷100 换算——换算后的数字看着仍像个 ROE，不会报错。日期省略时取截至 endDate（缺省今天）的近一年；每个日期约 3 行（每个预测年度一行），行数随区间增长，发请求前按「工作日数 × 3 条」预估。【积分：0.5/条】",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2941,6 +2938,9 @@
           },
           "minItems": 1,
           "description": "netIncome=净利润 | netIncomeYoy=净利润增速 | eps | pe | bps | pb | peg | roe | ps"
+        },
+        "confirmCost": {
+          "type": "boolean"
         }
       },
       "required": [
@@ -3441,6 +3441,286 @@
           "description": "指定返回字段，省略返回全部；issuerName / announcementDate 恒在最前"
         }
       },
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "gangtise_fund_basic_info",
+    "description": "查询公募基金基本资料（当前资料，无历史快照）：一二级分类、管理人与托管人、成立与存续、运作方式、申赎规则、业绩基准、风险等级、投资范围、跟踪指数。A / C 等份额各有代码，合并成一只基金按 mainFundCode 分组；investTypeCodeLevel1/2 与 gangtise_constant_list 的 fundType 常量一致，层级按常量的 level 判、别按 ID 尾数猜；场外基金 exchange 为 null；investScope 是长文本，批量查时用 fieldList 去掉。【积分：0.4/次】",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "fundCodeList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "基金代码"
+        },
+        "fieldList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "指定返回字段，省略返回全部；fundCode 恒返回，写错名整批报 100003"
+        }
+      },
+      "required": [
+        "fundCodeList"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "gangtise_fund_nav",
+    "description": "查询基金逐交易日净值（按日期倒序）：单位净值 navUnit、累计净值 navAccumulated、复权因子 adjustFactor 与复权净值 navAdjusted（元）。算区间收益用 navAdjusted——单位净值在分红、拆分时跳变。货币基金另有 mmfAnnualizedYield（7 日年化，%）与 mmfUnitYield（每万份收益，元），其 adjustFactor 为 null。多只 × 长区间容易撞 10000 行上限（每只每年约 250 行），按只数分批。【积分：0.4/次】",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "fundCodeList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "基金代码"
+        },
+        "startDate": {
+          "type": "string",
+          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
+        },
+        "endDate": {
+          "type": "string",
+          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
+        }
+      },
+      "required": [
+        "fundCodeList"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "gangtise_fund_manager_info",
+    "description": "按姓名查询基金经理：学历、从业起始日与年限、在管规模（亿元）与只数、历任基金数与公司数、简介。精确匹配，查不到返回空；同名经理全部返回，用 currentCompany 区分（可能为 null）。workingYears / currentCompanyYears 可能与 careerStartDate、简介里的从业年数对不上，需要准确的从业年限时按 careerStartDate 计算。【积分：0.4/次】",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "managerNameList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "基金经理姓名"
+        }
+      },
+      "required": [
+        "managerNameList"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "gangtise_fund_manager_history",
+    "description": "查询基金的历任与现任基金经理：每位经理每段任职一行，同期共管各占一行；endDate 为 null 的是现任。managedDays 任职天数，managedReturn 任职期间回报（%）。【积分：0.4/次】",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "fundCodeList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "基金代码"
+        }
+      },
+      "required": [
+        "fundCodeList"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "gangtise_fund_asset_allocation",
+    "description": "查询基金各报告期资产配置（报告期末基金资产组合）：按资产类型多行，assetType + assetTypeName、holdingValue（元）、pctToTotalAsset（占基金资产总值，不是占净值）。二级是一级的拆分，两级混在一起时别直接加总；没有持有的资产类型可能不出行，按 0 处理。【积分：0.4/次】",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "fundCodeList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "基金代码"
+        },
+        "startDate": {
+          "type": "string",
+          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
+        },
+        "endDate": {
+          "type": "string",
+          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
+        },
+        "assetLevelList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "level1",
+              "level2"
+            ]
+          },
+          "minItems": 1,
+          "description": "level1=一级 | level2=二级，省略两级都返回"
+        }
+      },
+      "required": [
+        "fundCodeList"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "gangtise_fund_stock_portfolio",
+    "description": "查询基金各报告期的股票持仓：持股数（万股）、占流通股比、持仓市值（万元）、占净值比与较上期变化 pctToNavChg。⚠️ 只返回股票简称 stockName、没有代码：要代码用 gangtise_securities_search 按简称换，注意 A / H 同名与改名。【积分：0.4/次】",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "fundCodeList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "基金代码"
+        },
+        "startDate": {
+          "type": "string",
+          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
+        },
+        "endDate": {
+          "type": "string",
+          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
+        },
+        "positionType": {
+          "type": "string",
+          "enum": [
+            "top",
+            "all"
+          ],
+          "description": "top=重仓（各季度都披露，默认）| all=全部持仓（仅中报、年报，季报期为空）"
+        }
+      },
+      "required": [
+        "fundCodeList"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "gangtise_fund_industry_allocation",
+    "description": "查询基金股票持仓的一级行业分布（占净值比）。industryCode 与 gangtise_constant_list 的 swIndustry / citicIndustry 常量一致；两套划分不同，跨基金比较时统一用一套。占比为 0 的行业也可能出现。【积分：0.4/次】",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "fundCodeList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "基金代码"
+        },
+        "startDate": {
+          "type": "string",
+          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
+        },
+        "endDate": {
+          "type": "string",
+          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
+        },
+        "industryStandard": {
+          "type": "string",
+          "enum": [
+            "swIndustry",
+            "citicIndustry"
+          ],
+          "description": "swIndustry=申万一级（默认）| citicIndustry=中信一级"
+        },
+        "positionType": {
+          "type": "string",
+          "enum": [
+            "top",
+            "all"
+          ],
+          "description": "top=重仓（各季度都披露，默认）| all=全部持仓（仅中报、年报，季报期为空）"
+        }
+      },
+      "required": [
+        "fundCodeList"
+      ],
       "additionalProperties": false
     },
     "annotations": {
@@ -4895,7 +5175,7 @@
   },
   {
     "name": "gangtise_indicator_search",
-    "description": "按名称搜索证券级数据指标（EDE），返回 indicatorCode、scopeList（覆盖市场，附 usageRestriction）及 parameterList（含 required 必填标记与枚举）。取数前必先用本工具拿 code，并核对 indicatorName/description 语义、scopeList 是否覆盖目标市场、parameterList 取值——任一不符即回退专用工具。scopeList 是声明不是保证，usageRestriction（如「不支持指标时间序列接口」）也不是硬约束、按「口径可能不对」理解，均以实际抽查为准。基础行情（开高低收/成交量额/换手/涨跌幅）虽可搜到仍优先 realtime/day_kline，但**总市值 qte_mkt_cptl 这两个专用工具都没有、单票也走 EDE**（A/港/美股均已有数，默认「元」，用 scale 缩放）；同样只有 EDE 才有的还包括融资融券 mgn_*（两融余额/融资/融券及其区间变体，仅 A 股；区间变体的 changePeriod 是可选的）；⚠️ **个股资金流向 flow_*（仅 A 股）与 gangtise_fund_flow 返回的是同一套数（逐位相同）**，而后者还多给各档占比字段、并支持全市场——除非要与其他 EDE 指标同批取，否则一律用 gangtise_fund_flow（两边的计价档见各自标签）与所属行业：通用的 scr_indu（一个指标覆盖申万/中信/恒生/GICS 四套，必填 industryType+industryLevel，体系要与市场配对），以及把体系写进编码、只需可选 industryLevel 的 scr_indu_citic / scr_indu_sw / scr_indu_gics；单票完整报表、盈利预测(一致预期)、估值历史分位仍用专用工具（当前 EDE 搜索未覆盖后两类）；EDE 批量优先仅针对多证券取一批已实现财务/估值指标。宏观/行业数据（产量、价格、PMI 等）请改用 gangtise_edb_search，不要猜编码。",
+    "description": "按名称搜索证券级数据指标（EDE），返回 indicatorCode、scopeList（覆盖市场，附 usageRestriction）及 parameterList（含 required 必填标记与枚举）。取数前必先用本工具拿 code，并核对 indicatorName/description 语义、scopeList 是否覆盖目标市场、parameterList 取值——任一不符即回退专用工具。scopeList 是声明不是保证，usageRestriction（如「不支持指标时间序列接口」）也不是硬约束、按「口径可能不对」理解，均以实际抽查为准。基础行情（开高低收/成交量额/换手/涨跌幅）虽可搜到仍优先 realtime/day_kline，但**总市值 qte_mkt_cptl 这两个专用工具都没有、单票也走 EDE**（A/港/美股均已有数，默认「元」，用 scale 缩放）；同样只有 EDE 才有的还包括融资融券 mgn_*（两融余额/融资/融券及其区间变体，仅 A 股；区间变体的 changePeriod 是可选的）与所属行业：通用的 scr_indu（一个指标覆盖申万/中信/恒生/GICS 四套，必填 industryType+industryLevel，体系要与市场配对），以及把体系写进编码、只需可选 industryLevel 的 scr_indu_citic / scr_indu_sw / scr_indu_gics；⚠️ **个股资金流向 flow_*（仅 A 股）与 gangtise_fund_flow 返回的是同一套数（逐位相同）**，而后者还多给各档占比字段、并支持全市场——除非要与其他 EDE 指标同批取，否则一律用 gangtise_fund_flow（两边的计价档见各自标签）；单票完整报表、盈利预测(一致预期)、估值历史分位仍用专用工具（当前 EDE 搜索未覆盖后两类）；EDE 批量优先仅针对多证券取一批已实现财务/估值指标。宏观/行业数据（产量、价格、PMI 等）请改用 gangtise_edb_search，不要猜编码。",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -5175,7 +5455,7 @@
   },
   {
     "name": "gangtise_indicator_screener",
-    "description": "条件选股：把变量绑到指标（F1=某指标、F2=另一指标），再用 expression 组合筛选，从证券/板块范围里筛出命中的股票。返回宽表：每命中证券一行、每绑定指标一列（无 date 列）。指标代码来自 gangtise_indicator_search。这是唯一能按指标数值筛股的工具（专用工具都不支持），典型用法：给 securityCodeList 传一个板块 sectorId（服务端展开为全部成分股）再按市值/PE 筛。支持数值比较（>= <= > < == !=）与文本匹配 contains/notcontains（仅 dataType: string 的指标）。零命中返回空表，不是报错。🔴 **但空表有两种同形的假阴性，载荷与「确实没有股票符合条件」逐字相同**：① **日期没落在报告期末**——报告期类指标在非期末日期上整列是 `null`；② **该指标不覆盖所查市场或证券类型**——覆盖面见 gangtise_indicator_search 返回的 scopeList（如预测类 frcst_* 只覆盖 A 股，用它筛港股/美股就是这种情形）。两种情形整列都是占位（取不到数时唯一的占位值是 `null`，不会填数值 0），而 **null 不满足任何数值比较**，条件因此恒假。判别方法二选一：把表达式**反向再跑一次**（`F1 > 0` 与 `F1 < 一个极大值` 同时返 0 行 = 恒假，不是真无匹配），或先用 gangtise_indicator_cross_section 取回该列看是不是全 `null`。🔴 **报告期类指标（营收/净利等）必须按变量传 reportDate 且值为报告期末**：它们拒收 date 下发的 tradeDate 并直接报错，补 { indicatorCode: 'F1', parameters: [{ paramKey: 'reportDate', ... }] } 即可。按单元格计价，指标数×证券数即放大倍数，单次上限 10 万单元格；板块 ID 由服务端展开成全部成分股，实际证券数可远大于传入条数。【积分：按所选指标】",
+    "description": "条件选股：把变量绑到指标（F1=某指标、F2=另一指标），再用 expression 组合筛选，从证券/板块范围里筛出命中的股票。返回宽表：每命中证券一行、每绑定指标一列（无 date 列）。指标代码来自 gangtise_indicator_search。这是唯一能按指标数值筛股的工具（专用工具都不支持），典型用法：给 securityCodeList 传一个板块 sectorId（服务端展开为全部成分股）再按市值/PE 筛。支持数值比较（>= <= > < == !=）与文本匹配 contains/notcontains（仅 dataType: string 的指标）。零命中返回空表，不是报错。🔴 **但空表有两种同形的假阴性，载荷与「确实没有股票符合条件」逐字相同**：① **日期没落在报告期末**——报告期类指标在非期末日期上整列是 `null`；② **该指标不覆盖所查市场或证券类型**——覆盖面见 gangtise_indicator_search 返回的 scopeList（如预测类 frcst_* 只覆盖 A 股，用它筛港股/美股就是这种情形）。两种情形整列都是占位（取不到数时唯一的占位值是 `null`，不会填数值 0），而 **null 不满足任何数值比较**，条件因此恒假。判别方法二选一：把表达式**反向再跑一次**（`F1 > 0` 与 `F1 < 一个极大值` 同时返 0 行 = 恒假，不是真无匹配），或先用 gangtise_indicator_cross_section 取回该列看是不是全 `null`。🔴 **报告期类指标（营收/净利等）必须按变量传 reportDate 且值为报告期末**：它们拒收 date 下发的 tradeDate 并直接报错，在该变量的绑定里补 parameters 即可，如 { field: 'F1', indicatorCode: 'is_op_rev', parameters: [{ paramKey: 'reportDate', paramValue: '2025-12-31' }] }。按单元格计价，指标数×证券数即放大倍数，单次上限 10 万单元格；板块 ID 由服务端展开成全部成分股，实际证券数可远大于传入条数。【积分：按所选指标】",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -5249,7 +5529,7 @@
         "date": {
           "type": "string",
           "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$",
-          "description": "YYYY-MM-DD（必填）。无条件下发为每个变量的 tradeDate（已在 parameters 里声明 tradeDate/reportDate 的变量保留自己的）。绑的指标吃 reportDate 时，本参数下发的 tradeDate 会被该指标拒收并报错——按变量在 parameters 里补 reportDate"
+          "description": "YYYY-MM-DD（必填）。下发为每个变量的 tradeDate（已在 parameters 里声明 tradeDate/reportDate 的变量保留自己的，标了 noQueryDate 的变量不下发）。绑的指标吃 reportDate 时，本参数下发的 tradeDate 会被该指标拒收并报错——按变量在 parameters 里补 reportDate"
         }
       },
       "required": [
@@ -5352,13 +5632,13 @@
         "offset": {
           "type": "integer",
           "minimum": 0,
-          "description": "起始条目索引（从 0 开始），默认 0"
+          "description": "起始位置（从 0 开始），默认 0：列表按条目计；纯文本与大对象按字符计，续读用返回的 next_offset"
         },
         "limit": {
           "type": "integer",
           "minimum": 1,
           "maximum": 500,
-          "description": "本次返回的条目数，默认 50，最大 500"
+          "description": "列表每次返回的条目数，默认 50，最大 500；对纯文本与大对象无效"
         },
         "fields": {
           "type": "array",

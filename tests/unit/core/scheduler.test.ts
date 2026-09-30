@@ -98,3 +98,30 @@ describe("CALL_LIMITS", () => {
     expect(CALL_LIMITS).toEqual({ maxPages: 1000, maxShards: 180 })
   })
 })
+
+// 名额分开还不够，连接也要分开：同源的慢下载曾与查询共用一个 Agent，占满每源的连接后查询在 undici 内部排队。
+// 16 个下载直接由 API 源应答、各拖 400ms，期间发一次证券搜索——它必须先于任何一个下载返回。
+describe("download and query connection pools", () => {
+  it("lets a query through while same-origin downloads hold every download connection", async () => {
+    const { startHarness } = await import("../../helpers/harness.js")
+    const h = await startHarness()
+    try {
+      let started = 0
+      let allStarted = () => {}
+      const ready = new Promise<void>((resolve) => { allStarted = resolve })
+      h.upstream.setResponder((req) => {
+        if (req.endpoint !== "insight.research.download") return undefined
+        if (++started === 16) allStarted()
+        return { status: 200, headers: { "content-type": "text/plain" }, text: "download content", delayMs: 400 }
+      })
+      const order: string[] = []
+      const downloads = Promise.all(Array.from({ length: 16 }, (_, i) => h.call("gangtise_download", { kind: "research", id: `r-${i}` }).then(() => order.push("download"))))
+      await ready
+      await h.call("gangtise_securities_search", { keyword: "茅台" }).then(() => order.push("search"))
+      await downloads
+      expect(order[0]).toBe("search")
+    } finally {
+      await h.close()
+    }
+  })
+})

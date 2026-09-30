@@ -1025,3 +1025,14 @@ describe("read-back caches the per-file row-shape scan", () => {
     expect(r.isError).toBe(true)
   })
 })
+
+// offset / limit 的说明曾只讲「条目」：读纯文本与大对象时实际按字符偏移、limit 无效。
+describe("gangtise_read_response parameter descriptions", () => {
+  it("says offset counts characters for text and large objects, and limit only applies to lists", async () => {
+    const client = await makeConnectedPair()
+    const tool = (await client.listTools()).tools.find((t) => t.name === "gangtise_read_response")!
+    const props = tool.inputSchema.properties as Record<string, { description?: string }>
+    expect(props.offset.description).toMatch(/纯文本[^；。]*按字符/)
+    expect(props.limit.description).toMatch(/对纯文本[^；。]*无效/)
+  })
+})

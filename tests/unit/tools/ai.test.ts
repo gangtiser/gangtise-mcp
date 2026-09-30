@@ -436,5 +436,25 @@ describe("async submit with a malformed response", () => {
     const text = (result as { content: Array<{ text: string }> }).content[0].text
     expect(text).toContain("dataId")
     expect(text).not.toContain("Cannot read properties")
+    // 提交已被受理（可能已计费）：不能让模型「重试」——那是再提交一次、再计一次费。
+    expect(text).toContain("不要直接重新提交")
+    expect(text).not.toMatch(/请重试/)
+  })
+
+  // 等待到期的续查提示：中文、间隔与 _check 描述一致、写明不要重新提交。
+  it("hands back a timeout hint that points at _check and forbids resubmitting", async () => {
+    const client = {
+      call: vi.fn().mockResolvedValue({ dataId: "d-1" }),
+      download: vi.fn(),
+    } as unknown as GangtiseClient
+    const mcp = await connect(client)
+    const result = await mcp.callTool({
+      name: "gangtise_earnings_review",
+      arguments: { securityCode: "600519.SH", period: "2025q3", waitSeconds: 0 },
+    })
+    const parsed = JSON.parse((result as { content: Array<{ text: string }> }).content[0].text) as { status: string; hint: string }
+    expect(parsed.status).toBe("timeout")
+    expect(parsed.hint).toMatch(/1-3 分钟后用 gangtise_earnings_review_check/)
+    expect(parsed.hint).toContain("不要重新提交")
   })
 })

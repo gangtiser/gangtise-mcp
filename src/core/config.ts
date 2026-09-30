@@ -112,6 +112,12 @@ export interface CliConfig {
   tools?: string
 }
 
+/** 设成空串（或只有空白）的变量按未设置处理：MCP 配置模板里常把可选项留成 `""`，`GANGTISE_BASE_URL: ""`
+ *  若原样生效，每个请求都会发往空地址。有值时去掉首尾空白（粘贴进配置时常带上）。 */
+function envValue(name: string): string | undefined {
+  return process.env[name]?.trim() || undefined
+}
+
 export function loadConfig(): CliConfig {
   const timeoutValue = process.env.GANGTISE_TIMEOUT_MS
   const timeoutMs = resolveTimeoutMs(timeoutValue)
@@ -126,12 +132,12 @@ export function loadConfig(): CliConfig {
   const asyncTimeoutMs = asyncTimeoutValue ? Number(asyncTimeoutValue) : DEFAULT_ASYNC_TIMEOUT_MS
 
   return {
-    baseUrl: process.env.GANGTISE_BASE_URL ?? DEFAULT_BASE_URL,
+    baseUrl: envValue("GANGTISE_BASE_URL") ?? DEFAULT_BASE_URL,
     timeoutMs,
-    accessKey: process.env.GANGTISE_ACCESS_KEY,
-    secretKey: process.env.GANGTISE_SECRET_KEY,
-    token: process.env.GANGTISE_TOKEN,
-    tokenCachePath: process.env.GANGTISE_TOKEN_CACHE_PATH ?? DEFAULT_TOKEN_CACHE_PATH,
+    accessKey: envValue("GANGTISE_ACCESS_KEY"),
+    secretKey: envValue("GANGTISE_SECRET_KEY"),
+    token: envValue("GANGTISE_TOKEN"),
+    tokenCachePath: envValue("GANGTISE_TOKEN_CACHE_PATH") ?? DEFAULT_TOKEN_CACHE_PATH,
     asyncTimeoutMs: Number.isFinite(asyncTimeoutMs) && asyncTimeoutMs > 0 ? asyncTimeoutMs : DEFAULT_ASYNC_TIMEOUT_MS,
     maxDownloadBytes: resolveMaxDownloadBytes(process.env.GANGTISE_MAX_DOWNLOAD_BYTES),
     tools: process.env.GANGTISE_MCP_TOOLS,

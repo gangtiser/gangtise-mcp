@@ -34,6 +34,9 @@ export const fundamentalExamples: ToolExamples = {
   ],
   gangtise_earning_forecast: [
     { title: "一致预期", args: { securityCode: "600519.SH", consensusList: ["eps", "pe"], startDate: "2026-01-01", endDate: "2026-09-01" }, expect: { requests: [{ method: "POST", path: "/application/open-fundamental/earning-forecast", body: { securityCode: "600519.SH", startDate: "2026-01-01", endDate: "2026-09-01", consensusList: ["eps", "pe"] } }] } },
+    { title: "只给 endDate：起点补成前 365 天", args: { securityCode: "600519.SH", endDate: "2026-09-01" }, expect: { requests: [{ method: "POST", path: "/application/open-fundamental/earning-forecast", body: { securityCode: "600519.SH", startDate: "2025-09-01", endDate: "2026-09-01" } }] } },
+    { title: "长区间按工作日 × 3 条预估超阈值：零请求拒绝", args: { securityCode: "600519.SH", startDate: "2016-01-01", endDate: "2026-09-01" }, expect: { rejects: /本次预计取 \d+ 条（0\.5 积分\/条）.*超过积分预估保护/ } },
+    { title: "confirmCost 放行，且不进请求体", args: { securityCode: "600519.SH", startDate: "2016-01-01", endDate: "2026-09-01", confirmCost: true }, expect: { requests: [{ method: "POST", path: "/application/open-fundamental/earning-forecast", body: { securityCode: "600519.SH", startDate: "2016-01-01", endDate: "2026-09-01" } }] } },
   ],
   gangtise_income_statement_hk: [
     { title: "港股：reportType 照常下发", args: { securityCode: "00700.HK", period: ["h1"], reportType: ["consolidatedRestated"] }, expect: { requests: [{ method: "POST", path: "/application/open-fundamental/financial-report/income-statement/hk", body: { securityCode: "00700.HK", period: ["h1"], reportType: ["consolidatedRestated"] } }] } },

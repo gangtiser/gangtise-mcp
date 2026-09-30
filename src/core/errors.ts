@@ -291,6 +291,14 @@ export const MESSAGE_HINTS: Array<{
     when: oneShape,
     hint: "本工具这次没给该指标注入 date 的 tradeDate——因为你给它显式传了 reportDate/tradeDate，或者给它加了 noQueryDate: true，两者都会关掉注入。对症改：该指标若两个日期都必填，就在同一个 indicatorParamList 条目的 parameters 里把 tradeDate 也写上（{ paramKey: 'tradeDate', paramValue: 'YYYY-MM-DD' }）；若是 noQueryDate 加错了指标，删掉它即可。必填项以 gangtise_indicator_search 返回的 parameterList 为准。" + MULTI_NOTE,
   },
+  {
+    // 终态失败但 msg 只说「业务处理失败」：与入参无关，按码给的「改参数」会让人去找一个不存在的参数错误，
+    // 改完再提交、再计费一次。
+    // 只认整句：「业务处理失败：缺少必填参数 X」这类带具体诊断的消息说的恰恰是参数，仍走按码的提示。
+    codes: ["140002", "410111"],
+    all: [/^\s*业务处理失败[。.!！]?\s*$/],
+    hint: "这是终态失败，但与参数无关——不要为此改参数；立即重试同一请求、重查同一 dataId 结果都不会变。异步生成类稍后确有需要再提交（会再次计费）；持续出现请带上 trace 报障。",
+  },
 ]
 
 export class ApiError extends CliError {

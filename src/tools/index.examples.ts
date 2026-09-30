@@ -6,6 +6,7 @@ import { insightExamples } from "./insight.examples.js"
 import { quoteExamples } from "./quote.examples.js"
 import { fundamentalExamples } from "./fundamental.examples.js"
 import { bondExamples } from "./bond.examples.js"
+import { fundExamples } from "./fund.examples.js"
 import { aiExamples } from "./ai.examples.js"
 import { vaultExamples } from "./vault.examples.js"
 import { downloadExamples } from "./download.examples.js"
@@ -23,6 +24,7 @@ export const EXAMPLES: ToolExamples = {
   ...quoteExamples,
   ...fundamentalExamples,
   ...bondExamples,
+  ...fundExamples,
   ...aiExamples,
   ...vaultExamples,
   ...downloadExamples,

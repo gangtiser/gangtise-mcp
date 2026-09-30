@@ -1,0 +1,6 @@
+{
+  "list": [
+    { "fundCode": "005827.OF", "fundName": "易方达蓝筹精选混合", "reportDate": "2026-06-30", "holderCount": "2,219,140", "sharesPerHolder": 6023.47, "sharesInstitution": 104429292.35, "pctInstitution": 0.78, "sharesIndividual": 13262498556.2, "pctIndividual": 99.22, "sharesEmployee": 8544761.74, "pctEmployee": 0.06 },
+    { "fundCode": "510300.SH", "fundName": "华泰柏瑞沪深300ETF", "reportDate": "2026-06-30", "holderCount": "511,881", "sharesPerHolder": 172859.4, "sharesInstitution": null, "pctInstitution": null, "sharesIndividual": null, "pctIndividual": null, "sharesEmployee": null, "pctEmployee": null }
+  ]
+}

@@ -1,6 +1,6 @@
-tools: 89
-tools/list bytes: 145968
-instructions bytes: 2970
+tools: 96
+tools/list bytes: 152914
+instructions bytes: 3519
 
    396  gangtise_current_date
    763  gangtise_lookup
@@ -25,7 +25,7 @@ instructions bytes: 2970
   1561  gangtise_announcement_list
   2751  gangtise_foreign_opinion_list
   1581  gangtise_independent_opinion_list
-  2362  gangtise_official_account_list
+  2092  gangtise_official_account_list
   2292  gangtise_qa_list
   1777  gangtise_highlight_list
   1024  gangtise_report_image_list
@@ -41,7 +41,7 @@ instructions bytes: 2970
   2273  gangtise_cash_flow
   1480  gangtise_main_business
   1030  gangtise_top_holders
-   983  gangtise_earning_forecast
+  1210  gangtise_earning_forecast
   1582  gangtise_valuation_analysis
    989  gangtise_bond_basic_info
   1028  gangtise_bond_daily_quote
@@ -52,6 +52,13 @@ instructions bytes: 2970
   1358  gangtise_bond_issuer_info
   1208  gangtise_bond_rating_change
   1201  gangtise_bond_issuer_rating_change
+  1099  gangtise_fund_basic_info
+  1015  gangtise_fund_nav
+   814  gangtise_fund_manager_info
+   601  gangtise_fund_manager_history
+  1062  gangtise_fund_asset_allocation
+  1023  gangtise_fund_stock_portfolio
+  1132  gangtise_fund_industry_allocation
    886  gangtise_stock_summary
   1826  gangtise_knowledge_batch
   1479  gangtise_security_clue_list
@@ -88,6 +95,6 @@ instructions bytes: 2970
   2346  gangtise_indicator_search
   7623  gangtise_indicator_cross_section
   6234  gangtise_indicator_time_series
-  8653  gangtise_indicator_screener
+  8766  gangtise_indicator_screener
   2013  gangtise_web_search
-  1147  gangtise_read_response
+  1270  gangtise_read_response

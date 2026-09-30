@@ -155,9 +155,11 @@ export const insightExamples: ToolExamples = {
     { title: "旧键 startTime 被 strict 拒绝", args: { startTime: "2026-07-20" }, expect: { rejects: /Unrecognized key.*startTime/ } },
     { title: "无强约束 fetchAll 本地拒绝", args: { marketList: ["aShares"], fetchAll: true }, expect: { rejects: /缺少强约束/ } },
     { title: "仅 securityList + fetchAll 放行（1000 行封顶由响应 fixture 覆盖）", args: { securityList: ["600519.SH"], fetchAll: true }, expect: { requests: [{ method: "POST", path: "/application/open-insight/schedule/performance-calendar/getList", body: { securityList: ["600519.SH"], size: 50, from: 0 } }] } },
-    { title: "仅日期区间 + fetchAll 先探 total 再取", args: { startDate: "2026-07-20", endDate: "2026-07-26", fetchAll: true }, expect: { requests: [
-        { method: "POST", path: "/application/open-insight/schedule/performance-calendar/getList", body: { startDate: "2026-07-20", endDate: "2026-07-26", from: 0, size: 1 } },
+    { title: "仅日期区间 + fetchAll 直接翻页，不另设行数上限", args: { startDate: "2026-07-20", endDate: "2026-07-26", fetchAll: true }, expect: { requests: [
         { method: "POST", path: "/application/open-insight/schedule/performance-calendar/getList", body: { startDate: "2026-07-20", endDate: "2026-07-26", from: 0, size: 50 } },
+      ] } },
+    { title: "覆盖全库的日期区间由积分预估保护拦下", args: { startDate: "2023-11-15", endDate: "2026-10-01", fetchAll: true }, upstream: paged(126_722), expect: { rejects: /预计取 50000 条（0\.1 积分\/条），约 5000 积分.*confirmCost: true/, requests: [
+        { method: "POST", path: "/application/open-insight/schedule/performance-calendar/getList", body: { startDate: "2023-11-15", endDate: "2026-10-01", from: 0, size: 50 } },
       ] } },
   ],
 }

@@ -10,9 +10,20 @@ export const POOL_CONNECTIONS = Math.max(16, PAGE_CONCURRENCY, GLOBAL_CONCURRENC
 
 let cachedDispatcher: Dispatcher | null = null
 
+let cachedTransferAgent: Dispatcher | null = null
+
 let cachedDownloadDispatcher: Dispatcher | null = null
 
-/** 下载族专用：在共享的连接池上叠一层 redirect 拦截器。
+const agentOptions = { keepAliveTimeout: 60_000, keepAliveMaxTimeout: 600_000, connections: POOL_CONNECTIONS, pipelining: 1 }
+
+/** 下载与上传自己的连接池。它们另有一组并发名额（scheduler.ts 的 withDownloadSlot），却曾与查询共用同一个
+ *  Agent：同源的慢下载占满每源的连接，查询就在 undici 内部排队，名额分开也白分。 */
+export function getTransferAgent(): Dispatcher {
+  if (!cachedTransferAgent) cachedTransferAgent = new Agent(agentOptions)
+  return cachedTransferAgent
+}
+
+/** 下载族专用：在传输连接池上叠一层 redirect 拦截器。
  *
  * 🔴 只给下载开，不给 JSON 开：JSON 端点不应该重定向，那里出现 30x 是异常信号，
  * 静默跟随会把它藏起来。下载则相反 —— 对象存储的签名 URL 常用 30x，不跟随时客户端会把
@@ -23,19 +34,14 @@ let cachedDownloadDispatcher: Dispatcher | null = null
  * 跳数 3，与 gangtise CLI 一致。 */
 export function getDownloadDispatcher(): Dispatcher {
   if (!cachedDownloadDispatcher) {
-    cachedDownloadDispatcher = getDispatcher().compose(interceptors.redirect({ maxRedirections: 3 }))
+    cachedDownloadDispatcher = getTransferAgent().compose(interceptors.redirect({ maxRedirections: 3 }))
   }
   return cachedDownloadDispatcher
 }
 
 export function getDispatcher(): Dispatcher {
   if (!cachedDispatcher) {
-    cachedDispatcher = new Agent({
-      keepAliveTimeout: 60_000,
-      keepAliveMaxTimeout: 600_000,
-      connections: POOL_CONNECTIONS,
-      pipelining: 1,
-    })
+    cachedDispatcher = new Agent(agentOptions)
   }
   return cachedDispatcher
 }
@@ -221,11 +227,18 @@ export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions =
   const maxDelay = options.maxDelayMs ?? 4_000
   const policy = options.policy ?? "default"
   let attempt = 0
+  let tokenReplayed = false
 
   while (true) {
     try {
       return await fn()
     } catch (error) {
+      // 换了 token 的重放（http.ts 的鉴权自愈）：不占重试次数、不退避——先遇到的限流不该把它耗掉。只免一次：
+      // 本函数是通用的，调用方若反复标记可重放，之后按普通重试计次，不会空转。
+      if (!tokenReplayed && (error as { __retryable?: boolean } | null)?.__retryable === true && !options.signal?.aborted) {
+        tokenReplayed = true
+        continue
+      }
       if (attempt >= retries || options.signal?.aborted || !isRetryableError(error, policy)) throw error
       const delay = computeRetryDelay(error, attempt, baseDelay, maxDelay)
       options.onRetry?.(attempt + 1, error, delay)

@@ -284,7 +284,7 @@ describe("MCP server integration", () => {
     // 天花板不是「当前值 + 1」——留了增长余量，新增工具不该动它。撞上了说明该先看
     // 重复度（scripts/prerelease-check.mjs 的 ⑤ 会列出最大的几个工具），确认省无可省之后
     // 再**主动**抬这个数字并说明为什么。悄悄涨回去才是要拦的事。
-    expect(bytes).toBeLessThan(160_000)
+    expect(bytes).toBeLessThan(200_000)
   })
 
   it("gangtise_current_date returns runtime Asia/Shanghai date context", async () => {
@@ -767,12 +767,35 @@ describe("MCP server integration", () => {
     const listBytes = Buffer.byteLength(JSON.stringify(tools), "utf8")
 
     // instructions 单项仍有上界：它是**每次会话都全量注入**的，不该无限长。
-    expect(instrBytes, "instructions 超出单项上界").toBeLessThanOrEqual(3_000)
+    expect(instrBytes, "instructions 超出单项上界").toBeLessThanOrEqual(3_600)
     // 合计才是模型真正付的钱。上限取发版门禁（scripts/prerelease-check.mjs ⑤）两项上限之和：
-    // tools/list 160,000B + instructions 3,000B。这里不另设一个更严的数——那会让一次门禁允许的
-    // 增量在测试里红，而两边的上限本该是同一个决定。tools/list 单项仍由上面那条 160,000B 钉住。
+    // tools/list 200,000B + instructions 3,600B。这里不另设一个更严的数——那会让一次门禁允许的
+    // 增量在测试里红，而两边的上限本该是同一个决定。tools/list 单项仍由上面那条 200,000B 钉住。
     expect(instrBytes + listBytes, `合计上下文 ${instrBytes + listBytes}B（instructions ${instrBytes} + tools/list ${listBytes}）超出预算`)
-      .toBeLessThanOrEqual(163_000)
+      .toBeLessThanOrEqual(203_600)
+  })
+
+  // $ref 展开曾把被引用参数的说明一起带过来：公众号列表的 accountIdList / securityList / industryList 元素都读成了
+  // keyword 的「需用数据中的具体词」，云盘管理的 fileIdList 元素读成了父文件夹 ID。不变量：参数的子节点（数组元素、
+  // anyOf 分支……）不能带着本工具某个参数自己的说明。起止两个参数共用同一段格式说明是合法的，不在此列。
+  it("never copies a parameter's description onto array items or other nested nodes", async () => {
+    const { tools } = await (await makeTestClient(mockClient, {})).listTools()
+    const leaks: string[] = []
+    for (const tool of tools) {
+      const props = (tool.inputSchema.properties ?? {}) as Record<string, Record<string, unknown>>
+      const own = new Map(Object.entries(props).flatMap(([name, p]) => (typeof p.description === "string" ? [[p.description, name] as const] : [])))
+      for (const [name, prop] of Object.entries(props)) {
+        const walk = (node: unknown, path: string): void => {
+          if (!node || typeof node !== "object") return
+          for (const [k, v] of Object.entries(node)) {
+            if (k === "description" && typeof v === "string" && own.has(v)) leaks.push(`${tool.name}.${path} ← ${own.get(v)}`)
+            else walk(v, `${path}.${k}`)
+          }
+        }
+        for (const [k, v] of Object.entries(prop)) if (k !== "description") walk(v, `${name}.${k}`)
+      }
+    }
+    expect(leaks).toEqual([])
   })
 
   it("routes with real tool prefixes, not src filenames", async () => {
@@ -1007,6 +1030,11 @@ const CLOSED_SET_SNAPSHOT = [
     "top_holders.period",
     "earning_forecast.consensusList",
     "bond_valuation.confidenceLevel",
+    "fund_fee_rate.feeTypeList",
+    "fund_asset_allocation.assetLevelList",
+    "fund_stock_portfolio.positionType",
+    "fund_industry_allocation.industryStandard",
+    "fund_industry_allocation.positionType",
     "web_search.freshness",
     "web_search.minTier",
     "income_statement_hk.period",

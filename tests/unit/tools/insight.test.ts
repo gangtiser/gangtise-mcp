@@ -150,8 +150,6 @@ describe("gangtise_performance_calendar_list fetchAll guardrail", () => {
     } as unknown as GangtiseClient
   }
 
-  // 🔴 读**最后一次**调用，不是第一次：只靠日期区间放开行数闸门时，本工具会先发一次
-  // `size: 1` 的 total 探针（见 probeFilteredTotal），真正的请求排在它后面。
   function bodyOf(client: GangtiseClient) {
     const calls = (client.call as unknown as { mock: { calls: unknown[][] } }).mock.calls
     return calls[calls.length - 1][1] as Record<string, unknown>
@@ -711,42 +709,25 @@ describe("regionList closed sets differ per endpoint", () => {
   })
 })
 
-// 🔴 「给了一对日期」不等于「加了约束」。
-// 上一版在这里放了「跨度 ≤ 25 年就算强约束」的常数，那个判据是**假的**：本库真实跨度
-// 只有约 1052 天，25 年是它的 8.7 倍，于是一个覆盖全库的完整区间照样被判成强约束，
-// 行数闸门整个放开、可拉满 5 万行 ≈ 5000 积分。**拍一个「远大于任何真实查询」的阈值，
-// 恰恰保证了它拦不住任何东西。** 现在改成用一次 size:1 探针问服务端要 total。
-describe("performance calendar: a date range must actually narrow the result", () => {
+// 只靠日期区间放开行数闸门时不另设上限：覆盖全库的区间拉多少、花多少由真实 client 分页层的积分预估保护
+// 按 total 判（见 insight.examples.ts「覆盖全库的日期区间由积分预估保护拦下」）。本组只钉「不再多发探针」。
+describe("performance calendar: a full date range goes straight to paging", () => {
   const clientWith = (total: number) => ({
     call: vi.fn(async () => ({ total, list: Array.from({ length: Math.min(total, 3) }, (_, i) => ({ performanceReportId: String(i) })) })),
     download: vi.fn(),
   } as unknown as GangtiseClient)
 
-  it("rejects a wide-open range whose total is still library-sized", async () => {
-    const client = clientWith(126722)
+  it("sends fetchAll with a date range as one paged call, without a size:1 probe", async () => {
+    const client = clientWith(1740)
     const mcp = await connect(client)
     const result = await mcp.callTool({
       name: "gangtise_performance_calendar_list",
-      arguments: { fetchAll: true, startDate: "2023-11-15", endDate: "2026-10-01" },
-    })
-    expect(result.isError, "覆盖全库的区间不该放开行数闸门").toBe(true)
-    expect((result.content as Array<{ text: string }>)[0].text).toMatch(/没有把结果收窄/)
-    // 只发了探针，没有发那个会拉满 5 万行的真请求
-    const calls = (client.call as ReturnType<typeof vi.fn>).mock.calls
-    expect(calls).toHaveLength(1)
-    expect(calls[0][1].size).toBe(1)
-  })
-
-  it("allows a range that genuinely narrows", async () => {
-    const client = clientWith(42)
-    const mcp = await connect(client)
-    const result = await mcp.callTool({
-      name: "gangtise_performance_calendar_list",
-      arguments: { fetchAll: true, startDate: "2026-07-20", endDate: "2026-07-25" },
+      arguments: { fetchAll: true, startDate: "2026-08-01", endDate: "2026-08-07" },
     })
     expect(result.isError).toBeFalsy()
     const calls = (client.call as ReturnType<typeof vi.fn>).mock.calls
-    expect(calls.length).toBeGreaterThan(1)   // 探针 + 真请求
+    expect(calls).toHaveLength(1)
+    expect(calls[0][1].size).toBeUndefined()
   })
 
   it("does not probe at all for a normal-sized request", async () => {

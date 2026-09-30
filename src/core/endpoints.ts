@@ -8,6 +8,7 @@ import { vaultEndpoints } from "../tools/vault.endpoints.js"
 import { alternativeEndpoints } from "../tools/alternative.endpoints.js"
 import { indicatorEndpoints } from "../tools/indicator.endpoints.js"
 import { bondEndpoints } from "../tools/bond.endpoints.js"
+import { fundEndpoints } from "../tools/fund.endpoints.js"
 import { toolEndpoints } from "../tools/tool.endpoints.js"
 
 /** 公布的单价。它同时是工具描述里积分标签的来源（mcp/billing.ts 渲染）与重试守卫的依据
@@ -125,7 +126,7 @@ const coreEndpoints: EndpointTable = {
 }
 
 /** 各族的端点表在族旁的 `tools/<族>.endpoints.ts` 里（只含数据）；这里按注册顺序汇总，补上 `key`。 */
-const TABLES: EndpointTable[] = [coreEndpoints, lookupEndpoints, insightEndpoints, referenceEndpoints, quoteEndpoints, fundamentalEndpoints, bondEndpoints, aiEndpoints, vaultEndpoints, alternativeEndpoints, indicatorEndpoints, toolEndpoints]
+const TABLES: EndpointTable[] = [coreEndpoints, lookupEndpoints, insightEndpoints, referenceEndpoints, quoteEndpoints, fundamentalEndpoints, bondEndpoints, fundEndpoints, aiEndpoints, vaultEndpoints, alternativeEndpoints, indicatorEndpoints, toolEndpoints]
 
 export const ENDPOINTS: Record<string, EndpointDefinition> = {}
 for (const table of TABLES) {

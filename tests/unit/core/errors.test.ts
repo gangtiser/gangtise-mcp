@@ -119,6 +119,16 @@ describe("2026-07-17 三层错误码", () => {
   it.each(["410111", "140002"])("warns that resubmitting %s re-bills", (code) => {
     expect(hintOf(code)).toContain("计费")
   })
+
+  // 「业务处理失败」与参数无关：不能再让人去改参数重新提交。
+  it.each(["410111", "140002"])("does not blame the parameters when %s only says 业务处理失败", (code) => {
+    const hint = new ApiError("业务处理失败", code).hint ?? ""
+    expect(hint).toMatch(/与参数无关/)
+    expect(hint).toContain("计费")
+    expect(new ApiError("参数 securityCode 无效", code).hint).toBe(hintOf(code))
+    // 带具体诊断的消息说的恰恰是参数：不能套「与参数无关」
+    expect(new ApiError("业务处理失败：缺少必填参数 fiscalYear", code).hint).toBe(hintOf(code))
+  })
 })
 
 // traceId 是 Gangtise 侧唯一能回溯一次失败的抓手。

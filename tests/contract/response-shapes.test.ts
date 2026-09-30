@@ -132,6 +132,12 @@ const SCENARIOS: Scenario[] = [
     return { data: { fieldList: ["announcementDate", "securityCode", "title"], list: Array.from({ length: [2, 1][pageNo - 1] ?? 0 }, (_, i) => ["2026-09-01", "019742", `公告 ${pageNo}-${i}`]) } }
   }) },
   // 债券公告 fetchAll 遇到 {total: 0, list: null}：与其他分页路径一样是合法空页，翻页到此结束、不标失败页。
+  // 基金：`{list}` 对象行、没有 total、不分页；户数是带千分位逗号的字符串（原样透出，描述里警示）。
+  { name: "fund-object-rows-no-total", tool: "gangtise_fund_holder_structure", args: { fundCodeList: ["005827.OF", "510300.SH"], startDate: "2026-06-30", endDate: "2026-06-30" }, upstream: on("fund.holder-structure", () => ({ data: fixture("fund-holder-structure") })) },
+  // 基金查不到返回 `{list: []}`：零行提示按工具给（持仓类带 positionType，经理信息按姓名）。
+  { name: "fund-empty-stock-portfolio", tool: "gangtise_fund_stock_portfolio", args: { fundCodeList: ["005827"], positionType: "all" }, upstream: on("fund.stock-portfolio", () => ({ data: { list: [] } })) },
+  { name: "fund-empty-manager-info", tool: "gangtise_fund_manager_info", args: { managerNameList: ["张三丰"] }, upstream: on("fund.manager-info", () => ({ data: { list: [] } })) },
+  { name: "fund-empty-etf-pcf", tool: "gangtise_fund_etf_pcf_components", args: { fundCodeList: ["005827.OF"] }, upstream: on("fund.etf-pcf-components", () => ({ data: { list: [] } })) },
   { name: "bond-announcement-fetch-all-null-list", tool: "gangtise_bond_announcement_list", args: { securityList: ["019742.SH"], pageSize: 2, fetchAll: true }, upstream: on("bond.announcement", (req) => {
     const pageNo = bodyOf(req).pageNo as number
     return { data: pageNo === 1 ? { fieldList: ["announcementDate", "securityCode", "title"], list: [["2026-09-01", "019742.SH", "公告"]] } : { total: 0, list: null } }

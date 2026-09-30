@@ -12,17 +12,12 @@
   {
     "key": "bond.issuer-rating-change",
     "field": "billing",
-    "reason": "平台文档按命中的发行人计 0.4（与返回条数无关），不是按次"
+    "reason": "同为 0.4 按命中的发行人计；本仓用 per: row + unit「发行人」表达（标签渲染为 0.4/发行人），不另设 per 取值"
   },
   {
     "key": "bond.rating-change",
     "field": "billing",
-    "reason": "平台文档按有数据的债券只数计 0.4（与变动记录条数无关），不是按次"
-  },
-  {
-    "key": "bond.rating-overview",
-    "field": "billing",
-    "reason": "平台文档按有资料的返回行计 0.4（无资料行不计），不是按次"
+    "reason": "同为 0.4 按有数据的债券只数计；本仓用 per: row + unit「只」表达（标签渲染为 0.4/只），不另设 per 取值"
   },
   {
     "key": "insight.performance-calendar.download",

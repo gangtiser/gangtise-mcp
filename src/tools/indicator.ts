@@ -416,12 +416,12 @@ const scale = z
 // 计价的无效请求，或者被当成「没传这个参数」而静默用默认口径（没传 adjustType 就是
 // 不复权价）—— 后者不报错，拿到的是一份读起来完全正常的错数。
 const paramPairShape = z.object({ paramKey: nonEmptyString, paramValue: nonEmptyString }).strict()
-// 已知的日期键在这里同样过 dateString 的校验与归一（YYYY/MM/DD、YYYYMMDD → YYYY-MM-DD，
-// 拒掉 2026-02-30 这类不存在的日期）。顶层 date 早已如此，嵌套参数此前只查非空——
-// 一个不存在的日期会原样进 body，由服务端决定是报错还是静默顺延。
-const DATE_VALUE_KEYS = new Set(["tradeDate", "reportDate", "sDate"])
+// 日期键（键名以 Date 结尾：tradeDate / reportDate / sDate / baseDate……）在这里同样过 dateString 的校验与
+// 归一（YYYY/MM/DD、YYYYMMDD → YYYY-MM-DD，拒掉 2026-02-30 这类不存在的日期）。顶层 date 早已如此，嵌套参数
+// 此前只查非空——一个不存在的日期会原样进 body，由服务端决定是报错还是静默顺延。
+const DATE_VALUE_KEY = /Date$/
 const paramPair = paramPairShape.transform((pair, ctx) => {
-  if (!DATE_VALUE_KEYS.has(pair.paramKey)) return pair
+  if (!DATE_VALUE_KEY.test(pair.paramKey)) return pair
   const parsed = dateString.safeParse(pair.paramValue)
   if (!parsed.success) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["paramValue"], message: `${pair.paramKey} 取值无效：${parsed.error.issues[0]?.message ?? "日期格式错误"}` })
@@ -482,7 +482,7 @@ export const indicatorFamily: FamilyModule = {
       tier: "core",
       access: "read",
       endpoint: "indicator.search",
-      description: "按名称搜索证券级数据指标（EDE），返回 indicatorCode、scopeList（覆盖市场，附 usageRestriction）及 parameterList（含 required 必填标记与枚举）。取数前必先用本工具拿 code，并核对 indicatorName/description 语义、scopeList 是否覆盖目标市场、parameterList 取值——任一不符即回退专用工具。scopeList 是声明不是保证，usageRestriction（如「不支持指标时间序列接口」）也不是硬约束、按「口径可能不对」理解，均以实际抽查为准。基础行情（开高低收/成交量额/换手/涨跌幅）虽可搜到仍优先 realtime/day_kline，但**总市值 qte_mkt_cptl 这两个专用工具都没有、单票也走 EDE**（A/港/美股均已有数，默认「元」，用 scale 缩放）；同样只有 EDE 才有的还包括融资融券 mgn_*（两融余额/融资/融券及其区间变体，仅 A 股；区间变体的 changePeriod 是可选的）；⚠️ **个股资金流向 flow_*（仅 A 股）与 gangtise_fund_flow 返回的是同一套数（逐位相同）**，而后者还多给各档占比字段、并支持全市场——除非要与其他 EDE 指标同批取，否则一律用 gangtise_fund_flow（两边的计价档见各自标签）与所属行业：通用的 scr_indu（一个指标覆盖申万/中信/恒生/GICS 四套，必填 industryType+industryLevel，体系要与市场配对），以及把体系写进编码、只需可选 industryLevel 的 scr_indu_citic / scr_indu_sw / scr_indu_gics；单票完整报表、盈利预测(一致预期)、估值历史分位仍用专用工具（当前 EDE 搜索未覆盖后两类）；EDE 批量优先仅针对多证券取一批已实现财务/估值指标。宏观/行业数据（产量、价格、PMI 等）请改用 gangtise_edb_search，不要猜编码。",
+      description: "按名称搜索证券级数据指标（EDE），返回 indicatorCode、scopeList（覆盖市场，附 usageRestriction）及 parameterList（含 required 必填标记与枚举）。取数前必先用本工具拿 code，并核对 indicatorName/description 语义、scopeList 是否覆盖目标市场、parameterList 取值——任一不符即回退专用工具。scopeList 是声明不是保证，usageRestriction（如「不支持指标时间序列接口」）也不是硬约束、按「口径可能不对」理解，均以实际抽查为准。基础行情（开高低收/成交量额/换手/涨跌幅）虽可搜到仍优先 realtime/day_kline，但**总市值 qte_mkt_cptl 这两个专用工具都没有、单票也走 EDE**（A/港/美股均已有数，默认「元」，用 scale 缩放）；同样只有 EDE 才有的还包括融资融券 mgn_*（两融余额/融资/融券及其区间变体，仅 A 股；区间变体的 changePeriod 是可选的）与所属行业：通用的 scr_indu（一个指标覆盖申万/中信/恒生/GICS 四套，必填 industryType+industryLevel，体系要与市场配对），以及把体系写进编码、只需可选 industryLevel 的 scr_indu_citic / scr_indu_sw / scr_indu_gics；⚠️ **个股资金流向 flow_*（仅 A 股）与 gangtise_fund_flow 返回的是同一套数（逐位相同）**，而后者还多给各档占比字段、并支持全市场——除非要与其他 EDE 指标同批取，否则一律用 gangtise_fund_flow（两边的计价档见各自标签）；单票完整报表、盈利预测(一致预期)、估值历史分位仍用专用工具（当前 EDE 搜索未覆盖后两类）；EDE 批量优先仅针对多证券取一批已实现财务/估值指标。宏观/行业数据（产量、价格、PMI 等）请改用 gangtise_edb_search，不要猜编码。",
       input: {
         keyword: z
           .string()
@@ -621,7 +621,7 @@ export const indicatorFamily: FamilyModule = {
       tier: "core",
       access: "read",
       endpoint: "indicator.screener",
-      description: "条件选股：把变量绑到指标（F1=某指标、F2=另一指标），再用 expression 组合筛选，从证券/板块范围里筛出命中的股票。返回宽表：每命中证券一行、每绑定指标一列（无 date 列）。指标代码来自 gangtise_indicator_search。这是唯一能按指标数值筛股的工具（专用工具都不支持），典型用法：给 securityCodeList 传一个板块 sectorId（服务端展开为全部成分股）再按市值/PE 筛。支持数值比较（>= <= > < == !=）与文本匹配 contains/notcontains（仅 dataType: string 的指标）。零命中返回空表，不是报错。🔴 **但空表有两种同形的假阴性，载荷与「确实没有股票符合条件」逐字相同**：① **日期没落在报告期末**——报告期类指标在非期末日期上整列是 `null`；② **该指标不覆盖所查市场或证券类型**——覆盖面见 gangtise_indicator_search 返回的 scopeList（如预测类 frcst_* 只覆盖 A 股，用它筛港股/美股就是这种情形）。两种情形整列都是占位（" + EDE_NULL_ONLY + "），而 **null 不满足任何数值比较**，条件因此恒假。判别方法二选一：把表达式**反向再跑一次**（`F1 > 0` 与 `F1 < 一个极大值` 同时返 0 行 = 恒假，不是真无匹配），或先用 gangtise_indicator_cross_section 取回该列看是不是全 `null`。🔴 **报告期类指标（营收/净利等）必须按变量传 reportDate 且值为报告期末**：它们拒收 date 下发的 tradeDate 并直接报错，补 { indicatorCode: 'F1', parameters: [{ paramKey: 'reportDate', ... }] } 即可。",
+      description: "条件选股：把变量绑到指标（F1=某指标、F2=另一指标），再用 expression 组合筛选，从证券/板块范围里筛出命中的股票。返回宽表：每命中证券一行、每绑定指标一列（无 date 列）。指标代码来自 gangtise_indicator_search。这是唯一能按指标数值筛股的工具（专用工具都不支持），典型用法：给 securityCodeList 传一个板块 sectorId（服务端展开为全部成分股）再按市值/PE 筛。支持数值比较（>= <= > < == !=）与文本匹配 contains/notcontains（仅 dataType: string 的指标）。零命中返回空表，不是报错。🔴 **但空表有两种同形的假阴性，载荷与「确实没有股票符合条件」逐字相同**：① **日期没落在报告期末**——报告期类指标在非期末日期上整列是 `null`；② **该指标不覆盖所查市场或证券类型**——覆盖面见 gangtise_indicator_search 返回的 scopeList（如预测类 frcst_* 只覆盖 A 股，用它筛港股/美股就是这种情形）。两种情形整列都是占位（" + EDE_NULL_ONLY + "），而 **null 不满足任何数值比较**，条件因此恒假。判别方法二选一：把表达式**反向再跑一次**（`F1 > 0` 与 `F1 < 一个极大值` 同时返 0 行 = 恒假，不是真无匹配），或先用 gangtise_indicator_cross_section 取回该列看是不是全 `null`。🔴 **报告期类指标（营收/净利等）必须按变量传 reportDate 且值为报告期末**：它们拒收 date 下发的 tradeDate 并直接报错，在该变量的绑定里补 parameters 即可，如 { field: 'F1', indicatorCode: 'is_op_rev', parameters: [{ paramKey: 'reportDate', paramValue: '2025-12-31' }] }。",
       input: {
         indicatorList: z
           .array(
@@ -654,7 +654,7 @@ export const indicatorFamily: FamilyModule = {
         securityCodeList,
         date: dateString.describe(
           dateDesc() +
-            "（必填）。无条件下发为每个变量的 tradeDate（已在 parameters 里声明 tradeDate/reportDate 的变量保留自己的）。绑的指标吃 reportDate 时，本参数下发的 tradeDate 会被该指标拒收并报错——按变量在 parameters 里补 reportDate",
+            "（必填）。下发为每个变量的 tradeDate（已在 parameters 里声明 tradeDate/reportDate 的变量保留自己的，标了 noQueryDate 的变量不下发）。绑的指标吃 reportDate 时，本参数下发的 tradeDate 会被该指标拒收并报错——按变量在 parameters 里补 reportDate",
         ),
         // 有意不提供根级 currency/scale：实测服务端在本端点完全忽略它们（见 parameters
         // 描述），而表达式拿原始值比较 → 筛选条件静默失效。也不能改成「把根级值塞进每个

@@ -1,7 +1,7 @@
 {
   "source": "gangtise-openapi-cli",
-  "version": "0.43.0",
-  "commit": "d2dda53871695c2a6fd44b42771652b829e01c0b",
+  "version": "0.44.0",
+  "commit": "d39d522ae445ed5577a705a3517ec8c034a68e4e",
   "endpoints": {
     "ai.earnings-review.get-content": {
       "method": "POST",
@@ -312,8 +312,9 @@
       "retry": "no-replay",
       "expects": "list",
       "billing": {
-        "per": "call",
-        "price": 0.4
+        "per": "issuer",
+        "price": 0.4,
+        "maxUnits": 10
       }
     },
     "bond.rating-change": {
@@ -323,8 +324,9 @@
       "retry": "no-replay",
       "expects": "list",
       "billing": {
-        "per": "call",
-        "price": 0.4
+        "per": "security",
+        "price": 0.4,
+        "maxUnits": 10
       }
     },
     "bond.rating-overview": {
@@ -334,13 +336,212 @@
       "retry": "no-replay",
       "expects": "list",
       "billing": {
-        "per": "call",
-        "price": 0.4
+        "per": "row",
+        "price": 0.4,
+        "maxUnits": 10
       }
     },
     "bond.valuation": {
       "method": "POST",
       "path": "/application/open-fundamental/bond/valuation-shclearing",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "list",
+      "billing": {
+        "per": "call",
+        "price": 0.4
+      }
+    },
+    "fund.asset-allocation": {
+      "method": "POST",
+      "path": "/application/open-fundamental/fund/asset-allocation",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "list",
+      "billing": {
+        "per": "call",
+        "price": 0.4
+      }
+    },
+    "fund.asset-size": {
+      "method": "POST",
+      "path": "/application/open-fundamental/fund/asset-size",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "list",
+      "billing": {
+        "per": "call",
+        "price": 0.4
+      }
+    },
+    "fund.basic-info": {
+      "method": "POST",
+      "path": "/application/open-fundamental/fund/basic-info",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "list",
+      "billing": {
+        "per": "call",
+        "price": 0.4
+      }
+    },
+    "fund.bond-portfolio": {
+      "method": "POST",
+      "path": "/application/open-fundamental/fund/bond-portfolio",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "list",
+      "billing": {
+        "per": "call",
+        "price": 0.4
+      }
+    },
+    "fund.bond-type-allocation": {
+      "method": "POST",
+      "path": "/application/open-fundamental/fund/bond-type-allocation",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "list",
+      "billing": {
+        "per": "call",
+        "price": 0.4
+      }
+    },
+    "fund.etf-pcf-components": {
+      "method": "POST",
+      "path": "/application/open-fundamental/fund/etf-pcf-components",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "list",
+      "billing": {
+        "per": "call",
+        "price": 0.4
+      }
+    },
+    "fund.etf-pcf-header": {
+      "method": "POST",
+      "path": "/application/open-fundamental/fund/etf-pcf-header",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "list",
+      "billing": {
+        "per": "call",
+        "price": 0.4
+      }
+    },
+    "fund.etf-share-change": {
+      "method": "POST",
+      "path": "/application/open-fundamental/fund/etf-share-change",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "list",
+      "billing": {
+        "per": "call",
+        "price": 0.4
+      }
+    },
+    "fund.fee-rate": {
+      "method": "POST",
+      "path": "/application/open-fundamental/fund/fee-rate",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "list",
+      "billing": {
+        "per": "call",
+        "price": 0.4
+      }
+    },
+    "fund.fund-portfolio": {
+      "method": "POST",
+      "path": "/application/open-fundamental/fund/fund-portfolio",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "list",
+      "billing": {
+        "per": "call",
+        "price": 0.4
+      }
+    },
+    "fund.fund-type-allocation": {
+      "method": "POST",
+      "path": "/application/open-fundamental/fund/fund-type-allocation",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "list",
+      "billing": {
+        "per": "call",
+        "price": 0.4
+      }
+    },
+    "fund.holder-structure": {
+      "method": "POST",
+      "path": "/application/open-fundamental/fund/holder-structure",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "list",
+      "billing": {
+        "per": "call",
+        "price": 0.4
+      }
+    },
+    "fund.industry-allocation": {
+      "method": "POST",
+      "path": "/application/open-fundamental/fund/industry-allocation",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "list",
+      "billing": {
+        "per": "call",
+        "price": 0.4
+      }
+    },
+    "fund.manager-history": {
+      "method": "POST",
+      "path": "/application/open-fundamental/fund/manager-history",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "list",
+      "billing": {
+        "per": "call",
+        "price": 0.4
+      }
+    },
+    "fund.manager-info": {
+      "method": "POST",
+      "path": "/application/open-fundamental/fund/manager-info",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "list",
+      "billing": {
+        "per": "call",
+        "price": 0.4
+      }
+    },
+    "fund.nav": {
+      "method": "POST",
+      "path": "/application/open-quote/fund/nav",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "list",
+      "billing": {
+        "per": "call",
+        "price": 0.4
+      }
+    },
+    "fund.stock-portfolio": {
+      "method": "POST",
+      "path": "/application/open-fundamental/fund/stock-portfolio",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "list",
+      "billing": {
+        "per": "call",
+        "price": 0.4
+      }
+    },
+    "fund.top10-holders": {
+      "method": "POST",
+      "path": "/application/open-fundamental/fund/top10-holders",
       "kind": "json",
       "retry": "no-replay",
       "expects": "list",

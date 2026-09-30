@@ -69,6 +69,27 @@ describe("withRetry", () => {
     expect(attempts).toBe(3)
   })
 
+  // 换 token 后的重放（markRetryable 只用于鉴权自愈，每个请求至多一次）不占重试次数：
+  // 两次重试额度先耗在 503 上，自愈照样发生。
+  it("replays a token swap even after the retry budget is spent", async () => {
+    let attempts = 0
+    const result = await withRetry(async () => {
+      attempts++
+      if (attempts <= 2) throw new ApiError("server", undefined, 503)
+      if (attempts === 3) throw markRetryable(new ApiError("token swapped", "8000014"))
+      return "recovered"
+    }, { ...fast, retries: 2 })
+    expect(result).toBe("recovered")
+    expect(attempts).toBe(4)
+  })
+
+  // 免计次只有一次：一直被标成可重放的错误照样在重试额度内停下，不会空转。
+  it("counts a second token-replay mark against the retry budget", async () => {
+    const fn = vi.fn().mockRejectedValue(markRetryable(new ApiError("token swapped", "8000014")))
+    await expect(withRetry(fn, { ...fast, retries: 2 })).rejects.toThrow("token swapped")
+    expect(fn).toHaveBeenCalledTimes(4)
+  })
+
   it("does not retry a non-retryable ApiError (HTTP 400)", async () => {
     const fn = vi.fn().mockRejectedValue(new ApiError("bad request", undefined, 400))
     await expect(withRetry(fn, fast)).rejects.toThrow("bad request")

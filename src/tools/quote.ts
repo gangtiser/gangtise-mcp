@@ -176,6 +176,18 @@ function canonicalizeKeywords(securityList: string[] | undefined, accepted: read
   return securityList.map((s) => (typeof s === "string" ? accepted.find((a) => matchesKeyword(s, a)) ?? s : s))
 }
 
+/** 去重键不分大小写：服务端把小写后缀归一成大写（600519.sh 与 600519.SH 是同一只），保留首次出现的写法。 */
+function uniqueCodes(list: string[] | undefined): string[] | undefined {
+  if (!list) return list
+  const seen = new Set<string>()
+  return list.filter((code) => {
+    const key = code.toUpperCase()
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 function buildKlineBody(args: Record<string, unknown>): KlineBody {
   const body: KlineBody = {}
   if (args.security) {
@@ -230,7 +242,8 @@ function klineRun(
     const body = buildKlineBody(args)
     const accepted = Object.keys(strategy.fullMarketKeywords)
     assertMarketKeywords(body.securityList, accepted, tool, noKeywordReason)
-    body.securityList = canonicalizeKeywords(body.securityList, accepted)
+    // 重复代码去掉：单次请求服务端自己去重，但拆成多组请求时同一只会被取两遍、合并出重复行。
+    body.securityList = uniqueCodes(canonicalizeKeywords(body.securityList, accepted))
     if (market) assertMarketMatch(body.securityList, market)
     const fullMarket = fullMarketOf(body.securityList, strategy)
     // 不带区间的全市场请求服务端直接以「查询规模过大」拒绝，而分片也需要区间——发请求前就拒。
@@ -378,7 +391,7 @@ export const quoteFamily: FamilyModule = {
         const effLimit = (limit as number | undefined) ?? DEFAULT_QUOTE_LIMIT
         body.limit = effLimit
         if (fieldList) body.fieldList = fieldList
-        const securities = Array.isArray(security) ? (security as string[]) : [security as string]
+        const securities = uniqueCodes(Array.isArray(security) ? (security as string[]) : [security as string]) as string[]
         const note = withIdentityFields(body as { fieldList?: string[] }, securities.length > 1, ["securityCode", "tradeTime"])
         // 接口一次只收一只（securityCode），多只在本地逐只请求再合并。
         const result = securities.length > 1
@@ -425,7 +438,7 @@ export const quoteFamily: FamilyModule = {
         security: z.union([nonEmptyString, nonEmptyList()]).optional().describe("A 股证券代码（沪深北），如 '600519.SH' 或 ['600519.SH','000858.SZ']；传 'aShares' 拉取全市场（关键字须单独传，不能与证券代码混传——混传时本接口会丢掉关键字只返那几只，不报错；须同时提供 startDate 和 endDate，自动按日分片）"),
         startDate: dateString.optional(),
         endDate: dateString.optional(),
-        limit: z.number().int().min(1).max(10_000).optional().describe("单次请求最大返回行数（默认 6000，最大 10000）。截取从查询窗口开头开始——取「最近 N 条」须传日期区间；返回行数撞上限时结果标 _partial（可能被截断）；全市场分片时该值作用于每个分片"),
+        limit: z.number().int().min(1).max(10_000).optional().describe("单次请求最大返回行数（默认 6000，最大 10000）。截取从查询窗口开头开始——取「最近 N 条」须传日期区间；多只装不下时自动按只分组；分片 / 分组拉取时作用于每一份，撞上限的会标 _partial"),
         fieldList: uniqueFieldList("指定返回字段，如 ['mainNetInflow','largeInflow','xlargeOutflow']；省略返回全部。本接口会自动附带 securityCode / tradeDate；名字写错不报错、只少一列并标 missingFields"),
       },
       run: async ({ client }, args) => {
@@ -436,7 +449,7 @@ export const quoteFamily: FamilyModule = {
         // dropped and only the explicit codes come back, so "whole market plus this one"
         // quietly becomes "only this one".
         assertMarketKeywords(body.securityList, FUND_FLOW_MARKETS, "gangtise_fund_flow")
-        body.securityList = canonicalizeKeywords(body.securityList, FUND_FLOW_MARKETS)
+        body.securityList = uniqueCodes(canonicalizeKeywords(body.securityList, FUND_FLOW_MARKETS))
         const isFullMarket = body.securityList?.length === 1 && body.securityList[0] === "aShares"
         // fund-flow is A-share only (沪深北). Reject an obvious HK/US code before it
         // reaches the A-share endpoint and returns a silent empty list that reads as
@@ -457,7 +470,17 @@ export const quoteFamily: FamilyModule = {
         }
         // Pin the row cap so limit-truncation detection is exact (mirrors CLI DEFAULT_QUOTE_LIMIT).
         const limit = body.limit ?? DEFAULT_QUOTE_LIMIT
-        const flagged = flagLimitTruncated(await client.call("quote.fund-flow", { ...body, limit }), limit)
+        const securities = body.securityList ?? []
+        const tradingDays = estimateTradingDays(body.startDate, body.endDate)
+        // 多只且单请求装不下时按只分组再按传入顺序合并，规则同日 K（见 klineRun）。本接口总带 securityCode，
+        // 所以总能分组。
+        let flagged: unknown
+        if (securities.length > 1 && securities.length * tradingDays >= limit) {
+          const cap = body.limit ?? FUND_FLOW.cap
+          flagged = await callPerSecurity(client, "quote.fund-flow", securities, (codes) => ({ ...body, securityList: codes, limit: cap }), cap, Math.max(1, Math.floor((cap - 1) / tradingDays)))
+        } else {
+          flagged = flagLimitTruncated(await client.call("quote.fund-flow", { ...body, limit }), limit)
+        }
         return contentResult(await buildToolContent(normalizeRows(withNote(flagMissingFields(flagged, body.fieldList), lateStartNote(flagged, body.startDate, "tradeDate", body.securityList)))))
       },
     }),

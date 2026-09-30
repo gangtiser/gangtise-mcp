@@ -6,6 +6,7 @@ import { insightFamily } from "./insight.js"
 import { quoteFamily } from "./quote.js"
 import { fundamentalFamily } from "./fundamental.js"
 import { bondFamily } from "./bond.js"
+import { fundFamily } from "./fund.js"
 import { aiFamily, type AiToolOptions } from "./ai.js"
 import { vaultFamily } from "./vault.js"
 import { downloadFamily } from "./download.js"
@@ -24,6 +25,7 @@ export function createFamilies(options: AiToolOptions): FamilyModule[] {
     quoteFamily,
     fundamentalFamily,
     bondFamily,
+    fundFamily,
     aiFamily(options),
     vaultFamily,
     downloadFamily,

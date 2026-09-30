@@ -222,3 +222,37 @@ describe("gangtise_earning_forecast unit note", () => {
     expect(byName.get("gangtise_earning_forecast")).toContain("百分比")
   })
 })
+
+// 按条计费、行数随区间增长：缺省日期补成「截至今天（北京）的近一年」，积分才估得出来（与 CLI 相同）。
+describe("gangtise_earning_forecast default range", () => {
+  it("fills the year before today (Asia/Shanghai) when both dates are omitted", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-09-29T17:30:00Z")) // 北京时间 2026-09-30 01:30
+    try {
+      const client = makeClient()
+      const mcp = await connect(client)
+      await mcp.callTool({ name: "gangtise_earning_forecast", arguments: { securityCode: "600519.SH" } })
+      expect(client.call).toHaveBeenCalledWith("fundamental.earning-forecast", { securityCode: "600519.SH", startDate: "2025-09-30", endDate: "2026-09-30" })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("rejects a start date after the defaulted end date without calling the API", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-09-30T04:00:00Z"))
+    try {
+      const client = makeClient()
+      const mcp = await connect(client)
+      const result = await mcp.callTool({ name: "gangtise_earning_forecast", arguments: { securityCode: "600519.SH", startDate: "2026-10-08" } })
+      expect(result.isError).toBe(true)
+      expect(client.call).not.toHaveBeenCalled()
+      // endDate 是本地补的，报错不能点名它
+      const text = (result.content as Array<{ text: string }>)[0].text
+      expect(text).toMatch(/startDate \(2026-10-08\) 晚于今天/)
+      expect(text).not.toContain("endDate")
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})

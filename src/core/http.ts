@@ -16,7 +16,7 @@ import { Envelope, isEnvelope, unwrapEnvelope } from "./envelope.js"
 import { getLookupData } from "./lookupData/index.js"
 import { currentSignal } from "./requestContext.js"
 import { withDownloadSlot, withGlobalSlot } from "./scheduler.js"
-import { getDispatcher, getDownloadDispatcher, isVerbose, logTiming, markRetryable, withRetry } from "./transport.js"
+import { getDispatcher, getDownloadDispatcher, getTransferAgent, isVerbose, logTiming, markRetryable, withRetry } from "./transport.js"
 
 /** 端点声明的 `bigIntFields` 在解析前加上引号，大整数按字符串读出，不被舍入。 */
 export function quoteBigIntFields(text: string, fields?: readonly string[]): string {
@@ -139,12 +139,19 @@ export class HttpClient {
       if (isTokenCacheValid(this.memoCache, undefined, expected)) {
         return normalizeToken(this.memoCache!.accessToken)
       }
+      // 有在途的刷新就等它：内存此时是被自愈清空的，去读盘或用配置里的 token 只会拿到刚失效的那枚，
+      // 读回来写进内存还可能把刷新好的新 token 顶掉。
+      if (this.refreshPromise) return this.refreshPromise
       if (this.config.token) {
         return normalizeToken(this.config.token)
       }
       // 缓存文件与 gangtise CLI 共用，而 CLI 可能是用另一套凭证登录的。没有归属比对时
       // 那枚 token 会被原样采用，请求于是带着另一个账号的身份发出去。
       const cache = await readTokenCache(this.config.tokenCachePath)
+      // 读盘期间状态可能变了：别的请求已刷新完，就用内存里的新 token；刷新刚开始、还没结束，就等它——
+      // 这时盘上读到的多半正是被判失效的那枚，写回内存会让之后的请求都带着它去失败一次。
+      if (isTokenCacheValid(this.memoCache, undefined, expected)) return normalizeToken(this.memoCache!.accessToken)
+      if (this.refreshPromise) return this.refreshPromise
       if (isTokenCacheValid(cache, undefined, expected)) {
         this.memoCache = cache
         return normalizeToken(cache!.accessToken)
@@ -208,6 +215,12 @@ export class HttpClient {
       && this.config.secretKey
     ) {
       authState.retried = true
+      // 同进程里别的请求已经换好了新 token（本请求带着旧 token 迟到失败）：直接用它重放。先清内存再去盘上找，
+      // 缓存写盘失败时就只能再登录一次——新登录会把刚换好的那枚挤掉，并发的其余请求随之再失败一轮。
+      const current = this.memoCache
+      if (isTokenCacheValid(current, undefined, this.expectedFingerprint()) && usedAuthorization !== undefined && normalizeToken(current!.accessToken) !== usedAuthorization) {
+        throw markRetryable(new ApiError(error.message, error.code, error.statusCode, error.details))
+      }
       this.memoCache = null
       // The sibling gangtise CLI shares the token cache file. If it refreshed
       // while this request was in flight, adopt that token instead of logging in
@@ -293,7 +306,8 @@ export class HttpClient {
       return this.readLocalLookup(endpoint) as Promise<T>
     }
 
-    const dispatcher = getDispatcher()
+    // 上传与下载同走传输连接池（与查询分开，见 getTransferAgent）。
+    const dispatcher = endpoint.kind === 'upload' ? getTransferAgent() : getDispatcher()
     const url = new URL(endpoint.path, this.config.baseUrl)
     const authState = { retried: false, startedAt: Date.now() }
     // Endpoint floor wins over the configured default, but an explicitly larger

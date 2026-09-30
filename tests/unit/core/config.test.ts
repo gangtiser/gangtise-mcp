@@ -52,6 +52,28 @@ describe("loadConfig", () => {
     expect(c.token).toBeUndefined()
   })
 
+  it("treats empty or blank values as unset", () => {
+    process.env.GANGTISE_BASE_URL = ""
+    process.env.GANGTISE_ACCESS_KEY = ""
+    process.env.GANGTISE_SECRET_KEY = " "
+    process.env.GANGTISE_TOKEN = "  "
+    process.env.GANGTISE_TOKEN_CACHE_PATH = ""
+    const c = loadConfig()
+    expect(c.baseUrl).toBe(DEFAULT_BASE_URL)
+    expect(c.accessKey).toBeUndefined()
+    expect(c.secretKey).toBeUndefined()
+    expect(c.token).toBeUndefined()
+    expect(c.tokenCachePath).toBe(DEFAULT_TOKEN_CACHE_PATH)
+  })
+
+  it("trims surrounding whitespace off a set value", () => {
+    process.env.GANGTISE_BASE_URL = " https://example.test "
+    process.env.GANGTISE_ACCESS_KEY = "ak\n"
+    const c = loadConfig()
+    expect(c.baseUrl).toBe("https://example.test")
+    expect(c.accessKey).toBe("ak")
+  })
+
   it("keeps the async wait default under the MCP client's ~60s request timeout", () => {
     // The default wait must return {dataId, status:"timeout"} before the client
     // (DEFAULT_REQUEST_TIMEOUT_MSEC = 60s) cuts the connection, or the billed task's

@@ -150,12 +150,21 @@ describe("routingInstructions", () => {
   it.each([
     [undefined], ["all"], ["quote"], ["insight"], ["ai"], ["vault"], ["reference"], ["lookup"], ["fundamental"], ["indicator"], ["alternative"],
     ["gangtise_one_pager"], ["gangtise_earnings_review"], ["gangtise_research_list"], ["gangtise_realtime"], ["core,-insight"], ["core,-quote,-indicator,-alternative"],
+    ["bond"], ["fund"], ["tool"], ["fund,-quote"], ["gangtise_fund_nav"], ["core,-fund"], ["-bond,-fund,-tool"],
   ])("names only enabled tools under GANGTISE_MCP_TOOLS=%j", async (tools) => {
     const client = await connect(tools)
     const listed = (await client.listTools()).tools.map((t) => t.name)
     const text = client.getInstructions() ?? ""
     expect(text).toContain("gangtise_read_response")
     expect(missingToolRefs(text, listed, ALL_NAMES)).toEqual([])
+  })
+
+  // fund_* 的通配也命中行情族的 gangtise_fund_flow：基金那一行只能靠族级过滤（有基金工具被列出）决定出不出。
+  it("prints the fund routing line only when a fund tool is listed", async () => {
+    expect((await connect("fund")).getInstructions()).toContain("基金：fund_*")
+    expect((await connect("gangtise_fund_nav")).getInstructions()).toContain("基金：fund_*")
+    expect((await connect("quote")).getInstructions()).not.toContain("基金：")
+    expect((await connect("-fund")).getInstructions()).not.toContain("基金：")
   })
 
   it("keeps only the clauses whose tools are enabled", async () => {

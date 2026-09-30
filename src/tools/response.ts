@@ -258,14 +258,14 @@ export const responseFamily: FamilyModule = {
           .int()
           .min(0)
           .optional()
-          .describe("起始条目索引（从 0 开始），默认 0"),
+          .describe("起始位置（从 0 开始），默认 0：列表按条目计；纯文本与大对象按字符计，续读用返回的 next_offset"),
         limit: z
           .number()
           .int()
           .min(1)
           .max(MAX_LIMIT)
           .optional()
-          .describe(`本次返回的条目数，默认 ${DEFAULT_LIMIT}，最大 ${MAX_LIMIT}`),
+          .describe(`列表每次返回的条目数，默认 ${DEFAULT_LIMIT}，最大 ${MAX_LIMIT}；对纯文本与大对象无效`),
         fields: z
           .array(
             z

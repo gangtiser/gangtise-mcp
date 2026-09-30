@@ -1493,6 +1493,17 @@ describe("EDE nested date parameters get the same validation as the top-level da
     expect(client.call).not.toHaveBeenCalled()
   })
 
+  it("treats any key ending in Date as a date (baseDate of fixed-base adjustment)", async () => {
+    const client = makeMockClient()
+    const mcp = await connect(client)
+    await mcp.callTool({
+      name: "gangtise_indicator_cross_section",
+      arguments: { ...args, indicatorCodeList: ["qte_close"], indicatorParamList: [{ indicatorCode: "qte_close", parameters: [{ paramKey: "adjustType", paramValue: "4" }, { paramKey: "baseDate", paramValue: "2026/01/05" }] }] },
+    })
+    const sent = bodyOf(client).indicatorParamList as Array<{ parameters: Array<{ paramKey: string; paramValue: string }> }>
+    expect(sent[0].parameters).toContainEqual({ paramKey: "baseDate", paramValue: "2026-01-05" })
+  })
+
   it("leaves non-date parameters alone", async () => {
     const client = makeMockClient()
     const mcp = await connect(client)
@@ -1646,3 +1657,31 @@ async function mcpCrossSection(client: GangtiseClient, indicators: number, secur
     },
   })
 }
+
+// 三处会把模型引向错误参数的文案：选股示例把变量名 F1 写进了 indicatorCode；指标搜索里资金流那句插进了
+// 「只有 EDE 才有的……与所属行业」中间，读成「一律用 gangtise_fund_flow 与所属行业」；选股 date 说「无条件下发」，
+// 漏了 noQueryDate 这个例外。
+describe("indicator descriptions point at the right parameters", () => {
+  async function describedTools() {
+    const mcp = await connect(makeMockClient())
+    return new Map((await mcp.listTools()).tools.map((t) => [t.name, t]))
+  }
+
+  it("shows a screener binding with F1 as the field, not as the indicator code", async () => {
+    const screener = (await describedTools()).get("gangtise_indicator_screener")!
+    expect(screener.description).not.toMatch(/indicatorCode: 'F\d/)
+    expect(screener.description).toMatch(/\{ field: 'F1', indicatorCode: '[a-z_]+', parameters: \[\{ paramKey: 'reportDate'/)
+  })
+
+  it("keeps 所属行业 attached to the EDE-only list, not to the fund-flow advice", async () => {
+    const search = (await describedTools()).get("gangtise_indicator_search")!
+    expect(search.description).not.toMatch(/gangtise_fund_flow[^；。]*与所属行业/)
+    expect(search.description).toMatch(/融资融券 mgn_\*（[^）]*）与所属行业：通用的 scr_indu/)
+  })
+
+  it("names noQueryDate as the exception to the screener date being sent", async () => {
+    const date = ((await describedTools()).get("gangtise_indicator_screener")!.inputSchema.properties as Record<string, { description?: string }>).date
+    expect(date.description).not.toContain("无条件下发")
+    expect(date.description).toMatch(/noQueryDate 的变量不下发/)
+  })
+})

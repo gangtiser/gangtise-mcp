@@ -1,6 +1,9 @@
 import type { ToolExamples } from "../mcp/contract.examples.js"
 import { oneQuoteRow } from "../mcp/contract.examples.js"
 
+/** 资金流分组示例用的 A 股代码：600000.SH 起连号。 */
+const flowCodes = (n: number) => Array.from({ length: n }, (_, i) => `${600000 + i}.SH`)
+
 export const quoteExamples: ToolExamples = {
   gangtise_day_kline: [
     { title: "单只：钉住 limit=6000", args: { security: "600519.SH", startDate: "2026-09-01", endDate: "2026-09-05", fieldList: ["securityCode", "tradeDate", "close"] }, expect: { requests: [{ method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["600519.SH"], startDate: "2026-09-01", endDate: "2026-09-05", fieldList: ["securityCode", "tradeDate", "close"], limit: 6000 } }] } },
@@ -11,6 +14,10 @@ export const quoteExamples: ToolExamples = {
         { method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["600519.SH", "000858.SZ"], startDate: "2008-01-01", endDate: "2026-06-30", limit: 10000 } },
         { method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["00700.HK", "AAPL.O"], startDate: "2008-01-01", endDate: "2026-06-30", limit: 10000 } },
         { method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["601318.SH"], startDate: "2008-01-01", endDate: "2026-06-30", limit: 10000 } },
+      ] } },
+    { title: "重复代码先去重再分组，同一只不会取两遍", args: { security: ["600519.SH", "000858.SZ", "600519.SH"], startDate: "2020-01-01", endDate: "2026-06-30", limit: 1000 }, upstream: oneQuoteRow(), expect: { requests: [
+        { method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["600519.SH"], startDate: "2020-01-01", endDate: "2026-06-30", limit: 1000 } },
+        { method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["000858.SZ"], startDate: "2020-01-01", endDate: "2026-06-30", limit: 1000 } },
       ] } },
     { title: "传了 limit：每组守着它，一只就超的单独一组", args: { security: ["600519.SH", "000858.SZ"], startDate: "2020-01-01", endDate: "2026-06-30", limit: 1000 }, upstream: oneQuoteRow(), expect: { requests: [
         { method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["600519.SH"], startDate: "2020-01-01", endDate: "2026-06-30", limit: 1000 } },
@@ -68,6 +75,7 @@ export const quoteExamples: ToolExamples = {
         { method: "POST", path: "/application/open-quote/kline/minute", body: { startTime: "2026-09-01 09:30:00", endTime: "2026-09-01 15:00:00", limit: 500, fieldList: ["securityCode", "tradeTime", "close"], securityCode: "512800.SH" } },
         { method: "POST", path: "/application/open-quote/kline/minute", body: { startTime: "2026-09-01 09:30:00", endTime: "2026-09-01 15:00:00", limit: 500, fieldList: ["securityCode", "tradeTime", "close"], securityCode: "600519.SH" } },
       ] } },
+    { title: "重复代码去重（不分大小写）：只剩一只时按单只请求", args: { security: ["600519.SH", "600519.sh"], startTime: "2026-09-01 09:30:00", endTime: "2026-09-01 15:00:00" }, expect: { requests: [{ method: "POST", path: "/application/open-quote/kline/minute", body: { startTime: "2026-09-01 09:30:00", endTime: "2026-09-01 15:00:00", limit: 6000, securityCode: "600519.SH" } }] } },
     { title: "多只：逐只请求", args: { security: ["600519.SH", "512800.SH"], startTime: "2026-09-01 09:30:00", endTime: "2026-09-01 15:00:00", limit: 500 }, upstream: oneQuoteRow(), expect: { requests: [
         { method: "POST", path: "/application/open-quote/kline/minute", body: { startTime: "2026-09-01 09:30:00", endTime: "2026-09-01 15:00:00", limit: 500, securityCode: "512800.SH" } },
         { method: "POST", path: "/application/open-quote/kline/minute", body: { startTime: "2026-09-01 09:30:00", endTime: "2026-09-01 15:00:00", limit: 500, securityCode: "600519.SH" } },
@@ -87,5 +95,14 @@ export const quoteExamples: ToolExamples = {
       ] } },
     { title: "全市场缺日期本地拒绝", args: { security: "aShares", startDate: "2026-09-04" }, expect: { rejects: /须同时提供 startDate 和 endDate/ } },
     { title: "港股代码本地拒绝", args: { security: "00700.HK" }, expect: { rejects: /仅支持 A 股/ } },
+    { title: "多只但装得下：一个请求", args: { security: ["600519.SH", "000858.SZ"], startDate: "2026-09-01", endDate: "2026-09-30" }, expect: { requests: [{ method: "POST", path: "/application/open-quote/fund-flow/daily", body: { securityList: ["600519.SH", "000858.SZ"], startDate: "2026-09-01", endDate: "2026-09-30", limit: 6000 } }] } },
+    { title: "多只且 6000 行装不下（50 只 × 261 个工作日）：按 10000 行上限分组，每组 floor(9999 / 261) = 38 只", args: { security: flowCodes(50), startDate: "2025-09-01", endDate: "2026-08-31" }, upstream: oneQuoteRow(), expect: { requests: [
+        { method: "POST", path: "/application/open-quote/fund-flow/daily", body: { securityList: flowCodes(50).slice(0, 38), startDate: "2025-09-01", endDate: "2026-08-31", limit: 10000 } },
+        { method: "POST", path: "/application/open-quote/fund-flow/daily", body: { securityList: flowCodes(50).slice(38), startDate: "2025-09-01", endDate: "2026-08-31", limit: 10000 } },
+      ] } },
+    { title: "重复代码先去重再分组（不分大小写）", args: { security: [...flowCodes(50), "600000.sh"], startDate: "2025-09-01", endDate: "2026-08-31" }, upstream: oneQuoteRow(), expect: { requests: [
+        { method: "POST", path: "/application/open-quote/fund-flow/daily", body: { securityList: flowCodes(50).slice(0, 38), startDate: "2025-09-01", endDate: "2026-08-31", limit: 10000 } },
+        { method: "POST", path: "/application/open-quote/fund-flow/daily", body: { securityList: flowCodes(50).slice(38), startDate: "2025-09-01", endDate: "2026-08-31", limit: 10000 } },
+      ] } },
   ],
 }

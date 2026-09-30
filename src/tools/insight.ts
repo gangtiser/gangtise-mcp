@@ -1,5 +1,4 @@
 import { z } from "zod"
-import type { GangtiseClient } from "../core/client.js"
 import { assertDateOrder, defineDownloadTool, defineJsonTool, defineTool, sanitizeArgs, type DownloadToolSpec, type FamilyModule, type JsonToolSpec } from "../mcp/define.js"
 import { buildToolContent } from "../core/present.js"
 import { contentResult } from "../mcp/handler.js"
@@ -578,29 +577,6 @@ const DEFAULT_ROWS = 20
 // 不逼调用方为一个按天的日程接口补 00:00:00。
 const calendarTimeString = z.union([dateString, dateTimeString])
 
-/** 这个日期区间**实际**筛掉东西了吗——用一次 `size: 1` 探针问服务端，不靠猜。
- *
- * 🔴 前一版在这里放了一个「跨度不超过 25 年就算强约束」的常数。那个判据是**假的**：
- * 本库真实跨度只有约 1052 天（2.88 年），25 年是它的 8.7 倍，于是传一个覆盖全库的
- * 完整区间照样被判成强约束，行数闸门整个放开、可拉满 5 万行 ≈ 5000 积分。
- * **拍一个「远大于任何真实查询」的阈值，恰恰保证了它拦不住任何东西。**
- *
- * 现在改成问真数据：探针一行的成本是 0.1 积分，而它挡住的是 5000 积分量级的误查；
- * 且只在调用方**已经要求超过 UNFILTERED_MAX_ROWS 行**时才发，正常查询一次都不多花。
- * 这也不再硬编码任何取数窗口（与 server.instructions 的口径一致）——判据完全由服务端
- * 当下返回的 total 决定。 */
-async function probeFilteredTotal(client: GangtiseClient, body: Record<string, unknown>): Promise<number | undefined> {
-  try {
-    const probe = await client.call("insight.performance-calendar.list", { ...body, from: 0, size: 1 })
-    const total = (probe as { total?: unknown })?.total
-    return typeof total === "number" ? total : undefined
-  } catch {
-    // 探针失败不能反过来卡住主查询：拿不到 total 就退回「按未加强约束处理」，
-    // 调用方看到的是那条要求补筛选的提示，而不是一个探针的网络错误。
-    return undefined
-  }
-}
-
 export const insightFamily: FamilyModule = {
   name: "insight",
   endpoints: insightEndpoints,
@@ -690,17 +666,8 @@ export const insightFamily: FamilyModule = {
             `缺少强约束时最多只能取 ${UNFILTERED_MAX_ROWS} 行（本接口十万量级、按 0.1/条计费）：请同时给出 startDate 与 endDate，或给出 securityList，或把 size 降到 ${UNFILTERED_MAX_ROWS} 以内（fetchAll 视为不限行数）。marketList / categoryList 确实会过滤，但筛完仍是万级，不足以放开行数上限。`,
           )
         }
-        // 🔴 只靠日期区间放开闸门时，先确认这个区间**真的筛掉了东西**。
-        // 「给了一对日期」不等于「加了约束」：一个覆盖全库的完整区间在形式上无可挑剔，
-        // 实际一条都没排除。判据不猜跨度，直接问服务端要 total（见 probeFilteredTotal）。
-        if (hasDateRange && !hasSecurity && requestedRows > UNFILTERED_MAX_ROWS) {
-          const filteredTotal = await probeFilteredTotal(client, rest)
-          if (filteredTotal === undefined || filteredTotal > UNFILTERED_MAX_ROWS) {
-            throw new ValidationError(
-              `该日期区间没有把结果收窄到 ${UNFILTERED_MAX_ROWS} 行以内（${filteredTotal === undefined ? "探测失败" : `实际 ${filteredTotal} 行`}，按 0.1/条计费）：区间覆盖了本库的大部分排期，等于没筛。请缩小日期区间、补上 securityList，或把 size 降到 ${UNFILTERED_MAX_ROWS} 以内（fetchAll 视为不限行数）。`,
-            )
-          }
-        }
+        // 只靠日期区间放开闸门时不再另设行数上限：覆盖全库的区间也「给了一对日期」，它拉多少行、花多少积分
+        // 由分页层的积分预估保护按 total 判（超阈值须 confirmCost），与其他按条计费的列表同一条线。
         const body = sanitizeArgs(rest, { paginated: true, fetchAll: Boolean(fetchAll) })
         // securityList 单约束（无日期区间）时封顶。走到这里 requestedRows > 上限就意味着
         // hasSecurity 为真（否则上面已拒），fetchAll 与显式大 size 一视同仁。

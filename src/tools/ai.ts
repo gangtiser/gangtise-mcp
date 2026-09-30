@@ -4,7 +4,7 @@ import { buildTextResult, buildToolContent } from "../core/present.js"
 import { textResult, contentResult } from "../mcp/handler.js"
 import { pollAsyncContent, isAsyncFailed, isAsyncPending } from "../core/asyncContent.js"
 import { normalizeRows } from "../core/normalize.js"
-import { AsyncTimeoutError, ValidationError, errorMessage } from "../core/errors.js"
+import { ApiError, AsyncTimeoutError, ValidationError, errorMessage } from "../core/errors.js"
 import { dateString, dateTimeString, quarterEndDate, today, todayDate } from "../core/dateContext.js"
 import { nonEmptyString, nonEmptyList, intLiteralEnum, MARKET_KEYWORDS, enumList } from "../mcp/schemas.js"
 import { aiEndpoints } from "./ai.endpoints.js"
@@ -178,6 +178,9 @@ function aiContentRun(endpointKey: string): ToolSpec["run"] {
   }
 }
 
+/** 等待到期时回给调用方的续查提示：间隔与 `_check` 描述一致，并说明不要重新提交。 */
+const TIMEOUT_HINT = (checkName: string) => `约 1-3 分钟后用 ${checkName} 带这个 dataId 续查；不要重新提交（会再次计费）`
+
 function defineAsyncPair(
   opts: AiToolOptions,
   config: {
@@ -221,13 +224,14 @@ function defineAsyncPair(
       const timeoutMs = typeof waitSeconds === "number" ? waitSeconds * 1000 : opts.asyncTimeoutMs
       const submitResult = await client.call(config.submitEndpoint, submitArgs) as Record<string, string> | null
       const dataId = submitResult?.[config.submitIdField]
-      if (!dataId) throw new Error(`提交成功但响应里没有 ${config.submitIdField}（返回结构可能已变更）。请重试；持续出现请带上工具名与入参报障。`)
+      // 提交已被受理（可能已计费），重试等于再提交一次、再计一次费。
+      if (!dataId) throw new ApiError(`任务已提交，但响应里没有 ${config.submitIdField}（返回结构可能已变更）。不要直接重新提交（可能已计费）；请带上工具名与入参报障。`, undefined, undefined, submitResult)
 
       // waitSeconds=0 (or a submit that already ate the whole budget) hands back
       // the dataId immediately — no wasted, billed poll round-trip.
       const remainingMs = timeoutMs - (Date.now() - startedAt)
       if (remainingMs <= 0) {
-        return textResult(JSON.stringify({ dataId, status: "timeout", hint: `Call ${config.checkName} with this dataId in ~3 minutes` }))
+        return textResult(JSON.stringify({ dataId, status: "timeout", hint: TIMEOUT_HINT(config.checkName) }))
       }
 
       try {
@@ -236,7 +240,7 @@ function defineAsyncPair(
         return contentResult(await buildTextResult(polled.content))
       } catch (err) {
         if (err instanceof AsyncTimeoutError) {
-          return textResult(JSON.stringify({ dataId, status: "timeout", hint: `Call ${config.checkName} with this dataId in ~3 minutes` }))
+          return textResult(JSON.stringify({ dataId, status: "timeout", hint: TIMEOUT_HINT(config.checkName) }))
         }
         // Submit already succeeded (and may be billed); never swallow the dataId on
         // a mid-poll failure, or the user can't recover the job via _check.
@@ -245,7 +249,7 @@ function defineAsyncPair(
         if (isAsyncFailed(err)) {
           return { ...textResult(JSON.stringify({ dataId, status: "failed", error: errorMessage(err) })), isError: true }
         }
-        return textResult(JSON.stringify({ dataId, status: "error", error: errorMessage(err), hint: `Call ${config.checkName} with this dataId to retry` }))
+        return textResult(JSON.stringify({ dataId, status: "error", error: errorMessage(err), hint: `用 ${config.checkName} 带这个 dataId 重查；不要重新提交（会再次计费）` }))
       }
     },
   })

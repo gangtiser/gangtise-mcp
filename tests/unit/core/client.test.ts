@@ -636,6 +636,82 @@ describe("GangtiseClient concurrent token refresh", () => {
     await Promise.all(Array.from({ length: 5 }, () => client.call("ai.one-pager", { securityCode: "600519.SH" })))
     expect(loginCalls).toBe(1)
   })
+
+  // 刷新在途时进来的请求等它，不去读盘：盘上躺着的是刚被服务端判失效的那枚，读回来既会让这次请求白失败一次，
+  // 还可能把刷新好的新 token 从内存里顶掉。
+  it("waits for an in-flight refresh instead of reading the stale token off disk", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "gangtise-race-"))
+    const cachePath = path.join(dir, "token.json")
+    await fs.writeFile(cachePath, JSON.stringify({
+      accessToken: "stale", expiresIn: 7200, time: 1, expiresAt: Math.floor(Date.now() / 1000) + 7200,
+      issuedFor: credentialFingerprint("ak", "https://open.gangtise.com"),
+    }), "utf8")
+    await new Promise((r) => setTimeout(r, 5))
+    let releaseLogin!: () => void
+    const loginHeld = new Promise<void>((r) => { releaseLogin = r })
+    let loginStarted!: () => void
+    const loginSeen = new Promise<void>((r) => { loginStarted = r })
+    const seen: string[] = []
+    requestMock.mockImplementation(async (url: unknown, options?: { headers?: Record<string, string> }) => {
+      if (String(url).includes("/loginV2")) {
+        loginStarted()
+        await loginHeld
+        return rawJsonResponse({ code: "000000", data: { accessToken: "fresh", expiresIn: 7200, time: 1 } })
+      }
+      const auth = options?.headers?.Authorization ?? ""
+      seen.push(auth)
+      return auth === "Bearer stale" ? rawJsonResponse({ code: "8000014", msg: "access key error" }) : jsonResponse({ ok: 1 })
+    })
+    try {
+      const client = new GangtiseClient({ baseUrl: "https://open.gangtise.com", timeoutMs: 30_000, accessKey: "ak", secretKey: "sk", tokenCachePath: cachePath, asyncTimeoutMs: 60_000, maxDownloadBytes: 1024 * 1024 * 1024 })
+      const first = client.call("ai.one-pager", { securityCode: "600519.SH" })
+      await loginSeen
+      const second = client.call("ai.one-pager", { securityCode: "000858.SZ" })
+      await new Promise((r) => setTimeout(r, 20))
+      releaseLogin()
+      await Promise.all([first, second])
+      // 只有第一个请求带过 stale；第二个直接等到了 fresh
+      expect(seen).toEqual(["Bearer stale", "Bearer fresh", "Bearer fresh"])
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  // 迟到的失败（带着旧 token、在别的请求换好新 token 之后才失败）直接用内存里的新 token 重放。
+  // 缓存写不了盘时，靠盘上找回这条路不通，此前会再登录一次——新登录把刚换好的那枚挤掉。
+  it("replays a late auth failure with the token another request already swapped in", async () => {
+    let loginCalls = 0
+    let oldCalls = 0
+    requestMock.mockImplementation((url: unknown, options?: { headers?: Record<string, string> }) => {
+      if (String(url).includes("/loginV2")) {
+        loginCalls += 1
+        return Promise.resolve(rawJsonResponse({ code: "000000", data: { accessToken: `fresh-${loginCalls}`, expiresIn: 7200, time: 1 } }))
+      }
+      if (options?.headers?.Authorization === "Bearer old") {
+        oldCalls += 1
+        const delay = oldCalls === 1 ? 0 : 60
+        return new Promise((resolve) => setTimeout(() => resolve(rawJsonResponse({ code: "8000014", msg: "access key error" })), delay))
+      }
+      return Promise.resolve(jsonResponse({ auth: options?.headers?.Authorization }))
+    })
+
+    const client = new GangtiseClient({
+      baseUrl: "https://open.gangtise.com",
+      timeoutMs: 30_000,
+      token: "old",
+      accessKey: "ak",
+      secretKey: "sk",
+      tokenCachePath: "/dev/null/gangtise-token.json",
+      asyncTimeoutMs: 60_000,
+      maxDownloadBytes: 1024 * 1024 * 1024,
+    })
+    const results = await Promise.all([
+      client.call("ai.one-pager", { securityCode: "600519.SH" }),
+      client.call("ai.one-pager", { securityCode: "000858.SZ" }),
+    ])
+    expect(loginCalls).toBe(1)
+    expect(results).toEqual([{ auth: "Bearer fresh-1" }, { auth: "Bearer fresh-1" }])
+  })
 })
 
 describe("GangtiseClient short-page detection", () => {

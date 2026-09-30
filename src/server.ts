@@ -23,9 +23,9 @@ import type { FamilyModule } from "./mcp/define.js"
  * 所以预算不是「越小越好」，是**看杠杆**：一句话进来的成本 = 它的字节数，省下的 =
  * 字节数 × (出现次数 - 1)。低于 10 次的别往里搬，locality 更值钱。
  *
- * 预算：dateContextInstruction() 168B + 路由行、各族 routingHint 与计费行 2,802B = 2,970B，上限 3,000B。
- * ⚠️ **只剩 30B 余量**——下一次往这里加东西基本一定要先从别处腾。腾不出来再抬上限，
- * 并在 commit 里说明换掉了 schema 侧多少字节；别为了塞进去而把上限悄悄调大。
+ * 预算：dateContextInstruction() 168B + 路由行、各族 routingHint 与计费行 3,351B = 3,519B，上限 3,600B
+ * （2026-09-30 基金族接入时由 3,000B 抬上来）。⚠️ **只剩约 80B 余量**——下一次往这里加东西基本一定要先从别处腾。
+ * 腾不出来再抬上限，并在 commit 里说明换掉了 schema 侧多少字节；别为了塞进去而把上限悄悄调大。
  * 改动前先量字节，别手推；这两个数由 scripts/prerelease-check.mjs 的 ⑤ 一节钉住，
  * 改了忘同步注释不会报错，所以量完顺手把上面两个数字一起改掉。
  */
@@ -155,8 +155,11 @@ function inlineRefs(schema: Record<string, unknown>): void {
       if (target !== undefined) {
         // 同级的兄弟键（如 description）优先于被引用的内容 —— JSON Schema 2019-09 起
         // $ref 旁边允许有别的关键字，且它们不该被展开结果盖掉。
+        // 目标自己的 description 丢掉：这里的 $ref 都指向同一工具的另一个参数（如 `#/properties/keyword`），
+        // 它的说明讲的是那个参数，带过来会让数组元素读成另一个参数的用法。
         const { $ref: _dropped, ...siblings } = obj
-        return { ...(walk(target, depth + 1) as Record<string, unknown>), ...siblings }
+        const { description: _targetDescription, ...expanded } = walk(target, depth + 1) as Record<string, unknown>
+        return { ...expanded, ...siblings }
       }
     }
     for (const [k, v] of Object.entries(obj)) obj[k] = walk(v, depth)
@@ -210,7 +213,7 @@ export function routingInstructions(families: FamilyModule[], profile: Profile):
 export interface McpServerOptions {
   asyncTimeoutMs?: number
   version?: string
-  /** GANGTISE_MCP_TOOLS 的原值（见 profile.ts）；缺省为 core。 */
+  /** GANGTISE_MCP_TOOLS 的原值（见 profile.ts）；缺省为 all。 */
   tools?: string
 }
 
