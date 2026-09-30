@@ -6,14 +6,15 @@
 
 README 仅列最近 5 个版本的一行摘要，完整明细见 [CHANGELOG.md](CHANGELOG.md)：
 
+- **0.3.3 — 2026-09-30**：新增公募基金 18 个工具（组名 `fund`，默认列出；0.4 积分/次，代码查不到返回空、不报错）：资料、费率、经理、净值、规模、持有人、资产配置与持仓、ETF 申赎与份额。`gangtise_earning_forecast` 日期省略时取近一年，区间预估超过积分预估保护须 `confirmCost: true`。资金流多只长区间自动按只分组（此前撞 6000 行上限截断）；多证券日 K / 分钟 K 的重复代码先去重（此前会出重复行）；财报日历日期区间的 `fetchAll` 改由积分预估保护把关；若干参数说明更正。
 - **0.3.2 — 2026-09-27**：默认列出全部 96 个工具（`GANGTISE_MCP_TOOLS=core` 为精简的 89 个），云盘管理与上传、文件解析、债券发行明细 / 发行计划 / 行权安排改为默认可见。债券评级超过 10 只自动分批，债券公告支持 `fetchAll`；三个评级接口的积分标签改为 0.4/条、0.4/只、0.4/发行人。观点正文某批返回异常时保留同批已计费的正文；证券级指标漏传 `fiscalYear` 的说明更正为按默认年度取数。
 - **0.3.1 — 2026-09-27**：🔴 修正 legacy 港美股日 K 多只长区间、`fieldList` 不含 `securityCode` 时整组丢数据（0.3.0 引入，用 `core,legacy` 的请升级后重查）。新增文件解析（`gangtise_file_parse` / `_check`，点名加载，0.8 积分/页）；显式多证券行情拆出的请求数超过单次调用上限 180 时本地拒绝；估值分析响应不是列表结构时报错。
 - **0.3.0 — 2026-09-27**：默认工具面重组，**含破坏性变更，见下方「从 0.2.x 升级」**。三张财报表、公告列表按代码后缀选市场，15 个下载工具合为 `gangtise_download`，被合并的 27 个旧工具进 legacy 档（`GANGTISE_MCP_TOOLS=core,legacy` 可用，0.4.0 删除）。观点、题材默认走低价档（1 积分/条、50 积分/次）；按条计费的多页拉取超过 `GANGTISE_MCP_COST_LIMIT`（默认 1000）须 `confirmCost: true`。新增债券 12 个、会议线索、联网搜索与云盘管理。多证券日 K 按行数上限合批，全市场日 K 须同时给起止日期，多只时 `fieldList` 自动补身份列；行情首行晚于起点时以 `_note` 提示。
 - **0.2.11 — 2026-09-26**：内部重构，工具与参数同 0.2.10。列式行情结果整理与落盘提速约四分之一（全市场分片内存峰值降约四成），ID 不重复时翻页去重几乎不再占开销，启动约快 5%；大结果落盘指针保留全部不完整明细。新增可选环境变量 `GANGTISE_MCP_TOOLS`（按工具组或工具名选择、禁用工具，基础工具始终启用）与 `GANGTISE_MCP_GLOBAL_CONCURRENCY`（跨调用的在飞请求总数上限，查询与下载各自计数）。
-- **0.2.10 — 2026-09-26**：部分同步 CLI v0.41.1–v0.43.0，不传新参数时返回与价格不变。🔴 翻页结果去掉跨页重复行并标 `duplicate_rows` / `changed_rows`，`total` 封顶判定补偏移窗口与越界被拒两种情形；`valuation_analysis` 显式下发 `limit`（默认 2000），撞满标 `limit_truncated`（缺的是区间开头）；`index_day_kline` 不再收 `all`（该接口对 `all` 返空）。新增 `gangtise_opinion_detail`，观点列表加 `withContent`、题材加 `full` 两个低价档开关；`constant_list` 的 `category` 放开到接口现有的 17 类。`stock_summary` / `earning_forecast` / 带正文的观点列表不再自动重发。
 
 ### 历史里程碑
 
+- **0.2.10**：🔴 翻页结果去掉跨页重复行并标 `duplicate_rows` / `changed_rows`；`valuation_analysis` 显式下发 `limit`，撞满标 `limit_truncated`；新增 `gangtise_opinion_detail` 与观点 / 题材的低价档开关。
 - **0.2.9**：🔴 并发下载不再被临时目录回收误删；异步生成（`earnings_review` / `viewpoint_debate`）等待到期后不再重发请求，`dataId` 仍可用 `*_check` 取回。
 - **0.2.8**：新增 5 个自选股池写工具（删池须显式确认）；🔴 token 缓存改为绑定凭证，换过 `GANGTISE_ACCESS_KEY` 的请复核换号前后取到的数据；`indicator_time_series` 不传 `calendarType` 时按指标类型自动选轴。
 - **0.2.6**：修六处静默错数（`valuation_analysis` 的 `skipNull`+`fieldList` 会把正常数据全过滤成 0 行、全市场分片按位置合并可致开收盘价互换等）；行情 `fieldList` 只返回点名的列、缺列标 `missingFields`；`volume` 的单位是「股」不是「手」。
@@ -39,7 +40,7 @@ README 仅列最近 5 个版本的一行摘要，完整明细见 [CHANGELOG.md](
 
 ## 功能覆盖
 
-默认列出 96 个工具（`GANGTISE_MCP_TOOLS=core` 为精简的 89 个，见下方「工具分档与选择」）。会改动账号数据的只有自选股池的 5 个与云盘管理、上传；业绩点评、观点辩证与文件解析的提交每次都会新建一个计费任务，也标为非只读；其余全部只读。完整清单与每个参数的语义由 `tools/list` 提供，此处只列范围。
+默认列出 114 个工具（`GANGTISE_MCP_TOOLS=core` 为精简的 96 个，见下方「工具分档与选择」）。会改动账号数据的只有自选股池的 5 个与云盘管理、上传；业绩点评、观点辩证与文件解析的提交每次都会新建一个计费任务，也标为非只读；其余全部只读。完整清单与每个参数的语义由 `tools/list` 提供，此处只列范围。
 
 | 类别 | 覆盖 |
 |---|---|
@@ -51,6 +52,7 @@ README 仅列最近 5 个版本的一行摘要，完整明细见 [CHANGELOG.md](
 | 行情 | A/港/美股日 K 与实时快照、分钟 K、指数日 K、A 股个股资金流向；日 K / 实时 / 分钟 K 另覆盖沪深 ETF 与 20 个全球指数 |
 | 基本面 | A/港/美股三大报表（按代码后缀选市场，A 股可取单季）、主营业务、估值、股东、盈利预测 |
 | 债券 | 基本资料、日行情（交易所 + 银行间）、上清所估值、现金流、评级一览与评级变动（超过 10 只自动分批）、公告（可自动翻页）、发行人资料、发行明细、利率债发行计划、行权安排 |
+| 公募基金 | 基本资料、费率、基金经理（按姓名）与历任经理、净值（含复权与货币基金收益）、份额与规模、持有人结构、前十大持有人、资产配置、股票 / 债券 / 基金持仓与行业 / 券种 / 基金类型分布、ETF 申赎清单与份额变动 |
 | 数据指标（EDE） | 证券级指标搜索；截面与时序（二维矩阵展平为宽表）；条件选股（变量绑指标 + 表达式筛选） |
 | 另类数据 | EDB 宏观与行业经济指标；题材指数基本信息与成分股 |
 | AI 能力 | 知识库检索、个股看点、一页通、投资逻辑、同业对比、投研线索、主题跟踪、业绩点评、观点辩证、管理层讨论 |
@@ -59,7 +61,7 @@ README 仅列最近 5 个版本的一行摘要，完整明细见 [CHANGELOG.md](
 
 ## 工具分档与选择
 
-工具分三档：**core**（89 个：股票投研主流程与各品种入口）、**extended**（7 个：债券发行明细、发行计划、行权安排，云盘管理与上传，文件解析与取结果）、**legacy**（0.3.0 合并掉的 27 个旧工具，0.4.0 删除）。默认列出 core 与 extended 共 96 个。用环境变量 `GANGTISE_MCP_TOOLS` 选择，逗号分隔取并集：
+工具分三档：**core**（96 个：股票投研主流程与各品种入口）、**extended**（18 个：债券发行明细、发行计划、行权安排，云盘管理与上传，文件解析与取结果，基金费率、规模、持有人、债券与基金持仓、ETF 申赎与份额等 11 个）、**legacy**（0.3.0 合并掉的 27 个旧工具，0.4.0 删除）。默认列出 core 与 extended 共 114 个。用环境变量 `GANGTISE_MCP_TOOLS` 选择，逗号分隔取并集：
 
 | 写法 | 列出的工具 |
 |---|---|
@@ -67,11 +69,12 @@ README 仅列最近 5 个版本的一行摘要，完整明细见 [CHANGELOG.md](
 | `core` | 只列 core，上下文更省 |
 | `all,legacy` | 默认 + 旧工具（升级过渡用） |
 | `core,bond` | core + 债券全部 12 个 |
+| `core,fund` | core + 基金全部 18 个 |
 | `-vault` | 默认去掉云盘、录音、会议、群消息与自选股池 |
 
-组名：`context` `lookup` `reference` `insight` `quote` `fundamental` `bond` `ai` `vault` `download` `alternative` `indicator` `tool` `response`，也可写单个工具名；前加 `-` 禁用。被禁用的工具既不列出也调不到。`gangtise_download` 属于 `download` 组，只选部分组时把 `download` 一并写上（如 `insight,download`）；禁用某一组或某个列表工具后（如 `-vault`），它也不下载对应的资源。`gangtise_current_date`、`gangtise_read_response`、`gangtise_securities_search` 始终启用。
+组名：`context` `lookup` `reference` `insight` `quote` `fundamental` `bond` `fund` `ai` `vault` `download` `alternative` `indicator` `tool` `response`，也可写单个工具名；前加 `-` 禁用。被禁用的工具既不列出也调不到。`gangtise_download` 属于 `download` 组，只选部分组时把 `download` 一并写上（如 `insight,download`）；禁用某一组或某个列表工具后（如 `-vault`），它也不下载对应的资源。`gangtise_current_date`、`gangtise_read_response`、`gangtise_securities_search` 始终启用。
 
-工具定义每次会话都会进入模型上下文，工具越多占用越大。只做股票投研、想省上下文时设 `core`（约少 8KB）。**Claude Code** 默认开启 MCP tool search，按需加载工具定义；设 `ENABLE_TOOL_SEARCH=false` 可关闭。`ANTHROPIC_BASE_URL` 指向非官方主机时默认不启用，代理支持 `tool_reference` 时可设 `ENABLE_TOOL_SEARCH=true` 开启（据 Claude Code 官方文档，核对于 2026-09-27）。
+工具定义每次会话都会进入模型上下文，工具越多占用越大。只做股票投研、想省上下文时设 `core`（约少 17KB）。**Claude Code** 默认开启 MCP tool search，按需加载工具定义；设 `ENABLE_TOOL_SEARCH=false` 可关闭。`ANTHROPIC_BASE_URL` 指向非官方主机时默认不启用，代理支持 `tool_reference` 时可设 `ENABLE_TOOL_SEARCH=true` 开启（据 Claude Code 官方文档，核对于 2026-09-27）。
 
 ### 从 0.2.x 升级
 
@@ -235,12 +238,14 @@ Get-ChildItem "$env:LOCALAPPDATA\npm-cache\_npx" -Recurse -Filter package.json |
 | `GANGTISE_MCP_ASYNC_TIMEOUT_MS` | `55000` | 异步 AI 任务默认等待超时（毫秒）；保持在 MCP 客户端请求超时（约 60s）以下，超时返回 dataId 供 `*_check` 续查。需更长等待可调高本值或按调用传 `waitSeconds`（最大 180） |
 | `GANGTISE_TOKEN_CACHE_PATH` | `~/.config/gangtise/token.json` | Token 缓存文件路径 |
 | `GANGTISE_PAGE_CONCURRENCY` | `5` | 分页、全市场分片与逐只请求的并发数（1–32）；连接池随之放大，至少 16 |
-| `GANGTISE_MCP_GLOBAL_CONCURRENCY` | `max(16, 分页并发)` | 同时在飞的请求总数上限，跨所有调用共享，查询与传输（下载、上传）各自计数（1–64）；默认与连接池同大，单次调用不受影响，只在多个调用同时分页 / 分片时封顶总量 |
+| `GANGTISE_MCP_GLOBAL_CONCURRENCY` | `max(16, 分页并发)` | 同时在飞的请求总数上限，跨所有调用共享，查询与传输（下载、上传）各自计数、各用各的连接（1–64）；默认与连接池同大，单次调用不受影响，只在多个调用同时分页 / 分片时封顶总量 |
 | `GANGTISE_INLINE_MAX_BYTES` | `65536` | 工具结果内联字节上限；超过则落盘为临时文件并返回可翻页的预览指针。默认 64KB（约 1.5–2 万 token）控制单次响应体积；批量导出可调大（最低 8192） |
 | `GANGTISE_MAX_DOWNLOAD_BYTES` | `1073741824` | 单个下载文件的字节上限（默认 1 GiB）。超出时在落盘前拒绝（有 `Content-Length`）或流式中止（无该头），避免一次超大下载占满临时磁盘。`/tmp` 较小的部署可调低（最低 1 MB） |
 | `GANGTISE_MCP_TOOLS` | `all` | 列出并启用哪些工具，逗号分隔取并集：`all` / `core` / `legacy`、工具组名或工具名；前加 `-` 禁用该组或该工具（不列出，也调不到），如 `-vault`；只写禁用项时以 `all` 为底。写法与组名见「工具分档与选择」。选了异步提交工具时其 `*_check` 一并启用；写错名字、禁用基础工具时启动即报错 |
-| `GANGTISE_MCP_COST_LIMIT` | `1000` | 积分预估保护的阈值：按条计费的多页拉取（`fetchAll`，或 `size` 超过单页上限）与按 ID 批量取观点正文，预估超过它时先报错给出估算，确认后传 `confirmCost: true`。`0` 关闭；非法值回退默认。单页请求不在保护范围内 |
+| `GANGTISE_MCP_COST_LIMIT` | `1000` | 积分预估保护的阈值：按条计费的多页拉取（`fetchAll`，或 `size` 超过单页上限）、按 ID 批量取观点正文与长日期区间的盈利预测，预估超过它时先报错给出估算，确认后传 `confirmCost: true`。`0` 关闭；非法值回退默认。单页请求不在保护范围内 |
 | `GANGTISE_VERBOSE` | — | 设为 `1` 开启请求耗时日志（输出到 stderr） |
+
+变量设成空串（或只有空白）按未设置处理，MCP 配置里留空的可选项不会生效。
 
 认证优先级：`GANGTISE_TOKEN` > Token 缓存文件 > `GANGTISE_ACCESS_KEY` + `GANGTISE_SECRET_KEY`（自动换取并缓存 Token）。
 
@@ -321,6 +326,7 @@ node scripts/upstream-diff.mjs   # 与 gangtise-openapi-cli 的端点契约对�
 ```bash
 npm version patch --no-git-tag-version
 # 完整明细写进 CHANGELOG.md；README 的 Changelog 顶部加一行摘要、删掉第 6 行
+npm run lint
 npm test
 npm run coverage                    # 发布流水线有覆盖率阈值，本地先跑
 npx tsc --noEmit

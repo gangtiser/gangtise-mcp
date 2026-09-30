@@ -2,6 +2,50 @@
 
 > README 顶部只放最近 5 个版本的一行摘要 + 历史里程碑；本文件是完整历史明细（中文），回溯至 0.1.3。
 
+### 0.3.3 (2026-09-30)
+
+新增公募基金 18 个工具；盈利预测按日期区间预估积分；资金流多只长区间自动分组；多证券行情的重复代码先去重；若干参数说明更正。
+
+**⚠️ 默认工具变化**
+
+- **默认列出 114 个工具**（0.3.2 为 96 个），新增的是下面的基金 18 个；`GANGTISE_MCP_TOOLS=core` 为 96 个（含基金 7 个）。不需要基金数据时设 `-fund`。
+
+**🔴 会拿到错数据的**
+
+- **多证券行情的重复代码先去重**（不分大小写，`600519.sh` 与 `600519.SH` 算同一只）：`gangtise_day_kline` / `gangtise_index_day_kline`（多只且需分组请求时）与 `gangtise_minute_kline`（多只逐只请求）此前会把重复传入的代码请求两次、结果里出现重复行；传过重复代码的请升级后重查。
+
+**新增**
+
+- **公募基金 `gangtise_fund_*`（组名 `fund`）**：
+  - 资料与经理：`gangtise_fund_basic_info`（分类、管理人与托管人、申赎规则、业绩基准、风险等级、跟踪指数；`fieldList` 选列）/ `_fee_rate`（按条件分档多行）/ `_manager_info`（按姓名精确匹配，同名经理全部返回）/ `_manager_history`（`endDate` 为 `null` 即现任）
+  - 净值与规模：`_nav`（单位 / 累计 / 复权净值；货币基金另有七日年化与万份收益）/ `_asset_size` / `_holder_structure` / `_top10_holders`（仅上市基金）
+  - 配置与持仓：`_asset_allocation` / `_stock_portfolio` / `_industry_allocation`（申万或中信一级；`positionType=all` 只在中报、年报有数据）/ `_bond_portfolio` / `_bond_type_allocation` / `_fund_portfolio` / `_fund_type_allocation`
+  - ETF：`_etf_pcf_header` / `_etf_pcf_components`（只有最新一份申赎清单）/ `_etf_share_change`
+  - core 7 个：`basic_info`、`nav`、`manager_info`、`manager_history`、`asset_allocation`、`stock_portfolio`、`industry_allocation`；其余 11 个为 extended。
+  - 计费 0.4 积分/次，与返回行数、基金只数无关，多只合并成一次查更省；超时 / 5xx 不自动重发。
+  - 基金代码带大写后缀（场外 `.OF`，场内 `.SH` / `.SZ`）；代码查不到、缺后缀、后缀小写或传成股票代码都返回空结果、不报错。场内基金可用 `gangtise_securities_search`（`category: ["fund"]`）按简称换代码，场外基金搜不到。
+  - 不分页，单次超过 10000 行整批报 `100006`，减少只数或缩短区间分批查。
+  - 取数前注意：各工具单位不同（写在各自描述里）；`holderCount` 是带千分位逗号的字符串；股票 / 债券 / 基金持仓只返回简称、没有代码；券种分布里「金融债券」包含「政策性金融债券」，按券种加总会重复计算；ETF 前十大持有人可能多一行 `serialNumber = 11`（它的联接基金）。
+
+**行为修正**
+
+- **`gangtise_earning_forecast` 按日期区间预估积分**：按条计费（0.5 积分/条）、每个日期约 3 行，行数随区间增长。日期省略时补成截至今天（北京时间，或截至 `endDate`）的近一年再请求；按「工作日数 × 3 条」预估超过 `GANGTISE_MCP_COST_LIMIT`（默认 1000 积分，约两年半）时零请求报错并给出估算，确认后传 `confirmCost: true`。
+- **证券级指标参数里键名以 `Date` 结尾的**（如定点复权的 `baseDate`）与 `tradeDate` / `reportDate` / `sDate` 一样校验，并归一为 `YYYY-MM-DD`。
+- **环境变量设成空串（或只有空白）按未设置处理，有值时去掉首尾空白**：`GANGTISE_BASE_URL`、`GANGTISE_ACCESS_KEY` / `GANGTISE_SECRET_KEY`、`GANGTISE_TOKEN`、`GANGTISE_TOKEN_CACHE_PATH`。
+- **token 失效后的自动重新登录**：并发请求共用同一次登录，刷新期间的请求等新 token，不再带着已失效的 token 重复失败或重复登录；换 token 后的重发不占网络重试次数。
+- **终态失败 `140002` / `410111` 的 msg 恰为「业务处理失败」时**，提示改为与参数无关：不必改参数，立即重试或重查同一 `dataId` 结果不会变，异步生成类重新提交会再次计费。msg 里带具体诊断（如缺哪个参数）的仍按原提示处理。
+- **异步提交（业绩点评、观点辩证）**：响应里缺 `dataId` 时提示不要直接重新提交（任务可能已计费）；等待到期时的续查提示写明约 1-3 分钟后用 `_check` 续查、不要重新提交。
+- **`gangtise_performance_calendar_list`**：给了 `startDate` + `endDate` 的 `fetchAll` 不再另设 1000 行上限（此前超过即拒），拉多少、花多少由积分预估保护按 `total` 判，超过阈值须 `confirmCost: true`。估算要先取回第一页（50 行，约 5 积分）拿到 `total`，被拦下时这一页已计费；单次调用最多翻 1000 页（5 万行），覆盖全库的区间确认放行后也只取回前 5 万行，并标 `_partial`（`page_cap`）。
+- **下载、上传与查询各用各的连接**：大文件下载进行中时，查询不再排队等待。
+- **`gangtise_fund_flow` 多只装不下时自动按只分组**：证券数 × 交易日数达到 `limit`（默认 6000）时，按行数上限分组请求、按传入顺序合并，规则同日 K（此前撞上限只标 `_partial`）。重复代码先去重（不分大小写）。
+
+**说明更正**
+
+- **数组参数的元素说明**：`gangtise_official_account_list` 的 `accountIdList` / `securityList` / `industryList` 与 `gangtise_drive_manage` 的 `fileIdList`，元素上多余的说明已去掉，以参数本身的说明为准。
+- **`gangtise_indicator_screener`**：报告期类指标的示例为 `{ field: 'F1', indicatorCode: 'is_op_rev', parameters: [{ paramKey: 'reportDate', … }] }`——`F1` 是变量名，填在 `field` 上；`date` 的说明写明标了 `noQueryDate` 的变量不下发。
+- **`gangtise_indicator_search`**：「个股资金流向用 `gangtise_fund_flow`」与「所属行业用 `scr_indu`」拆成两句，各说各的。
+- **`gangtise_read_response`**：`offset` / `limit` 的说明写明读纯文本与大对象时按字符偏移、续读用 `next_offset`，`limit` 只对列表有效。
+
 ### 0.3.2 (2026-09-27)
 
 默认列出全部 96 个工具；债券评级超过 10 只自动分批，债券公告可自动翻页；债券三个评级接口的积分标签改为按条 / 只 / 发行人；证券级指标缺 `fiscalYear` 的说明更正；观点正文某批返回异常时保留同批已计费的正文。
