@@ -6,14 +6,15 @@
 
 README 仅列最近 5 个版本的一行摘要，完整明细见 [CHANGELOG.md](CHANGELOG.md)：
 
+- **0.3.4 — 2026-10-07**：`gangtise_drive_manage` 新增 `copy_folder`，跨空间（我的云盘 ↔ 租户云盘）复制整个文件夹，连同子文件夹与文件。下载文件名优先用 UTF-8 文件名；`GANGTISE_BASE_URL` 用明文 http 指向非本机地址时在 stderr 提示一次。说明更正：债券公告按日期查询时有代码的行都带后缀、部分行代码为空；债券行情 / 估值的数据起点可能晚于账号窗口，取长序列时核对首行日期；场内基金按 6 位代码或场内简称换代码；分钟 K 的可查历史是随日期滚动的短窗口。
 - **0.3.3 — 2026-09-30**：新增公募基金 18 个工具（组名 `fund`，默认列出；0.4 积分/次，代码查不到返回空、不报错）：资料、费率、经理、净值、规模、持有人、资产配置与持仓、ETF 申赎与份额。`gangtise_earning_forecast` 日期省略时取近一年，区间预估超过积分预估保护须 `confirmCost: true`。资金流多只长区间自动按只分组（此前撞 6000 行上限截断）；多证券日 K / 分钟 K 的重复代码先去重（此前会出重复行）；财报日历日期区间的 `fetchAll` 改由积分预估保护把关；若干参数说明更正。
 - **0.3.2 — 2026-09-27**：默认列出全部 96 个工具（`GANGTISE_MCP_TOOLS=core` 为精简的 89 个），云盘管理与上传、文件解析、债券发行明细 / 发行计划 / 行权安排改为默认可见。债券评级超过 10 只自动分批，债券公告支持 `fetchAll`；三个评级接口的积分标签改为 0.4/条、0.4/只、0.4/发行人。观点正文某批返回异常时保留同批已计费的正文；证券级指标漏传 `fiscalYear` 的说明更正为按默认年度取数。
 - **0.3.1 — 2026-09-27**：🔴 修正 legacy 港美股日 K 多只长区间、`fieldList` 不含 `securityCode` 时整组丢数据（0.3.0 引入，用 `core,legacy` 的请升级后重查）。新增文件解析（`gangtise_file_parse` / `_check`，点名加载，0.8 积分/页）；显式多证券行情拆出的请求数超过单次调用上限 180 时本地拒绝；估值分析响应不是列表结构时报错。
 - **0.3.0 — 2026-09-27**：默认工具面重组，**含破坏性变更，见下方「从 0.2.x 升级」**。三张财报表、公告列表按代码后缀选市场，15 个下载工具合为 `gangtise_download`，被合并的 27 个旧工具进 legacy 档（`GANGTISE_MCP_TOOLS=core,legacy` 可用，0.4.0 删除）。观点、题材默认走低价档（1 积分/条、50 积分/次）；按条计费的多页拉取超过 `GANGTISE_MCP_COST_LIMIT`（默认 1000）须 `confirmCost: true`。新增债券 12 个、会议线索、联网搜索与云盘管理。多证券日 K 按行数上限合批，全市场日 K 须同时给起止日期，多只时 `fieldList` 自动补身份列；行情首行晚于起点时以 `_note` 提示。
-- **0.2.11 — 2026-09-26**：内部重构，工具与参数同 0.2.10。列式行情结果整理与落盘提速约四分之一（全市场分片内存峰值降约四成），ID 不重复时翻页去重几乎不再占开销，启动约快 5%；大结果落盘指针保留全部不完整明细。新增可选环境变量 `GANGTISE_MCP_TOOLS`（按工具组或工具名选择、禁用工具，基础工具始终启用）与 `GANGTISE_MCP_GLOBAL_CONCURRENCY`（跨调用的在飞请求总数上限，查询与下载各自计数）。
 
 ### 历史里程碑
 
+- **0.2.11**：新增可选环境变量 `GANGTISE_MCP_TOOLS`（按工具组或工具名选择、禁用工具）与 `GANGTISE_MCP_GLOBAL_CONCURRENCY`（跨调用的在飞请求总数上限）；内部重构，列式行情结果整理与落盘提速约四分之一。
 - **0.2.10**：🔴 翻页结果去掉跨页重复行并标 `duplicate_rows` / `changed_rows`；`valuation_analysis` 显式下发 `limit`，撞满标 `limit_truncated`；新增 `gangtise_opinion_detail` 与观点 / 题材的低价档开关。
 - **0.2.9**：🔴 并发下载不再被临时目录回收误删；异步生成（`earnings_review` / `viewpoint_debate`）等待到期后不再重发请求，`dataId` 仍可用 `*_check` 取回。
 - **0.2.8**：新增 5 个自选股池写工具（删池须显式确认）；🔴 token 缓存改为绑定凭证，换过 `GANGTISE_ACCESS_KEY` 的请复核换号前后取到的数据；`indicator_time_series` 不传 `calendarType` 时按指标类型自动选轴。
@@ -233,7 +234,7 @@ Get-ChildItem "$env:LOCALAPPDATA\npm-cache\_npx" -Recurse -Filter package.json |
 | `GANGTISE_ACCESS_KEY` | — | 开放平台 Access Key（与 SECRET_KEY 配对使用） |
 | `GANGTISE_SECRET_KEY` | — | 开放平台 Secret Key |
 | `GANGTISE_TOKEN` | — | 直接传 Bearer Token（优先于 Key/Secret，适合临时使用） |
-| `GANGTISE_BASE_URL` | `https://openapi.gangtise.com` | API 基础地址（旧域名 `https://open.gangtise.com` 仍可用） |
+| `GANGTISE_BASE_URL` | `https://openapi.gangtise.com` | API 基础地址（旧域名 `https://open.gangtise.com` 仍可用）；用 `http://` 指向非本机地址时在 stderr 提示一次（AK / SK / token 会明文传输） |
 | `GANGTISE_TIMEOUT_MS` | `30000` | 单次请求超时，十进制整数毫秒（1000–3600000）；无效值回退默认、超上限夹到上限，未按原值生效时在 stderr 提示一次 |
 | `GANGTISE_MCP_ASYNC_TIMEOUT_MS` | `55000` | 异步 AI 任务默认等待超时（毫秒）；保持在 MCP 客户端请求超时（约 60s）以下，超时返回 dataId 供 `*_check` 续查。需更长等待可调高本值或按调用传 `waitSeconds`（最大 180） |
 | `GANGTISE_TOKEN_CACHE_PATH` | `~/.config/gangtise/token.json` | Token 缓存文件路径 |
