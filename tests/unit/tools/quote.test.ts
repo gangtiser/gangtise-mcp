@@ -741,6 +741,6 @@ describe("late first row note", () => {
 
   it("tells an empty minute-bar range apart from a quiet market", async () => {
     const result = await (await connect(makeMockClient())).callTool({ name: "gangtise_minute_kline", arguments: { security: "600519.SH", startTime: "2015-01-05 09:30:00", endTime: "2015-01-05 15:00:00" } })
-    expect((result.content as Array<{ text: string }>)[0].text).toMatch(/分钟线可查的历史比日线短得多/)
+    expect((result.content as Array<{ text: string }>)[0].text).toMatch(/分钟线可查的历史是随日期滚动的短窗口/)
   })
 })

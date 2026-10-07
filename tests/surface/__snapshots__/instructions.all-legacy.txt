@@ -7,6 +7,6 @@
 ③AI：除 earnings_review/viewpoint_debate 外均取平台已生成的内容，直接调即可；这两个是异步提交，超时只用对应 *_check 续查、勿重提（重提再计费）。
 ④其他：drive_*/record_*/my_conference_*/wechat_* 查云盘/录音/会议/群消息；stock_pool_* 查/改股票池；名称与 ID 解析用 *_search/concept_*/sector_*/constant_*/lookup。
 债券：bond_* 只收标准代码（019742.SH / 220205.IB），简称先 gangtise_securities_search 换；fieldList 写错名整批报 100003。
-基金：fund_*（资金流向除外）收带大写后缀的基金代码（场外 005827.OF，场内 510300.SH / 159967.SZ；经理信息按姓名查）；场内基金可用 gangtise_securities_search（category=fund）按简称换代码，场外的搜不到。代码查不到返回空、不报错。按次计费，多只合并成一次查；结果按 fundCode 对应。不分页，超过 10000 行整批报 100006。日期筛报告期（净值与 ETF 份额筛交易日），两端都省略取账号可回溯窗口内全部，而非最新一期。
+基金：fund_*（资金流向除外）收带大写后缀的基金代码（场外 005827.OF，场内 510300.SH / 159967.SZ；经理信息按姓名查）；场内基金可用 gangtise_securities_search（category=fund）按 6 位代码或场内简称换代码（全称常搜不到），场外的搜不到。代码查不到返回空、不报错。按次计费，多只合并成一次查；结果按 fundCode 对应。不分页，超过 10000 行整批报 100006。日期筛报告期（净值与 ETF 份额筛交易日），两端都省略取账号可回溯窗口内全部，而非最新一期。
 联网：平台外的公开网页用 gangtise_web_search；平台内的研报、纪要、公告优先用对应 *_list。
 计费见各工具【积分】标签，未标注即免费（最终以账户权限与平台计费规则为准）；除①批量外，优先免费/低价，慎用全市场/超大 size/fetchAll。

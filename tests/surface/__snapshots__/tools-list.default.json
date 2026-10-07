@@ -3067,7 +3067,7 @@
   },
   {
     "name": "gangtise_bond_daily_quote",
-    "description": "查询债券日收盘行情（交易所 + 银行间）：全价、净价、到期收益率、成交、久期、凸性。没有数据的代码不产生行。startDate 早于账号可回溯的下界时整批报 110003（不会只返回窗口内那段），把起点往后挪再查。【积分：0.4/次】",
+    "description": "查询债券日收盘行情（交易所 + 银行间）：全价、净价、到期收益率、成交、久期、凸性。没有数据的代码不产生行。startDate 早于账号可回溯的下界时整批报 110003（不会只返回窗口内那段），把起点往后挪再查；数据起点可能晚于账号窗口：区间整段早于数据起点返回 0 行，跨过时从有数据的那天起返回、不报错——取长序列时核对首行日期。【积分：0.4/次】",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -3115,7 +3115,7 @@
   },
   {
     "name": "gangtise_bond_valuation",
-    "description": "查询上清所债券估值：估值价格、收益率、久期、凸性、基点价值（利率与利差各一套）。confidenceLevel 省略时只返回「推荐」的估值，要「不推荐」的另传一次。没有数据的代码不产生行。startDate 早于账号可回溯的下界时整批报 110003（不会只返回窗口内那段），把起点往后挪再查。【积分：0.4/次】",
+    "description": "查询上清所债券估值：估值价格、收益率、久期、凸性、基点价值（利率与利差各一套）。confidenceLevel 省略时只返回「推荐」的估值，要「不推荐」的另传一次。没有数据的代码不产生行。startDate 早于账号可回溯的下界时整批报 110003（不会只返回窗口内那段），把起点往后挪再查；数据起点可能晚于账号窗口：区间整段早于数据起点返回 0 行，跨过时从有数据的那天起返回、不报错——取长序列时核对首行日期。【积分：0.4/次】",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -3254,7 +3254,7 @@
   },
   {
     "name": "gangtise_bond_announcement_list",
-    "description": "查询债券公告。没有 total：fetchAll=true 从 pageNo 起自动翻到空页（pageSize 缺省 200，末尾可能多计几个空页）；手动翻页时 pageNo 递增到空页为止，批量传 pageSize=200。每页按次计费。securityList 与日期区间二选一。⚠️ 按日期查时返回的 securityCode 不带市场后缀，而其他 bond 工具只收带后缀的代码：用该行 securityName 经 gangtise_securities_search 换回 gtsCode，并核对去掉后缀后与原代码一致——别拿无后缀代码直接搜，相似度检索可能给出相邻的另一只。【积分：0.4/次】",
+    "description": "查询债券公告。没有 total：fetchAll=true 从 pageNo 起自动翻到空页（pageSize 缺省 200，末尾可能多计几个空页）；手动翻页时 pageNo 递增到空页为止，批量传 pageSize=200。每页按次计费。securityList 与日期区间二选一。按日期查时，不对应已上市证券的公告与部分新发行债券的发行文件 securityCode 为空。【积分：0.4/次】",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -5492,7 +5492,7 @@
   },
   {
     "name": "gangtise_drive_manage",
-    "description": "管理云盘（写操作）：action 选动作，各参数注明了哪个动作用。⚠️ 云盘允许同名、只以 ID 区分：create_folder 与 copy 每执行一次就多一份，超时不会自动重发，别对同一内容重复执行。move_file / move_folder 只能在同一空间内；跨空间（我的云盘 ↔ 租户云盘）用 copy，只支持文件、源保留。delete_file / delete_folder 不可恢复，须传 confirm: true，delete_folder 连同全部子内容一起删。move_file / copy / delete_file 对单条失败仍返回成功，明细在 failList 并标 _partial。租户云盘对整个租户可见，在里面新建、复制、删除前先向用户确认。",
+    "description": "管理云盘（写操作）：action 选动作，各参数注明了哪个动作用。⚠️ 云盘允许同名、只以 ID 区分：create_folder 与 copy / copy_folder 每执行一次就多一份，超时不会自动重发，别对同一内容重复执行。move_file / move_folder 只能在同一空间内；跨空间（我的云盘 ↔ 租户云盘）用 copy（文件）或 copy_folder（整个文件夹连同子文件夹与文件，返回 newFolderId），源保留。delete_file / delete_folder 不可恢复，须传 confirm: true，delete_folder 连同全部子内容一起删。move_file / copy / delete_file 对单条失败仍返回成功，明细在 failList 并标 _partial。租户云盘对整个租户可见，在里面新建、复制、删除前先向用户确认。",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -5504,10 +5504,11 @@
             "move_file",
             "move_folder",
             "copy",
+            "copy_folder",
             "delete_file",
             "delete_folder"
           ],
-          "description": "create_folder=新建文件夹 | rename=重命名 | move_file=移动文件 | move_folder=移动文件夹 | copy=跨空间复制文件 | delete_file=删除文件 | delete_folder=删除文件夹"
+          "description": "create_folder=新建文件夹 | rename=重命名 | move_file=移动文件 | move_folder=移动文件夹 | copy=跨空间复制文件 | copy_folder=跨空间复制文件夹 | delete_file=删除文件 | delete_folder=删除文件夹"
         },
         "name": {
           "type": "string",
@@ -5553,7 +5554,7 @@
         "folderId": {
           "type": "string",
           "minLength": 1,
-          "description": "move_folder / delete_folder 用：文件夹 ID"
+          "description": "move_folder / copy_folder / delete_folder 用：文件夹 ID"
         },
         "targetFolderId": {
           "type": "string",
@@ -5563,7 +5564,7 @@
         "targetParentId": {
           "type": "string",
           "minLength": 1,
-          "description": "move_folder 用：同一空间的目标父文件夹 ID 或 root，不能是它自己或其子文件夹"
+          "description": "move_folder 用：同一空间的目标父文件夹 ID 或 root，不能是它自己或其子文件夹；copy_folder 用：另一空间的目标父文件夹 ID 或 root"
         },
         "confirm": {
           "type": "boolean",

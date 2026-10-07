@@ -511,13 +511,14 @@ export class HttpClient {
 
       if (response.statusCode >= 400) await failDownload(await readTextCapped(response.body, maxBytes))
 
-      const filenameMatch = contentDisposition?.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i)
+      // RFC 6266: when both are sent, filename* (UTF-8) wins over the plain filename, which
+      // is usually an ASCII fallback. One alternation would take whichever comes first.
+      const rawName = contentDisposition?.match(/filename\*=UTF-8''([^;]+)/i)?.[1] ?? contentDisposition?.match(/filename="?([^";]+)"?/i)?.[1]
       // RFC 6266: plain filename= is not percent-encoded — a literal % (common
       // in report titles like 盈利增长50%点评.pdf) makes decodeURIComponent
       // throw, which must not fail the download; fall back to the raw name.
       let filename: string | undefined
-      if (filenameMatch) {
-        const rawName = filenameMatch[1] || filenameMatch[2]
+      if (rawName) {
         try {
           filename = decodeURIComponent(rawName)
         } catch {

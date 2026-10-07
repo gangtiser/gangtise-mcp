@@ -3067,7 +3067,7 @@
   },
   {
     "name": "gangtise_bond_daily_quote",
-    "description": "查询债券日收盘行情（交易所 + 银行间）：全价、净价、到期收益率、成交、久期、凸性。没有数据的代码不产生行。startDate 早于账号可回溯的下界时整批报 110003（不会只返回窗口内那段），把起点往后挪再查。【积分：0.4/次】",
+    "description": "查询债券日收盘行情（交易所 + 银行间）：全价、净价、到期收益率、成交、久期、凸性。没有数据的代码不产生行。startDate 早于账号可回溯的下界时整批报 110003（不会只返回窗口内那段），把起点往后挪再查；数据起点可能晚于账号窗口：区间整段早于数据起点返回 0 行，跨过时从有数据的那天起返回、不报错——取长序列时核对首行日期。【积分：0.4/次】",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -3115,7 +3115,7 @@
   },
   {
     "name": "gangtise_bond_valuation",
-    "description": "查询上清所债券估值：估值价格、收益率、久期、凸性、基点价值（利率与利差各一套）。confidenceLevel 省略时只返回「推荐」的估值，要「不推荐」的另传一次。没有数据的代码不产生行。startDate 早于账号可回溯的下界时整批报 110003（不会只返回窗口内那段），把起点往后挪再查。【积分：0.4/次】",
+    "description": "查询上清所债券估值：估值价格、收益率、久期、凸性、基点价值（利率与利差各一套）。confidenceLevel 省略时只返回「推荐」的估值，要「不推荐」的另传一次。没有数据的代码不产生行。startDate 早于账号可回溯的下界时整批报 110003（不会只返回窗口内那段），把起点往后挪再查；数据起点可能晚于账号窗口：区间整段早于数据起点返回 0 行，跨过时从有数据的那天起返回、不报错——取长序列时核对首行日期。【积分：0.4/次】",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -3254,7 +3254,7 @@
   },
   {
     "name": "gangtise_bond_announcement_list",
-    "description": "查询债券公告。没有 total：fetchAll=true 从 pageNo 起自动翻到空页（pageSize 缺省 200，末尾可能多计几个空页）；手动翻页时 pageNo 递增到空页为止，批量传 pageSize=200。每页按次计费。securityList 与日期区间二选一。⚠️ 按日期查时返回的 securityCode 不带市场后缀，而其他 bond 工具只收带后缀的代码：用该行 securityName 经 gangtise_securities_search 换回 gtsCode，并核对去掉后缀后与原代码一致——别拿无后缀代码直接搜，相似度检索可能给出相邻的另一只。【积分：0.4/次】",
+    "description": "查询债券公告。没有 total：fetchAll=true 从 pageNo 起自动翻到空页（pageSize 缺省 200，末尾可能多计几个空页）；手动翻页时 pageNo 递增到空页为止，批量传 pageSize=200。每页按次计费。securityList 与日期区间二选一。按日期查时，不对应已上市证券的公告与部分新发行债券的发行文件 securityCode 为空。【积分：0.4/次】",
     "inputSchema": {
       "type": "object",
       "properties": {

@@ -91,7 +91,7 @@ export const vaultEndpoints: EndpointTable = {
     method: "POST",
     path: "/application/open-vault/drive/copy",
     kind: "json",
-    description: "Copy drive files to the OTHER space (my drive <-> tenant drive)",
+    description: "Copy drive files or a folder to the OTHER space (my drive <-> tenant drive)",
     billing: { kind: "free" },
     itemFailures: true,
     retry: "no-replay",

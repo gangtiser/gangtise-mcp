@@ -16,8 +16,10 @@ const codes = (max?: number) => nonEmptyList().describe(max ? `债券代码，�
 const issuerNames = nonEmptyList().describe("发行人全称或简称，模糊匹配，每个名称只取最匹配的一家")
 const RATING_SUFFIX = "评级值可能紧跟小写后缀 sf / pi（如 AAApi），按档位比较或统计前先识别"
 const WINDOW_START = "startDate 早于账号可回溯的下界时整批报 110003（不会只返回窗口内那段），把起点往后挪再查"
+/** 行情与估值的数据起点可能晚于账号窗口：跨过它不报错，只是序列从有数据的那天开始。 */
+const DATA_START = "数据起点可能晚于账号窗口：区间整段早于数据起点返回 0 行，跨过时从有数据的那天起返回、不报错——取长序列时核对首行日期"
 /** 零行的真因与股票工具不同，通用提示里的股票代码示例会把排查引错方向。 */
-const EMPTY_HINT = "0 行结果：该条件下没有数据（如区间内全是非交易日、没有发行计划，或品种本身没有这类数据——国债没有评级与行权数据）；代码须是带后缀的标准代码（019742.SH / 220205.IB）。"
+const EMPTY_HINT = "0 行结果：该条件下没有数据（如区间内全是非交易日、区间早于数据起点、没有发行计划，或品种本身没有这类数据——国债没有评级与行权数据）；代码须是带后缀的标准代码（019742.SH / 220205.IB）。"
 
 /** 评级两个端点每次最多 10 只：超过时按 10 只一批并发请求（计费按条 / 按只，与手动分批相同），
  *  一次调用最多拆成单次调用上限那么多批。 */
@@ -73,7 +75,7 @@ const specs: JsonToolSpec[] = [
   {
     name: "gangtise_bond_daily_quote",
     tier: "core",
-    description: `查询债券日收盘行情（交易所 + 银行间）：全价、净价、到期收益率、成交、久期、凸性。没有数据的代码不产生行。${WINDOW_START}。`,
+    description: `查询债券日收盘行情（交易所 + 银行间）：全价、净价、到期收益率、成交、久期、凸性。没有数据的代码不产生行。${WINDOW_START}；${DATA_START}。`,
     endpointKey: "bond.daily-quote",
     inputSchema: { securityList: codes(), startDate: dateString, endDate: dateString, fieldList: fieldList("securityCode / tradeDate") },
     transformBody: (body) => uniqueCodes(body),
@@ -81,7 +83,7 @@ const specs: JsonToolSpec[] = [
   {
     name: "gangtise_bond_valuation",
     tier: "core",
-    description: `查询上清所债券估值：估值价格、收益率、久期、凸性、基点价值（利率与利差各一套）。confidenceLevel 省略时只返回「推荐」的估值，要「不推荐」的另传一次。没有数据的代码不产生行。${WINDOW_START}。`,
+    description: `查询上清所债券估值：估值价格、收益率、久期、凸性、基点价值（利率与利差各一套）。confidenceLevel 省略时只返回「推荐」的估值，要「不推荐」的另传一次。没有数据的代码不产生行。${WINDOW_START}；${DATA_START}。`,
     endpointKey: "bond.valuation",
     inputSchema: {
       securityList: codes(),
@@ -105,7 +107,7 @@ const specs: JsonToolSpec[] = [
   {
     name: "gangtise_bond_announcement_list",
     tier: "core",
-    description: "查询债券公告。没有 total：fetchAll=true 从 pageNo 起自动翻到空页（pageSize 缺省 200，末尾可能多计几个空页）；手动翻页时 pageNo 递增到空页为止，批量传 pageSize=200。每页按次计费。securityList 与日期区间二选一。⚠️ 按日期查时返回的 securityCode 不带市场后缀，而其他 bond 工具只收带后缀的代码：用该行 securityName 经 gangtise_securities_search 换回 gtsCode，并核对去掉后缀后与原代码一致——别拿无后缀代码直接搜，相似度检索可能给出相邻的另一只。",
+    description: "查询债券公告。没有 total：fetchAll=true 从 pageNo 起自动翻到空页（pageSize 缺省 200，末尾可能多计几个空页）；手动翻页时 pageNo 递增到空页为止，批量传 pageSize=200。每页按次计费。securityList 与日期区间二选一。按日期查时，不对应已上市证券的公告与部分新发行债券的发行文件 securityCode 为空。",
     endpointKey: "bond.announcement",
     inputSchema: {
       securityList: codes().optional(),

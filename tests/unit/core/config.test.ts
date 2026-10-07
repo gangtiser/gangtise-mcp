@@ -157,6 +157,26 @@ describe("loadConfig", () => {
     }
   })
 
+  it("GANGTISE_BASE_URL 用明文 http 指向非本机地址时在 stderr 提示一次，本机地址与 https 不提示", () => {
+    const write = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    const warnings = () => write.mock.calls.map((call) => String(call[0])).filter((text) => text.includes("plain http"))
+    try {
+      for (const quiet of ["https://example.test", "http://localhost:8080", "http://127.0.0.1:3000", "http://[::1]:3000"]) {
+        process.env.GANGTISE_BASE_URL = quiet
+        loadConfig()
+      }
+      expect(warnings()).toHaveLength(0)
+      process.env.GANGTISE_BASE_URL = "http://127.proxy.example.com"
+      loadConfig()
+      process.env.GANGTISE_BASE_URL = "http://openapi.example.test"
+      loadConfig()
+      expect(warnings()).toHaveLength(1)
+      expect(warnings()[0]).toContain("(127.proxy.example.com)")
+    } finally {
+      write.mockRestore()
+    }
+  })
+
   it("ignores empty, non-numeric, zero, and negative timeouts", () => {
     for (const bad of ["", "abc", "0", "-5"]) {
       process.env.GANGTISE_TIMEOUT_MS = bad

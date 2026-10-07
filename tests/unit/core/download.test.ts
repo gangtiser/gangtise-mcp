@@ -61,6 +61,38 @@ describe("downloadToResult", () => {
     }
   })
 
+  // 真客户端 + 本机 HTTP 服务 + 真落盘：UTF-8 文件名优先后，整段标题做文件名会超过单个文件名的
+  // 255 字节上限，rename 报 ENAMETOOLONG、已下载的文件被一并删掉。
+  it("writes a download whose UTF-8 filename exceeds the 255-byte name limit, keeping the extension", async () => {
+    const title = "研".repeat(256) + ".pdf"
+    const server = http.createServer((_req, res) => {
+      res.writeHead(200, {
+        "content-type": "application/pdf",
+        "content-disposition": `attachment; filename="report.pdf"; filename*=UTF-8''${encodeURIComponent(title)}`,
+      })
+      res.end("PDFBYTES")
+    })
+    await new Promise<void>((r) => server.listen(0, r))
+    const client = new GangtiseClient({
+      baseUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+      timeoutMs: 5_000,
+      token: "secret-token",
+      tokenCachePath: "/dev/null",
+      asyncTimeoutMs: 5_000,
+    })
+    let result: Awaited<ReturnType<typeof downloadToResult>> | undefined
+    try {
+      result = await downloadToResult(client, endpoint, {})
+      // 每个「研」3 字节：(255 − 4) / 3 取整 = 83 个，加 .pdf 共 253 字节
+      expect(result.filename).toBe("研".repeat(83) + ".pdf")
+      expect(path.basename(result.savedPath ?? "")).toBe(result.filename)
+      expect(await fs.readFile(result.savedPath!, "utf8")).toBe("PDFBYTES")
+    } finally {
+      await closed(server)
+      if (result?.savedPath) await fs.rm(path.dirname(result.savedPath), { recursive: true, force: true })
+    }
+  })
+
   it("removes the temp dir when the streamed download fails mid-way", async () => {
     let streamedTo: string | undefined
     const client = {

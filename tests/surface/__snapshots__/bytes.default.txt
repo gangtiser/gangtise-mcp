@@ -1,6 +1,6 @@
 tools: 114
-tools/list bytes: 170128
-instructions bytes: 3519
+tools/list bytes: 170506
+instructions bytes: 3564
 
    396  gangtise_current_date
    763  gangtise_lookup
@@ -44,11 +44,11 @@ instructions bytes: 3519
   1210  gangtise_earning_forecast
   1582  gangtise_valuation_analysis
    989  gangtise_bond_basic_info
-  1028  gangtise_bond_daily_quote
-  1204  gangtise_bond_valuation
+  1205  gangtise_bond_daily_quote
+  1381  gangtise_bond_valuation
    853  gangtise_bond_cash_flow
    967  gangtise_bond_rating_overview
-  1477  gangtise_bond_announcement_list
+  1276  gangtise_bond_announcement_list
   1358  gangtise_bond_issuer_info
   1208  gangtise_bond_rating_change
   1201  gangtise_bond_issuer_rating_change
@@ -101,7 +101,7 @@ instructions bytes: 3519
    851  gangtise_stock_pool_remove_stock
   1221  gangtise_stock_pool_delete
    646  gangtise_drive_folder_list
-  2827  gangtise_drive_manage
+  3052  gangtise_drive_manage
   1208  gangtise_drive_upload
   3398  gangtise_download
    735  gangtise_edb_search

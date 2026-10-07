@@ -42,6 +42,25 @@ function extFromContentType(contentType?: string): string {
   return MIME_EXT[mime] ?? ".bin"
 }
 
+/** 单个文件名的长度上限，按 UTF-8 字节算：ext4 / APFS 是 255 字节，NTFS 是 255 个 UTF-16 单元（不会多于 UTF-8 字节数）。 */
+const MAX_FILENAME_BYTES = 255
+
+/** 超长的文件名截到上限内、保留扩展名：UTF-8 文件名常是整段标题，原样落盘会 ENAMETOOLONG。按码点截，不切坏字符。 */
+function fitFilename(filename: string): string {
+  if (Buffer.byteLength(filename) <= MAX_FILENAME_BYTES) return filename
+  const extname = path.extname(filename)
+  // 只保留像扩展名的短后缀；「点后面一大段」不是扩展名，整体截断即可。
+  const ext = Buffer.byteLength(extname) <= 16 ? extname : ""
+  let budget = MAX_FILENAME_BYTES - Buffer.byteLength(ext)
+  let stem = ""
+  for (const char of filename.slice(0, filename.length - ext.length)) {
+    budget -= Buffer.byteLength(char)
+    if (budget < 0) break
+    stem += char
+  }
+  return stem + ext
+}
+
 function safeFilename(filename: string | undefined): string | undefined
 function safeFilename(filename: string | undefined, fallback: string): string
 function safeFilename(filename: string | undefined, fallback?: string): string | undefined {
@@ -50,7 +69,7 @@ function safeFilename(filename: string | undefined, fallback?: string): string |
   // eslint-disable-next-line no-control-regex -- 有意的：文件名里的控制字符必须剥掉
   const cleaned = basename.replace(/[\x00-\x1f\x7f]/g, "")
   if (!cleaned || cleaned === "." || cleaned === "..") return fallback
-  return cleaned
+  return fitFilename(cleaned)
 }
 
 /**

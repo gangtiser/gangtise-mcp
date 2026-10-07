@@ -1,7 +1,7 @@
 {
   "source": "gangtise-openapi-cli",
-  "version": "0.44.0",
-  "commit": "d39d522ae445ed5577a705a3517ec8c034a68e4e",
+  "version": "0.45.0",
+  "commit": "a9012f290156cf65e61693d03bab2d8713f7f38e",
   "endpoints": {
     "ai.earnings-review.get-content": {
       "method": "POST",

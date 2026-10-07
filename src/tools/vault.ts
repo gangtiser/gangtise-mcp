@@ -164,8 +164,8 @@ const DRIVE_ACTIONS: Record<string, DriveAction> = {
   rename: { endpoint: "vault.drive.rename", required: ["type", "id", "name"], body: (a) => ({ type: a.type, id: a.id, name: a.name }) },
   move_file: { endpoint: "vault.drive.move-file", required: ["fileIdList", "targetFolderId"], body: (a) => ({ fileIdList: a.fileIdList, targetFolderId: a.targetFolderId }) },
   move_folder: { endpoint: "vault.drive.move-folder", required: ["folderId", "targetParentId"], body: (a) => ({ folderId: a.folderId, targetParentId: a.targetParentId }) },
-  // 只复制文件：接口也收 copyType=folder，但那样只建出一个空文件夹。
   copy: { endpoint: "vault.drive.copy", required: ["fileIdList", "targetFolderId"], body: (a) => ({ copyType: "file", fileIdList: a.fileIdList, targetFolderId: a.targetFolderId }) },
+  copy_folder: { endpoint: "vault.drive.copy", required: ["folderId", "targetParentId"], body: (a) => ({ copyType: "folder", folderId: a.folderId, targetParentId: a.targetParentId }) },
   delete_file: { endpoint: "vault.drive.delete-file", required: ["fileIdList"], optional: ["confirm"], body: (a) => ({ fileIdList: a.fileIdList }) },
   delete_folder: { endpoint: "vault.drive.delete-folder", required: ["folderId"], optional: ["confirm"], body: (a) => ({ folderId: a.folderId }) },
 }
@@ -291,18 +291,18 @@ export const vaultFamily: FamilyModule = {
       idempotent: false,
       billingLabel: { kind: "free" },
       endpointFor: (args) => DRIVE_ACTIONS[args.action as string]?.endpoint,
-      description: "管理云盘（写操作）：action 选动作，各参数注明了哪个动作用。⚠️ 云盘允许同名、只以 ID 区分：create_folder 与 copy 每执行一次就多一份，超时不会自动重发，别对同一内容重复执行。move_file / move_folder 只能在同一空间内；跨空间（我的云盘 ↔ 租户云盘）用 copy，只支持文件、源保留。delete_file / delete_folder 不可恢复，须传 confirm: true，delete_folder 连同全部子内容一起删。move_file / copy / delete_file 对单条失败仍返回成功，明细在 failList 并标 _partial。租户云盘对整个租户可见，在里面新建、复制、删除前先向用户确认。",
+      description: "管理云盘（写操作）：action 选动作，各参数注明了哪个动作用。⚠️ 云盘允许同名、只以 ID 区分：create_folder 与 copy / copy_folder 每执行一次就多一份，超时不会自动重发，别对同一内容重复执行。move_file / move_folder 只能在同一空间内；跨空间（我的云盘 ↔ 租户云盘）用 copy（文件）或 copy_folder（整个文件夹连同子文件夹与文件，返回 newFolderId），源保留。delete_file / delete_folder 不可恢复，须传 confirm: true，delete_folder 连同全部子内容一起删。move_file / copy / delete_file 对单条失败仍返回成功，明细在 failList 并标 _partial。租户云盘对整个租户可见，在里面新建、复制、删除前先向用户确认。",
       input: {
-        action: z.enum(DRIVE_ACTION_NAMES).describe("create_folder=新建文件夹 | rename=重命名 | move_file=移动文件 | move_folder=移动文件夹 | copy=跨空间复制文件 | delete_file=删除文件 | delete_folder=删除文件夹"),
+        action: z.enum(DRIVE_ACTION_NAMES).describe("create_folder=新建文件夹 | rename=重命名 | move_file=移动文件 | move_folder=移动文件夹 | copy=跨空间复制文件 | copy_folder=跨空间复制文件夹 | delete_file=删除文件 | delete_folder=删除文件夹"),
         name: driveName.optional().describe("create_folder 的文件夹名 / rename 的新名称，最多 200 个字符（emoji 算 2 个）"),
         spaceType: spaceType.describe("create_folder 用：1=我的云盘（默认）| 2=租户云盘"),
         parentId: nonEmptyString.optional().describe("create_folder 用：父文件夹 ID，须属于 spaceType 那个空间；不传或 root 为根目录"),
         type: z.enum(["file", "folder"]).optional().describe("rename 用：id 是文件还是文件夹"),
         id: nonEmptyString.optional().describe("rename 用：文件或文件夹 ID"),
         fileIdList: nonEmptyList().optional().describe("move_file / copy / delete_file 用：文件 ID，来自 gangtise_drive_folder_list 的 fileList 或 gangtise_drive_list"),
-        folderId: nonEmptyString.optional().describe("move_folder / delete_folder 用：文件夹 ID"),
+        folderId: nonEmptyString.optional().describe("move_folder / copy_folder / delete_folder 用：文件夹 ID"),
         targetFolderId: nonEmptyString.optional().describe("move_file 用：同一空间的目标文件夹 ID；copy 用：另一空间的目标文件夹 ID；root 为根目录"),
-        targetParentId: nonEmptyString.optional().describe("move_folder 用：同一空间的目标父文件夹 ID 或 root，不能是它自己或其子文件夹"),
+        targetParentId: nonEmptyString.optional().describe("move_folder 用：同一空间的目标父文件夹 ID 或 root，不能是它自己或其子文件夹；copy_folder 用：另一空间的目标父文件夹 ID 或 root"),
         confirm: z.boolean().optional().describe("delete_file / delete_folder 必须显式传 true；先向用户列出将被删除的名称并得到同意，不要仅因为被拒绝过就补上重试"),
       },
       run: async ({ client }, args) => {

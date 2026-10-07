@@ -397,8 +397,8 @@ export const quoteFamily: FamilyModule = {
         const result = securities.length > 1
           ? await callPerSecurity(client, "quote.minute-kline", securities, (codes) => ({ ...body, securityCode: codes[0] }), effLimit)
           : flagLimitTruncated(await client.call("quote.minute-kline", { ...body, securityCode: securities[0] }), effLimit)
-        // 分钟线可查的历史比日线短得多，整段落在它之前的区间返回空结果而不报错。
-        const emptyHint = startTime || endTime ? "0 行结果：分钟线可查的历史比日线短得多，整段落在它之前的区间返回空结果而不报错——换一个近期区间核对；也请确认证券代码与后缀。" : undefined
+        // 分钟线可查的历史是随日期滚动的短窗口，整段落在它之前的区间返回空结果而不报错。
+        const emptyHint = startTime || endTime ? "0 行结果：分钟线可查的历史是随日期滚动的短窗口（比日线短得多），整段落在窗口之前的区间返回空结果而不报错——换一个近期区间核对；也请确认证券代码与后缀。" : undefined
         return contentResult(await buildToolContent(normalizeRows(withNote(flagMissingFields(result, body.fieldList as string[] | undefined), note, lateStartNote(result, startTime, "tradeTime", securities))), { emptyHint }))
       },
     }),

@@ -1,3 +1,4 @@
+import { isIPv4 } from "node:net"
 import os from "node:os"
 import path from "node:path"
 
@@ -97,6 +98,7 @@ export function resolveTimeoutMs(raw: string | undefined): number {
 }
 
 let timeoutWarned = false
+let plainHttpWarned = false
 
 export interface CliConfig {
   baseUrl: string
@@ -110,6 +112,24 @@ export interface CliConfig {
   maxDownloadBytes: number
   /** GANGTISE_MCP_TOOLS 原值：列出与启用哪些工具，由 profile.ts 解析。 */
   tools?: string
+}
+
+/** 每个进程只说一次：走明文 http 时，登录请求体里的 AK / SK 与每个请求的 token 都不加密。本机地址不提示——
+ *  本地代理与测试桩都在那里。 */
+function warnIfPlainHttp(baseUrl: string): void {
+  if (plainHttpWarned) return
+  let url: URL
+  try {
+    url = new URL(baseUrl)
+  } catch {
+    return
+  }
+  if (url.protocol !== "http:") return
+  const host = url.hostname.replace(/^\[|\]$/g, "")
+  // 127. 前缀只在 IP 地址上才是本机：127.proxy.example.com 是远端域名。
+  if (host === "localhost" || host === "::1" || (isIPv4(host) && host.startsWith("127."))) return
+  plainHttpWarned = true
+  process.stderr.write(`[gangtise] warning: GANGTISE_BASE_URL uses plain http (${url.host}): the access key, secret and token are sent unencrypted. Use https unless this is a trusted local proxy.\n`)
 }
 
 /** 设成空串（或只有空白）的变量按未设置处理：MCP 配置模板里常把可选项留成 `""`，`GANGTISE_BASE_URL: ""`
@@ -131,8 +151,11 @@ export function loadConfig(): CliConfig {
   const asyncTimeoutValue = process.env.GANGTISE_MCP_ASYNC_TIMEOUT_MS
   const asyncTimeoutMs = asyncTimeoutValue ? Number(asyncTimeoutValue) : DEFAULT_ASYNC_TIMEOUT_MS
 
+  const baseUrl = envValue("GANGTISE_BASE_URL") ?? DEFAULT_BASE_URL
+  warnIfPlainHttp(baseUrl)
+
   return {
-    baseUrl: envValue("GANGTISE_BASE_URL") ?? DEFAULT_BASE_URL,
+    baseUrl,
     timeoutMs,
     accessKey: envValue("GANGTISE_ACCESS_KEY"),
     secretKey: envValue("GANGTISE_SECRET_KEY"),

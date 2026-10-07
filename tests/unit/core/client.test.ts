@@ -754,6 +754,23 @@ describe("GangtiseClient download content handling", () => {
     expect(result.data).toEqual(bytes)
   })
 
+  it("prefers the UTF-8 filename* over a plain filename that comes first", async () => {
+    requestMock.mockResolvedValue({
+      statusCode: 200,
+      headers: {
+        "content-type": "application/octet-stream",
+        "content-disposition": `attachment; filename="report.pdf"; filename*=UTF-8''${encodeURIComponent("年报点评.pdf")}`,
+      },
+      body: {
+        arrayBuffer: vi.fn().mockResolvedValue(new Uint8Array([1]).buffer),
+        text: vi.fn(),
+      },
+    })
+
+    const result = await tokenClient().call("insight.research.download", undefined, { reportId: "1" }) as { filename?: string }
+    expect(result.filename).toBe("年报点评.pdf")
+  })
+
   // A JSON *file attachment* (content-disposition present) must be returned
   // verbatim — vault drive files can be arbitrary .json that merely looks like
   // an API envelope and used to get unwrapped (content rewritten) or, with a

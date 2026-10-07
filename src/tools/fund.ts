@@ -158,7 +158,7 @@ const specs: JsonToolSpec[] = [
 export const fundFamily: FamilyModule = {
   name: "fund",
   routingHint:
-    "基金：fund_*（资金流向除外）收带大写后缀的基金代码（场外 005827.OF，场内 510300.SH / 159967.SZ；经理信息按姓名查）；场内基金可用 gangtise_securities_search（category=fund）按简称换代码，场外的搜不到。代码查不到返回空、不报错。按次计费，多只合并成一次查；结果按 fundCode 对应。不分页，超过 10000 行整批报 100006。日期筛报告期（净值与 ETF 份额筛交易日），两端都省略取账号可回溯窗口内全部，而非最新一期。",
+    "基金：fund_*（资金流向除外）收带大写后缀的基金代码（场外 005827.OF，场内 510300.SH / 159967.SZ；经理信息按姓名查）；场内基金可用 gangtise_securities_search（category=fund）按 6 位代码或场内简称换代码（全称常搜不到），场外的搜不到。代码查不到返回空、不报错。按次计费，多只合并成一次查；结果按 fundCode 对应。不分页，超过 10000 行整批报 100006。日期筛报告期（净值与 ETF 份额筛交易日），两端都省略取账号可回溯窗口内全部，而非最新一期。",
   endpoints: fundEndpoints,
   tools: specs.map((spec) => defineJsonTool({ ...spec, emptyHint: emptyHint(spec) })),
 }
