@@ -115,7 +115,7 @@ describe("2026-07-17 三层错误码", () => {
     expect(hintOf("410004")).toContain("未开通")
   })
 
-  // 终态失败重新提交会再次计费 50 积分，提示必须说清这一点。
+  // 终态失败重新提交会再次计费，提示必须说清这一点。
   it.each(["410111", "140002"])("warns that resubmitting %s re-bills", (code) => {
     expect(hintOf(code)).toContain("计费")
   })

@@ -50,6 +50,39 @@ function opinionListResolve(briefKey: string, withContentKey: string) {
   return ({ withContent, ...body }: Record<string, unknown>) => ({ endpointKey: withContent === true ? withContentKey : briefKey, body })
 }
 
+/** 内资观点两档的筛选项不同：带正文的旧版列表不认 categoryList / brokerTagList（照常返回未经筛选的
+ *  结果、按 30/条计费），llmTagList 只收旧的四个值；默认档的 llmTagList 是投研标签，旧值里的业绩点评 /
+ *  头部券商 / 新财富已拆到 categoryList / brokerTagList，传旧值服务端报 100005。都在本地拒，不发请求。 */
+const OPINION_V1_LLM_TAGS = ["strongRcmd", "earningsReview", "topBroker", "newFortune"]
+const OPINION_V1_ONLY_LLM_TAGS = new Set(["earningsReview", "topBroker", "newFortune"])
+function domesticOpinionResolve(args: Record<string, unknown>) {
+  const tags = Array.isArray(args.llmTagList) ? args.llmTagList.map(String) : []
+  if (args.withContent === true) {
+    const listed = (key: string) => Array.isArray(args[key]) && (args[key] as unknown[]).length > 0
+    if (listed("categoryList") || listed("brokerTagList")) {
+      throw new ValidationError("withContent=true 不支持 categoryList / brokerTagList：带正文的列表不认这两个筛选项，会按 30 积分/条返回未经筛选的结果。先用默认档（withContent 不传）筛选，再用 gangtise_opinion_detail 按 chiefOpinionId 取正文。")
+    }
+    const unsupported = tags.filter((tag) => !OPINION_V1_LLM_TAGS.includes(tag))
+    if (unsupported.length > 0) {
+      throw new ValidationError(`withContent=true 时 llmTagList 只收 ${OPINION_V1_LLM_TAGS.join(" / ")}，不收 ${unsupported.join(" / ")}。按投研标签筛选用默认档（withContent 不传），再用 gangtise_opinion_detail 取正文。`)
+    }
+  } else {
+    const v1Only = tags.filter((tag) => OPINION_V1_ONLY_LLM_TAGS.has(tag))
+    if (v1Only.length > 0) {
+      throw new ValidationError(`llmTagList 的 ${v1Only.join(" / ")} 只在 withContent=true 时可用。默认档改用 categoryList=['earningsReview']（业绩点评）、brokerTagList=['topBroker']（头部券商）/ ['newFortune']（新财富团队）。`)
+    }
+  }
+  return opinionListResolve("insight.opinion.list", "insight.opinion.list-with-content")(args)
+}
+
+const OPINION_LLM_TAG_ENUM = z.enum([
+  "strongRcmd", "undervalued", "highElasticity", "highDividend", "reversal", "bottom", "beatExpect", "expectGap", "oversold", "targetPrice", "certainty",
+  "highGrowth", "withProfitForecast", "withGuidance", "marginalImprovement",
+  "priceHike", "tightSupplyDemand", "capacityRelease", "newOrder", "orderSurge", "keyCustomer", "soleSupplier", "coreSupplier", "industryEntry",
+  "leader", "moat", "scarcity", "breakthrough",
+  "earningsReview", "topBroker", "newFortune",
+])
+
 /** 公告按市场分三个端点。市场由证券后缀定，没有证券时由 market 定；混了市场、或两者对不上就拒绝，
  *  不猜——猜错一个市场，返回的是另一个市场的公告或空表，看不出来。 */
 const ANNOUNCEMENT_ENDPOINTS = { cn: "insight.announcement.list", hk: "insight.announcement-hk.list", us: "insight.announcement-us.list" } as const
@@ -118,9 +151,9 @@ export const listSpecs: JsonToolSpec[] = [
   {
     name: "gangtise_opinion_list",
     tier: "core",
-    description: "查询国内机构首席观点列表，支持按证券、券商、研究方向、行业、时间范围、语义标签等筛选。正文见 withContent。",
+    description: "查询国内机构首席观点列表，支持按证券、券商、研究方向、行业、观点类别、投研标签、机构标签、时间范围等筛选；返回行带 categoryList / llmTagList / brokerTagList（无标签为 []）。正文见 withContent。",
     endpointKey: "insight.opinion.list",
-    resolve: opinionListResolve("insight.opinion.list", "insight.opinion.list-with-content"),
+    resolve: domesticOpinionResolve,
     paginated: true,
     inputSchema: {
       from: z.number().int().min(0).optional(),
@@ -134,9 +167,11 @@ export const listSpecs: JsonToolSpec[] = [
       brokerList: nonEmptyList().optional().describe("机构 ID（内资观点机构）：用 gangtise_institution_search categoryList=['opinionInstitution'] 按名称搜；需全量枚举用 gangtise_lookup type=broker-orgs"),
       industryList: nonEmptyList().optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx，全场景首选）"),
       conceptList: nonEmptyList().optional().describe("题材/概念 ID，来自 gangtise_concept_search，如 '121000130'（机器人）"),
-      llmTagList: enumList(z.enum(["strongRcmd", "earningsReview", "topBroker", "newFortune"])).optional().describe("strongRcmd=强推 | earningsReview=业绩点评 | topBroker=头部券商 | newFortune=新财富"),
+      categoryList: enumList(z.enum(["earningsReview", "abnormalReview", "researchUpdate", "tradingDesk", "industryAnalysis"])).optional().describe("观点类别：earningsReview=业绩点评 | abnormalReview=异动点评 | researchUpdate=调研/访谈更新 | tradingDesk=交易台 | industryAnalysis=行业分析；一条观点可属多个类别"),
+      llmTagList: enumList(OPINION_LLM_TAG_ENUM).optional().describe("投研标签，多个取并集（命中任一即返回），要同时满足就取回后按返回行的 llmTagList 过滤。推荐：strongRcmd=强烈推荐 | undervalued=低估值 | highElasticity=高弹性 | highDividend=高股息 | reversal=拐点/反转 | bottom=底部 | beatExpect=超预期 | expectGap=预期差 | oversold=错杀/超跌 | targetPrice=目标股价/市值 | certainty=确定性；业绩：highGrowth=高增 | withProfitForecast=含盈利预测 | withGuidance=含指引 | marginalImprovement=边际改善；产业链：priceHike=涨价 | tightSupplyDemand=供需趋紧 | capacityRelease=产能释放 | newOrder=新订单 | orderSurge=订单高增/大单 | keyCustomer=大客户 | soleSupplier=独供/一供 | coreSupplier=核心供应商 | industryEntry=产业导入；壁垒：leader=龙头 | moat=壁垒 | scarcity=稀缺性 | breakthrough=突破。withContent=true 时只收 strongRcmd / earningsReview（业绩点评）/ topBroker（头部券商）/ newFortune（新财富团队），后三个默认档不收、改用 categoryList / brokerTagList"),
+      brokerTagList: enumList(z.enum(["topBroker", "newFortune"])).optional().describe("机构标签：topBroker=头部券商 | newFortune=新财富团队"),
       sourceList: enumList(z.enum(["realTime", "openSource"])).optional().describe("realTime=实时 | openSource=公开"),
-      withContent: z.boolean().optional().describe("默认 false 只回标题 + 200 字 brief（价见标签），全文用 gangtise_opinion_detail；true 带正文，30 积分/条，标题与正文在 contentList.title / .content，顶层无 title / brief"),
+      withContent: z.boolean().optional().describe("默认 false 只回标题 + 200 字 brief（价见标签），全文用 gangtise_opinion_detail；true 带正文，30 积分/条，标题与正文在 contentList.title / .content，顶层无 title / brief；不支持 categoryList / brokerTagList（不能筛、也不返回），按它们筛选后用 gangtise_opinion_detail 取正文"),
     },
   },
   {

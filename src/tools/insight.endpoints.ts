@@ -47,7 +47,7 @@ export const insightEndpoints: EndpointTable = {
     path: "/application/open-insight/summary/v2/download/file",
     kind: "download",
     description: "Download summary file",
-    billing: { kind: "fixed", per: "document", price: 50 },
+    billing: { kind: "fixed", per: "document", price: 30 },
     retry: "no-replay",
   },
   "insight.pamirs-summary.list": {
@@ -76,7 +76,7 @@ export const insightEndpoints: EndpointTable = {
     path: "/application/open-insight/schedule/roadshow/getList",
     kind: "json",
     description: "List roadshows",
-    billing: { kind: "fixed", per: "row", price: 20, amplify: "单次约 400 积分" },
+    billing: { kind: "fixed", per: "row", price: 10, amplify: "单次约 200 积分" },
     pagination: { mode: "offset", maxPageSize: 50 },
     rowId: "id",
     rowIdUnverified: true,
@@ -86,7 +86,7 @@ export const insightEndpoints: EndpointTable = {
     path: "/application/open-insight/schedule/site-visit/getList",
     kind: "json",
     description: "List site visits",
-    billing: { kind: "fixed", per: "row", price: 20, amplify: "单次约 400 积分" },
+    billing: { kind: "fixed", per: "row", price: 10, amplify: "单次约 200 积分" },
     pagination: { mode: "offset", maxPageSize: 50 },
     rowId: "id",
     rowIdUnverified: true,
@@ -96,7 +96,7 @@ export const insightEndpoints: EndpointTable = {
     path: "/application/open-insight/schedule/strategy-meeting/getList",
     kind: "json",
     description: "List strategy meetings",
-    billing: { kind: "fixed", per: "row", price: 20, amplify: "单次约 400 积分" },
+    billing: { kind: "fixed", per: "row", price: 10, amplify: "单次约 200 积分" },
     pagination: { mode: "offset", maxPageSize: 50 },
     rowId: "id",
     rowIdUnverified: true,
@@ -106,7 +106,7 @@ export const insightEndpoints: EndpointTable = {
     path: "/application/open-insight/schedule/forum/getList",
     kind: "json",
     description: "List forums",
-    billing: { kind: "fixed", per: "row", price: 20, amplify: "单次约 400 积分" },
+    billing: { kind: "fixed", per: "row", price: 10, amplify: "单次约 200 积分" },
     pagination: { mode: "offset", maxPageSize: 50 },
     rowId: "id",
     rowIdUnverified: true,
@@ -124,10 +124,10 @@ export const insightEndpoints: EndpointTable = {
     method: "GET",
     path: "/application/open-insight/schedule/performance-calendar/download/file",
     kind: "download",
-    description: "Download an earnings report file (A-share 10 credits, HK/US 20)",
-    // 唯一按标的市场分档的下载：A股 10、港美股 20。标签词表没有「按市场分档」这一档，
-    // 按 20 统一报价会误导模型，所以标签取较低的 A 股档，港美股档走 amplify 尾注。
-    billing: { kind: "fixed", per: "document", price: 10, amplify: "港美股为 20/条" },
+    description: "Download an earnings report file (A-share 1 credit, HK/US 2)",
+    // 唯一按标的市场分档的下载：A股 1、港美股 2。标签词表没有「按市场分档」这一档，
+    // 按 2 统一报价会误导模型，所以标签取较低的 A 股档，港美股档走 amplify 尾注。
+    billing: { kind: "fixed", per: "document", price: 1, amplify: "港美股为 2/条" },
   },
   "insight.research.list": {
     method: "POST",
@@ -159,7 +159,7 @@ export const insightEndpoints: EndpointTable = {
     path: "/application/open-insight/foreign-report/download/file",
     kind: "download",
     description: "Download foreign report",
-    billing: { kind: "fixed", per: "document", price: 50 },
+    billing: { kind: "fixed", per: "document", price: 30 },
     retry: "no-replay",
   },
   "insight.announcement.list": {
@@ -176,7 +176,7 @@ export const insightEndpoints: EndpointTable = {
     path: "/application/open-insight/announcement/download/file",
     kind: "download",
     description: "Download A-share announcement file",
-    billing: { kind: "fixed", per: "document", price: 10 },
+    billing: { kind: "fixed", per: "document", price: 1 },
   },
   "insight.announcement-hk.list": {
     method: "POST",
@@ -192,7 +192,7 @@ export const insightEndpoints: EndpointTable = {
     path: "/application/open-insight/announcement-hk/download/file",
     kind: "download",
     description: "Download HK announcement file",
-    billing: { kind: "fixed", per: "document", price: 20 },
+    billing: { kind: "fixed", per: "document", price: 2 },
   },
   "insight.announcement-us.list": {
     method: "POST",
@@ -208,7 +208,7 @@ export const insightEndpoints: EndpointTable = {
     path: "/application/open-insight/announcement-us/download/file",
     kind: "download",
     description: "Download US announcement file",
-    billing: { kind: "fixed", per: "document", price: 20 },
+    billing: { kind: "fixed", per: "document", price: 2 },
   },
   "insight.foreign-opinion.list": {
     method: "POST",
@@ -242,7 +242,7 @@ export const insightEndpoints: EndpointTable = {
     path: "/application/open-insight/independent-opinion/getList",
     kind: "json",
     description: "List foreign independent analyst opinions",
-    billing: { kind: "fixed", per: "row", price: 5 },
+    billing: { kind: "fixed", per: "row", price: 1 },
     pagination: { mode: "offset", maxPageSize: 50 },
     rowId: "independentOpinionId",
     rowIdUnverified: true,

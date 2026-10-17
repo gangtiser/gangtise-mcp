@@ -126,7 +126,7 @@ export const vaultEndpoints: EndpointTable = {
     path: "/application/open-vault/my-conference/download/file",
     kind: "download",
     description: "Download my conference resource",
-    billing: { kind: "fixed", per: "document", price: 50 },
+    billing: { kind: "fixed", per: "document", price: 30 },
     retry: "no-replay",
   },
   "vault.wechat-message.list": {

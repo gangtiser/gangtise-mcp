@@ -30,5 +30,6 @@ export const referenceExamples: ToolExamples = {
   ],
   gangtise_securities_search: [
     { title: "关键词 + 类别", args: { keyword: "贵州茅台", category: ["stock"], top: 5 }, expect: { requests: [{ method: "POST", path: "/application/open-reference/securities/search", body: { keyword: "贵州茅台", category: ["stock"], top: 5 } }] } },
+    { title: "债券类别", args: { keyword: "甬金转债", category: ["bond"] }, expect: { requests: [{ method: "POST", path: "/application/open-reference/securities/search", body: { keyword: "甬金转债", category: ["bond"] } }] } },
   ],
 }

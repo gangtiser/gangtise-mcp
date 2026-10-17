@@ -1,7 +1,7 @@
 {
   "source": "gangtise-openapi-cli",
-  "version": "0.45.0",
-  "commit": "a9012f290156cf65e61693d03bab2d8713f7f38e",
+  "version": "0.47.0",
+  "commit": "2251eb72469669762011636c4dd61406ee710176",
   "endpoints": {
     "ai.earnings-review.get-content": {
       "method": "POST",
@@ -15,7 +15,7 @@
       "retry": "no-replay",
       "billing": {
         "per": "call",
-        "price": 50
+        "price": 20
       }
     },
     "ai.hot-topic": {
@@ -28,7 +28,7 @@
       },
       "billing": {
         "per": "row",
-        "price": 50
+        "price": 10
       }
     },
     "ai.investment-logic": {
@@ -39,7 +39,7 @@
       "timeoutMs": 120000,
       "billing": {
         "per": "call",
-        "price": 50
+        "price": 10
       }
     },
     "ai.knowledge-batch": {
@@ -65,7 +65,7 @@
       "timeoutMs": 120000,
       "billing": {
         "per": "call",
-        "price": 10
+        "price": 5
       }
     },
     "ai.management-discuss-earnings-call": {
@@ -87,7 +87,7 @@
       "timeoutMs": 120000,
       "billing": {
         "per": "call",
-        "price": 50
+        "price": 10
       }
     },
     "ai.peer-comparison": {
@@ -98,7 +98,7 @@
       "timeoutMs": 120000,
       "billing": {
         "per": "call",
-        "price": 50
+        "price": 10
       }
     },
     "ai.research-outline": {
@@ -109,7 +109,7 @@
       "timeoutMs": 120000,
       "billing": {
         "per": "call",
-        "price": 50
+        "price": 10
       }
     },
     "ai.security-clue.list": {
@@ -132,7 +132,7 @@
       "timeoutMs": 120000,
       "billing": {
         "per": "row",
-        "price": 3,
+        "price": 1,
         "maxUnits": 6000
       }
     },
@@ -144,7 +144,7 @@
       "timeoutMs": 120000,
       "billing": {
         "per": "call",
-        "price": 50
+        "price": 10
       }
     },
     "ai.viewpoint-debate.get-content": {
@@ -159,7 +159,7 @@
       "retry": "no-replay",
       "billing": {
         "per": "call",
-        "price": 50
+        "price": 20
       }
     },
     "alternative.concept-info": {
@@ -205,7 +205,12 @@
     "alternative.edb-data": {
       "method": "POST",
       "path": "/application/open-alternative/EDB/getData",
-      "kind": "json"
+      "kind": "json",
+      "billing": {
+        "per": "indicator",
+        "price": 30,
+        "maxUnits": 10
+      }
     },
     "alternative.edb-search": {
       "method": "POST",
@@ -662,7 +667,7 @@
       "kind": "download",
       "billing": {
         "per": "document",
-        "price": 20
+        "price": 2
       }
     },
     "insight.announcement-hk.list": {
@@ -684,7 +689,7 @@
       "kind": "download",
       "billing": {
         "per": "document",
-        "price": 20
+        "price": 2
       }
     },
     "insight.announcement-us.list": {
@@ -706,7 +711,7 @@
       "kind": "download",
       "billing": {
         "per": "document",
-        "price": 10
+        "price": 1
       }
     },
     "insight.announcement.list": {
@@ -767,7 +772,7 @@
       "retry": "no-replay",
       "billing": {
         "per": "document",
-        "price": 50
+        "price": 30
       }
     },
     "insight.foreign-report.list": {
@@ -794,7 +799,7 @@
       },
       "billing": {
         "per": "row",
-        "price": 20
+        "price": 10
       }
     },
     "insight.highlight.list": {
@@ -833,7 +838,7 @@
       },
       "billing": {
         "per": "row",
-        "price": 5
+        "price": 1
       }
     },
     "insight.official-account.download": {
@@ -917,7 +922,7 @@
       "kind": "download",
       "billing": {
         "per": "document",
-        "price": 20
+        "price": 2
       }
     },
     "insight.performance-calendar.list": {
@@ -992,7 +997,7 @@
       },
       "billing": {
         "per": "row",
-        "price": 20
+        "price": 10
       }
     },
     "insight.site-visit.list": {
@@ -1006,7 +1011,7 @@
       },
       "billing": {
         "per": "row",
-        "price": 20
+        "price": 10
       }
     },
     "insight.strategy.list": {
@@ -1020,7 +1025,7 @@
       },
       "billing": {
         "per": "row",
-        "price": 20
+        "price": 10
       }
     },
     "insight.summary.download": {
@@ -1030,7 +1035,7 @@
       "retry": "no-replay",
       "billing": {
         "per": "document",
-        "price": 50
+        "price": 30
       }
     },
     "insight.summary.list": {
@@ -1250,7 +1255,7 @@
       "retry": "no-replay",
       "billing": {
         "per": "document",
-        "price": 50
+        "price": 30
       }
     },
     "vault.my-conference.list": {

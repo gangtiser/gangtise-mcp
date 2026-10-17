@@ -1,6 +1,7 @@
 import { z } from "zod"
 import { callPerSecurity } from "../core/batch.js"
 import { ValidationError } from "../core/errors.js"
+import { lateStartNote, withNote } from "../core/lateStart.js"
 import { dateString } from "../core/dateContext.js"
 import { requestUntilEmptyPage } from "../core/paginate.js"
 import { CALL_LIMITS } from "../core/scheduler.js"
@@ -17,7 +18,12 @@ const issuerNames = nonEmptyList().describe("发行人全称或简称，模糊�
 const RATING_SUFFIX = "评级值可能紧跟小写后缀 sf / pi（如 AAApi），按档位比较或统计前先识别"
 const WINDOW_START = "startDate 早于账号可回溯的下界时整批报 110003（不会只返回窗口内那段），把起点往后挪再查"
 /** 行情与估值的数据起点可能晚于账号窗口：跨过它不报错，只是序列从有数据的那天开始。 */
-const DATA_START = "数据起点可能晚于账号窗口：区间整段早于数据起点返回 0 行，跨过时从有数据的那天起返回、不报错——取长序列时核对首行日期"
+const DATA_START = "数据起点可能晚于账号窗口：区间整段早于数据起点返回 0 行，跨过时从有数据的那天起返回、不报错，首行比 startDate 晚 14 天以上时按债券逐只写进 _note"
+/** 行情与估值的首行晚到提示。窗口外整批报 110003，所以晚到的原因只剩上市晚或数据起点晚。 */
+const lateStart: NonNullable<JsonToolSpec["call"]> = async (client, endpointKey, body) => {
+  const result = await client.call(endpointKey, body)
+  return withNote(result, lateStartNote(result, body.startDate, "tradeDate", body.securityList as string[], "可能债券上市晚于起点，或数据起点晚于所查区间——本接口从有数据的那天起返回、不报错"))
+}
 /** 零行的真因与股票工具不同，通用提示里的股票代码示例会把排查引错方向。 */
 const EMPTY_HINT = "0 行结果：该条件下没有数据（如区间内全是非交易日、区间早于数据起点、没有发行计划，或品种本身没有这类数据——国债没有评级与行权数据）；代码须是带后缀的标准代码（019742.SH / 220205.IB）。"
 
@@ -79,6 +85,7 @@ const specs: JsonToolSpec[] = [
     endpointKey: "bond.daily-quote",
     inputSchema: { securityList: codes(), startDate: dateString, endDate: dateString, fieldList: fieldList("securityCode / tradeDate") },
     transformBody: (body) => uniqueCodes(body),
+    call: lateStart,
   },
   {
     name: "gangtise_bond_valuation",
@@ -93,6 +100,7 @@ const specs: JsonToolSpec[] = [
       fieldList: fieldList("securityCode / tradeDate / confidenceLevel"),
     },
     transformBody: (body) => uniqueCodes(body),
+    call: lateStart,
   },
   rangeSpec("gangtise_bond_cash_flow", "core", "bond.cash-flow", "查询债券付息与兑付计划。startDate / endDate 筛兑付日，省略返回全部。没有数据的代码不产生行。", "securityCode / paymentDate"),
   {
@@ -130,7 +138,7 @@ const specs: JsonToolSpec[] = [
   {
     name: "gangtise_bond_issuer_info",
     tier: "core",
-    description: "查询发债主体资料：企业性质、行业、注册信息、主体评级、存续债券。securityList（按债券找主体）与 issuerNameList 二选一；按 securityList 查时每个代码固定一行、没有的除代码外全为 null，按名称匹配不到则不产生行。行业有 swIndustry（申万）与 nationalIndustry（国民经济行业）两套。latestIssuerRating 形如「AAA(维持,2026-08-11)」但括号可能缺省；⚠️ 这一列混合境内外评级口径、不可直接比较，排序或筛选前一并取 ratingAgency。outstandingBondList 是存续债简称串，要代码用 gangtise_securities_search 换。",
+    description: "查询发债主体资料：企业性质、行业、注册信息、主体评级、存续债券。securityList（按债券找主体）与 issuerNameList 二选一；按 securityList 查时每个代码固定一行、没有的除代码外全为 null，按名称匹配不到则不产生行。行业有 swIndustry（申万）与 nationalIndustry（国民经济行业）两套。latestIssuerRating 形如「AAA(维持,2026-08-11)」但括号可能缺省；⚠️ 这一列混合境内外评级口径、不可直接比较，排序或筛选前一并取 ratingAgency。outstandingBondList 是存续债简称串，要代码用 gangtise_securities_search（category=bond）换。",
     endpointKey: "bond.issuer-info",
     inputSchema: { securityList: codes().optional(), issuerNameList: issuerNames.optional(), fieldList: fieldList("issuerName") },
     transformBody: issuerSelector,
@@ -151,7 +159,7 @@ const specs: JsonToolSpec[] = [
   {
     name: "gangtise_bond_issuance_plan",
     tier: "extended",
-    description: `查询利率债发行计划：发行人、品种、期限、计划发行量、利率类型、付息频率。只按日期区间查，不收债券码。${WINDOW_START}。`,
+    description: `查询利率债发行计划：发行人、品种、期限、计划发行量、利率类型、付息频率。只按日期区间查，不收债券码。⚠️ 返回的 bondType 是利率债子类型（gangtise_constant_list category=interestBondSubtype），与 gangtise_bond_basic_info 的 bondType（category=bondType）不是同一套码。${WINDOW_START}。`,
     endpointKey: "bond.issuance-plan",
     inputSchema: { startDate: dateString, endDate: dateString, fieldList: fieldList("issueDate") },
   },
@@ -160,7 +168,7 @@ const specs: JsonToolSpec[] = [
 
 export const bondFamily: FamilyModule = {
   name: "bond",
-  routingHint: "债券：bond_* 只收标准代码（019742.SH / 220205.IB），简称先 gangtise_securities_search 换；fieldList 写错名整批报 100003。",
+  routingHint: "债券：bond_* 只收标准代码（019742.SH / 220205.IB），简称先 gangtise_securities_search（category=bond）换；fieldList 写错名整批报 100003。",
   endpoints: bondEndpoints,
   tools: specs.map((spec) => defineJsonTool({ ...spec, emptyHint: EMPTY_HINT })),
 }

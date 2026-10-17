@@ -1,19 +1,19 @@
 tools: 96
-tools/list bytes: 153067
-instructions bytes: 3564
+tools/list bytes: 155200
+instructions bytes: 3525
 
    396  gangtise_current_date
    763  gangtise_lookup
-   885  gangtise_securities_search
+  1408  gangtise_securities_search
    636  gangtise_chiefs_search
   1466  gangtise_institution_search
   1125  gangtise_official_account_search
    405  gangtise_constant_category
-  1220  gangtise_constant_list
+  1261  gangtise_constant_list
    865  gangtise_concept_search
    964  gangtise_sector_search
    860  gangtise_sector_constituents
-  2884  gangtise_opinion_list
+  5039  gangtise_opinion_list
   2751  gangtise_summary_list
   2645  gangtise_pamirs_summary_list
   2864  gangtise_roadshow_list
@@ -42,14 +42,14 @@ instructions bytes: 3564
   1480  gangtise_main_business
   1030  gangtise_top_holders
   1210  gangtise_earning_forecast
-  1582  gangtise_valuation_analysis
+  1539  gangtise_valuation_analysis
    989  gangtise_bond_basic_info
-  1205  gangtise_bond_daily_quote
-  1381  gangtise_bond_valuation
+  1235  gangtise_bond_daily_quote
+  1411  gangtise_bond_valuation
    853  gangtise_bond_cash_flow
    967  gangtise_bond_rating_overview
   1276  gangtise_bond_announcement_list
-  1358  gangtise_bond_issuer_info
+  1376  gangtise_bond_issuer_info
   1208  gangtise_bond_rating_change
   1201  gangtise_bond_issuer_rating_change
   1099  gangtise_fund_basic_info
@@ -62,8 +62,8 @@ instructions bytes: 3564
    886  gangtise_stock_summary
   1826  gangtise_knowledge_batch
   1479  gangtise_security_clue_list
-  1222  gangtise_hot_topic
-   945  gangtise_management_discuss_announcement
+  1221  gangtise_hot_topic
+   944  gangtise_management_discuss_announcement
    882  gangtise_management_discuss_earnings_call
    819  gangtise_theme_tracking
    433  gangtise_one_pager
@@ -87,14 +87,14 @@ instructions bytes: 3564
    851  gangtise_stock_pool_remove_stock
   1221  gangtise_stock_pool_delete
    646  gangtise_drive_folder_list
-  3398  gangtise_download
+  3393  gangtise_download
    735  gangtise_edb_search
    935  gangtise_concept_info
    982  gangtise_concept_securities
    756  gangtise_edb_data
   2346  gangtise_indicator_search
-  7623  gangtise_indicator_cross_section
+  7316  gangtise_indicator_cross_section
   6234  gangtise_indicator_time_series
-  8766  gangtise_indicator_screener
+  8459  gangtise_indicator_screener
   2013  gangtise_web_search
   1270  gangtise_read_response

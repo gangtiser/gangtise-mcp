@@ -73,7 +73,7 @@ export const referenceSpecs: JsonToolSpec[] = [
     inputSchema: {
       // 不做本地闭集：服务端新增分类不该要发版才能查。非法取值服务端报 100005，不会静默返回别的分类。
       category: nonEmptyString.describe(
-        "分类代码，以 gangtise_constant_category 返回为准。已知：citicIndustry=中信一级行业 | swIndustry=申万一级行业 | gangtiseIndustry=Gangtise行业 | domesticCity=国内城市 | aShareAnnouncementCategory / hkShareAnnouncementCategory / usShareAnnouncementCategory=A股 / 港股 / 美股公告分类 | regionCategory=区域 | nationalEconomicIndustry=国民经济行业 | bondType=债券类型 | interestRateType=利率类型 | interestFrequency=付息频率 | absUnderlyingAssetType=ABS基础资产类型 | ratingType=评级类型 | exchange=交易市场 | fundType=基金分类 | fundBondType=基金持仓券种类别",
+        "分类代码，以 gangtise_constant_category 返回为准。已知：citicIndustry=中信一级行业 | swIndustry=申万一级行业 | gangtiseIndustry=Gangtise行业 | domesticCity=国内城市 | aShareAnnouncementCategory / hkShareAnnouncementCategory / usShareAnnouncementCategory=A股 / 港股 / 美股公告分类 | regionCategory=区域 | nationalEconomicIndustry=国民经济行业 | bondType=债券类型 | interestBondSubtype=利率债子类型 | interestRateType=利率类型 | interestFrequency=付息频率 | absUnderlyingAssetType=ABS基础资产类型 | ratingType=评级类型 | exchange=交易市场 | fundType=基金分类 | fundBondType=基金持仓券种类别",
       ),
     },
   },
@@ -128,10 +128,10 @@ export const referenceFamily: FamilyModule = {
       tier: "core",
       access: "read",
       endpoint: "reference.securities-search",
-      description: "按关键词搜索证券，支持股票名称、代码（如 600519）、拼音或英文名。返回匹配证券及其 GTS 代码。",
+      description: "按关键词搜索证券，支持股票名称、代码（如 600519）、拼音或英文名。返回匹配证券及其 GTS 代码。⚠️ 可转债可能出现在任何 category 的结果里：按公司简称查 stock 时同名转债常排第一（「甬金」→ 113636.SH 甬金转债排在 603995.SH 甬金股份之前），只取返回 category 等于所查类别的行，别直接取第一条。基金同时返回场内（.SH / .SZ）与场外（.OF）代码，同一基金的不同份额一起返回，按 gtsName 区分。",
       input: {
         keyword: z.string().trim().min(1, "搜索词不能为空").describe("搜索词：股票名称、代码（如 600519）、拼音或英文名"),
-        category: enumList(z.enum(["stock", "dr", "index", "fund"])).optional().describe("按类别筛选：stock=股票 | dr=存托凭证 | index=指数 | fund=基金（不传查所有）"),
+        category: enumList(z.enum(["stock", "dr", "index", "fund", "bond"])).optional().describe("按类别筛选（不传查所有）：stock=股票 | dr=存托凭证 | index=指数 | fund=基金 | bond=债券（交易所可转债、国债、地方债、金融债与银行间债券，代码供 bond_* 工具用）"),
         top: z.number().int().min(1).max(10).optional().describe("最大返回条数（默认 10，上限 10）"),
       },
       run: async ({ client }, args) => {

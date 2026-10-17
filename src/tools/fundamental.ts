@@ -28,27 +28,20 @@ const dateRange = {
 }
 const fiscalYear = enumList(z.number().int()).optional().describe("财年列表，如 [2023, 2024]")
 const fieldList = uniqueFieldList("指定返回字段")
-// 实测 2026-07-26：valuation-analysis 全表就 7 列，且**没有 securityCode**。
-// 两个坑，都只能在 schema 层挡：
-//  1. 传不存在的字段名（如 securityCode），上游把相邻列的值复制进该槽位、**字段数与
-//     行长仍然相等**——请求 ['securityCode','tradeDate','value'] 实到
-//     ['2026-07-20','2026-07-20',20.06]，securityCode 拿到的是日期。等长错列
-//     normalize 的长度校验发现不了，静默返错值。
-//  2. tradeDate **总是自动前置**到每一行：显式请求它会让值多一个而字段名不多
-//     （请求 ['tradeDate','value'] → 2 名 3 值），反而把长度校验撞红。
+// valuation-analysis 全表就 7 列，且**没有 securityCode**；tradeDate 总是自动前置到每一行。
+// 2026-10-17 复核：不存在的字段名（含 securityCode）整条报 100005 并点名，显式 tradeDate 与重复字段
+// 都只回一次；只传 tradeDate 返回 0 行、不报错。2026-07-26 时这里曾静默错列（securityCode 拿到
+// 相邻列的日期、字段数与行长仍相等），闭集就是为那时加的，留着挡 0 行与防回归。
 // 所以可选字段是**除 tradeDate 外的 6 个**；tradeDate 无论传不传都会返回。
-// 收 z.enum 而不是只写进 describe：描述只是建议，schema 才会拒（同 0.1.38 对
-// categoryList 收 z.enum 的理由，且这里后果更重——那边静默返全量，这边静默返错值）。
 const VALUATION_FIELD_NAMES = ["value", "percentileRank", "average", "median", "upper1Std", "lower1Std"] as const
 const valuationFieldList = z
   .array(z.enum(VALUATION_FIELD_NAMES))
   .min(1, "fieldList 不能为空数组：要投影字段就至少给一个，要全量就省略该参数")
   .refine((v) => new Set(v).size === v.length, "fieldList 不能重复：同名字段在按位置拍平时会相互覆盖，导致静默少一列")
   .optional()
-  .describe(`指定返回字段，只认这 6 个：${VALUATION_FIELD_NAMES.join(" / ")}。tradeDate 总是自动返回、**不要传**（传了会让响应长度对不上而报错）；本接口也没有 securityCode。不确定就不传（=返回全部 7 列，最稳）`)
-// 实测 2026-07-26：主营接口固定前置 periodName/periodEndDate，传错字段名会导致
-// 字段数比行长多 1（回显 5 个名、只给 4 个值），normalize 会直接报错拒绝 —— 不会
-// 静默错列，但错的字段名等于白跑一次，同样收成闭集在本地就拒。
+  .describe(`指定返回字段，只认这 6 个：${VALUATION_FIELD_NAMES.join(" / ")}。tradeDate 总是自动返回、不在可选列内；本接口也没有 securityCode。不确定就不传（=返回全部 7 列，最稳）`)
+// 主营接口固定前置 periodName/periodEndDate。错的字段名整条报 100005 并点名（2026-10-17 复核；
+// 2026-07-26 时是回显多、值少，由 normalize 的长度校验拒），收成闭集在本地就拒、省一次请求。
 const MAIN_BUSINESS_FIELD_NAMES = [
   "periodName", "periodEndDate", "categoryName",
   "opRevenue", "opRevenueYoy", "opRevenueRatio",

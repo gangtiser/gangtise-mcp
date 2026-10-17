@@ -316,7 +316,7 @@ export function aiFamily(opts: AiToolOptions): FamilyModule {
           // 取数窗口随账号权限变化，MCP 不硬编码拦截过旧日期 —— 超范围由上游报 110003
           // （errors.ts 的 ERROR_HINTS 会把人话贴在错误消息上）。
           // 未来日期是例外：没有账号能拿到明天的早报，且上游对未来日期的行为未证；
-          // 本工具 50 积分/次，保留这条零成本本地拒绝。
+          // 本工具按次计费，保留这条零成本本地拒绝。
           if (diffDays < 0) {
             throw new ValidationError(`date 不能晚于当前日期（${today()}）。`)
           }

@@ -432,8 +432,8 @@ describe("paginated param text", () => {
   it("keeps only the per-tool amplification hint and the label on a paid paginated tool", async () => {
     const { description } = await paginatedProps("gangtise_roadshow_list", "insight.roadshow.list")
     expect(description).not.toContain("按全部实际返回条目计费")
-    expect(description).toContain("单次约 400 积分")
-    expect(description.endsWith("【积分：20/条】")).toBe(true)
+    expect(description).toContain("单次约 200 积分")
+    expect(description.endsWith("【积分：10/条】")).toBe(true)
   })
 
   it("leaves free paginated tools with a bare description", async () => {

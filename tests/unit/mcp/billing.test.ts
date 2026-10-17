@@ -53,11 +53,11 @@ describe("billing labels", () => {
 
   it("renders the documented label shapes from endpoint billing", () => {
     expect(billingLabel("quote.realtime")).toBe("")
-    expect(billingLabel("ai.one-pager")).toBe("【积分：50/次】")
+    expect(billingLabel("ai.one-pager")).toBe("【积分：10/次】")
     expect(billingLabel("insight.independent-opinion.download")).toBe("【积分：30/条】")
     expect(billingLabel("insight.report-image.download")).toBe("【积分：0.1/张】")
     expect(billingLabel("alternative.edb-data")).toBe("【积分：30/指标】")
-    expect(billingLabel("ai.hot-topic")).toBe("【积分：50/篇】")
+    expect(billingLabel("ai.hot-topic")).toBe("【积分：10/篇】")
     expect(billingLabel("ai.knowledge-resource.download")).toBe("【积分：按下游资源类型】")
     expect(billingLabel("reference.securities-search")).toBe("【积分：单价以平台计费为准】")
     expect(billingLabel("indicator.time-series")).toBe("【积分：按所选指标】")
@@ -93,7 +93,7 @@ describe("billing labels", () => {
 
   // 独立常量钉住「哪几个」。live 门禁与实现共用 billingSuffix()，误删一条 amplify 时两边会一起变、
   // 门禁照样绿 —— 这两份字面名单打破那个同源循环。performance-calendar.download 是名单里唯一
-  // 非放大倍数的条目：它借 amplify 承载「港美股 20/条」，因为标签词表没有「按标的市场分档」。
+  // 非放大倍数的条目：它借 amplify 承载「港美股 2/条」，因为标签词表没有「按标的市场分档」。
   it("pins the exact amplification roster so a deleted entry cannot slip past the live gate", async () => {
     const amplified = Object.values(ENDPOINTS)
       .filter((e) => e.billing && "amplify" in e.billing && e.billing.amplify)
@@ -130,9 +130,9 @@ describe("billing labels", () => {
   // 尾注现在只剩放大提示：通用的分页计费声明已上收到 server.instructions，
   // 逐工具不同的「单次约 N 积分」留在这里 —— 那一半搬不动，也正是估成本要用的。
   it("emits the amplification hint as a suffix outside the label, framed as an example not a cap", () => {
-    expect(billingSuffix("ai.hot-topic")).toBe("单次约 1000 积分。")
+    expect(billingSuffix("ai.hot-topic")).toBe("单次约 200 积分。")
     for (const n of ["roadshow", "site-visit", "strategy", "forum"]) {
-      expect(billingSuffix(`insight.${n}.list`)).toBe("单次约 400 积分。")
+      expect(billingSuffix(`insight.${n}.list`)).toBe("单次约 200 积分。")
     }
     const CELL = "按单元格计价，指标数×证券数×日期数即放大倍数，单次上限 3 万单元格（服务端硬限，超出报 100006 且不返回部分结果）。"
     expect(billingSuffix("indicator.time-series")).toBe(CELL)
@@ -342,8 +342,8 @@ describe("download prices", () => {
   })
 
   it("keeps the other announcement downloads at their prices", () => {
-    expect(ENDPOINTS["insight.announcement-hk.download"].billing).toMatchObject({ price: 20 })
-    expect(ENDPOINTS["insight.announcement-us.download"].billing).toMatchObject({ price: 20 })
-    expect(ENDPOINTS["insight.announcement.download"].billing).toMatchObject({ price: 10 })
+    expect(ENDPOINTS["insight.announcement-hk.download"].billing).toMatchObject({ price: 2 })
+    expect(ENDPOINTS["insight.announcement-us.download"].billing).toMatchObject({ price: 2 })
+    expect(ENDPOINTS["insight.announcement.download"].billing).toMatchObject({ price: 1 })
   })
 })

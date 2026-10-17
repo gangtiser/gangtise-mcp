@@ -41,11 +41,9 @@ describe("gangtise_valuation_analysis schema", () => {
   })
 })
 
-// 实测 2026-07-26：valuation-analysis 传入不存在的字段名（如 securityCode，本接口
-// 根本没有这一列）时，上游把相邻列的值复制进该槽位、字段数与行长仍然相等 ——
-// 请求 ['securityCode','tradeDate','value'] 实际返回 ['2026-07-20','2026-07-20',20.06]，
-// securityCode 拿到的是日期。normalize 的长度校验对这种等长错列拦不住，所以防线是
-// schema：字段名收成 z.enum 闭集，非法值在发请求前就被拒。上面的行为用例钉「本地拒绝
+// valuation-analysis 的字段名收成 z.enum 闭集，非法值在发请求前就被拒。2026-07-26 时传不存在的
+// 字段名（如 securityCode）会静默错列、字段数与行长仍然相等，闭集是为那时加的；服务端现在报
+// 100005，闭集留着省一次请求、挡只传 tradeDate 的 0 行，并防回归。上面的行为用例钉「本地拒绝
 // 且不调 API」，下面的描述用例钉那份字段清单本身，别再退回泛泛的「指定返回字段」。
 describe("fieldList closed set (schema is the defence against equal-length mis-zip)", () => {
   async function schemaOf(name: string) {
@@ -94,11 +92,10 @@ describe("fieldList closed set (schema is the defence against equal-length mis-z
       expect(schema, `应列出可选字段 ${f}`).toContain(f)
     }
     expect(schema).toContain("没有 securityCode")
-    expect(schema).toContain("不要传")
+    expect(schema).toContain("不在可选列内")
   })
 
-  // tradeDate 总是自动前置到每一行：显式请求它会多出一个值而字段名不多
-  // （请求 ['tradeDate','value'] 实到 2 名 3 值），反倒把长度校验撞红。
+  // tradeDate 总是自动前置到每一行，不在可选列内；只传它时接口返回 0 行、不报错。
   it("rejects tradeDate in the valuation fieldList — it is always returned anyway", async () => {
     const client = makeClient()
     const mcp = await connect(client)

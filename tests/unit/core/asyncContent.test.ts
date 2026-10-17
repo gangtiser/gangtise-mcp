@@ -101,7 +101,7 @@ describe("pollAsyncContent", () => {
 
 // 服务端把异步状态码从 410110/410111 重排为 140001/140002（RESULT_GENERATING /
 // PROCESSING_FAILED）。切换那天若不认新的 pending 码，首次轮询就会把「生成中」当硬错
-// 抛出，作废一个已扣 50 积分的任务——故两代并存识别。
+// 抛出，作废一个已扣费的任务——故两代并存识别。
 describe("async status codes across the 2026-07-17 renumbering", () => {
   it("keeps polling through the new 140001 pending code", async () => {
     vi.useFakeTimers()

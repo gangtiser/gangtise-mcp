@@ -11,9 +11,10 @@ import { ENDPOINTS } from "../../../src/core/endpoints.js"
 //   is not billed (upstream probe), and it's paginated, so no-replay would turn
 //   self-healing transient page failures into _partial results for zero benefit.
 // - insight.report-image.download (0.1/image): accepted residual risk, NOT proof
-//   that a replay can't double-bill — upstream drew the no-replay line at the
-//   50-credit download tier (10-30-credit downloads keep default retry), and at
-//   0.1/image the worst-case double-bill is negligible next to retry reliability.
+//   that a replay can't double-bill — upstream keeps no-replay on the downloads
+//   whose billing was probed non-idempotent (summary / foreign-report /
+//   my-conference), other downloads keep default retry, and at 0.1/image the
+//   worst-case double-bill is negligible next to retry reliability.
 const NO_REPLAY_KEYS = [
   "ai.knowledge-batch",
   "ai.one-pager",
@@ -35,7 +36,7 @@ const NO_REPLAY_KEYS = [
   "insight.pamirs-summary.download",
   "insight.foreign-report.download",
   "vault.my-conference.download",
-  // 按行计费且单次行数无可靠上界（盈利预测随区间增长；个股看点单次最多 6000 只 × 3 积分）。
+  // 按行计费且单次行数无可靠上界（盈利预测随区间增长；个股看点单次最多 6000 只 × 1 积分）。
   "fundamental.earning-forecast",
   "ai.stock-summary.list",
   // 观点带正文的列表与按 ID 取正文：30 积分/条。题材完整画像：500 积分/次。
@@ -213,7 +214,7 @@ describe("ENDPOINTS billing guards", () => {
       const worst = (pageSize ?? billing.maxUnits ?? 1) * billing.price
       if (worst > NO_REPLAY_ABOVE_CREDITS) expect(endpoint.retry, `${endpoint.key}：单次最坏 ${worst} 积分`).toBe("no-replay")
     }
-    // 两条边界钉住阈值本身：个股看点 6000×3 必须不重放，线索 500×5 = 2500 留默认重试。
+    // 两条边界钉住阈值本身：个股看点 6000×1 必须不重放，线索 500×5 = 2500 留默认重试。
     expect(ENDPOINTS["ai.stock-summary.list"].retry).toBe("no-replay")
     expect(ENDPOINTS["ai.security-clue.list"].retry).toBeUndefined()
   })
