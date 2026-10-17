@@ -2,6 +2,41 @@
 
 > README 顶部只放最近 5 个版本的一行摘要 + 历史里程碑；本文件是完整历史明细（中文），回溯至 0.1.3。
 
+### 0.3.5 (2026-10-17)
+
+内资观点列表新增观点类别与机构标签筛选，投研标签换为新的 28 项；证券搜索新增债券类别；积分标签按平台最新价目更新；债券行情与估值的首行晚于起始日时在 `_note` 提示；若干说明按现行为更正。
+
+**⚠️ 要改调用的**
+
+- **`gangtise_opinion_list` 默认档的 `llmTagList` 改为投研标签**（推荐 / 业绩 / 产业链 / 壁垒四组共 28 项，如 `beatExpect` 超预期、`priceHike` 涨价、`leader` 龙头，完整取值见参数说明）。「业绩点评」「头部券商」「新财富团队」改用新参数 `categoryList: ["earningsReview"]`、`brokerTagList: ["topBroker"]` / `["newFortune"]`；把这三个值传给默认档的 `llmTagList` 会在本地报错并给出改法、不发请求。`withContent: true` 的 `llmTagList` 仍只收 `strongRcmd` / `earningsReview` / `topBroker` / `newFortune`。
+
+**新增**
+
+- **`gangtise_opinion_list` 的 `categoryList`（观点类别）与 `brokerTagList`（机构标签）**：
+  - `categoryList`：`earningsReview` 业绩点评 / `abnormalReview` 异动点评 / `researchUpdate` 调研/访谈更新 / `tradingDesk` 交易台 / `industryAnalysis` 行业分析；一条观点可同时属于多个类别
+  - `brokerTagList`：`topBroker` 头部券商 / `newFortune` 新财富团队
+  - 返回行带 `categoryList` / `llmTagList` / `brokerTagList`，无标签时为 `[]`
+  - 同一参数传多个值取并集（命中任一即返回）；要同时带两个标签，取回后按返回行的 `llmTagList` 过滤
+  - `withContent: true` 不支持这两个参数：同时传在本地报错、不发请求（带正文的列表不认它们，会按 30 积分/条返回未经筛选的结果）。按它们筛选后用 `gangtise_opinion_detail` 取正文
+- **`gangtise_securities_search` 的 `category` 新增 `bond`**：交易所可转债、国债、地方债、金融债与银行间债券（后缀 `.SH` / `.SZ` / `.IB`），代码供 `gangtise_bond_*` 使用。
+  - ⚠️ **可转债可能出现在任何 `category` 的结果里**：按公司简称查 `stock` 时同名可转债常排第一（「甬金」→ `113636.SH` 甬金转债排在 `603995.SH` 甬金股份之前）。只取返回 `category` 等于所查类别的行，别直接取第一条
+  - 基金按简称或 6 位代码都能换到代码，场内（`.SH` / `.SZ`）与场外（`.OF`）一起返回，同一基金的不同份额按 `gtsName` 区分
+- **`gangtise_bond_daily_quote` / `gangtise_bond_valuation`**：首行比 `startDate` 晚 14 天以上时，在 `_note` 里按债券逐只列出（债券上市较晚，或数据起点晚于所查区间），并列出一行都没返回的代码。
+
+**积分标签**（按平台最新价目；积分预估保护随单价一起变化）
+
+- AI：`gangtise_one_pager` / `gangtise_investment_logic` / `gangtise_peer_comparison` / `gangtise_research_outline` / `gangtise_theme_tracking` 10/次；`gangtise_earnings_review` / `gangtise_viewpoint_debate` 20/次；`gangtise_management_discuss_announcement` 5/次；`gangtise_hot_topic` 10/篇；`gangtise_stock_summary` 1/条
+- 路演 / 调研 / 策略会 / 论坛列表 10/条（`fetchAll` 约 100 条以上触发默认 1000 积分的预估保护）；`gangtise_independent_opinion_list` 1/条
+- `gangtise_download`：纪要 / 外资研报 / 我的会议 30/条；A 股公告 1/条、港美股公告 2/条；业绩报告原文 A 股 1/条、港美股 2/条
+
+**说明更正**
+
+- **证券级指标**：`parameterList` 标必填的 `fiscalYear` 漏传时报 `100001` 并点名，与其他必填参数一致；截面与选股的 `noQueryDate` 说明、999999 提示按此更正。
+- **列式响应的字段数与 `fieldList` 对不上时**，报错改为「响应结构异常」：传了 `fieldList` 的先去掉重试，仍报错再带上工具名与入参报障。
+- **`gangtise_valuation_analysis`**：`fieldList` 说明更正为 `tradeDate` 总是自动返回、不在可选列内。
+- **`gangtise_bond_issuance_plan`**：返回的 `bondType` 是利率债子类型码（`gangtise_constant_list` 的 `interestBondSubtype`），与 `gangtise_bond_basic_info` 的 `bondType`（`bondType` 分类）不是同一套；`gangtise_constant_list` 的已知分类补上 `interestBondSubtype`。
+- **换代码的路由提示**：债券简称用 `gangtise_securities_search`（`category=bond`）；基金（场内场外都可）按 6 位代码或简称用 `category=fund`。
+
 ### 0.3.4 (2026-10-07)
 
 云盘可跨空间复制整个文件夹；下载文件名优先用 UTF-8 文件名；`GANGTISE_BASE_URL` 用明文 http 时提示；债券、基金与分钟 K 的说明按现行为更新。
