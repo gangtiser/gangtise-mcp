@@ -60,6 +60,16 @@ export function knowledgeBatchTransform(body: Record<string, unknown>): Record<s
   return next
 }
 
+/** 管理层情绪两个列表共用的筛选项与行说明。publishTime 的读数比北京时间早 8 小时，筛选却按北京时间。 */
+const sentimentTime = z.union([dateString, dateTimeString])
+const sentimentFilters = {
+  securityList: nonEmptyList().optional().describe("证券代码，如 300285.SZ；不传即全部证券。任一代码无效整批报 120001"),
+  startTime: sentimentTime.optional().describe("发布时间起（北京时间）：YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss"),
+  endTime: sentimentTime.optional().describe("发布时间止（北京时间）：YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss；只写日期含当天整天"),
+}
+const SENTIMENT_ROWS =
+  "一条 = 一只证券 × 一场业绩会，按发布时间倒序；source.sourceId 供 gangtise_management_sentiment_detail 取逐条问答。🔴 返回的 publishTime 比北京时间早 8 小时（北京时间 20:00 的会返回 12:00:00），startTime / endTime 却按北京时间筛：展示时刻、与纪要按时间对齐或按日期归档前先加 8 小时，否则北京时间 0–8 点的会落到前一天。"
+
 export const jsonSpecs: JsonToolSpec[] = [
   {
     name: "gangtise_stock_summary",
@@ -151,6 +161,34 @@ export const jsonSpecs: JsonToolSpec[] = [
       reportDate: quarterEndDate("03-31", "06-30", "09-30", "12-31").describe("xxxx-03-31 | xxxx-06-30 | xxxx-09-30 | xxxx-12-31"),
       discussionDimension: z.enum(["businessOperation", "financialPerformance", "developmentAndRisk"]).describe("businessOperation=经营情况 | financialPerformance=财务表现 | developmentAndRisk=发展与风险（必填）"),
     },
+  },
+  {
+    name: "gangtise_management_sentiment_indicator",
+    tier: "extended",
+    description: `查询管理层情绪评分：每场业绩会问答里管理层的正面回应程度 sentimentResponsiveness、回复乐观度 sentimentPolarity、回复确定度 sentimentConviction（0–5），有效问答数 qaCount，回避 / 风险 / 低确定度占比 qaEvasionRatio / qaRiskRatio / qaUncertaintyRatio（百分数，18.42 即 18.42%，分母是 qaCount），以及按问题类型的拆分 questionCategoryList（类型同 gangtise_qa_list 的 questionCategory；只有一两条问答的类型评分波动大，isImportant 标出重要类型）。${SENTIMENT_ROWS}`,
+    endpointKey: "ai.management-sentiment-indicator",
+    paginated: true,
+    inputSchema: sentimentFilters,
+  },
+  {
+    name: "gangtise_management_sentiment_conclusion",
+    tier: "extended",
+    description: `查询管理层情绪结论：sentimentSummary（overallSentiment 总体情绪 / questionCategorySentiment 主要影响因素 / qaSentimentChange 重点变化）、三维信号文本 sentimentSignal（不含分数，分数用 gangtise_management_sentiment_indicator），以及与上一场同一事项的问答对照 qaSentimentContrast（qTrace / aTrace 是录音里的毫秒区间），对比基准见 previousSource（其 publishTime 同样早 8 小时）。没有可比的上一场时 qaSentimentChange 为 null、qaSentimentContrast 为 []、previousSource 为 null。${SENTIMENT_ROWS}`,
+    endpointKey: "ai.management-sentiment-conclusion",
+    paginated: true,
+    inputSchema: sentimentFilters,
+  },
+  {
+    name: "gangtise_management_sentiment_detail",
+    tier: "extended",
+    description: "按一场业绩会取管理层情绪的逐条问答：三维档位 qaResponsiveness / qaPolarity / qaConviction（只取 5.0 / 2.5 / 0.0）与依据（*Quote 回答原文节选、*Reason 判断理由），一次返回全部。sourceId 写错不报错、返回空结果，须取自情绪评分或结论列表返回行的 source.sourceId；返回行不带来源字段，批量取多场时自己记下对应的 sourceId。question / answer 是录音转写原文（口语、可能有同音错字），展示时配合 questionBrief。",
+    endpointKey: "ai.management-sentiment-detail",
+    paginated: false,
+    inputSchema: {
+      sourceId: nonEmptyString.describe("列表返回行的 source.sourceId"),
+      sourceType: nonEmptyString.optional().describe("列表返回行的 source.sourceType，缺省 conference"),
+    },
+    transformBody: (body) => ({ ...body, sourceType: body.sourceType ?? "conference" }),
   },
 ]
 

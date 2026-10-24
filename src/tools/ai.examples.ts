@@ -1,4 +1,7 @@
 import type { ToolExamples } from "../mcp/contract.examples.js"
+import { paged } from "../mcp/contract.examples.js"
+
+const SENTIMENT = "/application/open-ai/management-sentiment/company"
 
 export const aiExamples: ToolExamples = {
   gangtise_stock_summary: [
@@ -21,6 +24,23 @@ export const aiExamples: ToolExamples = {
   ],
   gangtise_management_discuss_earnings_call: [
     { title: "三季度", args: { securityCode: "600519.SH", reportDate: "2025-09-30", discussionDimension: "businessOperation" }, expect: { requests: [{ method: "POST", path: "/application/open-ai/management-discuss/from-earningsCall", body: { securityCode: "600519.SH", reportDate: "2025-09-30", discussionDimension: "businessOperation" } }] } },
+  ],
+  gangtise_management_sentiment_indicator: [
+    { title: "单只证券 + 北京时间区间，日期与日期时间可混用，默认 20 条", args: { securityList: ["300285.SZ"], startTime: "2026-08-01", endTime: "2026-08-31 23:59:59" }, expect: { requests: [{ method: "POST", path: `${SENTIMENT}/indicator`, body: { securityList: ["300285.SZ"], startTime: "2026-08-01", endTime: "2026-08-31 23:59:59", size: 20, from: 0 } }] } },
+    { title: "时刻不带秒在 schema 层拒绝", args: { startTime: "2026-08-01 20:00" }, expect: { rejects: /at startTime/ } },
+    { title: "不限证券的 fetchAll：整页 500 积分先探 1 条，按 5/条估算超阈值拒绝", args: { fetchAll: true }, upstream: paged(500), expect: { rejects: /预计取 500 条（5 积分\/条），约 2505 积分（含探总数时重复计费的 1 条）.*confirmCost: true/, requests: [
+        { method: "POST", path: `${SENTIMENT}/indicator`, body: { from: 0, size: 1 } },
+      ] } },
+  ],
+  gangtise_management_sentiment_conclusion: [
+    { title: "fetchAll 未超阈值：探 1 条后按 100 一页取", args: { securityList: ["300285.SZ"], fetchAll: true }, upstream: paged(30), expect: { requests: [
+        { method: "POST", path: `${SENTIMENT}/conclusion`, body: { securityList: ["300285.SZ"], from: 0, size: 1 } },
+        { method: "POST", path: `${SENTIMENT}/conclusion`, body: { securityList: ["300285.SZ"], from: 0, size: 100 } },
+        { method: "POST", path: `${SENTIMENT}/conclusion`, body: { securityList: ["300285.SZ"], from: 30, size: 1 } },
+      ] } },
+  ],
+  gangtise_management_sentiment_detail: [
+    { title: "sourceType 缺省补 conference", args: { sourceId: "554030" }, expect: { requests: [{ method: "POST", path: `${SENTIMENT}/detail`, body: { sourceId: "554030", sourceType: "conference" } }] } },
   ],
   gangtise_knowledge_resource_download: [
     { title: "resourceType + sourceId", args: { resourceType: 10, sourceId: "src-1" }, expect: { requests: [{ method: "GET", path: "/application/open-data/ai/resource/download", query: { resourceType: "10", sourceId: "src-1" } }] } },

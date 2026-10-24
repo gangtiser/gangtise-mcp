@@ -158,6 +158,20 @@ describe("createRowTracker", () => {
     expect(t.state.duplicateRows).toBe(0)
   })
 
+  it("reads dotted paths in a composite key, keeping rows whose nested part is missing", () => {
+    const t = createRowTracker(["securityCode", "source.sourceType", "source.sourceId"])
+    const call = (code: string, id: string) => ({ securityCode: code, source: { sourceType: "conference", sourceId: id }, score: 1 })
+    t.filter([call("300285.SZ", "1")])
+    // 同一证券换一场会是另一行；同证券同会议整行相同是重复；source 为 null 取不到键，照样保留。
+    expect(t.filter([
+      call("300285.SZ", "2"),
+      call("300285.SZ", "1"),
+      { securityCode: "300285.SZ", source: null, score: 0 },
+      { securityCode: "300285.SZ", source: null, score: 0 },
+    ])).toHaveLength(3)
+    expect(t.state).toEqual({ duplicateRows: 1, changedRows: 0, idIsRowKey: true })
+  })
+
   it("keys rows by a key function, keeping rows it returns undefined for", () => {
     const t = createRowTracker((r) => {
       const id = (r.meta as { id?: number } | undefined)?.id

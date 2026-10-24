@@ -83,4 +83,13 @@ export const bondExamples: ToolExamples = {
   gangtise_bond_exercise_notice: [
     { title: "日期筛行权日", args: { securityList: ["123456.SZ"], startDate: "2026-01-01" }, expect: { requests: [{ method: "POST", path: `${P}/exercise-notice`, body: { securityList: ["123456.SZ"], startDate: "2026-01-01" } }] } },
   ],
+  gangtise_bond_default_list: [
+    { title: "按违约日期区间", args: { startDate: "2026-09-01", endDate: "2026-10-20" }, expect: { requests: [{ method: "POST", path: `${P}/default-list`, body: { startDate: "2026-09-01", endDate: "2026-10-20" } }] } },
+    { title: "按债券代码，重复代码去重", args: { securityList: ["169687.SH", "146589.SH", "169687.SH"] }, expect: { requests: [{ method: "POST", path: `${P}/default-list`, body: { securityList: ["169687.SH", "146589.SH"] } }] } },
+    { title: "按一个发行人 + fieldList", args: { issuerNameList: ["上海世茂股份有限公司"], fieldList: ["issuerName"] }, expect: { requests: [{ method: "POST", path: `${P}/default-list`, body: { issuerNameList: ["上海世茂股份有限公司"], fieldList: ["issuerName"] } }] } },
+    { title: "两个发行人在 schema 层拒绝", args: { issuerNameList: ["上海世茂股份有限公司", "上海世茂建设有限公司"] }, expect: { rejects: /一次只收一个发行人/ } },
+    { title: "三种查法混传本地拒绝", args: { startDate: "2026-09-01", endDate: "2026-10-20", securityList: ["169687.SH"] }, expect: { rejects: /只能传一种/ } },
+    { title: "都不传本地拒绝", args: {}, expect: { rejects: /其中一种/ } },
+    { title: "只给一端日期本地拒绝", args: { startDate: "2026-09-01" }, expect: { rejects: /同时传 startDate 与 endDate/ } },
+  ],
 }

@@ -90,7 +90,7 @@ function stableStringify(value: unknown): string {
 }
 
 /** 行的主键值；取不到（字段缺失或为 null、函数返回 undefined）时为 undefined。复合键把各字段值
- *  按 JSON 数组拼成一个串，任一字段取不到即整行取不到。 */
+ *  按 JSON 数组拼成一个串，任一字段取不到即整行取不到；复合键的字段可写点号路径（`source.sourceId`）。 */
 function rowKeyOf(rowId: RowId, row: Record<string, unknown>): string | undefined {
   if (typeof rowId === "function") return rowId(row)
   // 单键是绝大多数端点的写法、每行都走，别为它分配数组。
@@ -98,7 +98,7 @@ function rowKeyOf(rowId: RowId, row: Record<string, unknown>): string | undefine
     const value = row[rowId]
     return value === undefined || value === null ? undefined : String(value)
   }
-  const values = rowId.map((field) => row[field])
+  const values = rowId.map((path) => path.split(".").reduce<unknown>((v, k) => (v && typeof v === "object" ? (v as Record<string, unknown>)[k] : undefined), row))
   return values.some((value) => value === undefined || value === null) ? undefined : JSON.stringify(values)
 }
 

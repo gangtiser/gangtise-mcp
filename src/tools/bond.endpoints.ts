@@ -28,4 +28,5 @@ export const bondEndpoints: EndpointTable = {
   "bond.issuer-rating-change": bond("/application/open-fundamental/bond/issuer-rating-change", "Query issuer rating change history (by bond code or issuer name)", { kind: "fixed", per: "row", price: 0.4, maxUnits: 10, unit: "发行人" }),
   "bond.issuance-plan": bond("/application/open-fundamental/bond/issuance-plan", "Query the rate-bond issuance calendar over a date range"),
   "bond.exercise-notice": bond("/application/open-fundamental/bond/exercise-notice", "Query put/call exercise schedules and results for option-embedded bonds"),
+  "bond.default-list": bond("/application/open-fundamental/bond/default-list", "Query bond default records (by default-date range, bond codes or one issuer)"),
 }

@@ -1,6 +1,6 @@
 tools: 96
-tools/list bytes: 155200
-instructions bytes: 3525
+tools/list bytes: 156199
+instructions bytes: 3530
 
    396  gangtise_current_date
    763  gangtise_lookup
@@ -53,7 +53,7 @@ instructions bytes: 3525
   1208  gangtise_bond_rating_change
   1201  gangtise_bond_issuer_rating_change
   1099  gangtise_fund_basic_info
-  1015  gangtise_fund_nav
+  1165  gangtise_fund_nav
    814  gangtise_fund_manager_info
    601  gangtise_fund_manager_history
   1062  gangtise_fund_asset_allocation
@@ -92,9 +92,9 @@ instructions bytes: 3525
    935  gangtise_concept_info
    982  gangtise_concept_securities
    756  gangtise_edb_data
-  2346  gangtise_indicator_search
-  7316  gangtise_indicator_cross_section
-  6234  gangtise_indicator_time_series
-  8459  gangtise_indicator_screener
+  2672  gangtise_indicator_search
+  7515  gangtise_indicator_cross_section
+  6359  gangtise_indicator_time_series
+  8658  gangtise_indicator_screener
   2013  gangtise_web_search
   1270  gangtise_read_response

@@ -4885,6 +4885,59 @@
     }
   },
   {
+    "name": "gangtise_bond_default_list",
+    "description": "查询违约债券：简称、违约日期、违约金额 defaultAmount（亿元）、发行人全称、违约原因。按违约日期区间（startDate 与 endDate 都给、不超过 1 年）、securityList 或 issuerNameList 三选一；同一只债券每次违约一行，按违约日期降序。没有违约记录的代码不产生行。⚠️ issuerNameList 一次一个、用全称：简称只返回最匹配的一家主体（「上海世茂」只返回上海世茂建设有限公司，同有违约的上海世茂股份有限公司不在其中），核对返回的 issuerName。【积分：0.4/次】",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "startDate": {
+          "type": "string",
+          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
+        },
+        "endDate": {
+          "type": "string",
+          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
+        },
+        "securityList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "债券代码"
+        },
+        "issuerNameList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "maxItems": 1,
+          "description": "发行人全称，一次一个"
+        },
+        "fieldList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "指定返回字段，省略返回全部；securityCode / defaultDate 恒在最前"
+        }
+      },
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
     "name": "gangtise_fund_basic_info",
     "description": "查询公募基金基本资料（当前资料，无历史快照）：一二级分类、管理人与托管人、成立与存续、运作方式、申赎规则、业绩基准、风险等级、投资范围、跟踪指数。A / C 等份额各有代码，合并成一只基金按 mainFundCode 分组；investTypeCodeLevel1/2 与 gangtise_constant_list 的 fundType 常量一致，层级按常量的 level 判、别按 ID 尾数猜；场外基金 exchange 为 null；investScope 是长文本，批量查时用 fieldList 去掉。【积分：0.4/次】",
     "inputSchema": {
@@ -4924,7 +4977,7 @@
   },
   {
     "name": "gangtise_fund_nav",
-    "description": "查询基金逐交易日净值（按日期倒序）：单位净值 navUnit、累计净值 navAccumulated、复权因子 adjustFactor 与复权净值 navAdjusted（元）。算区间收益用 navAdjusted——单位净值在分红、拆分时跳变。货币基金另有 mmfAnnualizedYield（7 日年化，%）与 mmfUnitYield（每万份收益，元），其 adjustFactor 为 null。多只 × 长区间容易撞 10000 行上限（每只每年约 250 行），按只数分批。【积分：0.4/次】",
+    "description": "查询基金逐交易日净值（按日期倒序）：单位净值 navUnit、累计净值 navAccumulated、复权因子 adjustFactor 与复权净值 navAdjusted（元）。算区间收益用 navAdjusted——单位净值在分红、拆分时跳变。货币基金另有 mmfAnnualizedYield（7 日年化，%）与 mmfUnitYield（每万份收益，元），其 adjustFactor 为 null。多只 × 长区间容易撞 10000 行上限（每只每年约 250 行），按只数分批。多只基金横向比区间收益、波动、最大回撤、夏普、同类排名用 gangtise_indicator_cross_section（基金代码可直接传）。【积分：0.4/次】",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -5892,6 +5945,168 @@
         "securityCode",
         "reportDate",
         "discussionDimension"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "gangtise_management_sentiment_indicator",
+    "description": "查询管理层情绪评分：每场业绩会问答里管理层的正面回应程度 sentimentResponsiveness、回复乐观度 sentimentPolarity、回复确定度 sentimentConviction（0–5），有效问答数 qaCount，回避 / 风险 / 低确定度占比 qaEvasionRatio / qaRiskRatio / qaUncertaintyRatio（百分数，18.42 即 18.42%，分母是 qaCount），以及按问题类型的拆分 questionCategoryList（类型同 gangtise_qa_list 的 questionCategory；只有一两条问答的类型评分波动大，isImportant 标出重要类型）。一条 = 一只证券 × 一场业绩会，按发布时间倒序；source.sourceId 供 gangtise_management_sentiment_detail 取逐条问答。🔴 返回的 publishTime 比北京时间早 8 小时（北京时间 20:00 的会返回 12:00:00），startTime / endTime 却按北京时间筛：展示时刻、与纪要按时间对齐或按日期归档前先加 8 小时，否则北京时间 0–8 点的会落到前一天。【积分：5/条】",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "securityList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "证券代码，如 300285.SZ；不传即全部证券。任一代码无效整批报 120001"
+        },
+        "startTime": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
+            },
+            {
+              "type": "string",
+              "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2}) ([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$"
+            }
+          ],
+          "description": "发布时间起（北京时间）：YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss"
+        },
+        "endTime": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
+            },
+            {
+              "type": "string",
+              "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2}) ([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$"
+            }
+          ],
+          "description": "发布时间止（北京时间）：YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss；只写日期含当天整天"
+        },
+        "from": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "fetchAll": {
+          "type": "boolean"
+        },
+        "confirmCost": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "gangtise_management_sentiment_conclusion",
+    "description": "查询管理层情绪结论：sentimentSummary（overallSentiment 总体情绪 / questionCategorySentiment 主要影响因素 / qaSentimentChange 重点变化）、三维信号文本 sentimentSignal（不含分数，分数用 gangtise_management_sentiment_indicator），以及与上一场同一事项的问答对照 qaSentimentContrast（qTrace / aTrace 是录音里的毫秒区间），对比基准见 previousSource（其 publishTime 同样早 8 小时）。没有可比的上一场时 qaSentimentChange 为 null、qaSentimentContrast 为 []、previousSource 为 null。一条 = 一只证券 × 一场业绩会，按发布时间倒序；source.sourceId 供 gangtise_management_sentiment_detail 取逐条问答。🔴 返回的 publishTime 比北京时间早 8 小时（北京时间 20:00 的会返回 12:00:00），startTime / endTime 却按北京时间筛：展示时刻、与纪要按时间对齐或按日期归档前先加 8 小时，否则北京时间 0–8 点的会落到前一天。【积分：5/条】",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "securityList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "证券代码，如 300285.SZ；不传即全部证券。任一代码无效整批报 120001"
+        },
+        "startTime": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
+            },
+            {
+              "type": "string",
+              "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2}) ([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$"
+            }
+          ],
+          "description": "发布时间起（北京时间）：YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss"
+        },
+        "endTime": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
+            },
+            {
+              "type": "string",
+              "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2}) ([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$"
+            }
+          ],
+          "description": "发布时间止（北京时间）：YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss；只写日期含当天整天"
+        },
+        "from": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "fetchAll": {
+          "type": "boolean"
+        },
+        "confirmCost": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "gangtise_management_sentiment_detail",
+    "description": "按一场业绩会取管理层情绪的逐条问答：三维档位 qaResponsiveness / qaPolarity / qaConviction（只取 5.0 / 2.5 / 0.0）与依据（*Quote 回答原文节选、*Reason 判断理由），一次返回全部。sourceId 写错不报错、返回空结果，须取自情绪评分或结论列表返回行的 source.sourceId；返回行不带来源字段，批量取多场时自己记下对应的 sourceId。question / answer 是录音转写原文（口语、可能有同音错字），展示时配合 questionBrief。【积分：10/次】",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "sourceId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "列表返回行的 source.sourceId"
+        },
+        "sourceType": {
+          "type": "string",
+          "minLength": 1,
+          "description": "列表返回行的 source.sourceType，缺省 conference"
+        }
+      },
+      "required": [
+        "sourceId"
       ],
       "additionalProperties": false
     },
@@ -7284,7 +7499,7 @@
   },
   {
     "name": "gangtise_indicator_search",
-    "description": "按名称搜索证券级数据指标（EDE），返回 indicatorCode、scopeList（覆盖市场，附 usageRestriction）及 parameterList（含 required 必填标记与枚举）。取数前必先用本工具拿 code，并核对 indicatorName/description 语义、scopeList 是否覆盖目标市场、parameterList 取值——任一不符即回退专用工具。scopeList 是声明不是保证，usageRestriction（如「不支持指标时间序列接口」）也不是硬约束、按「口径可能不对」理解，均以实际抽查为准。基础行情（开高低收/成交量额/换手/涨跌幅）虽可搜到仍优先 realtime/day_kline，但**总市值 qte_mkt_cptl 这两个专用工具都没有、单票也走 EDE**（A/港/美股均已有数，默认「元」，用 scale 缩放）；同样只有 EDE 才有的还包括融资融券 mgn_*（两融余额/融资/融券及其区间变体，仅 A 股；区间变体的 changePeriod 是可选的）与所属行业：通用的 scr_indu（一个指标覆盖申万/中信/恒生/GICS 四套，必填 industryType+industryLevel，体系要与市场配对），以及把体系写进编码、只需可选 industryLevel 的 scr_indu_citic / scr_indu_sw / scr_indu_gics；⚠️ **个股资金流向 flow_*（仅 A 股）与 gangtise_fund_flow 返回的是同一套数（逐位相同）**，而后者还多给各档占比字段、并支持全市场——除非要与其他 EDE 指标同批取，否则一律用 gangtise_fund_flow（两边的计价档见各自标签）；单票完整报表、盈利预测(一致预期)、估值历史分位仍用专用工具（当前 EDE 搜索未覆盖后两类）；EDE 批量优先仅针对多证券取一批已实现财务/估值指标。宏观/行业数据（产量、价格、PMI 等）请改用 gangtise_edb_search，不要猜编码。",
+    "description": "按名称搜索证券级数据指标（EDE），返回 indicatorCode、scopeList（覆盖市场，附 usageRestriction）及 parameterList（含 required 必填标记与枚举）。取数前必先用本工具拿 code，并核对 indicatorName/description 语义、scopeList 是否覆盖目标市场、parameterList 取值——任一不符即回退专用工具。scopeList 是声明不是保证，usageRestriction（如「不支持指标时间序列接口」）也不是硬约束、按「口径可能不对」理解，均以实际抽查为准。基础行情（开高低收/成交量额/换手/涨跌幅）虽可搜到仍优先 realtime/day_kline，但**总市值 qte_mkt_cptl 这两个专用工具都没有、单票也走 EDE**（A/港/美股均已有数，默认「元」，用 scale 缩放）；同样只有 EDE 才有的还包括融资融券 mgn_*（两融余额/融资/融券及其区间变体，仅 A 股；区间变体的 changePeriod 是可选的）与所属行业：通用的 scr_indu（一个指标覆盖申万/中信/恒生/GICS 四套，必填 industryType+industryLevel，体系要与市场配对），以及把体系写进编码、只需可选 industryLevel 的 scr_indu_citic / scr_indu_sw / scr_indu_gics；⚠️ **个股资金流向 flow_*（仅 A 股）与 gangtise_fund_flow 返回的是同一套数（逐位相同）**，而后者还多给各档占比字段、并支持全市场——除非要与其他 EDE 指标同批取，否则一律用 gangtise_fund_flow（两边的计价档见各自标签）；单票完整报表、盈利预测(一致预期)、估值历史分位仍用专用工具（当前 EDE 搜索未覆盖后两类）；EDE 批量优先仅针对多证券取一批已实现财务/估值指标。基金代码（005827.OF / 510300.SH）也能查：基金分类 fund_cls*、复权净值 fund_adj_nav 与区间收益 / 风险指标（finc_* 收益率、波动率、最大回撤、夏普、Alpha，fund_* 卡玛、同类排名）适合多只基金横向比，单只基金的净值序列、持仓、规模用 gangtise_fund_*。宏观/行业数据（产量、价格、PMI 等）请改用 gangtise_edb_search，不要猜编码。",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -7406,7 +7621,7 @@
               },
               "noQueryDate": {
                 "type": "boolean",
-                "description": "声明**这个指标不接受查询日期**，本工具就不给它注入 date 下发的 tradeDate。用于 parameterList 里既没有 tradeDate 也没有 reportDate 的指标——公司属性 pty_*（主营业务/经营范围/注册地/法定代表人…）与证券属性 scr_*（上市市场/上市板块/上市日期/ISIN…）两族，以及 div_cash_paid_ratio（股利支付率）/ div_cash_yr（年度现金分红总额）/ pty_shr_reg（注册资本）。不加这个开关，它们一律报 100003「不支持参数 tradeDate」而取不到数。可与真实参数共存（如 { indicatorCode: 'div_cash_yr', parameters: [{ paramKey: 'fiscalYear', paramValue: '2025' }], noQueryDate: true }）。加了这个开关仍要补齐该指标 parameterList 里其余 required 键（如上例的 fiscalYear），缺了报 100001 并指名。⚠️ 只对**确实不要日期**的指标加：给要日期的指标加上会变成「缺少必填参数 tradeDate」——注意 scr_ 里的 scr_indu / scr_indu_citic / scr_indu_sw / scr_indu_gics / scr_concept 反而**必填 tradeDate**，别给它们加。哪些指标属于这一类以 gangtise_indicator_search 返回的 parameterList 为准，别按 code 前缀推断（同一前缀下两类都有）。"
+                "description": "声明**这个指标不接受查询日期**，本工具就不给它注入 date 下发的 tradeDate。用于 parameterList 里既没有 tradeDate 也没有 reportDate 的指标——公司属性 pty_*（主营业务/经营范围/注册地/法定代表人…）与证券属性 scr_*（上市市场/上市板块/上市日期/ISIN…）两族，以及 div_cash_paid_ratio（股利支付率）/ div_cash_yr（年度现金分红总额）/ pty_shr_reg（注册资本）、基金的 fund_main_code（主代码）/ fund_estb_dt（成立日期）。不加这个开关，它们一律报 100003「不支持参数 tradeDate」而取不到数。可与真实参数共存（如 { indicatorCode: 'div_cash_yr', parameters: [{ paramKey: 'fiscalYear', paramValue: '2025' }], noQueryDate: true }）。加了这个开关仍要补齐该指标 parameterList 里其余 required 键（如上例的 fiscalYear），缺了报 100001 并指名。⚠️ 只对**确实不要日期**的指标加：给要日期的指标加上会变成「缺少必填参数 tradeDate」——注意 scr_ 里的 scr_indu / scr_indu_citic / scr_indu_sw / scr_indu_gics / scr_concept 反而**必填 tradeDate**，别给它们加。哪些指标属于这一类以 gangtise_indicator_search 返回的 parameterList 为准，别按 code 前缀推断（同一前缀下两类都有）。"
               }
             },
             "required": [
@@ -7414,7 +7629,7 @@
             ],
             "additionalProperties": false
           },
-          "description": "分指标专属参数。parameterList 标 required 的日期参数由本工具的 date 自动下发为 tradeDate。⚠️ **吃 reportDate 的指标必须在这里显式传 reportDate**（一条 { indicatorCode, parameters: [{ paramKey: 'reportDate', paramValue: 'YYYY-MM-DD' }] }，date 参数仍要保留）：这类指标直接拒收 tradeDate 并报错，无论 date 取什么值都取不到数，所以这是个必须照做的改法、不是可选优化。少数指标两个日期都必填——补完 reportDate 若再报「缺少必填参数 tradeDate」，把 tradeDate 也写进同一条即可。**哪个指标吃哪个日期不按 code 前缀分**（同一前缀下两种都有），以 parameterList 为准。其他 required：N期统计→periodNum(如4)+reportDate、分红/预测→fiscalYear(年份)。区间类指标的区间终点就是注入的 tradeDate，sDate 只是起点。可选参数：行情复权 adjustType(1=不复权|2=前复权|3=后复权)；财务报表口径 reportType（1=合并(默认) | 2=合并(调整) | 3=母公司 | 4=母公司(调整)；取值以 parameterList 的 enumList 为准）。区间类指标（qte_*_intvl / 区间均值等）的起始日是 sDate(yyyy-MM-dd)——**没有 startDate 这个参数**，全部区间指标只声明 sDate/changePeriod/tradeDate。参数名写错或臆造会被接口拒绝并指名该键（报 100003「指标 X 不支持参数 Y」），照 msg 改即可；键名一律以 gangtise_indicator_search 返回的 parameterList 为准，不要照抄任何文档示例。同一指标的多个参数请放进同一条的 parameters 数组"
+          "description": "分指标专属参数。parameterList 标 required 的日期参数由本工具的 date 自动下发为 tradeDate。⚠️ **吃 reportDate 的指标必须在这里显式传 reportDate**（一条 { indicatorCode, parameters: [{ paramKey: 'reportDate', paramValue: 'YYYY-MM-DD' }] }，date 参数仍要保留）：这类指标直接拒收 tradeDate 并报错，无论 date 取什么值都取不到数，所以这是个必须照做的改法、不是可选优化。少数指标两个日期都必填——补完 reportDate 若再报「缺少必填参数 tradeDate」，把 tradeDate 也写进同一条即可。**哪个指标吃哪个日期不按 code 前缀分**（同一前缀下两种都有），以 parameterList 为准。其他 required：N期统计→periodNum(如4)+reportDate、分红/预测→fiscalYear(年份)。区间类指标的区间终点就是注入的 tradeDate，sDate 只是起点。可选参数：行情复权 adjustType(1=不复权|2=前复权|3=后复权)；财务报表口径 reportType（1=合并(默认) | 2=合并(调整) | 3=母公司 | 4=母公司(调整)；取值以 parameterList 的 enumList 为准）。区间类指标（qte_*_intvl / 区间均值 / 区间收益与风险等）的起始日是 sDate(yyyy-MM-dd)——**没有 startDate 这个参数**。parameterList 标 required 的键列了默认值也要显式传（如 finc_sharpe 的 changePeriod / yieldType / riskFreeRate），漏传报 100001 并指名。参数名写错或臆造会被接口拒绝并指名该键（报 100003「指标 X 不支持参数 Y」），照 msg 改即可；键名一律以 gangtise_indicator_search 返回的 parameterList 为准，不要照抄任何文档示例。同一指标的多个参数请放进同一条的 parameters 数组"
         }
       },
       "required": [
@@ -7543,7 +7758,7 @@
             ],
             "additionalProperties": false
           },
-          "description": "分指标专属参数。⚠️ **本端点禁止在 parameters 里传单日期参数**：`tradeDate` 与 `reportDate` 都会被拒（报 100003「parameters不得传入单日期参数，时间范围由startDate与endDate控制」），时间范围一律由本工具的 startDate/endDate 决定。因此：N期统计只传 periodNum(如4)、**不要**传 reportDate；区间类指标只传 sDate 作为区间起点，区间终点是每行自己的日期。🔴 **由此带来一个躲不开的后果**：报告期类指标（营收/净利等）没有任何参数能让它只返回报告期末，非期末的每一行都是 `null` 占位，聚合整列前必须先筛掉——详见本工具描述。可选参数：行情复权 adjustType(1=不复权|2=前复权|3=后复权)；财务报表口径 reportType（1=合并(默认) | 2=合并(调整) | 3=母公司 | 4=母公司(调整)；取值以 parameterList 的 enumList 为准）。区间类指标（qte_*_intvl / 区间均值等）的起始日是 sDate(yyyy-MM-dd)——**没有 startDate 这个参数**，全部区间指标只声明 sDate/changePeriod/tradeDate。参数名写错或臆造会被接口拒绝并指名该键（报 100003「指标 X 不支持参数 Y」），照 msg 改即可；键名一律以 gangtise_indicator_search 返回的 parameterList 为准，不要照抄任何文档示例。同一指标的多个参数请放进同一条的 parameters 数组"
+          "description": "分指标专属参数。⚠️ **本端点禁止在 parameters 里传单日期参数**：`tradeDate` 与 `reportDate` 都会被拒（报 100003「parameters不得传入单日期参数，时间范围由startDate与endDate控制」），时间范围一律由本工具的 startDate/endDate 决定。因此：N期统计只传 periodNum(如4)、**不要**传 reportDate；区间类指标只传 sDate 作为区间起点，区间终点是每行自己的日期。🔴 **由此带来一个躲不开的后果**：报告期类指标（营收/净利等）没有任何参数能让它只返回报告期末，非期末的每一行都是 `null` 占位，聚合整列前必须先筛掉——详见本工具描述。可选参数：行情复权 adjustType(1=不复权|2=前复权|3=后复权)；财务报表口径 reportType（1=合并(默认) | 2=合并(调整) | 3=母公司 | 4=母公司(调整)；取值以 parameterList 的 enumList 为准）。区间类指标（qte_*_intvl / 区间均值 / 区间收益与风险等）的起始日是 sDate(yyyy-MM-dd)——**没有 startDate 这个参数**。parameterList 标 required 的键列了默认值也要显式传（如 finc_sharpe 的 changePeriod / yieldType / riskFreeRate），漏传报 100001 并指名。参数名写错或臆造会被接口拒绝并指名该键（报 100003「指标 X 不支持参数 Y」），照 msg 改即可；键名一律以 gangtise_indicator_search 返回的 parameterList 为准，不要照抄任何文档示例。同一指标的多个参数请放进同一条的 parameters 数组"
         }
       },
       "required": [
@@ -7603,11 +7818,11 @@
                   ],
                   "additionalProperties": false
                 },
-                "description": "该变量专属参数（按变量索引，不是按指标）。⚠️ **本端点没有根级 currency/scale——量纲与币种只能在这里按变量传**：根级写法在本端点不生效，而表达式是拿指标原始值去比的，于是「市值≥500亿」若指望根级 scale 就会变成「≥500 元」——恒真、筛不掉任何股票且不报错。按变量传 scale=8，qte_mkt_cptl 才从 1688360210310.6 变成 16883.6021（亿）。parameterList 标 required 的日期参数由本工具的 date 自动下发为 tradeDate。⚠️ **吃 reportDate 的指标必须在这里显式传 reportDate**（一条 { indicatorCode, parameters: [{ paramKey: 'reportDate', paramValue: 'YYYY-MM-DD' }] }，date 参数仍要保留）：这类指标直接拒收 tradeDate 并报错，无论 date 取什么值都取不到数，所以这是个必须照做的改法、不是可选优化。少数指标两个日期都必填——补完 reportDate 若再报「缺少必填参数 tradeDate」，把 tradeDate 也写进同一条即可。**哪个指标吃哪个日期不按 code 前缀分**（同一前缀下两种都有），以 parameterList 为准。其他 required：N期统计→periodNum(如4)+reportDate、分红/预测→fiscalYear(年份)。区间类指标的区间终点就是注入的 tradeDate，sDate 只是起点。可选参数：行情复权 adjustType(1=不复权|2=前复权|3=后复权)；财务报表口径 reportType（1=合并(默认) | 2=合并(调整) | 3=母公司 | 4=母公司(调整)；取值以 parameterList 的 enumList 为准）。区间类指标（qte_*_intvl / 区间均值等）的起始日是 sDate(yyyy-MM-dd)——**没有 startDate 这个参数**，全部区间指标只声明 sDate/changePeriod/tradeDate。参数名写错或臆造会被接口拒绝并指名该键（报 100003「指标 X 不支持参数 Y」），照 msg 改即可；键名一律以 gangtise_indicator_search 返回的 parameterList 为准，不要照抄任何文档示例。同一指标的多个参数请放进同一条的 parameters 数组"
+                "description": "该变量专属参数（按变量索引，不是按指标）。⚠️ **本端点没有根级 currency/scale——量纲与币种只能在这里按变量传**：根级写法在本端点不生效，而表达式是拿指标原始值去比的，于是「市值≥500亿」若指望根级 scale 就会变成「≥500 元」——恒真、筛不掉任何股票且不报错。按变量传 scale=8，qte_mkt_cptl 才从 1688360210310.6 变成 16883.6021（亿）。parameterList 标 required 的日期参数由本工具的 date 自动下发为 tradeDate。⚠️ **吃 reportDate 的指标必须在这里显式传 reportDate**（一条 { indicatorCode, parameters: [{ paramKey: 'reportDate', paramValue: 'YYYY-MM-DD' }] }，date 参数仍要保留）：这类指标直接拒收 tradeDate 并报错，无论 date 取什么值都取不到数，所以这是个必须照做的改法、不是可选优化。少数指标两个日期都必填——补完 reportDate 若再报「缺少必填参数 tradeDate」，把 tradeDate 也写进同一条即可。**哪个指标吃哪个日期不按 code 前缀分**（同一前缀下两种都有），以 parameterList 为准。其他 required：N期统计→periodNum(如4)+reportDate、分红/预测→fiscalYear(年份)。区间类指标的区间终点就是注入的 tradeDate，sDate 只是起点。可选参数：行情复权 adjustType(1=不复权|2=前复权|3=后复权)；财务报表口径 reportType（1=合并(默认) | 2=合并(调整) | 3=母公司 | 4=母公司(调整)；取值以 parameterList 的 enumList 为准）。区间类指标（qte_*_intvl / 区间均值 / 区间收益与风险等）的起始日是 sDate(yyyy-MM-dd)——**没有 startDate 这个参数**。parameterList 标 required 的键列了默认值也要显式传（如 finc_sharpe 的 changePeriod / yieldType / riskFreeRate），漏传报 100001 并指名。参数名写错或臆造会被接口拒绝并指名该键（报 100003「指标 X 不支持参数 Y」），照 msg 改即可；键名一律以 gangtise_indicator_search 返回的 parameterList 为准，不要照抄任何文档示例。同一指标的多个参数请放进同一条的 parameters 数组"
               },
               "noQueryDate": {
                 "type": "boolean",
-                "description": "声明**这个指标不接受查询日期**，本工具就不给它注入 date 下发的 tradeDate。用于 parameterList 里既没有 tradeDate 也没有 reportDate 的指标——公司属性 pty_*（主营业务/经营范围/注册地/法定代表人…）与证券属性 scr_*（上市市场/上市板块/上市日期/ISIN…）两族，以及 div_cash_paid_ratio（股利支付率）/ div_cash_yr（年度现金分红总额）/ pty_shr_reg（注册资本）。不加这个开关，它们一律报 100003「不支持参数 tradeDate」而取不到数。可与真实参数共存（如 { indicatorCode: 'div_cash_yr', parameters: [{ paramKey: 'fiscalYear', paramValue: '2025' }], noQueryDate: true }）。加了这个开关仍要补齐该指标 parameterList 里其余 required 键（如上例的 fiscalYear），缺了报 100001 并指名。⚠️ 只对**确实不要日期**的指标加：给要日期的指标加上会变成「缺少必填参数 tradeDate」——注意 scr_ 里的 scr_indu / scr_indu_citic / scr_indu_sw / scr_indu_gics / scr_concept 反而**必填 tradeDate**，别给它们加。哪些指标属于这一类以 gangtise_indicator_search 返回的 parameterList 为准，别按 code 前缀推断（同一前缀下两类都有）。 📌 本端点上这个开关**同时解锁了按静态属性筛股**——`contains` / `notcontains` 正是 pty_*/scr_* 这类字符串指标最自然的用法（筛上市板块、筛经营范围、筛注册地）。"
+                "description": "声明**这个指标不接受查询日期**，本工具就不给它注入 date 下发的 tradeDate。用于 parameterList 里既没有 tradeDate 也没有 reportDate 的指标——公司属性 pty_*（主营业务/经营范围/注册地/法定代表人…）与证券属性 scr_*（上市市场/上市板块/上市日期/ISIN…）两族，以及 div_cash_paid_ratio（股利支付率）/ div_cash_yr（年度现金分红总额）/ pty_shr_reg（注册资本）、基金的 fund_main_code（主代码）/ fund_estb_dt（成立日期）。不加这个开关，它们一律报 100003「不支持参数 tradeDate」而取不到数。可与真实参数共存（如 { indicatorCode: 'div_cash_yr', parameters: [{ paramKey: 'fiscalYear', paramValue: '2025' }], noQueryDate: true }）。加了这个开关仍要补齐该指标 parameterList 里其余 required 键（如上例的 fiscalYear），缺了报 100001 并指名。⚠️ 只对**确实不要日期**的指标加：给要日期的指标加上会变成「缺少必填参数 tradeDate」——注意 scr_ 里的 scr_indu / scr_indu_citic / scr_indu_sw / scr_indu_gics / scr_concept 反而**必填 tradeDate**，别给它们加。哪些指标属于这一类以 gangtise_indicator_search 返回的 parameterList 为准，别按 code 前缀推断（同一前缀下两类都有）。 📌 本端点上这个开关**同时解锁了按静态属性筛股**——`contains` / `notcontains` 正是 pty_*/scr_* 这类字符串指标最自然的用法（筛上市板块、筛经营范围、筛注册地）。"
               }
             },
             "required": [

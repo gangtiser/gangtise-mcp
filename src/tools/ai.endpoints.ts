@@ -131,6 +131,40 @@ export const aiEndpoints: EndpointTable = {
     retry: "no-replay",
     timeoutMs: 120_000,
   },
+  // 管理层情绪：一条 = 一只证券 × 一场业绩会，按发布时间倒序。两个列表单页 100（size 101 报 100006）、
+  // total 是真实计数；满页 5 × 100 = 500 积分，低于重放线，与投研线索一样留默认重试。行由证券与来源会议
+  // 共同确定（接口文档的粒度，未在整页真实响应里确认唯一）。size: 0 报 100004，探总数只能取 1 条。
+  "ai.management-sentiment-indicator": {
+    method: "POST",
+    path: "/application/open-ai/management-sentiment/company/indicator",
+    kind: "json",
+    description: "Management sentiment scores per earnings call (responsiveness / polarity / conviction)",
+    billing: { kind: "fixed", per: "row", price: 5 },
+    pagination: { mode: "offset", maxPageSize: 100 },
+    rowId: ["securityCode", "source.sourceType", "source.sourceId"],
+    rowIdUnverified: true,
+    expects: "list",
+  },
+  "ai.management-sentiment-conclusion": {
+    method: "POST",
+    path: "/application/open-ai/management-sentiment/company/conclusion",
+    kind: "json",
+    description: "Management sentiment conclusions per earnings call, with changes against the previous call",
+    billing: { kind: "fixed", per: "row", price: 5 },
+    pagination: { mode: "offset", maxPageSize: 100 },
+    rowId: ["securityCode", "source.sourceType", "source.sourceId"],
+    rowIdUnverified: true,
+    expects: "list",
+  },
+  "ai.management-sentiment-detail": {
+    method: "POST",
+    path: "/application/open-ai/management-sentiment/company/detail",
+    kind: "json",
+    description: "Per-Q&A management sentiment scores and their supporting quotes, for one earnings call",
+    billing: { kind: "fixed", per: "call", price: 10 },
+    retry: "no-replay",
+    expects: "list",
+  },
   "ai.viewpoint-debate.get-id": {
     method: "POST",
     path: "/application/open-ai/agent/viewpoint-debate-getid",

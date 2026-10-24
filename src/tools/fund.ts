@@ -43,7 +43,7 @@ const specs: JsonToolSpec[] = [
     "gangtise_fund_nav",
     "core",
     "fund.nav",
-    "查询基金逐交易日净值（按日期倒序）：单位净值 navUnit、累计净值 navAccumulated、复权因子 adjustFactor 与复权净值 navAdjusted（元）。算区间收益用 navAdjusted——单位净值在分红、拆分时跳变。货币基金另有 mmfAnnualizedYield（7 日年化，%）与 mmfUnitYield（每万份收益，元），其 adjustFactor 为 null。多只 × 长区间容易撞 10000 行上限（每只每年约 250 行），按只数分批。",
+    "查询基金逐交易日净值（按日期倒序）：单位净值 navUnit、累计净值 navAccumulated、复权因子 adjustFactor 与复权净值 navAdjusted（元）。算区间收益用 navAdjusted——单位净值在分红、拆分时跳变。货币基金另有 mmfAnnualizedYield（7 日年化，%）与 mmfUnitYield（每万份收益，元），其 adjustFactor 为 null。多只 × 长区间容易撞 10000 行上限（每只每年约 250 行），按只数分批。多只基金横向比区间收益、波动、最大回撤、夏普、同类排名用 gangtise_indicator_cross_section（基金代码可直接传）。",
   ),
   byCode(
     "gangtise_fund_fee_rate",

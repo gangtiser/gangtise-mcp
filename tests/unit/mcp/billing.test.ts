@@ -44,7 +44,7 @@ const AMPLIFY_HINTS = [...new Set(Object.values(ENDPOINTS).flatMap((e) => (e.bil
 describe("billing labels", () => {
   it("labels every registered tool from the frozen vocabulary", async () => {
     const live = await listLiveTools()
-    expect(live).toHaveLength(141)
+    expect(live).toHaveLength(145)
     for (const tool of live) {
       const label = labelOf(tool.description ?? "")
       expect(inFrozenVocabulary(label), `${tool.name} 标签越界：${label}`).toBe(true)
@@ -166,7 +166,7 @@ describe("billing labels", () => {
     })
     const count = (kind: string) => kinds.filter((k) => k === kind).length
     expect(count("free")).toBe(43)
-    expect(count("fixed")).toBe(79)
+    expect(count("fixed")).toBe(83)
     expect(count("downstream")).toBe(1)
     // 3 个 EDE 取数（按所选指标）+ 下载网关（按下载类型）。
     expect(count("variable")).toBe(4)
@@ -272,8 +272,7 @@ describe("tool description boundaries", () => {
     const schema = JSON.stringify(cs?.inputSchema)
     expect(schema).toContain("报告期末季末")
     for (const p of ["periodNum", "fiscalYear", "sDate"]) expect(schema, `应含参数填法 ${p}`).toContain(p)
-    // ⚠️ `startDate` 在 EDE 指标上根本不存在（2026-08-03 实测：区间指标只声明
-    // sDate/changePeriod/tradeDate），写它会被服务端静默忽略。旧描述教模型传 startDate，
+    // ⚠️ `startDate` 在 EDE 指标上根本不存在（区间指标的起点是 sDate），写它会被服务端静默忽略。旧描述教模型传 startDate，
     // 这条断言防止它回归——只允许作为「没有 startDate」的否定说明出现。
     expect(schema).toContain("没有 startDate")
     expect(schema).not.toContain("→startDate")

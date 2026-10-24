@@ -26,6 +26,8 @@ const NO_REPLAY_KEYS = [
   "ai.hot-topic",
   "ai.management-discuss-announcement",
   "ai.management-discuss-earnings-call",
+  // 管理层情绪逐条问答 10/次；两个情绪列表按条计费、满页 500，留默认重试。
+  "ai.management-sentiment-detail",
   "ai.viewpoint-debate.get-id",
   "alternative.concept-info",
   "alternative.concept-securities",
@@ -59,6 +61,7 @@ const NO_REPLAY_KEYS = [
   "bond.issuer-rating-change",
   "bond.issuance-plan",
   "bond.exercise-notice",
+  "bond.default-list",
   // 基金整族按次计费。
   "fund.basic-info",
   "fund.nav",

@@ -431,7 +431,7 @@ const paramPair = paramPairShape.transform((pair, ctx) => {
 // （工具有 date，会注入 tradeDate），时序是区间（服务端明确禁止 parameters 里出现单日期
 // 参数）——两套语义相反，共用一段就必然对其中一个是错的。
 const PARAM_GUIDANCE_COMMON =
-  "可选参数：行情复权 adjustType(1=不复权|2=前复权|3=后复权)；财务报表口径 reportType（1=合并(默认) | 2=合并(调整) | 3=母公司 | 4=母公司(调整)；取值以 parameterList 的 enumList 为准）。区间类指标（qte_*_intvl / 区间均值等）的起始日是 sDate(yyyy-MM-dd)——**没有 startDate 这个参数**，全部区间指标只声明 sDate/changePeriod/tradeDate。参数名写错或臆造会被接口拒绝并指名该键（报 100003「指标 X 不支持参数 Y」），照 msg 改即可；键名一律以 gangtise_indicator_search 返回的 parameterList 为准，不要照抄任何文档示例。同一指标的多个参数请放进同一条的 parameters 数组"
+  "可选参数：行情复权 adjustType(1=不复权|2=前复权|3=后复权)；财务报表口径 reportType（1=合并(默认) | 2=合并(调整) | 3=母公司 | 4=母公司(调整)；取值以 parameterList 的 enumList 为准）。区间类指标（qte_*_intvl / 区间均值 / 区间收益与风险等）的起始日是 sDate(yyyy-MM-dd)——**没有 startDate 这个参数**。parameterList 标 required 的键列了默认值也要显式传（如 finc_sharpe 的 changePeriod / yieldType / riskFreeRate），漏传报 100001 并指名。参数名写错或臆造会被接口拒绝并指名该键（报 100003「指标 X 不支持参数 Y」），照 msg 改即可；键名一律以 gangtise_indicator_search 返回的 parameterList 为准，不要照抄任何文档示例。同一指标的多个参数请放进同一条的 parameters 数组"
 
 /** 截面 / 选股（单日快照，工具有 `date`）。 */
 const PARAM_GUIDANCE_DATED =
@@ -444,7 +444,7 @@ const PARAM_GUIDANCE_RANGE =
   PARAM_GUIDANCE_COMMON
 
 const NO_QUERY_DATE_DESC =
-  "声明**这个指标不接受查询日期**，本工具就不给它注入 date 下发的 tradeDate。用于 parameterList 里既没有 tradeDate 也没有 reportDate 的指标——公司属性 pty_*（主营业务/经营范围/注册地/法定代表人…）与证券属性 scr_*（上市市场/上市板块/上市日期/ISIN…）两族，以及 div_cash_paid_ratio（股利支付率）/ div_cash_yr（年度现金分红总额）/ pty_shr_reg（注册资本）。不加这个开关，它们一律报 100003「不支持参数 tradeDate」而取不到数。可与真实参数共存（如 { indicatorCode: 'div_cash_yr', parameters: [{ paramKey: 'fiscalYear', paramValue: '2025' }], noQueryDate: true }）。加了这个开关仍要补齐该指标 parameterList 里其余 required 键（如上例的 fiscalYear），缺了报 100001 并指名。⚠️ 只对**确实不要日期**的指标加：给要日期的指标加上会变成「缺少必填参数 tradeDate」——注意 scr_ 里的 scr_indu / scr_indu_citic / scr_indu_sw / scr_indu_gics / scr_concept 反而**必填 tradeDate**，别给它们加。哪些指标属于这一类以 gangtise_indicator_search 返回的 parameterList 为准，别按 code 前缀推断（同一前缀下两类都有）。"
+  "声明**这个指标不接受查询日期**，本工具就不给它注入 date 下发的 tradeDate。用于 parameterList 里既没有 tradeDate 也没有 reportDate 的指标——公司属性 pty_*（主营业务/经营范围/注册地/法定代表人…）与证券属性 scr_*（上市市场/上市板块/上市日期/ISIN…）两族，以及 div_cash_paid_ratio（股利支付率）/ div_cash_yr（年度现金分红总额）/ pty_shr_reg（注册资本）、基金的 fund_main_code（主代码）/ fund_estb_dt（成立日期）。不加这个开关，它们一律报 100003「不支持参数 tradeDate」而取不到数。可与真实参数共存（如 { indicatorCode: 'div_cash_yr', parameters: [{ paramKey: 'fiscalYear', paramValue: '2025' }], noQueryDate: true }）。加了这个开关仍要补齐该指标 parameterList 里其余 required 键（如上例的 fiscalYear），缺了报 100001 并指名。⚠️ 只对**确实不要日期**的指标加：给要日期的指标加上会变成「缺少必填参数 tradeDate」——注意 scr_ 里的 scr_indu / scr_indu_citic / scr_indu_sw / scr_indu_gics / scr_concept 反而**必填 tradeDate**，别给它们加。哪些指标属于这一类以 gangtise_indicator_search 返回的 parameterList 为准，别按 code 前缀推断（同一前缀下两类都有）。"
 
 /** 选股的 noQueryDate 补充说明：它比截面多一层用处——能拿静态属性当筛选条件。
  * ⚠️ 这段进 tools/list，只写当前行为：历史沿革（这类绑定曾被静默丢弃）留在
@@ -479,7 +479,7 @@ export const indicatorFamily: FamilyModule = {
       tier: "core",
       access: "read",
       endpoint: "indicator.search",
-      description: "按名称搜索证券级数据指标（EDE），返回 indicatorCode、scopeList（覆盖市场，附 usageRestriction）及 parameterList（含 required 必填标记与枚举）。取数前必先用本工具拿 code，并核对 indicatorName/description 语义、scopeList 是否覆盖目标市场、parameterList 取值——任一不符即回退专用工具。scopeList 是声明不是保证，usageRestriction（如「不支持指标时间序列接口」）也不是硬约束、按「口径可能不对」理解，均以实际抽查为准。基础行情（开高低收/成交量额/换手/涨跌幅）虽可搜到仍优先 realtime/day_kline，但**总市值 qte_mkt_cptl 这两个专用工具都没有、单票也走 EDE**（A/港/美股均已有数，默认「元」，用 scale 缩放）；同样只有 EDE 才有的还包括融资融券 mgn_*（两融余额/融资/融券及其区间变体，仅 A 股；区间变体的 changePeriod 是可选的）与所属行业：通用的 scr_indu（一个指标覆盖申万/中信/恒生/GICS 四套，必填 industryType+industryLevel，体系要与市场配对），以及把体系写进编码、只需可选 industryLevel 的 scr_indu_citic / scr_indu_sw / scr_indu_gics；⚠️ **个股资金流向 flow_*（仅 A 股）与 gangtise_fund_flow 返回的是同一套数（逐位相同）**，而后者还多给各档占比字段、并支持全市场——除非要与其他 EDE 指标同批取，否则一律用 gangtise_fund_flow（两边的计价档见各自标签）；单票完整报表、盈利预测(一致预期)、估值历史分位仍用专用工具（当前 EDE 搜索未覆盖后两类）；EDE 批量优先仅针对多证券取一批已实现财务/估值指标。宏观/行业数据（产量、价格、PMI 等）请改用 gangtise_edb_search，不要猜编码。",
+      description: "按名称搜索证券级数据指标（EDE），返回 indicatorCode、scopeList（覆盖市场，附 usageRestriction）及 parameterList（含 required 必填标记与枚举）。取数前必先用本工具拿 code，并核对 indicatorName/description 语义、scopeList 是否覆盖目标市场、parameterList 取值——任一不符即回退专用工具。scopeList 是声明不是保证，usageRestriction（如「不支持指标时间序列接口」）也不是硬约束、按「口径可能不对」理解，均以实际抽查为准。基础行情（开高低收/成交量额/换手/涨跌幅）虽可搜到仍优先 realtime/day_kline，但**总市值 qte_mkt_cptl 这两个专用工具都没有、单票也走 EDE**（A/港/美股均已有数，默认「元」，用 scale 缩放）；同样只有 EDE 才有的还包括融资融券 mgn_*（两融余额/融资/融券及其区间变体，仅 A 股；区间变体的 changePeriod 是可选的）与所属行业：通用的 scr_indu（一个指标覆盖申万/中信/恒生/GICS 四套，必填 industryType+industryLevel，体系要与市场配对），以及把体系写进编码、只需可选 industryLevel 的 scr_indu_citic / scr_indu_sw / scr_indu_gics；⚠️ **个股资金流向 flow_*（仅 A 股）与 gangtise_fund_flow 返回的是同一套数（逐位相同）**，而后者还多给各档占比字段、并支持全市场——除非要与其他 EDE 指标同批取，否则一律用 gangtise_fund_flow（两边的计价档见各自标签）；单票完整报表、盈利预测(一致预期)、估值历史分位仍用专用工具（当前 EDE 搜索未覆盖后两类）；EDE 批量优先仅针对多证券取一批已实现财务/估值指标。基金代码（005827.OF / 510300.SH）也能查：基金分类 fund_cls*、复权净值 fund_adj_nav 与区间收益 / 风险指标（finc_* 收益率、波动率、最大回撤、夏普、Alpha，fund_* 卡玛、同类排名）适合多只基金横向比，单只基金的净值序列、持仓、规模用 gangtise_fund_*。宏观/行业数据（产量、价格、PMI 等）请改用 gangtise_edb_search，不要猜编码。",
       input: {
         keyword: z
           .string()

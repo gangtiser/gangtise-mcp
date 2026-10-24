@@ -1,7 +1,7 @@
 {
   "source": "gangtise-openapi-cli",
-  "version": "0.47.0",
-  "commit": "2251eb72469669762011636c4dd61406ee710176",
+  "version": "0.48.0",
+  "commit": "83dca857678cbbedbf02ff2f9e5a5c8f85b371d0",
   "endpoints": {
     "ai.earnings-review.get-content": {
       "method": "POST",
@@ -77,6 +77,55 @@
       "billing": {
         "per": "call",
         "price": 10
+      }
+    },
+    "ai.management-sentiment-conclusion": {
+      "method": "POST",
+      "path": "/application/open-ai/management-sentiment/company/conclusion",
+      "kind": "json",
+      "rowId": [
+        "securityCode",
+        "source.sourceType",
+        "source.sourceId"
+      ],
+      "rowIdUnverified": true,
+      "expects": "list",
+      "pagination": {
+        "maxPageSize": 100
+      },
+      "billing": {
+        "per": "row",
+        "price": 5
+      }
+    },
+    "ai.management-sentiment-detail": {
+      "method": "POST",
+      "path": "/application/open-ai/management-sentiment/company/detail",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "list",
+      "billing": {
+        "per": "call",
+        "price": 10
+      }
+    },
+    "ai.management-sentiment-indicator": {
+      "method": "POST",
+      "path": "/application/open-ai/management-sentiment/company/indicator",
+      "kind": "json",
+      "rowId": [
+        "securityCode",
+        "source.sourceType",
+        "source.sourceId"
+      ],
+      "rowIdUnverified": true,
+      "expects": "list",
+      "pagination": {
+        "maxPageSize": 100
+      },
+      "billing": {
+        "per": "row",
+        "price": 5
       }
     },
     "ai.one-pager": {
@@ -258,6 +307,17 @@
     "bond.daily-quote": {
       "method": "POST",
       "path": "/application/open-quote/bond/daily-quote-exchange-cfets",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "list",
+      "billing": {
+        "per": "call",
+        "price": 0.4
+      }
+    },
+    "bond.default-list": {
+      "method": "POST",
+      "path": "/application/open-fundamental/bond/default-list",
       "kind": "json",
       "retry": "no-replay",
       "expects": "list",

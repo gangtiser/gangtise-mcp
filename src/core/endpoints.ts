@@ -42,7 +42,8 @@ export type Pagination =
   | { mode: "page"; maxPageSize: number }
   | { mode: "cursor"; cursorField: string }
 
-/** 行主键：单字段、复合字段或取键函数。取不到键（字段缺失或为 null、函数返回 undefined）的行一律保留。 */
+/** 行主键：单字段、复合字段（可写点号路径，如 `source.sourceId`）或取键函数。取不到键（字段缺失或为 null、
+ *  函数返回 undefined）的行一律保留。 */
 export type RowId = string | readonly string[] | ((row: Record<string, unknown>) => string | undefined)
 
 export interface EndpointDefinition {

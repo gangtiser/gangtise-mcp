@@ -164,11 +164,32 @@ const specs: JsonToolSpec[] = [
     inputSchema: { startDate: dateString, endDate: dateString, fieldList: fieldList("issueDate") },
   },
   rangeSpec("gangtise_bond_exercise_notice", "extended", "bond.exercise-notice", "查询含权债的回售 / 赎回行权安排与结果。startDate / endDate 筛行权日，省略返回全部。没有数据的代码不产生行，国债没有行权数据。", "securityCode / exerciseDate"),
+  {
+    name: "gangtise_bond_default_list",
+    tier: "extended",
+    description: "查询违约债券：简称、违约日期、违约金额 defaultAmount（亿元）、发行人全称、违约原因。按违约日期区间（startDate 与 endDate 都给、不超过 1 年）、securityList 或 issuerNameList 三选一；同一只债券每次违约一行，按违约日期降序。没有违约记录的代码不产生行。⚠️ issuerNameList 一次一个、用全称：简称只返回最匹配的一家主体（「上海世茂」只返回上海世茂建设有限公司，同有违约的上海世茂股份有限公司不在其中），核对返回的 issuerName。",
+    endpointKey: "bond.default-list",
+    inputSchema: {
+      startDate: dateString.optional(),
+      endDate: dateString.optional(),
+      securityList: codes().optional(),
+      issuerNameList: nonEmptyList().max(1, "issuerNameList 一次只收一个发行人，多个请分次调用").optional().describe("发行人全称，一次一个"),
+      fieldList: fieldList("securityCode / defaultDate"),
+    },
+    transformBody: (body) => {
+      const byDate = body.startDate !== undefined || body.endDate !== undefined
+      const modes = [byDate, body.securityList !== undefined, body.issuerNameList !== undefined].filter(Boolean).length
+      if (modes > 1) throw new ValidationError("违约日期区间、securityList、issuerNameList 只能传一种。")
+      if (modes === 0) throw new ValidationError("请传 startDate + endDate（违约日期区间）、securityList（债券代码）或 issuerNameList（一个发行人）其中一种。")
+      if (byDate && (body.startDate === undefined || body.endDate === undefined)) throw new ValidationError("按违约日期查须同时传 startDate 与 endDate。")
+      return body.securityList === undefined ? body : uniqueCodes(body)
+    },
+  },
 ]
 
 export const bondFamily: FamilyModule = {
   name: "bond",
-  routingHint: "债券：bond_* 只收标准代码（019742.SH / 220205.IB），简称先 gangtise_securities_search（category=bond）换；fieldList 写错名整批报 100003。",
+  routingHint: "债券：bond_* 只收标准代码（019742.SH / 220205.IB），简称先 gangtise_securities_search（category=bond）换；fieldList 写错名整批报错并点名。",
   endpoints: bondEndpoints,
   tools: specs.map((spec) => defineJsonTool({ ...spec, emptyHint: EMPTY_HINT })),
 }
