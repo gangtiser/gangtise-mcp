@@ -60,8 +60,9 @@ jobs:
       # 发布流水线独立跑一遍质量门禁，不依赖「main 上的 CI 绿过」：
       # 给一个 CI 失败的提交直接打 tag 是完全可能的，那时只有这里能拦住。
       # 与 ci.yml 对齐：发布流水线要是**完整**的独立门禁，缺一项就不是。
+      # 例外按公告逐条列出、带到期日，见 scripts/audit-gate.mjs。
       - name: Audit
-        run: npm audit --omit=dev --audit-level=high
+        run: node scripts/audit-gate.mjs
 
       - name: Lint
         run: npm run lint

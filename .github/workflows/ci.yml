@@ -27,7 +27,9 @@ jobs:
       # and skipping them keeps a poisoned transitive dep from executing in CI.
       - run: npm ci --ignore-scripts
       # Runs against the official registry (local npmmirror config can't audit).
-      - run: npm audit --omit=dev --audit-level=high
+      # = npm audit --omit=dev --audit-level=high, plus per-advisory allowances with an
+      # expiry date (scripts/audit-gate.mjs); an expired or no-longer-reported allowance fails.
+      - run: node scripts/audit-gate.mjs
       - run: npm run lint
       - run: npm run build
       # 对外面自查：工具描述/错误提示的措辞、包内文档、dist 残留注释、tools/list 字节预算。
