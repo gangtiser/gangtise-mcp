@@ -60,7 +60,7 @@ export function knowledgeBatchTransform(body: Record<string, unknown>): Record<s
   return next
 }
 
-/** 管理层情绪两个列表共用的筛选项与行说明。publishTime 的读数比北京时间早 8 小时，筛选却按北京时间。 */
+/** 管理层情绪两个列表共用的筛选项与行说明。 */
 const sentimentTime = z.union([dateString, dateTimeString])
 const sentimentFilters = {
   securityList: nonEmptyList().optional().describe("证券代码，如 300285.SZ；不传即全部证券。任一代码无效整批报 120001"),
@@ -68,7 +68,7 @@ const sentimentFilters = {
   endTime: sentimentTime.optional().describe("发布时间止（北京时间）：YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss；只写日期含当天整天"),
 }
 const SENTIMENT_ROWS =
-  "一条 = 一只证券 × 一场业绩会，按发布时间倒序；source.sourceId 供 gangtise_management_sentiment_detail 取逐条问答。🔴 返回的 publishTime 比北京时间早 8 小时（北京时间 20:00 的会返回 12:00:00），startTime / endTime 却按北京时间筛：展示时刻、与纪要按时间对齐或按日期归档前先加 8 小时，否则北京时间 0–8 点的会落到前一天。"
+  "一条 = 一只证券 × 一场业绩会，按发布时间倒序；source.sourceId 供 gangtise_management_sentiment_detail 取逐条问答。"
 
 export const jsonSpecs: JsonToolSpec[] = [
   {
@@ -173,7 +173,7 @@ export const jsonSpecs: JsonToolSpec[] = [
   {
     name: "gangtise_management_sentiment_conclusion",
     tier: "extended",
-    description: `查询管理层情绪结论：sentimentSummary（overallSentiment 总体情绪 / questionCategorySentiment 主要影响因素 / qaSentimentChange 重点变化）、三维信号文本 sentimentSignal（不含分数，分数用 gangtise_management_sentiment_indicator），以及与上一场同一事项的问答对照 qaSentimentContrast（qTrace / aTrace 是录音里的毫秒区间），对比基准见 previousSource（其 publishTime 同样早 8 小时）。没有可比的上一场时 qaSentimentChange 为 null、qaSentimentContrast 为 []、previousSource 为 null。${SENTIMENT_ROWS}`,
+    description: `查询管理层情绪结论：sentimentSummary（overallSentiment 总体情绪 / questionCategorySentiment 主要影响因素 / qaSentimentChange 重点变化）、三维信号文本 sentimentSignal（不含分数，分数用 gangtise_management_sentiment_indicator），以及与上一场同一事项的问答对照 qaSentimentContrast（qTrace / aTrace 是录音里的毫秒区间），对比基准见 previousSource。没有可比的上一场时 qaSentimentChange 为 null、qaSentimentContrast 为 []、previousSource 为 null。${SENTIMENT_ROWS}`,
     endpointKey: "ai.management-sentiment-conclusion",
     paginated: true,
     inputSchema: sentimentFilters,

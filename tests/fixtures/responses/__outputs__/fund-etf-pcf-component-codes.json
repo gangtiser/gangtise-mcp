@@ -1,0 +1,52 @@
+{
+  "isError": false,
+  "result": {
+    "_note": "componentCode 由本工具按成分名称匹配补上（查证券列表，能取到行情的再用该行 close 核对价格）：4 行中补上 3 行；为 null 的（现金行、商品、没有把握的名称）：517180.SH 申赎现金",
+    "list": [
+      {
+        "fundCode": "517180.SH",
+        "fundName": "中国企业ETF",
+        "tradeDate": "2026-10-28",
+        "serialNumber": 1,
+        "componentCode": "601857.SH",
+        "componentName": "中国石油",
+        "close": 13.38,
+        "pctWeight": 5.12,
+        "cashSubstituteFlag": "允许"
+      },
+      {
+        "fundCode": "517180.SH",
+        "fundName": "中国企业ETF",
+        "tradeDate": "2026-10-28",
+        "serialNumber": 2,
+        "componentCode": "00941.HK",
+        "componentName": "中国移动",
+        "close": 77.3,
+        "pctWeight": 4.87,
+        "cashSubstituteFlag": "必须"
+      },
+      {
+        "fundCode": "517180.SH",
+        "fundName": "中国企业ETF",
+        "tradeDate": "2026-10-28",
+        "serialNumber": 3,
+        "componentCode": "600941.SH",
+        "componentName": "中国移动",
+        "close": 101.3,
+        "pctWeight": 4.51,
+        "cashSubstituteFlag": "允许"
+      },
+      {
+        "fundCode": "517180.SH",
+        "fundName": "中国企业ETF",
+        "tradeDate": "2026-10-28",
+        "serialNumber": 4,
+        "componentCode": null,
+        "componentName": "申赎现金",
+        "close": null,
+        "pctWeight": null,
+        "cashSubstituteFlag": "必须"
+      }
+    ]
+  }
+}

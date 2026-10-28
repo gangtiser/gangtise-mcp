@@ -1,3 +1,4 @@
+import { closesWindow } from "../core/etfComponents.js"
 import type { ToolExamples } from "../mcp/contract.examples.js"
 
 const P = "/application/open-fundamental/fund"
@@ -62,6 +63,24 @@ export const fundExamples: ToolExamples = {
   gangtise_fund_etf_pcf_components: [
     { title: "没有日期参数", args: { fundCodeList: ["510300.SH"], endDate: "2026-09-30" }, expect: { rejects: /Unrecognized key.*endDate/ } },
     { title: "只收代码", args: { fundCodeList: ["510300.SH", "159919.SZ"] }, expect: { requests: [{ method: "POST", path: `${P}/etf-pcf-components`, body: { fundCodeList: ["510300.SH", "159919.SZ"] } }] } },
+    {
+      title: "按名称补代码：三个全市场板块各取一次，表里没有的名称走搜索，候选取实时行情核对；A / H 同名的行再取日 K 核对另一市场",
+      args: { fundCodeList: ["517180.SH"] },
+      upstream: (req) => {
+        if (req.endpoint === "fund.etf-pcf-components") return { data: { list: [{ fundCode: "517180.SH", serialNumber: 1, componentName: "中国移动", close: 77.3 }, { fundCode: "517180.SH", serialNumber: 2, componentName: "申赎现金", close: null }] } }
+        if (req.endpoint === "reference.sector-constituents") return { data: { list: [{ "1000000002": { gtsCode: "600941.SH", gtsName: "中国移动" }, "1000002615": { gtsCode: "00941.HK", gtsName: "中国移动" }, "1000002618": { gtsCode: "AAPL.O", gtsName: "苹果" } }[(req.body as { sectorId: string }).sectorId]] } }
+        if (req.endpoint === "quote.realtime") return { data: { total: 2, fieldList: ["securityCode", "preClose", "latestPrice"], list: [["600941.SH", 101.3, 100.7], ["00941.HK", 77.3, 78.1]] } }
+        if (req.endpoint === "quote.day-kline") return { data: { total: 2, fieldList: ["securityCode", "tradeDate", "close"], list: [["600941.SH", "2026-10-27", 101.3], ["00941.HK", "2026-10-27", 77.3]] } }
+        return undefined
+      },
+      expect: { requests: [
+        { method: "POST", path: `${P}/etf-pcf-components`, body: { fundCodeList: ["517180.SH"] } },
+        ...["1000000002", "1000002615", "1000002618"].map((sectorId) => ({ method: "POST" as const, path: "/application/open-reference/sectors/constituents", body: { sectorId } })),
+        { method: "POST", path: "/application/open-reference/securities/search", body: { keyword: "申赎现金", top: 10 } },
+        { method: "POST", path: "/application/open-quote/quote/realtime", body: { securityList: ["600941.SH", "00941.HK"] } },
+        { method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["600941.SH", "00941.HK"], ...closesWindow(), fieldList: ["securityCode", "tradeDate", "close"], limit: 10_000 } },
+      ] },
+    },
   ],
   gangtise_fund_etf_share_change: [
     { title: "日期筛交易日", args: { fundCodeList: ["510300.SH"], startDate: "2026-09-01", endDate: "2026-09-30" }, expect: { requests: [{ method: "POST", path: `${P}/etf-share-change`, body: { fundCodeList: ["510300.SH"], startDate: "2026-09-01", endDate: "2026-09-30" } }] } },

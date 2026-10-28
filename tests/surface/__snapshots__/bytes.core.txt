@@ -1,5 +1,5 @@
 tools: 96
-tools/list bytes: 156199
+tools/list bytes: 156262
 instructions bytes: 3530
 
    396  gangtise_current_date
@@ -93,8 +93,8 @@ instructions bytes: 3530
    982  gangtise_concept_securities
    756  gangtise_edb_data
   2672  gangtise_indicator_search
-  7515  gangtise_indicator_cross_section
-  6359  gangtise_indicator_time_series
-  8658  gangtise_indicator_screener
+  7538  gangtise_indicator_cross_section
+  6379  gangtise_indicator_time_series
+  8678  gangtise_indicator_screener
   2013  gangtise_web_search
   1270  gangtise_read_response

@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { dateString } from "../core/dateContext.js"
+import { addComponentCodes, clientLookup } from "../core/etfComponents.js"
 import { defineJsonTool, type FamilyModule, type JsonToolSpec, type ZodShape } from "../mcp/define.js"
 import { enumList, nonEmptyList, uniqueFieldList } from "../mcp/schemas.js"
 import { fundEndpoints } from "./fund.endpoints.js"
@@ -85,7 +86,7 @@ const specs: JsonToolSpec[] = [
     "gangtise_fund_holder_structure",
     "extended",
     "fund.holder-structure",
-    "查询基金持有人结构（只有中报、年报披露）：持有人户数、户均份额，机构 / 个人 / 员工持有份额（份）与占比（%，可能为 null）。⚠️ holderCount 是带千分位逗号的字符串（\"2,219,140\"），计算或排序前先去掉逗号转数字，否则按字符串比较会排错。",
+    "查询基金持有人结构（只有中报、年报披露）：持有人户数、户均份额，机构 / 个人 / 员工持有份额（份）与占比（%，可能为 null）。",
   ),
   byCode(
     "gangtise_fund_top10_holders",
@@ -139,14 +140,17 @@ const specs: JsonToolSpec[] = [
     {},
     false,
   ),
-  byCode(
-    "gangtise_fund_etf_pcf_components",
-    "extended",
-    "fund.etf-pcf-components",
-    "查询 ETF 最新一份申购赎回清单的成分（没有日期参数，查不了历史清单）：每个成分一行，含收盘价、涨跌幅、权重（%）、申购数量（股）、现金替代标志（允许 / 必须）与溢价比例、替代金额（元）。componentCode 不带市场后缀（600519），接着查行情先补后缀。宽基 ETF 数百行，多只一起查注意 10000 行上限。",
-    {},
-    false,
-  ),
+  {
+    ...byCode(
+      "gangtise_fund_etf_pcf_components",
+      "extended",
+      "fund.etf-pcf-components",
+      "查询 ETF 最新一份申购赎回清单的成分（没有日期参数，查不了历史清单）：每个成分一行，含名称 componentName、收盘价、涨跌幅、权重（%）、申购数量（股）、现金替代标志（允许 / 必须）与溢价比例、替代金额（元）。⚠️ 接口只返回名称，componentCode（带后缀，如 600519.SH / 00941.HK / NVDA.O）由本工具按名称匹配、再用该行 close 核对行情价补上，A+H ETF 里同名的 A 股与 H 股行据此分开；现金行、商品与价格定不了的为 null（只在确知成分都在一个市场时才按名称取），_note 列出这些行。成分 close 是清单给的价格，可能早于 tradeDate 的前一交易日，A 股与港股的日期也可能不同，算市值或涨跌以行情为准。宽基 ETF 数百行，多只一起查注意 10000 行上限。",
+      {},
+      false,
+    ),
+    call: async (client, endpointKey, body) => addComponentCodes(await client.call(endpointKey, body), clientLookup(client)),
+  },
   byCode(
     "gangtise_fund_etf_share_change",
     "extended",

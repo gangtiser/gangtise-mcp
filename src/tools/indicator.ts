@@ -100,7 +100,7 @@ export const EDE_999999_HINT =
 // 把日期写进来会把调用方引向错误的排查方向。
 // screener 也不用这条提示——零命中是选股的合法结果。
 export const EDE_EMPTY_HINT =
-  "0 行结果：本接口对能识别的 code 会保留行列（" + EDE_NULL_ONLY + "），识别不了的 code 会直接报错，两条路都不会返回空表——所以整表为空通常**不是**「确无数据」这么简单。请核对证券后缀（A股 .SH/.SZ、港股 .HK、美股 .O/.N 而非 .US）与指标权限，指标代码以 gangtise_indicator_search 返回的为准。"
+  "0 行结果：本接口对能识别的 code 会保留行列（" + EDE_NULL_ONLY + "），识别不了的 code 会直接报错，两条路都不会返回空表——所以整表为空通常**不是**「确无数据」这么简单。请核对证券后缀（A股 .SH/.SZ、港股 .HK、美股 .O/.N/.A 而非 .US）与指标权限，指标代码以 gangtise_indicator_search 返回的为准。"
 
 /** 非矩阵端点（当前只有 indicator.search）的取数：剥内层信封，错误原样上抛。
  *
@@ -391,7 +391,7 @@ const securityCodeList = z
   .min(1, "securityCodeList 至少 1 个")
   .max(6000, "securityCodeList 单次最多 6000 个（与 gangtise_stock_summary 同一量级；本端点按单元格计价）")
   .describe(
-    "证券代码列表（至少 1 个），支持 A 股/港股/美股，如 ['600519.SH','00700.HK','AAPL.O']；美股用交易所后缀 .O(NASDAQ) / .N(NYSE)，不是 .US（.US 查不到数据）。也接受 gangtise_sector_search 返回的 10 位 sectorId（板块，服务端展开为全部成分股，可与证券代码混传取并集）；中信行业码那类 9 位 ID 不是 sectorId，传了返 0 只",
+    "证券代码列表（至少 1 个），支持 A 股/港股/美股，如 ['600519.SH','00700.HK','AAPL.O']；美股用交易所后缀 .O(NASDAQ) / .N(NYSE) / .A(NYSE American)，不是 .US（.US 查不到数据）。也接受 gangtise_sector_search 返回的 10 位 sectorId（板块，服务端展开为全部成分股，可与证券代码混传取并集）；中信行业码那类 9 位 ID 不是 sectorId，传了返 0 只",
   )
 const currency = z
   .enum(["DFT", "CNY", "HKD", "USD", "EUR", "GBP", "JPY", "TWD", "MOP", "AUD"])
@@ -498,7 +498,7 @@ export const indicatorFamily: FamilyModule = {
       tier: "core",
       access: "read",
       endpoint: "indicator.cross-section",
-      description: "查询指标截面数据（多指标 × 多证券，单日快照）。返回宽表：每证券一行、每指标一列（无 date 列——查询日期挂在每个指标自己的参数上，各列可以是不同日期）。指标代码来自 gangtise_indicator_search。多证券取同一批已实现财务/估值指标的首选（一次拉取，免去逐只调用专用工具）。财务科目分公司类型，公司类型不匹配时返 null（≠指标坏）。指标代码、证券代码、参数名写错都会被接口拒绝并指名出错的那一个，照 msg 改即可。**取不到数时保留整行整列**（不是缺行），" + EDE_NULL_ONLY + "，既不报错也不标 _partial。所以 `null` 有三种读法——「该证券确实没有这项数据」「日期或口径不对导致取不到」「该指标不覆盖这个市场或证券类型」（覆盖面见 gangtise_indicator_search 的 scopeList），从结果本身分不出来；结论要紧时请用专用报表工具单查该证券核对。结果若标了 _partial + omittedIndicators/omittedSecurities，说明那几个 code 没进入结果，先核对该指标/标的的权限与证券后缀（美股是 .O/.N，不是 .US）。",
+      description: "查询指标截面数据（多指标 × 多证券，单日快照）。返回宽表：每证券一行、每指标一列（无 date 列——查询日期挂在每个指标自己的参数上，各列可以是不同日期）。指标代码来自 gangtise_indicator_search。多证券取同一批已实现财务/估值指标的首选（一次拉取，免去逐只调用专用工具）。财务科目分公司类型，公司类型不匹配时返 null（≠指标坏）。指标代码、证券代码、参数名写错都会被接口拒绝并指名出错的那一个，照 msg 改即可。**取不到数时保留整行整列**（不是缺行），" + EDE_NULL_ONLY + "，既不报错也不标 _partial。所以 `null` 有三种读法——「该证券确实没有这项数据」「日期或口径不对导致取不到」「该指标不覆盖这个市场或证券类型」（覆盖面见 gangtise_indicator_search 的 scopeList），从结果本身分不出来；结论要紧时请用专用报表工具单查该证券核对。结果若标了 _partial + omittedIndicators/omittedSecurities，说明那几个 code 没进入结果，先核对该指标/标的的权限与证券后缀（美股是 .O/.N/.A，不是 .US）。",
       input: {
         indicatorCodeList,
         securityCodeList,

@@ -5261,7 +5261,7 @@
   },
   {
     "name": "gangtise_indicator_cross_section",
-    "description": "查询指标截面数据（多指标 × 多证券，单日快照）。返回宽表：每证券一行、每指标一列（无 date 列——查询日期挂在每个指标自己的参数上，各列可以是不同日期）。指标代码来自 gangtise_indicator_search。多证券取同一批已实现财务/估值指标的首选（一次拉取，免去逐只调用专用工具）。财务科目分公司类型，公司类型不匹配时返 null（≠指标坏）。指标代码、证券代码、参数名写错都会被接口拒绝并指名出错的那一个，照 msg 改即可。**取不到数时保留整行整列**（不是缺行），取不到数时唯一的占位值是 `null`，不会填数值 0，既不报错也不标 _partial。所以 `null` 有三种读法——「该证券确实没有这项数据」「日期或口径不对导致取不到」「该指标不覆盖这个市场或证券类型」（覆盖面见 gangtise_indicator_search 的 scopeList），从结果本身分不出来；结论要紧时请用专用报表工具单查该证券核对。结果若标了 _partial + omittedIndicators/omittedSecurities，说明那几个 code 没进入结果，先核对该指标/标的的权限与证券后缀（美股是 .O/.N，不是 .US）。按单元格计价，指标数×证券数×日期数即放大倍数，单次上限 3 万单元格（服务端硬限，超出报 100006 且不返回部分结果）。【积分：按所选指标】",
+    "description": "查询指标截面数据（多指标 × 多证券，单日快照）。返回宽表：每证券一行、每指标一列（无 date 列——查询日期挂在每个指标自己的参数上，各列可以是不同日期）。指标代码来自 gangtise_indicator_search。多证券取同一批已实现财务/估值指标的首选（一次拉取，免去逐只调用专用工具）。财务科目分公司类型，公司类型不匹配时返 null（≠指标坏）。指标代码、证券代码、参数名写错都会被接口拒绝并指名出错的那一个，照 msg 改即可。**取不到数时保留整行整列**（不是缺行），取不到数时唯一的占位值是 `null`，不会填数值 0，既不报错也不标 _partial。所以 `null` 有三种读法——「该证券确实没有这项数据」「日期或口径不对导致取不到」「该指标不覆盖这个市场或证券类型」（覆盖面见 gangtise_indicator_search 的 scopeList），从结果本身分不出来；结论要紧时请用专用报表工具单查该证券核对。结果若标了 _partial + omittedIndicators/omittedSecurities，说明那几个 code 没进入结果，先核对该指标/标的的权限与证券后缀（美股是 .O/.N/.A，不是 .US）。按单元格计价，指标数×证券数×日期数即放大倍数，单次上限 3 万单元格（服务端硬限，超出报 100006 且不返回部分结果）。【积分：按所选指标】",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -5283,7 +5283,7 @@
           },
           "minItems": 1,
           "maxItems": 6000,
-          "description": "证券代码列表（至少 1 个），支持 A 股/港股/美股，如 ['600519.SH','00700.HK','AAPL.O']；美股用交易所后缀 .O(NASDAQ) / .N(NYSE)，不是 .US（.US 查不到数据）。也接受 gangtise_sector_search 返回的 10 位 sectorId（板块，服务端展开为全部成分股，可与证券代码混传取并集）；中信行业码那类 9 位 ID 不是 sectorId，传了返 0 只"
+          "description": "证券代码列表（至少 1 个），支持 A 股/港股/美股，如 ['600519.SH','00700.HK','AAPL.O']；美股用交易所后缀 .O(NASDAQ) / .N(NYSE) / .A(NYSE American)，不是 .US（.US 查不到数据）。也接受 gangtise_sector_search 返回的 10 位 sectorId（板块，服务端展开为全部成分股，可与证券代码混传取并集）；中信行业码那类 9 位 ID 不是 sectorId，传了返 0 只"
         },
         "date": {
           "type": "string",
@@ -5402,7 +5402,7 @@
           },
           "minItems": 1,
           "maxItems": 6000,
-          "description": "证券代码列表（至少 1 个），支持 A 股/港股/美股，如 ['600519.SH','00700.HK','AAPL.O']；美股用交易所后缀 .O(NASDAQ) / .N(NYSE)，不是 .US（.US 查不到数据）。也接受 gangtise_sector_search 返回的 10 位 sectorId（板块，服务端展开为全部成分股，可与证券代码混传取并集）；中信行业码那类 9 位 ID 不是 sectorId，传了返 0 只"
+          "description": "证券代码列表（至少 1 个），支持 A 股/港股/美股，如 ['600519.SH','00700.HK','AAPL.O']；美股用交易所后缀 .O(NASDAQ) / .N(NYSE) / .A(NYSE American)，不是 .US（.US 查不到数据）。也接受 gangtise_sector_search 返回的 10 位 sectorId（板块，服务端展开为全部成分股，可与证券代码混传取并集）；中信行业码那类 9 位 ID 不是 sectorId，传了返 0 只"
         },
         "startDate": {
           "type": "string",
@@ -5579,7 +5579,7 @@
           },
           "minItems": 1,
           "maxItems": 6000,
-          "description": "证券代码列表（至少 1 个），支持 A 股/港股/美股，如 ['600519.SH','00700.HK','AAPL.O']；美股用交易所后缀 .O(NASDAQ) / .N(NYSE)，不是 .US（.US 查不到数据）。也接受 gangtise_sector_search 返回的 10 位 sectorId（板块，服务端展开为全部成分股，可与证券代码混传取并集）；中信行业码那类 9 位 ID 不是 sectorId，传了返 0 只"
+          "description": "证券代码列表（至少 1 个），支持 A 股/港股/美股，如 ['600519.SH','00700.HK','AAPL.O']；美股用交易所后缀 .O(NASDAQ) / .N(NYSE) / .A(NYSE American)，不是 .US（.US 查不到数据）。也接受 gangtise_sector_search 返回的 10 位 sectorId（板块，服务端展开为全部成分股，可与证券代码混传取并集）；中信行业码那类 9 位 ID 不是 sectorId，传了返 0 只"
         },
         "date": {
           "type": "string",

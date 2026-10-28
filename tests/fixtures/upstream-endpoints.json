@@ -1,7 +1,7 @@
 {
   "source": "gangtise-openapi-cli",
-  "version": "0.48.0",
-  "commit": "83dca857678cbbedbf02ff2f9e5a5c8f85b371d0",
+  "version": "0.49.0",
+  "commit": "12bbdbc6e86f16e391446f5e1fb093f23687fdec",
   "endpoints": {
     "ai.earnings-review.get-content": {
       "method": "POST",
@@ -852,7 +852,7 @@
       "method": "POST",
       "path": "/application/open-insight/schedule/forum/getList",
       "kind": "json",
-      "rowId": "id",
+      "rowId": "forumId",
       "rowIdUnverified": true,
       "pagination": {
         "maxPageSize": 50
@@ -1050,7 +1050,7 @@
       "method": "POST",
       "path": "/application/open-insight/schedule/roadshow/getList",
       "kind": "json",
-      "rowId": "id",
+      "rowId": "roadshowId",
       "rowIdUnverified": true,
       "pagination": {
         "maxPageSize": 50
@@ -1064,7 +1064,7 @@
       "method": "POST",
       "path": "/application/open-insight/schedule/site-visit/getList",
       "kind": "json",
-      "rowId": "id",
+      "rowId": "siteVisitId",
       "rowIdUnverified": true,
       "pagination": {
         "maxPageSize": 50
@@ -1078,7 +1078,7 @@
       "method": "POST",
       "path": "/application/open-insight/schedule/strategy-meeting/getList",
       "kind": "json",
-      "rowId": "id",
+      "rowId": "strategyMeetingId",
       "rowIdUnverified": true,
       "pagination": {
         "maxPageSize": 50

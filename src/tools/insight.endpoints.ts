@@ -78,7 +78,7 @@ export const insightEndpoints: EndpointTable = {
     description: "List roadshows",
     billing: { kind: "fixed", per: "row", price: 10, amplify: "单次约 200 积分" },
     pagination: { mode: "offset", maxPageSize: 50 },
-    rowId: "id",
+    rowId: "roadshowId",
     rowIdUnverified: true,
   },
   "insight.site-visit.list": {
@@ -88,7 +88,7 @@ export const insightEndpoints: EndpointTable = {
     description: "List site visits",
     billing: { kind: "fixed", per: "row", price: 10, amplify: "单次约 200 积分" },
     pagination: { mode: "offset", maxPageSize: 50 },
-    rowId: "id",
+    rowId: "siteVisitId",
     rowIdUnverified: true,
   },
   "insight.strategy.list": {
@@ -98,7 +98,7 @@ export const insightEndpoints: EndpointTable = {
     description: "List strategy meetings",
     billing: { kind: "fixed", per: "row", price: 10, amplify: "单次约 200 积分" },
     pagination: { mode: "offset", maxPageSize: 50 },
-    rowId: "id",
+    rowId: "strategyMeetingId",
     rowIdUnverified: true,
   },
   "insight.forum.list": {
@@ -108,7 +108,7 @@ export const insightEndpoints: EndpointTable = {
     description: "List forums",
     billing: { kind: "fixed", per: "row", price: 10, amplify: "单次约 200 积分" },
     pagination: { mode: "offset", maxPageSize: 50 },
-    rowId: "id",
+    rowId: "forumId",
     rowIdUnverified: true,
   },
   "insight.performance-calendar.list": {

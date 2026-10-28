@@ -2,6 +2,28 @@
 
 > README 顶部只放最近 5 个版本的一行摘要 + 历史里程碑；本文件是完整历史明细（中文），回溯至 0.1.3。
 
+### 0.3.7 (2026-10-28)
+
+ETF 申赎清单成分的代码改由本工具按名称匹配补上；管理层情绪的 `publishTime` 现为北京时间；基金持有人户数为整数；日程四个列表的翻页去重按各自的 ID 比对。
+
+**⚠️ 要改调用的**
+
+- **管理层情绪**：`gangtise_management_sentiment_indicator` / `_conclusion` 返回的 `publishTime`（含 `previousSource.publishTime`）现为北京时间，与 `startTime` / `endTime` 同一口径。按 0.3.6 说明「先加 8 小时」处理过的要去掉这一步，否则会多出 8 小时。
+- **`gangtise_fund_holder_structure`**：`holderCount` 现为整数（如 `2219140`），「先去掉千分位逗号再转数字」的处理要去掉。
+- **`gangtise_fund_etf_pcf_components`**：接口只返回成分名称 `componentName`，`componentCode` 现由本工具按名称匹配补上，**带市场后缀**（`600519.SH` / `00941.HK` / `NVDA.O`；此前是不带后缀的 `600519`）。
+  - 名称在全部A股 / 港股 / 美股里找（找不到再用证券搜索），再用该行的 `close` 核对行情（实时价；对不上时按清单价格所属那天的日 K），A+H ETF 里同名的 A 股与 H 股两行据此分开
+  - 定不了的不猜，为 `null`：现金行、商品、简称对不上的，以及价格定不了的（只在确知成分都在一个市场时才按名称取）；结果的 `_note` 写明补上了多少行、列出为 `null` 的行
+  - 每次调用另发几次证券列表、证券搜索与行情查询
+  - 成分的 `close` 是清单给出的价格，日期可能早于 `tradeDate` 的前一交易日，同一清单里 A 股与港股也可能不同；用价格计算以行情为准
+
+**修正**
+
+- **日程列表的翻页去重**：`gangtise_roadshow_list` / `gangtise_site_visit_list` / `gangtise_strategy_list` / `gangtise_forum_list` 按各自返回的 ID（`roadshowId` / `siteVisitId` / `strategyMeetingId` / `forumId`）去掉跨页重复的行并标 `_partial` + `duplicate_rows`（此前重复行会原样保留）。
+
+**说明更正**
+
+- **证券级指标**：美股代码也收 `.A`（NYSE American）后缀，与 `.O` / `.N` 并列。
+
 ### 0.3.6 (2026-10-24)
 
 新增管理层情绪三个工具与违约债券查询；证券级指标说明补上基金指标与区间指标的必填参数；依赖安全更新。

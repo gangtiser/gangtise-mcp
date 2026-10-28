@@ -3954,7 +3954,7 @@
   },
   {
     "name": "gangtise_fund_holder_structure",
-    "description": "查询基金持有人结构（只有中报、年报披露）：持有人户数、户均份额，机构 / 个人 / 员工持有份额（份）与占比（%，可能为 null）。⚠️ holderCount 是带千分位逗号的字符串（\"2,219,140\"），计算或排序前先去掉逗号转数字，否则按字符串比较会排错。【积分：0.4/次】",
+    "description": "查询基金持有人结构（只有中报、年报披露）：持有人户数、户均份额，机构 / 个人 / 员工持有份额（份）与占比（%，可能为 null）。【积分：0.4/次】",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -4303,7 +4303,7 @@
   },
   {
     "name": "gangtise_fund_etf_pcf_components",
-    "description": "查询 ETF 最新一份申购赎回清单的成分（没有日期参数，查不了历史清单）：每个成分一行，含收盘价、涨跌幅、权重（%）、申购数量（股）、现金替代标志（允许 / 必须）与溢价比例、替代金额（元）。componentCode 不带市场后缀（600519），接着查行情先补后缀。宽基 ETF 数百行，多只一起查注意 10000 行上限。【积分：0.4/次】",
+    "description": "查询 ETF 最新一份申购赎回清单的成分（没有日期参数，查不了历史清单）：每个成分一行，含名称 componentName、收盘价、涨跌幅、权重（%）、申购数量（股）、现金替代标志（允许 / 必须）与溢价比例、替代金额（元）。⚠️ 接口只返回名称，componentCode（带后缀，如 600519.SH / 00941.HK / NVDA.O）由本工具按名称匹配、再用该行 close 核对行情价补上，A+H ETF 里同名的 A 股与 H 股行据此分开；现金行、商品与价格定不了的为 null（只在确知成分都在一个市场时才按名称取），_note 列出这些行。成分 close 是清单给的价格，可能早于 tradeDate 的前一交易日，A 股与港股的日期也可能不同，算市值或涨跌以行情为准。宽基 ETF 数百行，多只一起查注意 10000 行上限。【积分：0.4/次】",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -4710,7 +4710,7 @@
   },
   {
     "name": "gangtise_management_sentiment_indicator",
-    "description": "查询管理层情绪评分：每场业绩会问答里管理层的正面回应程度 sentimentResponsiveness、回复乐观度 sentimentPolarity、回复确定度 sentimentConviction（0–5），有效问答数 qaCount，回避 / 风险 / 低确定度占比 qaEvasionRatio / qaRiskRatio / qaUncertaintyRatio（百分数，18.42 即 18.42%，分母是 qaCount），以及按问题类型的拆分 questionCategoryList（类型同 gangtise_qa_list 的 questionCategory；只有一两条问答的类型评分波动大，isImportant 标出重要类型）。一条 = 一只证券 × 一场业绩会，按发布时间倒序；source.sourceId 供 gangtise_management_sentiment_detail 取逐条问答。🔴 返回的 publishTime 比北京时间早 8 小时（北京时间 20:00 的会返回 12:00:00），startTime / endTime 却按北京时间筛：展示时刻、与纪要按时间对齐或按日期归档前先加 8 小时，否则北京时间 0–8 点的会落到前一天。【积分：5/条】",
+    "description": "查询管理层情绪评分：每场业绩会问答里管理层的正面回应程度 sentimentResponsiveness、回复乐观度 sentimentPolarity、回复确定度 sentimentConviction（0–5），有效问答数 qaCount，回避 / 风险 / 低确定度占比 qaEvasionRatio / qaRiskRatio / qaUncertaintyRatio（百分数，18.42 即 18.42%，分母是 qaCount），以及按问题类型的拆分 questionCategoryList（类型同 gangtise_qa_list 的 questionCategory；只有一两条问答的类型评分波动大，isImportant 标出重要类型）。一条 = 一只证券 × 一场业绩会，按发布时间倒序；source.sourceId 供 gangtise_management_sentiment_detail 取逐条问答。【积分：5/条】",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -4776,7 +4776,7 @@
   },
   {
     "name": "gangtise_management_sentiment_conclusion",
-    "description": "查询管理层情绪结论：sentimentSummary（overallSentiment 总体情绪 / questionCategorySentiment 主要影响因素 / qaSentimentChange 重点变化）、三维信号文本 sentimentSignal（不含分数，分数用 gangtise_management_sentiment_indicator），以及与上一场同一事项的问答对照 qaSentimentContrast（qTrace / aTrace 是录音里的毫秒区间），对比基准见 previousSource（其 publishTime 同样早 8 小时）。没有可比的上一场时 qaSentimentChange 为 null、qaSentimentContrast 为 []、previousSource 为 null。一条 = 一只证券 × 一场业绩会，按发布时间倒序；source.sourceId 供 gangtise_management_sentiment_detail 取逐条问答。🔴 返回的 publishTime 比北京时间早 8 小时（北京时间 20:00 的会返回 12:00:00），startTime / endTime 却按北京时间筛：展示时刻、与纪要按时间对齐或按日期归档前先加 8 小时，否则北京时间 0–8 点的会落到前一天。【积分：5/条】",
+    "description": "查询管理层情绪结论：sentimentSummary（overallSentiment 总体情绪 / questionCategorySentiment 主要影响因素 / qaSentimentChange 重点变化）、三维信号文本 sentimentSignal（不含分数，分数用 gangtise_management_sentiment_indicator），以及与上一场同一事项的问答对照 qaSentimentContrast（qTrace / aTrace 是录音里的毫秒区间），对比基准见 previousSource。没有可比的上一场时 qaSentimentChange 为 null、qaSentimentContrast 为 []、previousSource 为 null。一条 = 一只证券 × 一场业绩会，按发布时间倒序；source.sourceId 供 gangtise_management_sentiment_detail 取逐条问答。【积分：5/条】",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -6146,7 +6146,7 @@
   },
   {
     "name": "gangtise_indicator_cross_section",
-    "description": "查询指标截面数据（多指标 × 多证券，单日快照）。返回宽表：每证券一行、每指标一列（无 date 列——查询日期挂在每个指标自己的参数上，各列可以是不同日期）。指标代码来自 gangtise_indicator_search。多证券取同一批已实现财务/估值指标的首选（一次拉取，免去逐只调用专用工具）。财务科目分公司类型，公司类型不匹配时返 null（≠指标坏）。指标代码、证券代码、参数名写错都会被接口拒绝并指名出错的那一个，照 msg 改即可。**取不到数时保留整行整列**（不是缺行），取不到数时唯一的占位值是 `null`，不会填数值 0，既不报错也不标 _partial。所以 `null` 有三种读法——「该证券确实没有这项数据」「日期或口径不对导致取不到」「该指标不覆盖这个市场或证券类型」（覆盖面见 gangtise_indicator_search 的 scopeList），从结果本身分不出来；结论要紧时请用专用报表工具单查该证券核对。结果若标了 _partial + omittedIndicators/omittedSecurities，说明那几个 code 没进入结果，先核对该指标/标的的权限与证券后缀（美股是 .O/.N，不是 .US）。按单元格计价，指标数×证券数×日期数即放大倍数，单次上限 3 万单元格（服务端硬限，超出报 100006 且不返回部分结果）。【积分：按所选指标】",
+    "description": "查询指标截面数据（多指标 × 多证券，单日快照）。返回宽表：每证券一行、每指标一列（无 date 列——查询日期挂在每个指标自己的参数上，各列可以是不同日期）。指标代码来自 gangtise_indicator_search。多证券取同一批已实现财务/估值指标的首选（一次拉取，免去逐只调用专用工具）。财务科目分公司类型，公司类型不匹配时返 null（≠指标坏）。指标代码、证券代码、参数名写错都会被接口拒绝并指名出错的那一个，照 msg 改即可。**取不到数时保留整行整列**（不是缺行），取不到数时唯一的占位值是 `null`，不会填数值 0，既不报错也不标 _partial。所以 `null` 有三种读法——「该证券确实没有这项数据」「日期或口径不对导致取不到」「该指标不覆盖这个市场或证券类型」（覆盖面见 gangtise_indicator_search 的 scopeList），从结果本身分不出来；结论要紧时请用专用报表工具单查该证券核对。结果若标了 _partial + omittedIndicators/omittedSecurities，说明那几个 code 没进入结果，先核对该指标/标的的权限与证券后缀（美股是 .O/.N/.A，不是 .US）。按单元格计价，指标数×证券数×日期数即放大倍数，单次上限 3 万单元格（服务端硬限，超出报 100006 且不返回部分结果）。【积分：按所选指标】",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -6168,7 +6168,7 @@
           },
           "minItems": 1,
           "maxItems": 6000,
-          "description": "证券代码列表（至少 1 个），支持 A 股/港股/美股，如 ['600519.SH','00700.HK','AAPL.O']；美股用交易所后缀 .O(NASDAQ) / .N(NYSE)，不是 .US（.US 查不到数据）。也接受 gangtise_sector_search 返回的 10 位 sectorId（板块，服务端展开为全部成分股，可与证券代码混传取并集）；中信行业码那类 9 位 ID 不是 sectorId，传了返 0 只"
+          "description": "证券代码列表（至少 1 个），支持 A 股/港股/美股，如 ['600519.SH','00700.HK','AAPL.O']；美股用交易所后缀 .O(NASDAQ) / .N(NYSE) / .A(NYSE American)，不是 .US（.US 查不到数据）。也接受 gangtise_sector_search 返回的 10 位 sectorId（板块，服务端展开为全部成分股，可与证券代码混传取并集）；中信行业码那类 9 位 ID 不是 sectorId，传了返 0 只"
         },
         "date": {
           "type": "string",
@@ -6287,7 +6287,7 @@
           },
           "minItems": 1,
           "maxItems": 6000,
-          "description": "证券代码列表（至少 1 个），支持 A 股/港股/美股，如 ['600519.SH','00700.HK','AAPL.O']；美股用交易所后缀 .O(NASDAQ) / .N(NYSE)，不是 .US（.US 查不到数据）。也接受 gangtise_sector_search 返回的 10 位 sectorId（板块，服务端展开为全部成分股，可与证券代码混传取并集）；中信行业码那类 9 位 ID 不是 sectorId，传了返 0 只"
+          "description": "证券代码列表（至少 1 个），支持 A 股/港股/美股，如 ['600519.SH','00700.HK','AAPL.O']；美股用交易所后缀 .O(NASDAQ) / .N(NYSE) / .A(NYSE American)，不是 .US（.US 查不到数据）。也接受 gangtise_sector_search 返回的 10 位 sectorId（板块，服务端展开为全部成分股，可与证券代码混传取并集）；中信行业码那类 9 位 ID 不是 sectorId，传了返 0 只"
         },
         "startDate": {
           "type": "string",
@@ -6464,7 +6464,7 @@
           },
           "minItems": 1,
           "maxItems": 6000,
-          "description": "证券代码列表（至少 1 个），支持 A 股/港股/美股，如 ['600519.SH','00700.HK','AAPL.O']；美股用交易所后缀 .O(NASDAQ) / .N(NYSE)，不是 .US（.US 查不到数据）。也接受 gangtise_sector_search 返回的 10 位 sectorId（板块，服务端展开为全部成分股，可与证券代码混传取并集）；中信行业码那类 9 位 ID 不是 sectorId，传了返 0 只"
+          "description": "证券代码列表（至少 1 个），支持 A 股/港股/美股，如 ['600519.SH','00700.HK','AAPL.O']；美股用交易所后缀 .O(NASDAQ) / .N(NYSE) / .A(NYSE American)，不是 .US（.US 查不到数据）。也接受 gangtise_sector_search 返回的 10 位 sectorId（板块，服务端展开为全部成分股，可与证券代码混传取并集）；中信行业码那类 9 位 ID 不是 sectorId，传了返 0 只"
         },
         "date": {
           "type": "string",

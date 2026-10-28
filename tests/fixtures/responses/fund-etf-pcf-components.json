@@ -1,0 +1,8 @@
+{
+  "list": [
+    { "fundCode": "517180.SH", "fundName": "中国企业ETF", "tradeDate": "2026-10-28", "serialNumber": 1, "componentName": "中国石油", "close": 13.38, "pctWeight": 5.12, "cashSubstituteFlag": "允许" },
+    { "fundCode": "517180.SH", "fundName": "中国企业ETF", "tradeDate": "2026-10-28", "serialNumber": 2, "componentName": "中国移动", "close": 77.3, "pctWeight": 4.87, "cashSubstituteFlag": "必须" },
+    { "fundCode": "517180.SH", "fundName": "中国企业ETF", "tradeDate": "2026-10-28", "serialNumber": 3, "componentName": "中国移动", "close": 101.3, "pctWeight": 4.51, "cashSubstituteFlag": "允许" },
+    { "fundCode": "517180.SH", "fundName": "中国企业ETF", "tradeDate": "2026-10-28", "serialNumber": 4, "componentName": "申赎现金", "close": null, "pctWeight": null, "cashSubstituteFlag": "必须" }
+  ]
+}

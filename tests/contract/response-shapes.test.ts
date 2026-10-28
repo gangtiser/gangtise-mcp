@@ -49,6 +49,13 @@ function perSecurityRows(endpoint: string, override: Record<string, UpstreamRepl
   })
 }
 
+/** 全部A股 / 全部港股 / 全部美股三个板块，各几行。 */
+const ETF_SECTORS: Record<string, unknown[]> = {
+  "1000000002": [{ gtsCode: "600941.SH", gtsName: "中国移动" }, { gtsCode: "601857.SH", gtsName: "中国石油" }],
+  "1000002615": [{ gtsCode: "00941.HK", gtsName: "中国移动" }],
+  "1000002618": [{ gtsCode: "AAPL.O", gtsName: "苹果" }],
+}
+
 interface Scenario {
   name: string
   tool: string
@@ -101,16 +108,16 @@ const SCENARIOS: Scenario[] = [
   { name: "present-changed-rows-unverified-rowid", tool: "gangtise_roadshow_list", args: { keyword: "AI", fetchAll: true, confirmCost: true }, upstream: on("insight.roadshow.list", (req) => {
     const { from = 0, size = 20 } = bodyOf(req) as { from?: number; size?: number }
     if (from >= 100) return { data: { total: 100, list: [] } }
-    const rows = Array.from({ length: Math.min(size, 100 - from) }, (_, i) => ({ id: `s-${from + i}`, title: `日程 ${from + i}` }))
-    if (from === 50) rows[0] = { id: "s-10", title: "日程 10（另一场）" }
+    const rows = Array.from({ length: Math.min(size, 100 - from) }, (_, i) => ({ roadshowId: `s-${from + i}`, title: `日程 ${from + i}` }))
+    if (from === 50) rows[0] = { roadshowId: "s-10", title: "日程 10（另一场）" }
     return { data: { total: 100, list: rows } }
   }) },
   // rowId 只来自文档的端点：s-10 在三页里依次是 v1、v2、v2。第三次与第二版整行相同，照样按重复去掉。
   { name: "partial-duplicate-rows-after-update", tool: "gangtise_roadshow_list", args: { keyword: "AI", fetchAll: true, confirmCost: true }, upstream: on("insight.roadshow.list", (req) => {
     const { from = 0, size = 20 } = bodyOf(req) as { from?: number; size?: number }
     if (from >= 150) return { data: { total: 150, list: [] } }
-    const rows = Array.from({ length: Math.min(size, 150 - from) }, (_, i) => ({ id: `s-${from + i}`, title: `日程 ${from + i}` }))
-    if (from === 50 || from === 100) rows[0] = { id: "s-10", title: "日程 10（改期）" }
+    const rows = Array.from({ length: Math.min(size, 150 - from) }, (_, i) => ({ roadshowId: `s-${from + i}`, title: `日程 ${from + i}` }))
+    if (from === 50 || from === 100) rows[0] = { roadshowId: "s-10", title: "日程 10（改期）" }
     return { data: { total: 150, list: rows } }
   }) },
   // 整页超 50 积分的按条计费列表先探 1 条再按整页重取：那 1 条计费两次，结果里记 _cost_probe。
@@ -132,11 +139,21 @@ const SCENARIOS: Scenario[] = [
     return { data: { fieldList: ["announcementDate", "securityCode", "title"], list: Array.from({ length: [2, 1][pageNo - 1] ?? 0 }, (_, i) => ["2026-09-01", "019742", `公告 ${pageNo}-${i}`]) } }
   }) },
   // 债券公告 fetchAll 遇到 {total: 0, list: null}：与其他分页路径一样是合法空页，翻页到此结束、不标失败页。
-  // 基金：`{list}` 对象行、没有 total、不分页；户数是带千分位逗号的字符串（原样透出，描述里警示）。
+  // 基金：`{list}` 对象行、没有 total、不分页。
   { name: "fund-object-rows-no-total", tool: "gangtise_fund_holder_structure", args: { fundCodeList: ["005827.OF", "510300.SH"], startDate: "2026-06-30", endDate: "2026-06-30" }, upstream: on("fund.holder-structure", () => ({ data: fixture("fund-holder-structure") })) },
   // 基金查不到返回 `{list: []}`：零行提示按工具给（持仓类带 positionType，经理信息按姓名）。
   { name: "fund-empty-stock-portfolio", tool: "gangtise_fund_stock_portfolio", args: { fundCodeList: ["005827"], positionType: "all" }, upstream: on("fund.stock-portfolio", () => ({ data: { list: [] } })) },
   { name: "fund-empty-manager-info", tool: "gangtise_fund_manager_info", args: { managerNameList: ["张三丰"] }, upstream: on("fund.manager-info", () => ({ data: { list: [] } })) },
+  // ETF 申赎清单只回成分名称：按全市场证券表找候选、实时行情核对 close，补上 componentCode；同名的 A 股与 H 股
+  // 两行按价格分开（另一市场那只的近期日 K 也对不上才算数），现金行查不到为 null 并记进 _note。
+  { name: "fund-etf-pcf-component-codes", tool: "gangtise_fund_etf_pcf_components", args: { fundCodeList: ["517180.SH"] }, upstream: (req) => {
+    if (req.endpoint === "fund.etf-pcf-components") return { data: fixture("fund-etf-pcf-components") }
+    if (req.endpoint === "reference.sector-constituents") return { data: { list: ETF_SECTORS[bodyOf(req).sectorId as string] } }
+    if (req.endpoint === "reference.securities-search") return { data: { list: [] } }
+    if (req.endpoint === "quote.realtime") return { data: { total: 3, fieldList: ["securityCode", "preClose", "latestPrice"], list: [["600941.SH", 101.3, 100.7], ["00941.HK", 77.3, 78.1], ["601857.SH", 13.38, 13.2]] } }
+    if (req.endpoint === "quote.day-kline") return { data: { total: 3, fieldList: ["securityCode", "tradeDate", "close"], list: [["600941.SH", "2026-10-27", 101.3], ["00941.HK", "2026-10-27", 77.3], ["601857.SH", "2026-10-27", 13.38]] } }
+    return undefined
+  } },
   { name: "fund-empty-etf-pcf", tool: "gangtise_fund_etf_pcf_components", args: { fundCodeList: ["005827.OF"] }, upstream: on("fund.etf-pcf-components", () => ({ data: { list: [] } })) },
   { name: "bond-announcement-fetch-all-null-list", tool: "gangtise_bond_announcement_list", args: { securityList: ["019742.SH"], pageSize: 2, fetchAll: true }, upstream: on("bond.announcement", (req) => {
     const pageNo = bodyOf(req).pageNo as number
