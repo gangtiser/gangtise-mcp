@@ -6,7 +6,6 @@ import { contentResult } from "../mcp/handler.js"
 import { normalizeRows } from "../core/normalize.js"
 import { unwrapPayload } from "../core/shape.js"
 import { markPartial, type PartialReason } from "../core/partial.js"
-import { resolveCalendarType } from "../core/calendarType.js"
 import { estimateTradingDays } from "../core/batch.js"
 import {
   requireIndicatorMatrix,
@@ -101,6 +100,11 @@ export const EDE_999999_HINT =
 // screener 也不用这条提示——零命中是选股的合法结果。
 export const EDE_EMPTY_HINT =
   "0 行结果：本接口对能识别的 code 会保留行列（" + EDE_NULL_ONLY + "），识别不了的 code 会直接报错，两条路都不会返回空表——所以整表为空通常**不是**「确无数据」这么简单。请核对证券后缀（A股 .SH/.SZ、港股 .HK、美股 .O/.N/.A 而非 .US）与指标权限，指标代码以 gangtise_indicator_search 返回的为准。"
+
+/** 时序除 `ND` 外的日期轴都可能在区间里一个日期也没有（只查 5 月的报告期类、只查长假的交易日类），
+ *  那时服务端返回空表——先指日期轴，再落回代码核对。 */
+export const TS_EMPTY_HINT =
+  "0 行结果：时序整表为空，多半是区间里没有这条日期轴上的日期——不传 calendarType 时报告期类指标只取区间内的报告期末（03-31 / 06-30 / 09-30 / 12-31），交易日类只取交易日（只查长假会空）。放宽区间，或传 calendarType='ND' 拿逐日行；区间确实含这些日期时，再核对证券后缀（美股 .O/.N/.A 而非 .US）与指标权限，指标代码以 gangtise_indicator_search 返回的为准。"
 
 /** 非矩阵端点（当前只有 indicator.search）的取数：剥内层信封，错误原样上抛。
  *
@@ -359,24 +363,23 @@ function spanDays(startDate: unknown, endDate: unknown): number {
  * 所以：`ND` 就是自然日数、`WD` 就是工作日数（只排周末，**不排法定节假日**），两者都
  * 精确可算；而 `TD` 既不等于工作日、也不等于交易所交易日历，本地**没有任何办法预测**
  * 它会返回多少列。既然算不准，就不拿它做拒绝依据——超限的请求会被接口明确拒绝并写明
- * 限额，代价是一次往返；误拒的代价是一个本来能用的查询直接没了。 */
-function axisDays(startDate: unknown, endDate: unknown, calendarType?: "ND" | "TD" | "WD"): number {
-  // `TD` 的日期列数本地不可知 —— 按 1 计，等于只用「指标 × 证券」这一层判。
-  if (calendarType === "TD") return 1
-  if (calendarType !== "WD") return spanDays(startDate, endDate)
+ * 限额，代价是一次往返；误拒的代价是一个本来能用的查询直接没了。
+ *
+ * 不传 `calendarType` 时日期轴由服务端按指标定（交易日 / 报告期 / 两者并集），同样按 1 计；
+ * `RD` 每年只有 4 列，也按 1 计。 */
+function axisDays(startDate: unknown, endDate: unknown, calendarType?: "ND" | "TD" | "WD" | "RD"): number {
+  if (calendarType === "ND") return spanDays(startDate, endDate)
+  if (calendarType !== "WD") return 1
   if (typeof startDate !== "string" || typeof endDate !== "string") return spanDays(startDate, endDate)
   return Math.max(1, estimateTradingDays(startDate, endDate))
 }
 
-function assertCellBudget(indicators: string[], securities: string[], tool: string, days = 1, max = MAX_EDE_CELLS, autoAxis?: string): void {
+function assertCellBudget(indicators: string[], securities: string[], tool: string, days = 1, max = MAX_EDE_CELLS): void {
   const cells = indicators.length * securities.length * days
   if (cells > max) {
     const dim = days > 1 ? `${indicators.length} 指标 × ${securities.length} 证券 × ${days} 天` : `${indicators.length} 指标 × ${securities.length} 证券`
-    const axisNote = autoAxis
-      ? `本次未传 calendarType，日期轴按指标类型自动选为 ${autoAxis}；改传 calendarType='TD' 可减少约三成日期列（仅当所查指标都按交易日取值时才可用，报告期类指标用 TD 会整片返 null）。`
-      : ""
     throw new ValidationError(
-      `${tool} 单次请求 ${dim} = ${cells.toLocaleString()} 个单元格，超过单次上限 ${max.toLocaleString()}（本端点按单元格计价）。${axisNote}请拆成多次查询——${days > 1 ? "缩短日期区间或按证券分批" : "按指标分批"}通常最简单。注意 securityCodeList 里传板块 ID 时服务端会展开成全部成分股，实际证券数远大于写进参数的条数。`,
+      `${tool} 单次请求 ${dim} = ${cells.toLocaleString()} 个单元格，超过单次上限 ${max.toLocaleString()}（本端点按单元格计价）。请拆成多次查询——${days > 1 ? "缩短日期区间或按证券分批" : "按指标分批"}通常最简单。注意 securityCodeList 里传板块 ID 时服务端会展开成全部成分股，实际证券数远大于写进参数的条数。`,
     )
   }
 }
@@ -440,7 +443,7 @@ const PARAM_GUIDANCE_DATED =
 
 /** 时序（区间，工具有 startDate/endDate）。 */
 const PARAM_GUIDANCE_RANGE =
-  "⚠️ **本端点禁止在 parameters 里传单日期参数**：`tradeDate` 与 `reportDate` 都会被拒（报 100003「parameters不得传入单日期参数，时间范围由startDate与endDate控制」），时间范围一律由本工具的 startDate/endDate 决定。因此：N期统计只传 periodNum(如4)、**不要**传 reportDate；区间类指标只传 sDate 作为区间起点，区间终点是每行自己的日期。🔴 **由此带来一个躲不开的后果**：报告期类指标（营收/净利等）没有任何参数能让它只返回报告期末，非期末的每一行都是 `null` 占位，聚合整列前必须先筛掉——详见本工具描述。" +
+  "⚠️ **本端点禁止在 parameters 里传单日期参数**：`tradeDate` 与 `reportDate` 都会被拒（报 100003「parameters不得传入单日期参数，时间范围由startDate与endDate控制」），时间范围一律由本工具的 startDate/endDate 决定。因此：N期统计只传 periodNum(如4)、**不要**传 reportDate；区间类指标只传 sDate 作为区间起点，区间终点是每行自己的日期。只取报告期末靠 calendarType（不传或 RD），不靠参数——详见本工具描述。" +
   PARAM_GUIDANCE_COMMON
 
 const NO_QUERY_DATE_DESC =
@@ -479,7 +482,7 @@ export const indicatorFamily: FamilyModule = {
       tier: "core",
       access: "read",
       endpoint: "indicator.search",
-      description: "按名称搜索证券级数据指标（EDE），返回 indicatorCode、scopeList（覆盖市场，附 usageRestriction）及 parameterList（含 required 必填标记与枚举）。取数前必先用本工具拿 code，并核对 indicatorName/description 语义、scopeList 是否覆盖目标市场、parameterList 取值——任一不符即回退专用工具。scopeList 是声明不是保证，usageRestriction（如「不支持指标时间序列接口」）也不是硬约束、按「口径可能不对」理解，均以实际抽查为准。基础行情（开高低收/成交量额/换手/涨跌幅）虽可搜到仍优先 realtime/day_kline，但**总市值 qte_mkt_cptl 这两个专用工具都没有、单票也走 EDE**（A/港/美股均已有数，默认「元」，用 scale 缩放）；同样只有 EDE 才有的还包括融资融券 mgn_*（两融余额/融资/融券及其区间变体，仅 A 股；区间变体的 changePeriod 是可选的）与所属行业：通用的 scr_indu（一个指标覆盖申万/中信/恒生/GICS 四套，必填 industryType+industryLevel，体系要与市场配对），以及把体系写进编码、只需可选 industryLevel 的 scr_indu_citic / scr_indu_sw / scr_indu_gics；⚠️ **个股资金流向 flow_*（仅 A 股）与 gangtise_fund_flow 返回的是同一套数（逐位相同）**，而后者还多给各档占比字段、并支持全市场——除非要与其他 EDE 指标同批取，否则一律用 gangtise_fund_flow（两边的计价档见各自标签）；单票完整报表、盈利预测(一致预期)、估值历史分位仍用专用工具（当前 EDE 搜索未覆盖后两类）；EDE 批量优先仅针对多证券取一批已实现财务/估值指标。基金代码（005827.OF / 510300.SH）也能查：基金分类 fund_cls*、复权净值 fund_adj_nav 与区间收益 / 风险指标（finc_* 收益率、波动率、最大回撤、夏普、Alpha，fund_* 卡玛、同类排名）适合多只基金横向比，单只基金的净值序列、持仓、规模用 gangtise_fund_*。宏观/行业数据（产量、价格、PMI 等）请改用 gangtise_edb_search，不要猜编码。",
+      description: "按名称搜索证券级数据指标（EDE），返回 indicatorCode、scopeList（覆盖市场，附 usageRestriction）及 parameterList（含 required 必填标记与枚举）。取数前必先用本工具拿 code，并核对 indicatorName/description 语义、scopeList 是否覆盖目标市场、parameterList 取值——任一不符即回退专用工具。scopeList 是声明不是保证，usageRestriction（如「不支持指标时间序列接口」）也不是硬约束、按「口径可能不对」理解，均以实际抽查为准。基础行情（开高低收/成交量额/换手/涨跌幅）虽可搜到仍优先 realtime/day_kline，但**总市值 qte_mkt_cptl 这两个专用工具都没有、单票也走 EDE**（A/港/美股均已有数，默认「元」，用 scale 缩放）；同样只有 EDE 才有的还包括融资融券 mgn_*（两融余额/融资/融券及其区间变体，仅 A 股；区间变体的 changePeriod 是可选的）与所属行业：通用的 scr_indu（一个指标覆盖申万/中信/恒生/GICS 四套，必填 industryType+industryLevel，体系要与市场配对），以及把体系写进编码、只需可选 industryLevel 的 scr_indu_citic / scr_indu_sw / scr_indu_gics；⚠️ **个股资金流向 flow_*（仅 A 股）与 gangtise_fund_flow 返回的是同一套数（逐位相同）**，而后者还多给各档占比字段、并支持全市场——除非要与其他 EDE 指标同批取，否则一律用 gangtise_fund_flow（两边的计价档见各自标签）；单票完整报表、盈利预测(一致预期)、估值历史分位仍用专用工具（当前 EDE 搜索未覆盖后两类）；EDE 批量优先仅针对多证券取一批已实现财务/估值指标。基金代码（005827.OF / 510300.SH）也能查：基金分类 fund_cls*、复权净值 fund_adj_nav 与区间收益 / 风险指标（finc_* 收益率、波动率、最大回撤、夏普、Alpha，fund_* 卡玛、同类排名）适合多只基金横向比，单只基金的净值序列、持仓、规模用 gangtise_fund_*；⚠️ 同类排名 fund_ret_rank / fund_ret_rank_pct 的同类基金数不一定等于所属分类的基金数，按同类位置下结论前先核对分母。宏观/行业数据（产量、价格、PMI 等）请改用 gangtise_edb_search，不要猜编码。",
       input: {
         keyword: z
           .string()
@@ -536,17 +539,17 @@ export const indicatorFamily: FamilyModule = {
       tier: "core",
       access: "read",
       endpoint: "indicator.time-series",
-      description: "查询指标时间序列（多指标 × 单证券 或 单指标 × 多证券，按区间）。返回宽表：每日期一行。指标代码来自 gangtise_indicator_search。单指标 × 多证券即批量取财务/估值历史序列的首选；多指标 × 多证券不支持，需拆分——注意传 1 个 sectorId（板块）算多证券（服务端展开成 N 只成分股），所以板块只能配单指标。🔴 **财务/报告期类指标按日返回，但只有报告期末那几行是真值**——" + EDE_NULL_ONLY + "，其余每一行都是占位。**不要对整列直接做均值/求和/比率**：聚合函数通常跳过 null，但**行数不变**——手工「整列求和 ÷ 行数」会把占位行算进分母（茅台 is_dnrpnp 五个月区间 104 行里只有 2 行有值：真值均值 361.2 亿，而整列求和 ÷ 104 得到 6.9 亿——差 52 倍，且看着像个正常数字）。本端点**无法**只取报告期末——parameters 里传 tradeDate/reportDate 会被硬拒，calendarType 也只有 ND/TD/WD——所以要么自行只取报告期末那几行，要么改用 gangtise_indicator_cross_section 按报告期逐期取。整列都是 `null` 时先查 gangtise_indicator_search 的 scopeList——该指标可能不覆盖这个市场或证券类型，那与「这段区间没有数据」从结果里分不出来。指标代码或证券代码写错会被接口拒绝并指名，照 msg 改即可；结果若标了 _partial，说明有 code 没进入结果，查该指标/标的的权限与后缀。",
+      description: "查询指标时间序列（多指标 × 单证券 或 单指标 × 多证券，按区间）。返回宽表：每日期一行。指标代码来自 gangtise_indicator_search。单指标 × 多证券即批量取财务/估值历史序列的首选；多指标 × 多证券不支持，需拆分——注意传 1 个 sectorId（板块）算多证券（服务端展开成 N 只成分股），所以板块只能配单指标。行按日期倒序（最新在前），算涨跌、收益率前先按 date 升序排，否则符号全反。日期轴见 calendarType：不传时交易日类给交易日、报告期类（营收/净利等）给区间内的报告期末、两类混查给两者的并集。🔴 **混查或显式传 ND/TD/WD 时，报告期类指标只有报告期末那几行是真值**——" + EDE_NULL_ONLY + "，其余每一行都是占位。**不要对整列直接做均值/求和/比率**：聚合函数通常跳过 null，但**行数不变**——手工「整列求和 ÷ 行数」会把占位行算进分母（茅台 is_dnrpnp 按 ND 取五个月 104 行里只有 2 行有值：真值均值 361.2 亿，而整列求和 ÷ 104 得到 6.9 亿——差 52 倍，且看着像个正常数字）。只要报告期末，就把报告期类指标单独查、不传 calendarType 或传 RD。整列都是 `null` 时先查 gangtise_indicator_search 的 scopeList——该指标可能不覆盖这个市场或证券类型，那与「这段区间没有数据」从结果里分不出来。指标代码或证券代码写错会被接口拒绝并指名，照 msg 改即可；结果若标了 _partial，说明有 code 没进入结果，查该指标/标的的权限与后缀。",
       input: {
         indicatorCodeList,
         securityCodeList,
         startDate: dateString,
         endDate: dateString,
         calendarType: z
-          .enum(["ND", "TD", "WD"])
+          .enum(["ND", "TD", "WD", "RD"])
           .optional()
           .describe(
-            "日历类型：ND=自然日 | TD=交易日 | WD=工作日。**不传时由本服务按指标类型自动选**（全部指标都只吃 tradeDate 才用 TD，否则交给服务端默认的 ND）；除非确知要哪条轴，否则建议不传。🔴 给报告期类指标显式传 TD 会静默丢数：报告期末常落在非交易日（2024-03-31、06-30 都是周日），TD 的日期轴里没有那一列，整片返 null 且不报错",
+            "日历类型：ND=自然日 | TD=交易日 | WD=工作日 | RD=报告期（03-31 / 06-30 / 09-30 / 12-31）。不传时由服务端按指标定（见工具描述）。⚠️ 一致预期类（frcst_*）不传时走交易日，节假日里变动的预测值不在其中，要逐日序列传 ND。🔴 报告期类指标别传 TD：报告期末落在非交易日的那几期（2024-03-31、06-30 都是周日）整期不出现、也不报错，其余期照常有值，很难发现少了期",
           ),
         currency,
         scale,
@@ -574,22 +577,9 @@ export const indicatorFamily: FamilyModule = {
             "securityCodeList 里含板块 ID（sectorId）时只能配单个指标：板块由服务端展开成全部成分股，即「多证券」，与多指标同时使用不被支持。请改为单指标，或把板块换成具体证券代码。",
           )
         }
-        // 先按**所有轴里最小的可能值**预检（`TD` 算不准、按 1 计，就是那个最小值）：连它
-        // 都超就没有任何日历救得了，直接拒绝，连挑轴的探针都不必花。
-        assertCellBudget(indicators, securities, "gangtise_indicator_time_series", axisDays(args.startDate, args.endDate, "TD"))
-        // 过了预检才去挑轴。显式传了就完全按给的发；没传才探——免费的 search，去重后每码一次。
-        const calendarType = (args.calendarType as "ND" | "TD" | "WD" | undefined) ?? (await resolveCalendarType(client, indicators))
-        // 再按真正会发出去的那条轴收紧（`ND` / `WD` 精确可算；`TD` 仍按 1，不拿它拒绝）。
-        assertCellBudget(
-          indicators,
-          securities,
-          "gangtise_indicator_time_series",
-          axisDays(args.startDate, args.endDate, calendarType),
-          MAX_EDE_CELLS,
-          // 轴是本服务替调用方挑的时候要说明白，否则「按证券分批」读起来像唯一出路，
-          // 而显式传 `TD` 往往就够了。
-          args.calendarType === undefined ? (calendarType ?? "ND") : undefined,
-        )
+        // 不传就不发：日期轴由服务端按指标定。只有 `ND` / `WD` 的日期列数精确可算，其余按 1 计。
+        const calendarType = args.calendarType as "ND" | "TD" | "WD" | "RD" | undefined
+        assertCellBudget(indicators, securities, "gangtise_indicator_time_series", axisDays(args.startDate, args.endDate, calendarType))
         const body = {
           indicatorCodeList: indicators,
           universe: securities,
@@ -608,7 +598,8 @@ export const indicatorFamily: FamilyModule = {
         // `dates` is a required axis here, so an answer that dropped it is broken
         // rather than empty — require it so such a payload reaches flattenTimeSeries
         // and fails loudly instead of returning a clean empty table.
-        if (isEmptyMatrix(data, { requireDates: true })) return contentResult(await buildToolContent({ list: [], total: 0 }, { emptyHint: EDE_EMPTY_HINT }))
+        // `ND` 的轴上区间里每天都有一列，整表为空就不是日期轴的问题。
+        if (isEmptyMatrix(data, { requireDates: true })) return contentResult(await buildToolContent({ list: [], total: 0 }, { emptyHint: calendarType === "ND" ? EDE_EMPTY_HINT : TS_EMPTY_HINT }))
         const flattened = flattenTimeSeries(data, securities)
         return contentResult(await buildToolContent(flagOmitted(flattened, droppedFromMatrix(data, securities, indicators))))
       },

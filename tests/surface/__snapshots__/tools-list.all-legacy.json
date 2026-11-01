@@ -782,6 +782,15 @@
           "type": "string",
           "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2}) ([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$"
         },
+        "publishStartTime": {
+          "type": "string",
+          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2}) ([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$",
+          "description": "按收录时间（publishTime，首次收录该日程的时刻）筛；startTime / endTime 按举办时间，两组同时生效"
+        },
+        "publishEndTime": {
+          "type": "string",
+          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2}) ([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$"
+        },
         "keyword": {
           "type": "string",
           "minLength": 1
@@ -925,6 +934,15 @@
           "type": "string",
           "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2}) ([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$"
         },
+        "publishStartTime": {
+          "type": "string",
+          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2}) ([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$",
+          "description": "按收录时间（publishTime，首次收录该日程的时刻）筛；startTime / endTime 按举办时间，两组同时生效"
+        },
+        "publishEndTime": {
+          "type": "string",
+          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2}) ([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$"
+        },
         "keyword": {
           "type": "string",
           "minLength": 1
@@ -1052,6 +1070,15 @@
           "type": "string",
           "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2}) ([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$"
         },
+        "publishStartTime": {
+          "type": "string",
+          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2}) ([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$",
+          "description": "按收录时间（publishTime，首次收录该日程的时刻）筛；startTime / endTime 按举办时间，两组同时生效"
+        },
+        "publishEndTime": {
+          "type": "string",
+          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2}) ([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$"
+        },
         "keyword": {
           "type": "string",
           "minLength": 1
@@ -1110,6 +1137,15 @@
           "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2}) ([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$"
         },
         "endTime": {
+          "type": "string",
+          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2}) ([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$"
+        },
+        "publishStartTime": {
+          "type": "string",
+          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2}) ([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$",
+          "description": "按收录时间（publishTime，首次收录该日程的时刻）筛；startTime / endTime 按举办时间，两组同时生效"
+        },
+        "publishEndTime": {
           "type": "string",
           "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2}) ([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$"
         },
@@ -3159,6 +3195,58 @@
           "description": "指定返回字段，如 ['mainNetInflow','largeInflow','xlargeOutflow']；省略返回全部。本接口会自动附带 securityCode / tradeDate；名字写错不报错、只少一列并标 missingFields"
         }
       },
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "gangtise_sector_fund_flow",
+    "description": "查询行业 / 概念 / 指数类板块的日资金流向（仅历史）：每个值是该板块**当日成分股**资金流向的加总，只计沪深京上市公司（板块里的港股、美股不计入）。每行 sectorId / tradeDate 在前，按板块、日期倒序，含小/中/大/特大单、主力（大单+特大单）与全单的流入、流出、净流入（元）；没有占比字段，也没有全市场关键字。省略日期时 endDate 为最新交易日、startDate 往前 1 年。🔴 查询太重报 100006、不返回部分数据：计算量随板块数、成分股数、日期跨度与字段数增长，没有固定的最大天数——缩短区间、减少板块或字段分批查，调小 limit 无效。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "sectorList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "板块 ID，来自 gangtise_sector_search（与指标工具的板块 ID 同一套），如 ['1000001141']；ID 不存在报 100003"
+        },
+        "startDate": {
+          "type": "string",
+          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
+        },
+        "endDate": {
+          "type": "string",
+          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "description": "最大返回行数（默认 6000，最大 10000）。只截返回行数、不减计算量；撞上限的结果标 _partial"
+        },
+        "fieldList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "资金字段（元）：sector{Small|Medium|Large|Xlarge}{Inflow|Outflow|NetInflow}、主力 sectorMain{Inflow|Outflow|NetInflow}、全单 sectorTotalInflow / sectorTotalOutflow；省略返回全部，sectorId / tradeDate 总在最前。名字写错报 100005 并点名；只给 sectorId / tradeDate 时返回 0 行"
+        }
+      },
+      "required": [
+        "sectorList"
+      ],
       "additionalProperties": false
     },
     "annotations": {
@@ -5551,7 +5639,7 @@
   },
   {
     "name": "gangtise_fund_etf_pcf_components",
-    "description": "查询 ETF 最新一份申购赎回清单的成分（没有日期参数，查不了历史清单）：每个成分一行，含名称 componentName、收盘价、涨跌幅、权重（%）、申购数量（股）、现金替代标志（允许 / 必须）与溢价比例、替代金额（元）。⚠️ 接口只返回名称，componentCode（带后缀，如 600519.SH / 00941.HK / NVDA.O）由本工具按名称匹配、再用该行 close 核对行情价补上，A+H ETF 里同名的 A 股与 H 股行据此分开；现金行、商品与价格定不了的为 null（只在确知成分都在一个市场时才按名称取），_note 列出这些行。成分 close 是清单给的价格，可能早于 tradeDate 的前一交易日，A 股与港股的日期也可能不同，算市值或涨跌以行情为准。宽基 ETF 数百行，多只一起查注意 10000 行上限。【积分：0.4/次】",
+    "description": "查询 ETF 最新一份申购赎回清单的成分（没有日期参数，查不了历史清单）：每个成分一行，含名称 componentName、收盘价、涨跌幅、权重（%）、申购数量（股）、现金替代标志（允许 / 必须）与溢价比例、替代金额（元）。⚠️ 接口只返回名称，componentCode（带后缀，如 600519.SH / 00941.HK / NVDA.O）由本工具按名称匹配、再用该行 close 核对行情价补上，A+H ETF 里同名的 A 股与 H 股行据此分开；现金行、商品与价格定不了的为 null（只在确知成分都在一个市场时才按名称或该市场取），_note 列出这些行。⚠️「都在一个市场」是从其余各行推断的：A+H ETF 若别的行都显不出港股、而这一行 A / H 价格恰好都对得上，会被补成 A 股代码——用 A+H ETF 的 componentCode 前先看港股行是否都有代码。成分 close 是清单给的价格，可能早于 tradeDate 的前一交易日，A 股与港股的日期也可能不同，算市值或涨跌以行情为准。宽基 ETF 数百行，多只一起查注意 10000 行上限。【积分：0.4/次】",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -6773,10 +6861,65 @@
   },
   {
     "name": "gangtise_stock_pool_list",
-    "description": "查询用户的自选股池列表，返回池 ID 和名称。",
+    "description": "查询股票池列表，返回 poolId / poolName / spaceType。可查个人自选股池或所属租户的股票池，一次一种；无租户池查询权限时报 999004。",
     "inputSchema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "spaceType": {
+          "type": "number",
+          "enum": [
+            1,
+            2
+          ],
+          "description": "1=个人股票池（默认）| 2=所属租户的股票池"
+        }
+      },
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "gangtise_stock_note_list",
+    "description": "查询本人的个股投资笔记（只含自己写的）：不传筛选即全部笔记；securityList 按证券筛（笔记关联的证券含其中任一只即命中），stockNoteIdList 按笔记 ID 查，二选一。返回 stockNoteId、该笔记完整的关联证券 securityList、纯文本正文 content 与 createTime / updateTime（北京时间），按创建时间倒序。不存在或不属于本人的笔记 ID 被直接过滤。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "securityList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "证券代码，最多 100 个，如 ['600519.SH','00700.HK']（港股 5 位、美股 .O / .N）。代码写错或不支持整次报 120001，不会当成没有笔记"
+        },
+        "stockNoteIdList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "笔记 ID，最多 100 个，来自本工具返回的 stockNoteId"
+        },
+        "from": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "fetchAll": {
+          "type": "boolean"
+        }
+      },
       "additionalProperties": false
     },
     "annotations": {
@@ -6919,10 +7062,18 @@
   },
   {
     "name": "gangtise_stock_pool_stocks",
-    "description": "查询指定自选股池中的证券列表。不传 poolIdList 时默认返回所有池的股票。",
+    "description": "查询股票池中的证券列表（按 securityCode 去重合并，不标来自哪个池）。不传 poolIdList 时返回该 spaceType 下所有可见池的股票。",
     "inputSchema": {
       "type": "object",
       "properties": {
+        "spaceType": {
+          "type": "number",
+          "enum": [
+            1,
+            2
+          ],
+          "description": "1=个人股票池（默认）| 2=所属租户的股票池"
+        },
         "poolIdList": {
           "type": "array",
           "items": {
@@ -6930,7 +7081,7 @@
             "minLength": 1
           },
           "minItems": 1,
-          "description": "池 ID 列表，来自 gangtise_stock_pool_list；不传默认 ['all'] 即所有池"
+          "description": "池 ID 列表，来自同一 spaceType 的 gangtise_stock_pool_list；🔴 另一种空间的 ID 不会被匹配：与有效 ID 一起传时被静默忽略，全部不匹配报 999004。不传默认 ['all']"
         }
       },
       "additionalProperties": false
@@ -6980,7 +7131,7 @@
         "poolId": {
           "type": "string",
           "minLength": 1,
-          "description": "池 ID，来自 gangtise_stock_pool_list"
+          "description": "池 ID，来自不传 spaceType 的 gangtise_stock_pool_list（写操作只动个人股票池）"
         },
         "poolName": {
           "type": "string",
@@ -7014,7 +7165,7 @@
         "poolId": {
           "type": "string",
           "minLength": 1,
-          "description": "池 ID，来自 gangtise_stock_pool_list"
+          "description": "池 ID，来自不传 spaceType 的 gangtise_stock_pool_list（写操作只动个人股票池）"
         },
         "securityCodeList": {
           "type": "array",
@@ -7051,7 +7202,7 @@
         "poolId": {
           "type": "string",
           "minLength": 1,
-          "description": "池 ID，来自 gangtise_stock_pool_list"
+          "description": "池 ID，来自不传 spaceType 的 gangtise_stock_pool_list（写操作只动个人股票池）"
         },
         "securityCodeList": {
           "type": "array",
@@ -7101,6 +7252,111 @@
       },
       "required": [
         "poolIdList"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "gangtise_stock_note_add",
+    "description": "新增一条个股笔记（写操作，只写本人笔记，与自选股池相互独立）。返回 {stockNoteId, securityList}。关联的证券建好后不能改：要换就新增一条、核对后再删旧的。⚠️ **不重放**：服务端没有防重，同样的请求再提交一次就是第二条笔记，所以超时不会自动重发——重跑前先用 gangtise_stock_note_list 查是否已写入。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "securityList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "要关联的证券代码，1~50 只（去重后计数），如 ['600519.SH','00700.HK']；股票、ETF 与指数都可以，申万行业指数（.SWI）不支持。任一只无效整条不建，报 120001 并点名"
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "description": "正文，纯文本（Markdown 按原文保存），最长 10000 个字符，原样保存不裁剪"
+        }
+      },
+      "required": [
+        "securityList",
+        "content"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "gangtise_stock_note_update",
+    "description": "改写一条个股笔记的正文（写操作）：整体替换，不是追加；关联证券不变。成功返回 {}，没有版本控制，并发改写以最后提交的为准。笔记不存在或不属于本人报 130002。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "stockNoteId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "笔记 ID，来自 gangtise_stock_note_list"
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "description": "新正文，整体替换旧正文；规则同 gangtise_stock_note_add"
+        }
+      },
+      "required": [
+        "stockNoteId",
+        "content"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "gangtise_stock_note_delete",
+    "description": "删除个股笔记（写操作）。🔴 删除笔记会删掉整条笔记（连同它与全部关联证券的关系），不可恢复。删之前先用 gangtise_stock_note_list 按 stockNoteIdList 核对内容、向用户确认，再把 confirm 置为 true。已删的、不存在的、不属于本人的 ID 都算成功。返回 {successList, failList}；单条失败不会让整次调用报错，只标 _partial + failedItems，只需对 failList 里的 ID 重试。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "stockNoteIdList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "要删除的笔记 ID，最多 100 个，来自 gangtise_stock_note_list；没有 all"
+        },
+        "confirm": {
+          "type": "boolean",
+          "description": "必须显式传 true 才会发出请求。这是不可恢复操作的二次确认：请先向用户复述将被删除的笔记并得到同意，不要仅因为被拒绝过就补上这个参数重试"
+        }
+      },
+      "required": [
+        "stockNoteIdList"
       ],
       "additionalProperties": false
     },
@@ -7499,7 +7755,7 @@
   },
   {
     "name": "gangtise_indicator_search",
-    "description": "按名称搜索证券级数据指标（EDE），返回 indicatorCode、scopeList（覆盖市场，附 usageRestriction）及 parameterList（含 required 必填标记与枚举）。取数前必先用本工具拿 code，并核对 indicatorName/description 语义、scopeList 是否覆盖目标市场、parameterList 取值——任一不符即回退专用工具。scopeList 是声明不是保证，usageRestriction（如「不支持指标时间序列接口」）也不是硬约束、按「口径可能不对」理解，均以实际抽查为准。基础行情（开高低收/成交量额/换手/涨跌幅）虽可搜到仍优先 realtime/day_kline，但**总市值 qte_mkt_cptl 这两个专用工具都没有、单票也走 EDE**（A/港/美股均已有数，默认「元」，用 scale 缩放）；同样只有 EDE 才有的还包括融资融券 mgn_*（两融余额/融资/融券及其区间变体，仅 A 股；区间变体的 changePeriod 是可选的）与所属行业：通用的 scr_indu（一个指标覆盖申万/中信/恒生/GICS 四套，必填 industryType+industryLevel，体系要与市场配对），以及把体系写进编码、只需可选 industryLevel 的 scr_indu_citic / scr_indu_sw / scr_indu_gics；⚠️ **个股资金流向 flow_*（仅 A 股）与 gangtise_fund_flow 返回的是同一套数（逐位相同）**，而后者还多给各档占比字段、并支持全市场——除非要与其他 EDE 指标同批取，否则一律用 gangtise_fund_flow（两边的计价档见各自标签）；单票完整报表、盈利预测(一致预期)、估值历史分位仍用专用工具（当前 EDE 搜索未覆盖后两类）；EDE 批量优先仅针对多证券取一批已实现财务/估值指标。基金代码（005827.OF / 510300.SH）也能查：基金分类 fund_cls*、复权净值 fund_adj_nav 与区间收益 / 风险指标（finc_* 收益率、波动率、最大回撤、夏普、Alpha，fund_* 卡玛、同类排名）适合多只基金横向比，单只基金的净值序列、持仓、规模用 gangtise_fund_*。宏观/行业数据（产量、价格、PMI 等）请改用 gangtise_edb_search，不要猜编码。",
+    "description": "按名称搜索证券级数据指标（EDE），返回 indicatorCode、scopeList（覆盖市场，附 usageRestriction）及 parameterList（含 required 必填标记与枚举）。取数前必先用本工具拿 code，并核对 indicatorName/description 语义、scopeList 是否覆盖目标市场、parameterList 取值——任一不符即回退专用工具。scopeList 是声明不是保证，usageRestriction（如「不支持指标时间序列接口」）也不是硬约束、按「口径可能不对」理解，均以实际抽查为准。基础行情（开高低收/成交量额/换手/涨跌幅）虽可搜到仍优先 realtime/day_kline，但**总市值 qte_mkt_cptl 这两个专用工具都没有、单票也走 EDE**（A/港/美股均已有数，默认「元」，用 scale 缩放）；同样只有 EDE 才有的还包括融资融券 mgn_*（两融余额/融资/融券及其区间变体，仅 A 股；区间变体的 changePeriod 是可选的）与所属行业：通用的 scr_indu（一个指标覆盖申万/中信/恒生/GICS 四套，必填 industryType+industryLevel，体系要与市场配对），以及把体系写进编码、只需可选 industryLevel 的 scr_indu_citic / scr_indu_sw / scr_indu_gics；⚠️ **个股资金流向 flow_*（仅 A 股）与 gangtise_fund_flow 返回的是同一套数（逐位相同）**，而后者还多给各档占比字段、并支持全市场——除非要与其他 EDE 指标同批取，否则一律用 gangtise_fund_flow（两边的计价档见各自标签）；单票完整报表、盈利预测(一致预期)、估值历史分位仍用专用工具（当前 EDE 搜索未覆盖后两类）；EDE 批量优先仅针对多证券取一批已实现财务/估值指标。基金代码（005827.OF / 510300.SH）也能查：基金分类 fund_cls*、复权净值 fund_adj_nav 与区间收益 / 风险指标（finc_* 收益率、波动率、最大回撤、夏普、Alpha，fund_* 卡玛、同类排名）适合多只基金横向比，单只基金的净值序列、持仓、规模用 gangtise_fund_*；⚠️ 同类排名 fund_ret_rank / fund_ret_rank_pct 的同类基金数不一定等于所属分类的基金数，按同类位置下结论前先核对分母。宏观/行业数据（产量、价格、PMI 等）请改用 gangtise_edb_search，不要猜编码。",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -7649,7 +7905,7 @@
   },
   {
     "name": "gangtise_indicator_time_series",
-    "description": "查询指标时间序列（多指标 × 单证券 或 单指标 × 多证券，按区间）。返回宽表：每日期一行。指标代码来自 gangtise_indicator_search。单指标 × 多证券即批量取财务/估值历史序列的首选；多指标 × 多证券不支持，需拆分——注意传 1 个 sectorId（板块）算多证券（服务端展开成 N 只成分股），所以板块只能配单指标。🔴 **财务/报告期类指标按日返回，但只有报告期末那几行是真值**——取不到数时唯一的占位值是 `null`，不会填数值 0，其余每一行都是占位。**不要对整列直接做均值/求和/比率**：聚合函数通常跳过 null，但**行数不变**——手工「整列求和 ÷ 行数」会把占位行算进分母（茅台 is_dnrpnp 五个月区间 104 行里只有 2 行有值：真值均值 361.2 亿，而整列求和 ÷ 104 得到 6.9 亿——差 52 倍，且看着像个正常数字）。本端点**无法**只取报告期末——parameters 里传 tradeDate/reportDate 会被硬拒，calendarType 也只有 ND/TD/WD——所以要么自行只取报告期末那几行，要么改用 gangtise_indicator_cross_section 按报告期逐期取。整列都是 `null` 时先查 gangtise_indicator_search 的 scopeList——该指标可能不覆盖这个市场或证券类型，那与「这段区间没有数据」从结果里分不出来。指标代码或证券代码写错会被接口拒绝并指名，照 msg 改即可；结果若标了 _partial，说明有 code 没进入结果，查该指标/标的的权限与后缀。按单元格计价，指标数×证券数×日期数即放大倍数，单次上限 3 万单元格（服务端硬限，超出报 100006 且不返回部分结果）。【积分：按所选指标】",
+    "description": "查询指标时间序列（多指标 × 单证券 或 单指标 × 多证券，按区间）。返回宽表：每日期一行。指标代码来自 gangtise_indicator_search。单指标 × 多证券即批量取财务/估值历史序列的首选；多指标 × 多证券不支持，需拆分——注意传 1 个 sectorId（板块）算多证券（服务端展开成 N 只成分股），所以板块只能配单指标。行按日期倒序（最新在前），算涨跌、收益率前先按 date 升序排，否则符号全反。日期轴见 calendarType：不传时交易日类给交易日、报告期类（营收/净利等）给区间内的报告期末、两类混查给两者的并集。🔴 **混查或显式传 ND/TD/WD 时，报告期类指标只有报告期末那几行是真值**——取不到数时唯一的占位值是 `null`，不会填数值 0，其余每一行都是占位。**不要对整列直接做均值/求和/比率**：聚合函数通常跳过 null，但**行数不变**——手工「整列求和 ÷ 行数」会把占位行算进分母（茅台 is_dnrpnp 按 ND 取五个月 104 行里只有 2 行有值：真值均值 361.2 亿，而整列求和 ÷ 104 得到 6.9 亿——差 52 倍，且看着像个正常数字）。只要报告期末，就把报告期类指标单独查、不传 calendarType 或传 RD。整列都是 `null` 时先查 gangtise_indicator_search 的 scopeList——该指标可能不覆盖这个市场或证券类型，那与「这段区间没有数据」从结果里分不出来。指标代码或证券代码写错会被接口拒绝并指名，照 msg 改即可；结果若标了 _partial，说明有 code 没进入结果，查该指标/标的的权限与后缀。按单元格计价，指标数×证券数×日期数即放大倍数，单次上限 3 万单元格（服务端硬限，超出报 100006 且不返回部分结果）。【积分：按所选指标】",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -7686,9 +7942,10 @@
           "enum": [
             "ND",
             "TD",
-            "WD"
+            "WD",
+            "RD"
           ],
-          "description": "日历类型：ND=自然日 | TD=交易日 | WD=工作日。**不传时由本服务按指标类型自动选**（全部指标都只吃 tradeDate 才用 TD，否则交给服务端默认的 ND）；除非确知要哪条轴，否则建议不传。🔴 给报告期类指标显式传 TD 会静默丢数：报告期末常落在非交易日（2024-03-31、06-30 都是周日），TD 的日期轴里没有那一列，整片返 null 且不报错"
+          "description": "日历类型：ND=自然日 | TD=交易日 | WD=工作日 | RD=报告期（03-31 / 06-30 / 09-30 / 12-31）。不传时由服务端按指标定（见工具描述）。⚠️ 一致预期类（frcst_*）不传时走交易日，节假日里变动的预测值不在其中，要逐日序列传 ND。🔴 报告期类指标别传 TD：报告期末落在非交易日的那几期（2024-03-31、06-30 都是周日）整期不出现、也不报错，其余期照常有值，很难发现少了期"
         },
         "currency": {
           "type": "string",
@@ -7758,7 +8015,7 @@
             ],
             "additionalProperties": false
           },
-          "description": "分指标专属参数。⚠️ **本端点禁止在 parameters 里传单日期参数**：`tradeDate` 与 `reportDate` 都会被拒（报 100003「parameters不得传入单日期参数，时间范围由startDate与endDate控制」），时间范围一律由本工具的 startDate/endDate 决定。因此：N期统计只传 periodNum(如4)、**不要**传 reportDate；区间类指标只传 sDate 作为区间起点，区间终点是每行自己的日期。🔴 **由此带来一个躲不开的后果**：报告期类指标（营收/净利等）没有任何参数能让它只返回报告期末，非期末的每一行都是 `null` 占位，聚合整列前必须先筛掉——详见本工具描述。可选参数：行情复权 adjustType(1=不复权|2=前复权|3=后复权)；财务报表口径 reportType（1=合并(默认) | 2=合并(调整) | 3=母公司 | 4=母公司(调整)；取值以 parameterList 的 enumList 为准）。区间类指标（qte_*_intvl / 区间均值 / 区间收益与风险等）的起始日是 sDate(yyyy-MM-dd)——**没有 startDate 这个参数**。parameterList 标 required 的键列了默认值也要显式传（如 finc_sharpe 的 changePeriod / yieldType / riskFreeRate），漏传报 100001 并指名。参数名写错或臆造会被接口拒绝并指名该键（报 100003「指标 X 不支持参数 Y」），照 msg 改即可；键名一律以 gangtise_indicator_search 返回的 parameterList 为准，不要照抄任何文档示例。同一指标的多个参数请放进同一条的 parameters 数组"
+          "description": "分指标专属参数。⚠️ **本端点禁止在 parameters 里传单日期参数**：`tradeDate` 与 `reportDate` 都会被拒（报 100003「parameters不得传入单日期参数，时间范围由startDate与endDate控制」），时间范围一律由本工具的 startDate/endDate 决定。因此：N期统计只传 periodNum(如4)、**不要**传 reportDate；区间类指标只传 sDate 作为区间起点，区间终点是每行自己的日期。只取报告期末靠 calendarType（不传或 RD），不靠参数——详见本工具描述。可选参数：行情复权 adjustType(1=不复权|2=前复权|3=后复权)；财务报表口径 reportType（1=合并(默认) | 2=合并(调整) | 3=母公司 | 4=母公司(调整)；取值以 parameterList 的 enumList 为准）。区间类指标（qte_*_intvl / 区间均值 / 区间收益与风险等）的起始日是 sDate(yyyy-MM-dd)——**没有 startDate 这个参数**。parameterList 标 required 的键列了默认值也要显式传（如 finc_sharpe 的 changePeriod / yieldType / riskFreeRate），漏传报 100001 并指名。参数名写错或臆造会被接口拒绝并指名该键（报 100003「指标 X 不支持参数 Y」），照 msg 改即可；键名一律以 gangtise_indicator_search 返回的 parameterList 为准，不要照抄任何文档示例。同一指标的多个参数请放进同一条的 parameters 数组"
         }
       },
       "required": [

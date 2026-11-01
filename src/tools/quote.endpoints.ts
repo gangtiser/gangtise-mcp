@@ -58,4 +58,12 @@ export const quoteEndpoints: EndpointTable = {
     billing: { kind: "free" },
     expects: "list",
   },
+  "quote.sector-fund-flow": {
+    method: "POST",
+    path: "/application/open-quote/fund-flow/sector-daily",
+    kind: "json",
+    description: "Query sector daily fund flow (constituents summed, SH/SZ/BJ only)",
+    billing: { kind: "free" },
+    expects: "list",
+  },
 }

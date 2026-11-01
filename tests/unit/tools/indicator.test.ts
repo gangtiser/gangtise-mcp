@@ -46,14 +46,13 @@ async function connect(client: GangtiseClient) {
   return mcp
 }
 
-/** 取数请求的 body。用**最后一次** call：时序在取数前会先发免费的 indicator.search
- *  探针来挑日期轴（见 core/calendarType.ts），取数始终是最后那一次。 */
+/** 取数请求的 body（最后一次 call）。 */
 function bodyOf(client: GangtiseClient): Record<string, unknown> {
   const calls = (client.call as unknown as { mock: { calls: unknown[][] } }).mock.calls
   return calls[calls.length - 1][1] as Record<string, unknown>
 }
 
-/** 取数请求的次数，**不含**挑日期轴的免费 indicator.search 探针。 */
+/** 取数请求的次数（不含 indicator.search）。 */
 function fetchCalls(client: GangtiseClient): number {
   const calls = (client.call as unknown as { mock: { calls: unknown[][] } }).mock.calls
   return calls.filter((call) => call[0] !== "indicator.search").length
@@ -945,7 +944,8 @@ describe("indicator.search keeps the generic 999999 hint", () => {
 describe("EDE empty-table hint", () => {
   it.each([
     ["gangtise_indicator_cross_section", { indicatorCodeList: ["qte_close"], securityCodeList: ["600519.SH"], date: "2026-08-07" }],
-    ["gangtise_indicator_time_series", { indicatorCodeList: ["qte_close"], securityCodeList: ["600519.SH"], startDate: "2026-08-01", endDate: "2026-08-07" }],
+    // ND 轴上区间里每天都有一列；其余日期轴的空表先指日期轴（见 time-series empty result hint）。
+    ["gangtise_indicator_time_series", { indicatorCodeList: ["qte_close"], securityCodeList: ["600519.SH"], startDate: "2026-08-01", endDate: "2026-08-07", calendarType: "ND" }],
   ])("%s tells the caller an empty table is not simply 'no data'", async (name, args) => {
     const client = makeMockClient(emptyMatrix())
     const mcp = await connect(client)
@@ -1414,6 +1414,8 @@ describe("EDE time-series budget counts the DATE factor", () => {
         indicatorCodeList: Array.from({ length: 150 }, (_, i) => `ind_${i}`),
         securityCodeList: ["600519.SH"],
         startDate: "2020-01-01", endDate: "2026-01-01",
+        // 日期列数只在 ND / WD 上算得准，不传时按 1 计、交给接口判。
+        calendarType: "ND",
       },
     })
     expect(r.isError).toBe(true)
@@ -1557,14 +1559,12 @@ describe("indicator_search routes fund flow to the free tool", () => {
 describe("时序预算只用算得准的日期轴", () => {
   const secs = (n: number) => Array.from({ length: n }, (_, i) => `${600000 + i}.SH`)
 
-  /** 让探针把 qte_close 判成交易日型，从而自动选 TD。 */
   function tdClient() {
-    const search = { code: "000000", status: true, data: [{ indicatorCode: "qte_close", parameterList: [{ paramKey: "tradeDate" }] }] }
     const series = matrix({
       dates: ["2024-01-02"], securityCodeList: ["600000.SH"], securityNameList: ["x"],
       indicatorList: [meta("qte_close", "收盘价")], values: [[1]],
     })
-    const call = vi.fn(async (key: string) => (key === "indicator.search" ? search : series))
+    const call = vi.fn(async () => series)
     return { call, download: vi.fn() } as unknown as GangtiseClient
   }
 
@@ -1583,11 +1583,21 @@ describe("时序预算只用算得准的日期轴", () => {
     expect(fetchCalls(client)).toBe(1)
   })
 
-  it("does not reject the same window when the axis was auto-picked as TD", async () => {
+  // 不传 calendarType 时日期轴由服务端按指标定（交易日 / 报告期 / 并集），本地同样算不准。
+  it("does not reject when calendarType is omitted, and sends no probe", async () => {
     const client = tdClient()
     const r = await run(client, { securityCodeList: secs(1600), startDate: "2024-02-01", endDate: "2024-02-29" })
     expect(r.isError).toBeFalsy()
-    expect(fetchCalls(client)).toBe(1)
+    const calls = (client.call as unknown as { mock: { calls: unknown[][] } }).mock.calls
+    expect(calls.map((call) => call[0])).toEqual(["indicator.time-series"])
+    expect(bodyOf(client).calendarType).toBeUndefined()
+  })
+
+  it("does not reject 120 securities x a year when calendarType is omitted or RD", async () => {
+    for (const calendarType of [undefined, "RD"]) {
+      const r = await run(tdClient(), { indicatorCodeList: ["is_op_rev"], securityCodeList: secs(120), startDate: "2024-01-01", endDate: "2024-12-31", calendarType })
+      expect(r.isError, String(calendarType)).toBeFalsy()
+    }
   })
 
   it("allows 120 securities x a full year on TD", async () => {
@@ -1622,26 +1632,27 @@ describe("时序预算只用算得准的日期轴", () => {
     expect(r.isError).toBe(true)
   })
 
-  // 轴是本服务替调用方挑的时候，报错要说明白——否则「按证券分批」读起来像唯一出路。
-  it("names the auto-picked axis in the refusal", async () => {
-    const search = { code: "000000", status: true, data: [{ indicatorCode: "is_op_rev", parameterList: [{ paramKey: "reportDate" }] }] }
-    const call = vi.fn(async () => search)
-    const client = { call, download: vi.fn() } as unknown as GangtiseClient
-    const mcp = await connect(client)
-    const r = await mcp.callTool({
-      name: "gangtise_indicator_time_series",
-      arguments: { indicatorCodeList: ["is_op_rev"], securityCodeList: secs(120), startDate: "2024-01-01", endDate: "2024-12-31" },
-    })
-    expect(r.isError).toBe(true)
-    const text = (r.content as Array<{ text: string }>)[0].text
-    expect(text).toContain("未传 calendarType")
-    expect(text).toContain("ND")
+})
+
+// 时序除 ND 外的日期轴都可能在区间里一个日期也没有（只查 5 月的报告期类、只查长假的交易日类），
+// 服务端返回空表。提示要先指日期轴，否则调用方会去核对本来没错的代码。
+describe("time-series empty result hint", () => {
+  const empty = () => makeMockClient(matrix({ dates: [], securityCodeList: [], securityNameList: [], indicatorList: [], values: [] }))
+  const hintOf = async (calendarType?: string) => {
+    const r = await (await connect(empty())).callTool({ name: "gangtise_indicator_time_series", arguments: { ...TS_ARGS, calendarType } })
+    return (r.content as Array<{ text: string }>)[0].text
+  }
+
+  it.each([undefined, "TD", "RD", "WD"])("points to the date axis first (calendarType=%s)", async (calendarType) => {
+    const text = await hintOf(calendarType)
+    expect(text).toContain("没有这条日期轴上的日期")
+    expect(text).toContain("calendarType='ND'")
   })
 
-  it("stays silent about the axis when the caller pinned one", async () => {
-    const client = tdClient()
-    const r = await run(client, { securityCodeList: secs(120), startDate: "2024-01-01", endDate: "2024-12-31", calendarType: "ND" })
-    expect((r.content as Array<{ text: string }>)[0].text).not.toContain("未传 calendarType")
+  it("keeps the code check on ND, where every day of the range has a column", async () => {
+    const text = await hintOf("ND")
+    expect(text).not.toContain("日期轴")
+    expect(text).toContain("证券后缀")
   })
 })
 

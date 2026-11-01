@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 
-import { clearCalendarTypeCacheForTests } from "../../src/core/calendarType.js"
 import { startHarness, type Harness } from "../helpers/harness.js"
 import type { RecordedRequest } from "../helpers/mockUpstream.js"
 import type { ExpectedRequest } from "../../src/mcp/contract.examples.js"
@@ -29,8 +28,6 @@ afterAll(async () => {
 
 beforeEach(() => {
   harness.upstream.reset()
-  // time_series 的日历探针有进程级缓存，不清的话同一个 code 第二次调用会少一个请求。
-  clearCalendarTypeCacheForTests()
 })
 
 const canonical = (r: ExpectedRequest) =>

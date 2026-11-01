@@ -6,14 +6,15 @@
 
 README 仅列最近 5 个版本的一行摘要，完整明细见 [CHANGELOG.md](CHANGELOG.md)：
 
+- **0.3.8 — 2026-11-02**：新增个股笔记四个工具（`gangtise_stock_note_list` / `_add` / `_update` / `_delete`，免费，删除须显式确认）与板块日资金流向 `gangtise_sector_fund_flow`（免费），默认列出 123 个。股票池加 `spaceType` 可查所属租户的池；日程四个列表加 `publishStartTime` / `publishEndTime` 按收录时间筛。⚠️ `gangtise_indicator_time_series` 不传 `calendarType` 时由服务端按指标定日期轴（报告期类只返回报告期末，`frcst_*` 走交易日、要逐日传 `ND`），新增 `RD`。ETF 成分补代码：两个市场价格都对得上时按其余行所在的单一市场取。
 - **0.3.7 — 2026-10-28**：⚠️ `gangtise_fund_etf_pcf_components` 的接口只返回成分名称，`componentCode` 现由本工具按名称匹配、用 `close` 核对行情价补上，带市场后缀（此前不带）；定不了的为 `null` 并列在 `_note`。⚠️ 管理层情绪的 `publishTime` 现为北京时间（0.3.6 说明的「先加 8 小时」要去掉）；基金持有人 `holderCount` 现为整数。日程四个列表的翻页去重改按各自的 ID，跨页重复行现在会被去掉；证券级指标的美股代码也收 `.A`。
 - **0.3.6 — 2026-10-24**：新增管理层情绪三个工具（`gangtise_management_sentiment_indicator` / `_conclusion` 5 积分/条，`_detail` 10 积分/次）与违约债券 `gangtise_bond_default_list`（0.4 积分/次，按违约日期 / 债券代码 / 单个发行人三选一），默认列出 118 个。⚠️ 管理层情绪返回的 `publishTime` 比北京时间早 8 小时，展示或按日期归档前先加 8 小时。证券级指标补上基金指标与区间指标必填参数的说明；`undici` 等依赖安全更新。
 - **0.3.5 — 2026-10-17**：⚠️ `gangtise_opinion_list` 默认档的 `llmTagList` 换为 28 项投研标签，「业绩点评」「头部券商」「新财富团队」改用新增的 `categoryList` / `brokerTagList`（`withContent: true` 不支持这两个参数，本地拒绝）。`gangtise_securities_search` 新增 `bond` 类别，可转债可能混进任何类别的结果，只取 `category` 等于所查类别的行。积分标签按平台最新价目更新（AI 生成 10～20/次、日程列表 10/条、公告下载 1～2/条等）。债券行情 / 估值首行晚于起点 14 天以上时写 `_note`；证券级指标漏传 `fiscalYear` 现报 `100001` 并点名。
 - **0.3.4 — 2026-10-07**：`gangtise_drive_manage` 新增 `copy_folder`，跨空间（我的云盘 ↔ 租户云盘）复制整个文件夹，连同子文件夹与文件。下载文件名优先用 UTF-8 文件名；`GANGTISE_BASE_URL` 用明文 http 指向非本机地址时在 stderr 提示一次。说明更正：债券公告按日期查询时有代码的行都带后缀、部分行代码为空；债券行情 / 估值的数据起点可能晚于账号窗口，取长序列时核对首行日期；场内基金按 6 位代码或场内简称换代码；分钟 K 的可查历史是随日期滚动的短窗口。依赖 `@modelcontextprotocol/sdk` 升至 1.32.1（安全更新）。
-- **0.3.3 — 2026-09-30**：新增公募基金 18 个工具（组名 `fund`，默认列出；0.4 积分/次，代码查不到返回空、不报错）：资料、费率、经理、净值、规模、持有人、资产配置与持仓、ETF 申赎与份额。`gangtise_earning_forecast` 日期省略时取近一年，区间预估超过积分预估保护须 `confirmCost: true`。资金流多只长区间自动按只分组（此前撞 6000 行上限截断）；多证券日 K / 分钟 K 的重复代码先去重（此前会出重复行）；财报日历日期区间的 `fetchAll` 改由积分预估保护把关；若干参数说明更正。
 
 ### 历史里程碑
 
+- **0.3.3**：新增公募基金 18 个工具（组名 `fund`，0.4 积分/次）；资金流多只长区间自动按只分组。
 - **0.3.2**：默认档改为列出全部工具（core + extended，`GANGTISE_MCP_TOOLS=core` 为精简档）；债券评级超过 10 只自动分批，债券公告支持 `fetchAll`。
 - **0.3.1**：🔴 修正 legacy 港美股日 K 多只长区间、`fieldList` 不含 `securityCode` 时整组丢数据（0.3.0 引入）；新增文件解析（`gangtise_file_parse` / `_check`）。
 - **0.3.0**：默认工具面重组（含破坏性变更，见下方「从 0.2.x 升级」）：财报表与公告列表按代码后缀选市场，下载工具合为 `gangtise_download`，旧工具进 legacy 档（0.4.0 删除）；观点、题材默认走低价档；按条计费的多页拉取受积分预估保护；新增债券、会议线索、联网搜索与云盘管理。
@@ -44,7 +45,7 @@ README 仅列最近 5 个版本的一行摘要，完整明细见 [CHANGELOG.md](
 
 ## 功能覆盖
 
-默认列出 118 个工具（`GANGTISE_MCP_TOOLS=core` 为精简的 96 个，见下方「工具分档与选择」）。会改动账号数据的只有自选股池的 5 个与云盘管理、上传；业绩点评、观点辩证与文件解析的提交每次都会新建一个计费任务，也标为非只读；其余全部只读。完整清单与每个参数的语义由 `tools/list` 提供，此处只列范围。
+默认列出 123 个工具（`GANGTISE_MCP_TOOLS=core` 为精简的 96 个，见下方「工具分档与选择」）。会改动账号数据的只有自选股池的 5 个、个股笔记的 3 个与云盘管理、上传；业绩点评、观点辩证与文件解析的提交每次都会新建一个计费任务，也标为非只读；其余全部只读。完整清单与每个参数的语义由 `tools/list` 提供，此处只列范围。
 
 | 类别 | 覆盖 |
 |---|---|
@@ -53,7 +54,7 @@ README 仅列最近 5 个版本的一行摘要，完整明细见 [CHANGELOG.md](
 | 观点与研报 | 国内首席观点与外资观点（可按 ID 取全文）、会议纪要、会议线索（核心要点信息流）、帕米尔专家纪要（独立库，需单独购买）、券商研报、外资研报、独立观点、A/港/美股公告、产业公众号资讯、投资者问答、研报图表；研报、纪要、公告、独立观点、公众号文章与研报图表的原文用 `gangtise_download` 下载，机构观点正文用 `gangtise_opinion_detail` 按 ID 取 |
 | 会议日程 | 路演、调研、策略会、论坛（日程；正文走会议纪要） |
 | 财报日历 | 业绩预告 / 快报 / 公告的发布排期（含未来已排期）与原文 PDF |
-| 行情 | A/港/美股日 K 与实时快照、分钟 K、指数日 K、A 股个股资金流向；日 K / 实时 / 分钟 K 另覆盖沪深 ETF 与 20 个全球指数 |
+| 行情 | A/港/美股日 K 与实时快照、分钟 K、指数日 K、A 股个股与板块资金流向；日 K / 实时 / 分钟 K 另覆盖沪深 ETF 与 20 个全球指数 |
 | 基本面 | A/港/美股三大报表（按代码后缀选市场，A 股可取单季）、主营业务、估值、股东、盈利预测 |
 | 债券 | 基本资料、日行情（交易所 + 银行间）、上清所估值、现金流、评级一览与评级变动（超过 10 只自动分批）、公告（可自动翻页）、发行人资料、发行明细、利率债发行计划、行权安排、违约债券 |
 | 公募基金 | 基本资料、费率、基金经理（按姓名）与历任经理、净值（含复权与货币基金收益）、份额与规模、持有人结构、前十大持有人、资产配置、股票 / 债券 / 基金持仓与行业 / 券种 / 基金类型分布、ETF 申赎清单与份额变动 |
@@ -61,11 +62,11 @@ README 仅列最近 5 个版本的一行摘要，完整明细见 [CHANGELOG.md](
 | 另类数据 | EDB 宏观与行业经济指标；题材指数基本信息与成分股 |
 | AI 能力 | 知识库检索、个股看点、一页通、投资逻辑、同业对比、投研线索、主题跟踪、业绩点评、观点辩证、管理层讨论、管理层情绪（业绩会问答的评分、结论与逐条依据） |
 | 联网搜索与文件解析 | 投研定向的公开网页检索（信源分级、转载去重、可取正文）；本机 PDF 解析成 Markdown 正文与图片 |
-| 云盘与语音 | 网盘文件与文件夹（含新建 / 改名 / 移动 / 复制 / 删除与上传）、录音转写、我的会议、微信群消息、自选股池（含建池 / 改名 / 加股 / 移除 / 删池） |
+| 云盘与语音 | 网盘文件与文件夹（含新建 / 改名 / 移动 / 复制 / 删除与上传）、录音转写、我的会议、微信群消息、自选股池（个人或所属租户；个人池可建池 / 改名 / 加股 / 移除 / 删池）、个股笔记（查询 / 新增 / 改写 / 删除） |
 
 ## 工具分档与选择
 
-工具分三档：**core**（96 个：股票投研主流程与各品种入口）、**extended**（22 个：债券发行明细、发行计划、行权安排、违约债券，管理层情绪 3 个，云盘管理与上传，文件解析与取结果，基金费率、规模、持有人、债券与基金持仓、ETF 申赎与份额等 11 个）、**legacy**（0.3.0 合并掉的 27 个旧工具，0.4.0 删除）。默认列出 core 与 extended 共 118 个。用环境变量 `GANGTISE_MCP_TOOLS` 选择，逗号分隔取并集：
+工具分三档：**core**（96 个：股票投研主流程与各品种入口）、**extended**（27 个：债券发行明细、发行计划、行权安排、违约债券，管理层情绪 3 个，板块资金流向，个股笔记 4 个，云盘管理与上传，文件解析与取结果，基金费率、规模、持有人、债券与基金持仓、ETF 申赎与份额等 11 个）、**legacy**（0.3.0 合并掉的 27 个旧工具，0.4.0 删除）。默认列出 core 与 extended 共 123 个。用环境变量 `GANGTISE_MCP_TOOLS` 选择，逗号分隔取并集：
 
 | 写法 | 列出的工具 |
 |---|---|
@@ -74,11 +75,11 @@ README 仅列最近 5 个版本的一行摘要，完整明细见 [CHANGELOG.md](
 | `all,legacy` | 默认 + 旧工具（升级过渡用） |
 | `core,bond` | core + 债券全部 13 个 |
 | `core,fund` | core + 基金全部 18 个 |
-| `-vault` | 默认去掉云盘、录音、会议、群消息与自选股池 |
+| `-vault` | 默认去掉云盘、录音、会议、群消息、自选股池与个股笔记 |
 
 组名：`context` `lookup` `reference` `insight` `quote` `fundamental` `bond` `fund` `ai` `vault` `download` `alternative` `indicator` `tool` `response`，也可写单个工具名；前加 `-` 禁用。被禁用的工具既不列出也调不到。`gangtise_download` 属于 `download` 组，只选部分组时把 `download` 一并写上（如 `insight,download`）；禁用某一组或某个列表工具后（如 `-vault`），它也不下载对应的资源。`gangtise_current_date`、`gangtise_read_response`、`gangtise_securities_search` 始终启用。
 
-工具定义每次会话都会进入模型上下文，工具越多占用越大。只做股票投研、想省上下文时设 `core`（约少 24KB）。**Claude Code** 默认开启 MCP tool search，按需加载工具定义；设 `ENABLE_TOOL_SEARCH=false` 可关闭。`ANTHROPIC_BASE_URL` 指向非官方主机时默认不启用，代理支持 `tool_reference` 时可设 `ENABLE_TOOL_SEARCH=true` 开启（据 Claude Code 官方文档，核对于 2026-09-27）。
+工具定义每次会话都会进入模型上下文，工具越多占用越大。只做股票投研、想省上下文时设 `core`（约少 31KB）。**Claude Code** 默认开启 MCP tool search，按需加载工具定义；设 `ENABLE_TOOL_SEARCH=false` 可关闭。`ANTHROPIC_BASE_URL` 指向非官方主机时默认不启用，代理支持 `tool_reference` 时可设 `ENABLE_TOOL_SEARCH=true` 开启（据 Claude Code 官方文档，核对于 2026-09-27）。
 
 ### 从 0.2.x 升级
 
@@ -263,7 +264,7 @@ Get-ChildItem "$env:LOCALAPPDATA\npm-cache\_npx" -Recurse -Filter package.json |
 | `dropped_columns` | 合并多份响应时，后一份多出来的列放不下——合并结果的列集合取自第一份 | `_dropped_columns` |
 | `limit_truncated` | 返回行数达到单次请求上限，结果可能在窗口内被截断 | 分片 / 逐只合并时为 `_truncated_shards` / `_truncated_securities`；估值分析附 `_hint`（缺的是区间开头）；其他单次请求可能只有原因标记 |
 | `failed_shards` / `failed_securities` / `failed_pages` | 分片、逐只或分页请求中有一部分失败 | `_failed_shards` / `_failed_securities` / `_failed_pages`，逐条记出区间 / 证券 / 页与错误 |
-| `failed_items` | 自选股池的批量写操作（加股 / 移除 / 删池）里有单条失败，其余照常生效 | `failedItems`，逐条点名并附原因 |
+| `failed_items` | 批量写操作里有单条失败，其余照常生效：自选股池（加股 / 移除 / 删池）、个股笔记删除、云盘移动 / 复制 / 删除文件 | `failedItems`，逐条点名并附原因 |
 | `malformed_shards` / `malformed_securities` | 某一份响应里没有可合并的行，或列结构对不上 | `_malformed_shards` / `_malformed_securities` |
 | `part_partial` | 合并多份响应时，其中一份自带不完整标记但没有写原因 | — |
 | `short_page` / `page_cap` / `total_drift` / `total_capped` | 翻页没取满、撞到页数上限、翻页期间数据集变了、`total` 是上限值而非真实计数（含 `total` 触及接口偏移窗口、越过 `total` 的那一行被接口拒绝） | `page_cap` / `total_capped` 分别附带 `_page_cap` / `_total_capped`；其他原因不保证有独立详情字段 |

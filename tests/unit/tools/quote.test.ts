@@ -744,3 +744,35 @@ describe("late first row note", () => {
     expect((result.content as Array<{ text: string }>)[0].text).toMatch(/分钟线可查的历史是随日期滚动的短窗口/)
   })
 })
+
+// 列式响应取自 bug/evidence/2026-11-01/probe-v050.out.txt ①（上证50，2026-10-26..10-30）。
+describe("gangtise_sector_fund_flow", () => {
+  const columnar = (rows: unknown[][], fieldList = ["sectorId", "tradeDate", "sectorMainNetInflow"]) => ({ fieldList, list: rows, total: rows.length })
+  const call = async (response: unknown, args: Record<string, unknown>) => {
+    const client = { call: vi.fn().mockResolvedValue(response), download: vi.fn() } as unknown as GangtiseClient
+    const result = await (await connect(client)).callTool({ name: "gangtise_sector_fund_flow", arguments: { sectorList: ["1000001141"], ...args } })
+    return { client, payload: JSON.parse((result.content as Array<{ text: string }>)[0].text) }
+  }
+
+  it("flattens the columnar rows and marks a result that fills the limit", async () => {
+    const rows = [["1000001141", "2026-10-30", -2554458121], ["1000001141", "2026-10-29", 1200000]]
+    const full = await call(columnar(rows), { limit: 2 })
+    expect(full.payload.list[0]).toEqual({ sectorId: "1000001141", tradeDate: "2026-10-30", sectorMainNetInflow: -2554458121 })
+    expect(full.payload._partial).toBe(true)
+    const short = await call(columnar(rows), { limit: 3 })
+    expect(short.payload._partial).toBeUndefined()
+  })
+
+  it("sends the default limit so the truncation check matches it", async () => {
+    const { client } = await call(columnar([]), {})
+    expect((client.call as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][1]).toMatchObject({ sectorList: ["1000001141"], limit: 6000 })
+  })
+
+  // 只点身份列时接口回空表、不报错：提示要说这个空结果不代表没有数据。
+  it("says an empty answer to identity-only fields says nothing about the data", async () => {
+    const keysOnly = await call(columnar([], ["sectorId", "tradeDate"]), { fieldList: ["tradeDate"] })
+    expect(keysOnly.payload._hint).toContain("没有任何资金字段")
+    const valued = await call(columnar([]), { fieldList: ["sectorMainNetInflow"] })
+    expect(valued.payload._hint).not.toContain("没有任何资金字段")
+  })
+})

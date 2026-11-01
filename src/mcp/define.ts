@@ -200,11 +200,11 @@ interface SanitizeOptions {
  * 端点把倒置区间当成空条件、返回未经筛选的结果，按条计费且从结果里看不出来。本地拒绝
  * 零成本、报错还能指名是哪一对。
  *
- * 只比较**同名前缀**的一对（startDate/endDate、startTime/endTime），按字符串比较即可：
+ * 只比较**同名前缀**的一对（startDate/endDate、startTime/endTime、publishStartTime/publishEndTime），按字符串比较即可：
  * 两个值到这里都已被 `dateString` / `dateTimeString` 归一成零填充的 `YYYY-MM-DD[ HH:mm:ss]`，
  * 字典序与时间序一致。混用 date 与 datetime 时按各自的日期部分比。 */
 export function assertDateOrder(body: Record<string, unknown>): void {
-  for (const [startKey, endKey] of [["startDate", "endDate"], ["startTime", "endTime"]] as const) {
+  for (const [startKey, endKey] of [["startDate", "endDate"], ["startTime", "endTime"], ["publishStartTime", "publishEndTime"]] as const) {
     const start = body[startKey]
     const end = body[endKey]
     if (typeof start !== "string" || typeof end !== "string") continue

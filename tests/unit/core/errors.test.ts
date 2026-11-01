@@ -392,6 +392,42 @@ describe("multi-indicator date errors", () => {
   })
 })
 
+// 现行报文把指标名写在它那组分句前面一次（条件选股写成「F1 (指标代码 X):」），「缺少必填参数 K」
+// 改成「必填参数 K 不能为空」。下面的报文都取自 bug/evidence/2026-11-01/probe-v050.out.txt ⑥。
+// 只认旧写法时这几条全部落回按码的通用提示，断言式改法一条都不出现。
+describe("current EDE error layout", () => {
+  const SWAP = "is_op_rev: 不支持参数 tradeDate; 必填参数 reportDate 不能为空"
+  const MIXED = "is_op_rev: 不支持参数 tradeDate; 必填参数 reportDate 不能为空; pty_main_bus: 不支持参数 tradeDate"
+  const SCREENER = "F1 (指标代码 is_op_rev): 不支持参数 tradeDate; 必填参数 reportDate 不能为空"
+
+  it("routes the swap sentence to the reportDate fix", () => {
+    for (const message of [SWAP, SCREENER]) {
+      const hint = new ApiError(message, "100003").hint!
+      expect(hint, message).toContain("要的是 reportDate")
+      expect(hint, message).not.toContain("noQueryDate")
+    }
+  })
+
+  it("counts shapes per indicator named once ahead of its clauses", () => {
+    expect(distinctFailureShapes(SWAP)).toBe(1)
+    expect(distinctFailureShapes(SCREENER)).toBe(1)
+    expect(distinctFailureShapes(MIXED)).toBe(2)
+    expect(distinctFailureShapes("is_op_rev: 不支持参数 tradeDate; 必填参数 reportDate 不能为空; is_dnrpnp: 不支持参数 tradeDate; 必填参数 reportDate 不能为空")).toBe(1)
+    const hint = new ApiError(MIXED, "100003").hint!
+    expect(hint).toContain("失败的方式不一样")
+    expect(hint).not.toContain("要的是 reportDate")
+  })
+
+  it("reads a lone missing tradeDate and the reportDate→tradeDate swap", () => {
+    expect(new ApiError("qte_close: 必填参数 tradeDate 不能为空", "100001").hint).toContain("两个日期都必填")
+    const swap = new ApiError("qte_close: 不支持参数 reportDate; 必填参数 tradeDate 不能为空", "100003").hint!
+    expect(swap).toContain("删掉")
+    expect(swap).not.toContain("两个日期都必填")
+    // 半句只拒 tradeDate、没说缺什么：一个日期都不要。
+    expect(new ApiError("pty_main_bus: 不支持参数 tradeDate", "100003").hint).toContain("noQueryDate")
+  })
+})
+
 // 「只拒 tradeDate」那条覆盖的指标（静态属性 / 只要 fiscalYear）的 parameterList 里一个日期键都没有。
 // 截面有 noQueryDate 开关可以关掉注入；条件选股**没有**（服务端会静默丢弃空参数指标，见
 // server-open.md A22），所以对选股调用方只能给「截面取列 + 本地筛」这条真能做到的路。

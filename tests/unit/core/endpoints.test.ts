@@ -95,6 +95,8 @@ const NO_REPLAY_KEYS = [
   "vault.drive.copy",
   "vault.drive.delete-file",
   "vault.drive.delete-folder",
+  // 笔记没有防重：重发一个其实已经落库的新增就是第二条笔记。
+  "vault.stock-note.add",
 ].sort()
 
 const NO_999999_KEYS = ["indicator.search", "indicator.cross-section", "indicator.time-series", "indicator.screener"].sort()
@@ -130,6 +132,7 @@ describe("ENDPOINTS retry/timeout annotations", () => {
       "vault.drive.copy",
       "vault.drive.delete-file",
       "vault.drive.move-file",
+      "vault.stock-note.delete",
       "vault.stock-pool.add-stock",
       "vault.stock-pool.delete",
       "vault.stock-pool.remove-stock",
@@ -156,7 +159,7 @@ describe("ENDPOINTS retry/timeout annotations", () => {
 
   it("marks exactly the irreversible endpoints as destructive", () => {
     const annotated = Object.values(ENDPOINTS).filter((e) => e.destructive).map((e) => e.key).sort()
-    expect(annotated).toEqual(["vault.drive.delete-file", "vault.drive.delete-folder", "vault.stock-pool.delete"])
+    expect(annotated).toEqual(["vault.drive.delete-file", "vault.drive.delete-folder", "vault.stock-note.delete", "vault.stock-pool.delete"])
     // 文案由端点给：网关是通用的，共享一句话会在第二个不可逆端点出现时指名股票池。
     for (const key of annotated) {
       expect(ENDPOINTS[key].destructive!.warning.length, `${key} 的后果说明是空的`).toBeGreaterThan(10)

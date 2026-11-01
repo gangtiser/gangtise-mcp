@@ -185,8 +185,9 @@ describe("tool dependencies", () => {
 
   it("always keeps the foundation tools and refuses to disable them", () => {
     expect(enabledNames("quote")).toEqual(expect.arrayContaining(["gangtise_current_date", "gangtise_read_response", "gangtise_securities_search"]))
-    const quoteCore = families.find((family) => family.name === "quote")!.tools.filter((tool) => tool.tier === "core").length
-    expect(enabledNames("quote")).toHaveLength(quoteCore + 3)
+    // 族名选中该族的 core 与 extended（legacy 另要 legacy 关键字）。
+    const quoteTools = families.find((family) => family.name === "quote")!.tools.filter((tool) => tool.tier !== "legacy").length
+    expect(enabledNames("quote")).toHaveLength(quoteTools + 3)
     for (const name of ["gangtise_read_response", "gangtise_current_date", "gangtise_securities_search"]) {
       expect(() => parseProfile(`core,-${name}`, families)).toThrow(/基础工具/)
     }

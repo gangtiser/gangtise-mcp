@@ -45,6 +45,8 @@ export const insightExamples: ToolExamples = {
   ],
   gangtise_forum_list: [
     { title: "方向码", args: { researchAreaList: ["122000001"], keyword: "新能源" }, expect: { requests: [{ method: "POST", path: "/application/open-insight/schedule/forum/getList", body: { keyword: "新能源", researchAreaList: ["122000001"], size: 20, from: 0 } }] } },
+    { title: "收录时间与举办时间同时下发", args: { publishStartTime: "2026-10-30 00:00:00", publishEndTime: "2026/10/30 23:59:59", startTime: "2026-11-02 00:00:00" }, expect: { requests: [{ method: "POST", path: "/application/open-insight/schedule/forum/getList", body: { startTime: "2026-11-02 00:00:00", publishStartTime: "2026-10-30 00:00:00", publishEndTime: "2026-10-30 23:59:59", size: 20, from: 0 } }] } },
+    { title: "收录时间只写日期本地拒绝", args: { publishEndTime: "2026-10-30" }, expect: { rejects: /publishEndTime/ } },
   ],
   gangtise_research_list: [
     { title: "筛选项原样下发", args: { ratingList: ["buy"], ratingChangeList: ["upgrade"], minReportPages: 10, sourceList: ["1"], categoryList: ["company"] }, expect: { requests: [{ method: "POST", path: "/application/open-insight/broker-report/getList", body: { categoryList: ["company"], ratingList: ["buy"], ratingChangeList: ["upgrade"], minReportPages: 10, sourceList: ["1"], size: 20, from: 0 } }] } },

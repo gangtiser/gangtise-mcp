@@ -2,6 +2,38 @@
 
 > README 顶部只放最近 5 个版本的一行摘要 + 历史里程碑；本文件是完整历史明细（中文），回溯至 0.1.3。
 
+### 0.3.8 (2026-11-02)
+
+新增个股笔记四个工具与板块资金流向；股票池可查所属租户的池；日程四个列表可按收录时间筛选；证券级指标时序不传 `calendarType` 时由服务端按指标定日期轴；ETF 成分补代码在跨市场情形下更稳妥。默认列出 123 个工具，`core` 仍为 96 个。
+
+**⚠️ 要改调用的**
+
+- **`gangtise_indicator_time_series` 不传 `calendarType`**：日期轴由服务端按指标定——交易日类给交易日，报告期类给区间内的报告期末（03-31 / 06-30 / 09-30 / 12-31），两类混查给两者日期的并集。纯行情序列结果不变；报告期类指标不再返回大量全 `null` 的逐日行。`calendarType` 新增 `RD`（报告期）。
+  - 一致预期类指标（`frcst_*`）不传时走交易日，节假日里变动的预测值不在其中；要逐日序列传 `ND`
+  - 区间里没有报告期末的报告期类查询（如只查 5 月）、只查长假的交易日类查询返回空表，`_hint` 先指日期轴
+  - 不传 `calendarType` 时，因日期多而超出单元格上限的请求由接口报 `100006`，报错写明限额
+
+**新增**
+
+- **个股笔记**（extended，免费，只操作本人笔记，与自选股池相互独立）：
+  - `gangtise_stock_note_list`：不传筛选即全部笔记，`securityList`（关联证券含其中任一只即命中）与 `stockNoteIdList` 二选一；返回每条笔记完整的关联证券、正文与创建 / 修改时间
+  - `gangtise_stock_note_add`：关联 1~50 只证券（建后不能改），纯文本正文最长 10000 个字符。没有防重，超时不会自动重发，重跑前先查是否已写入
+  - `gangtise_stock_note_update`：按 `stockNoteId` 整体替换正文；没有版本，旧正文找不回，所以带 `destructiveHint`
+  - `gangtise_stock_note_delete`：须 `confirm: true`；单条失败标 `_partial` + `failedItems`
+- **`gangtise_sector_fund_flow`**（extended，免费）：行业 / 概念 / 指数类板块的日资金流向，按当日成分股加总、只计沪深京上市公司；返回小 / 中 / 大 / 特大单、主力与全单的流入流出（元）。`limit` 默认 6000、最大 10000，撞满标 `_partial`；查询太重报 `100006`，缩短区间、减少板块或字段，调小 `limit` 无效。
+
+**变更**
+
+- **股票池**：`gangtise_stock_pool_list` / `gangtise_stock_pool_stocks` 加 `spaceType`（`1` 个人，默认；`2` 所属租户），列表返回带 `spaceType`。查明细时 `poolIdList` 要取自同一 `spaceType` 的列表：另一种空间的 ID 与有效 ID 一起传时被忽略。写操作只动个人股票池。
+- **日程列表**：`gangtise_roadshow_list` / `gangtise_site_visit_list` / `gangtise_strategy_list` / `gangtise_forum_list` 加 `publishStartTime` / `publishEndTime`，按收录时间（`publishTime`）筛，与按举办时间筛的 `startTime` / `endTime` 同时生效；起始晚于结束时本地拒绝。
+- **`gangtise_fund_etf_pcf_components` 补代码**：同名证券在两个市场的价格都对得上时，按其余各行所在的单一市场取，跨市场 ETF 里仍为 `null`；有名称查询失败时不按其余行推断 ETF 的市场。⚠️「都在一个市场」是从其余各行推断的：A+H ETF 若别的行都显不出港股，而这一行 A / H 价格恰好都对得上，会被补成 A 股代码——用 A+H ETF 的 `componentCode` 前先看港股行是否都有代码。
+- **证券级指标的参数报错**（不支持某个日期参数、必填参数为空）按报错内容附上对应改法（改用 `reportDate`、加 `noQueryDate` 等），截面、时序与条件选股都适用。
+
+**说明更正**
+
+- `gangtise_indicator_time_series`：行按日期倒序（最新在前），算涨跌、收益率前先按 `date` 升序排。
+- `gangtise_indicator_search`：基金同类排名 `fund_ret_rank` / `fund_ret_rank_pct` 的同类基金数不一定等于所属分类的基金数，按同类位置下结论前先核对分母。
+
 ### 0.3.7 (2026-10-28)
 
 ETF 申赎清单成分的代码改由本工具按名称匹配补上；管理层情绪的 `publishTime` 现为北京时间；基金持有人户数为整数；日程四个列表的翻页去重按各自的 ID 比对。

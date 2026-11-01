@@ -192,6 +192,11 @@ describe("flagFailedItems", () => {
     expect(out.failedItems).toEqual(["404（池不存在）"])
   })
 
+  it("keys a note failure on stockNoteId", () => {
+    const out = flagFailedItems({ successList: [], failList: [{ stockNoteId: "415", failReason: "删除失败" }] }) as Record<string, unknown>
+    expect(out.failedItems).toEqual(["415（删除失败）"])
+  })
+
   it("falls back to the raw entry when neither key is present", () => {
     const out = flagFailedItems({ failList: [{ what: "?" }] }) as Record<string, unknown>
     expect(out.failedItems).toEqual(['{"what":"?"}'])

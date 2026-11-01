@@ -121,6 +121,8 @@ function scheduleInputSchema(fields: ScheduleFields): Record<string, z.ZodTypeAn
     from: z.number().int().min(0).optional(),
     startTime: dateTimeString.optional(),
     endTime: dateTimeString.optional(),
+    publishStartTime: dateTimeString.optional().describe("按收录时间（publishTime，首次收录该日程的时刻）筛；startTime / endTime 按举办时间，两组同时生效"),
+    publishEndTime: dateTimeString.optional(),
     keyword: nonEmptyString.optional(),
   }
   if (fields.researchArea) schema.researchAreaList = nonEmptyList().optional().describe(SCHED_RESEARCH_AREA_DESC)

@@ -17,6 +17,8 @@ import { quoteEndpoints } from "./quote.endpoints.js"
  * single-request truncation — mirrors CLI DEFAULT_QUOTE_LIMIT. */
 const DEFAULT_QUOTE_LIMIT = 6000
 
+const SECTOR_KEYS_ONLY_HINT = "fieldList 里没有任何资金字段时本接口返回 0 行而不报错，这个空结果说明不了有没有数据：加一个资金字段（如 sectorMainNetInflow），或省略 fieldList。"
+
 const securityDesc = (codeHelp: string, keywordHelp: string) =>
   `${codeHelp}；${keywordHelp}拉取全市场（关键字须单独传，不能与证券代码或另一个关键字混传；须同时提供 startDate 和 endDate）`
 
@@ -411,6 +413,30 @@ export const quoteFamily: FamilyModule = {
           flagged = flagLimitTruncated(await client.call("quote.fund-flow", { ...body, limit }), limit)
         }
         return contentResult(await buildToolContent(normalizeRows(withNote(flagMissingFields(flagged, body.fieldList), lateStartNote(flagged, body.startDate, "tradeDate", body.securityList)))))
+      },
+    }),
+    defineTool({
+      name: "gangtise_sector_fund_flow",
+      tier: "extended",
+      access: "read",
+      endpoint: "quote.sector-fund-flow",
+      description: "查询行业 / 概念 / 指数类板块的日资金流向（仅历史）：每个值是该板块**当日成分股**资金流向的加总，只计沪深京上市公司（板块里的港股、美股不计入）。每行 sectorId / tradeDate 在前，按板块、日期倒序，含小/中/大/特大单、主力（大单+特大单）与全单的流入、流出、净流入（元）；没有占比字段，也没有全市场关键字。省略日期时 endDate 为最新交易日、startDate 往前 1 年。🔴 查询太重报 100006、不返回部分数据：计算量随板块数、成分股数、日期跨度与字段数增长，没有固定的最大天数——缩短区间、减少板块或字段分批查，调小 limit 无效。",
+      input: {
+        sectorList: nonEmptyList().describe("板块 ID，来自 gangtise_sector_search（与指标工具的板块 ID 同一套），如 ['1000001141']；ID 不存在报 100003"),
+        startDate: dateString.optional(),
+        endDate: dateString.optional(),
+        limit: z.number().int().min(1).max(10_000).optional().describe("最大返回行数（默认 6000，最大 10000）。只截返回行数、不减计算量；撞上限的结果标 _partial"),
+        fieldList: uniqueFieldList("资金字段（元）：sector{Small|Medium|Large|Xlarge}{Inflow|Outflow|NetInflow}、主力 sectorMain{Inflow|Outflow|NetInflow}、全单 sectorTotalInflow / sectorTotalOutflow；省略返回全部，sectorId / tradeDate 总在最前。名字写错报 100005 并点名；只给 sectorId / tradeDate 时返回 0 行"),
+      },
+      run: async ({ client }, args) => {
+        assertDateOrder(args)
+        const fieldList = args.fieldList as string[] | undefined
+        // 显式发出，截断判定才对得上实际用的上限（同日 K）。
+        const limit = (args.limit as number | undefined) ?? DEFAULT_QUOTE_LIMIT
+        const result = await client.call("quote.sector-fund-flow", { sectorList: args.sectorList, startDate: args.startDate, endDate: args.endDate, limit, fieldList })
+        // 只点身份列时本接口回空表而不报错，这个空结果说明不了有没有数据。
+        const keysOnly = fieldList?.every((field) => field === "sectorId" || field === "tradeDate")
+        return contentResult(await buildToolContent(normalizeRows(flagLimitTruncated(result, limit)), keysOnly ? { emptyHint: SECTOR_KEYS_ONLY_HINT } : undefined))
       },
     }),
   ],

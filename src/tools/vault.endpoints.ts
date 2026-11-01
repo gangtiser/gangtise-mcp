@@ -212,4 +212,42 @@ export const vaultEndpoints: EndpointTable = {
     description: "Delete stock pools (removes every watch relation inside them)",
     billing: { kind: "free" },
   },
+
+  // ─── vault stock notes ───
+  // 本人的个股投资笔记，一条关联 1~50 只证券。改写与删除按服务端规则是幂等的（同样的正文再提交仍成功，
+  // 已删的 ID 计入 successList），沿用默认重试；新增没有防重，不重放。
+  "vault.stock-note.list": {
+    method: "POST",
+    path: "/application/open-vault/stock-pool/getNoteList",
+    kind: "json",
+    description: "List your stock notes (all, by security, or by note ID)",
+    billing: { kind: "free" },
+    pagination: { mode: "offset", maxPageSize: 50 },
+    rowId: "stockNoteId",
+  },
+  "vault.stock-note.add": {
+    method: "POST",
+    path: "/application/open-vault/stock-pool/addNote",
+    kind: "json",
+    // 没有幂等键：首发其实已落库时，重放会建出第二条。
+    retry: "no-replay",
+    description: "Add a stock note linked to 1-50 securities",
+    billing: { kind: "free" },
+  },
+  "vault.stock-note.update": {
+    method: "POST",
+    path: "/application/open-vault/stock-pool/updateNote",
+    kind: "json",
+    description: "Replace the content of a stock note",
+    billing: { kind: "free" },
+  },
+  "vault.stock-note.delete": {
+    method: "POST",
+    path: "/application/open-vault/stock-pool/deleteNote",
+    kind: "json",
+    destructive: { warning: "删除笔记会删掉整条笔记（连同它与全部关联证券的关系），不可恢复。" },
+    itemFailures: true,
+    description: "Delete stock notes",
+    billing: { kind: "free" },
+  },
 }

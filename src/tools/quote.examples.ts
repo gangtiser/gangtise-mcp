@@ -87,6 +87,10 @@ export const quoteExamples: ToolExamples = {
     { title: "单只 + fieldList：不补", args: { security: "600519.SH", fieldList: ["latestPrice"] }, expect: { requests: [{ method: "POST", path: "/application/open-quote/quote/realtime", body: { securityList: ["600519.SH"], fieldList: ["latestPrice"] } }] } },
     { title: "全市场关键字大小写归一", args: { security: "usstocks" }, expect: { requests: [{ method: "POST", path: "/application/open-quote/quote/realtime", body: { securityList: ["usStocks"] } }] } },
   ],
+  gangtise_sector_fund_flow: [
+    { title: "显式下发默认 limit", args: { sectorList: ["1000001141"], startDate: "2026-10-26", endDate: "2026-10-30", fieldList: ["sectorMainNetInflow"] }, expect: { requests: [{ method: "POST", path: "/application/open-quote/fund-flow/sector-daily", body: { sectorList: ["1000001141"], startDate: "2026-10-26", endDate: "2026-10-30", limit: 6000, fieldList: ["sectorMainNetInflow"] } }] } },
+    { title: "起晚于止本地拒绝", args: { sectorList: ["1000001141"], startDate: "2026-10-30", endDate: "2026-10-26" }, expect: { rejects: /起始|晚于/ } },
+  ],
   gangtise_fund_flow: [
     { title: "单只", args: { security: "600519.SH", startDate: "2026-09-01", endDate: "2026-09-05" }, expect: { requests: [{ method: "POST", path: "/application/open-quote/fund-flow/daily", body: { securityList: ["600519.SH"], startDate: "2026-09-01", endDate: "2026-09-05", limit: 6000 } }] } },
     { title: "aShares 全市场：1 天/片", args: { security: "aShares", startDate: "2026-09-04", endDate: "2026-09-07" }, upstream: oneQuoteRow(), expect: { requests: [

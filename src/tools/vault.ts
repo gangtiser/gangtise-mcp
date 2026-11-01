@@ -14,6 +14,10 @@ import { vaultEndpoints } from "./vault.endpoints.js"
 
 /** 删池的后果说明只有一份，写在端点上（vault.endpoints.ts），工具描述与确认闸门都读它。 */
 const STOCK_POOL_DELETE_WARNING = ENDPOINTS["vault.stock-pool.delete"].destructive!.warning
+const STOCK_NOTE_DELETE_WARNING = ENDPOINTS["vault.stock-note.delete"].destructive!.warning
+
+/** 不传就不发：服务端把缺省读作 1（个人）。 */
+const poolSpaceType = intLiteralEnum([1, 2]).optional().describe("1=个人股票池（默认）| 2=所属租户的股票池")
 
 export const listSpecs: JsonToolSpec[] = [
   {
@@ -85,10 +89,26 @@ export const listSpecs: JsonToolSpec[] = [
   {
     name: "gangtise_stock_pool_list",
     tier: "core",
-    description: "查询用户的自选股池列表，返回池 ID 和名称。",
+    description: "查询股票池列表，返回 poolId / poolName / spaceType。可查个人自选股池或所属租户的股票池，一次一种；无租户池查询权限时报 999004。",
     endpointKey: "vault.stock-pool.list",
     paginated: false,
-    inputSchema: {},
+    inputSchema: { spaceType: poolSpaceType },
+  },
+  {
+    name: "gangtise_stock_note_list",
+    tier: "extended",
+    description: "查询本人的个股投资笔记（只含自己写的）：不传筛选即全部笔记；securityList 按证券筛（笔记关联的证券含其中任一只即命中），stockNoteIdList 按笔记 ID 查，二选一。返回 stockNoteId、该笔记完整的关联证券 securityList、纯文本正文 content 与 createTime / updateTime（北京时间），按创建时间倒序。不存在或不属于本人的笔记 ID 被直接过滤。",
+    endpointKey: "vault.stock-note.list",
+    paginated: true,
+    inputSchema: {
+      securityList: nonEmptyList().optional().describe("证券代码，最多 100 个，如 ['600519.SH','00700.HK']（港股 5 位、美股 .O / .N）。代码写错或不支持整次报 120001，不会当成没有笔记"),
+      stockNoteIdList: nonEmptyList().optional().describe("笔记 ID，最多 100 个，来自本工具返回的 stockNoteId"),
+    },
+    // 接口要两个列表恰好一个：都不传读作全部（securityList ['all']），都传报 100003。
+    transformBody: (body) => {
+      if (body.securityList && body.stockNoteIdList) throw new ValidationError("securityList 与 stockNoteIdList 二选一，不能同时传。")
+      return body.stockNoteIdList ? body : { ...body, securityList: body.securityList ?? ["all"] }
+    },
   },
 ]
 
@@ -129,7 +149,7 @@ export const downloadSpecs: DownloadToolSpec[] = [
 // 三个逐条端点的失败藏在成功信封里，由 client 按端点上的 itemFailures 标记统一标注；
 // 删池的确认闸门在 invokeOperation，读端点上的 destructive 标记。
 
-const poolId = nonEmptyString.describe("池 ID，来自 gangtise_stock_pool_list")
+const poolId = nonEmptyString.describe("池 ID，来自不传 spaceType 的 gangtise_stock_pool_list（写操作只动个人股票池）")
 // 🔴 有意不加 `.trim()`：zod 的 trim 是**转换**，会真的改掉发出去的值。而池名判重是
 // 整串精确比较（首尾空格不 trim），所以替调用方 trim 既改了用户指定的名字，又可能让
 // 一个本来不冲突的名字撞上已有池。只判「是不是全空白」，长度与发送都用原串。
@@ -141,6 +161,9 @@ const poolName = z
   .describe("池名，最多 10 个字符（中文算 1 个，超出报 230007）；不能与该账号已有的池重名（报 230006，判重是整串精确比较，首尾空格不 trim、大小写不归一）")
 const securityCodeList = nonEmptyList()
   .describe("证券代码列表，须带市场后缀且大小写敏感，如 ['600519.SH','00700.HK']。单池上限 10000 只")
+
+// 笔记正文：与池名同理不替调用方 trim（原样保存），只拒全空白。长度由服务端按码点判，不在本地按 UTF-16 数。
+const noteContent = z.string().min(1, "正文不能为空").refine((value) => value.trim().length > 0, "正文不能全是空白字符")
 
 // ─── 云盘管理（全部免费）───
 // 云盘允许同名、只以 ID 区分；删除不可恢复，确认闸门读端点上的 destructive 标记（mcp/invoke.ts）。
@@ -206,15 +229,16 @@ export const vaultFamily: FamilyModule = {
       tier: "core",
       access: "read",
       endpoint: "vault.stock-pool.stocks",
-      description: "查询指定自选股池中的证券列表。不传 poolIdList 时默认返回所有池的股票。",
+      description: "查询股票池中的证券列表（按 securityCode 去重合并，不标来自哪个池）。不传 poolIdList 时返回该 spaceType 下所有可见池的股票。",
       input: {
+        spaceType: poolSpaceType,
         // Live-tested: upstream returns [] for an empty list instead of the
         // "all pools" default — reject it locally so the model omits the param.
-        poolIdList: nonEmptyList().min(1, "poolIdList 不能为空数组——查询所有池请省略该参数").optional().describe("池 ID 列表，来自 gangtise_stock_pool_list；不传默认 ['all'] 即所有池"),
+        poolIdList: nonEmptyList().min(1, "poolIdList 不能为空数组——查询所有池请省略该参数").optional().describe("池 ID 列表，来自同一 spaceType 的 gangtise_stock_pool_list；🔴 另一种空间的 ID 不会被匹配：与有效 ID 一起传时被静默忽略，全部不匹配报 999004。不传默认 ['all']"),
       },
       run: async ({ client }, args) => {
-        const { poolIdList = ["all"] } = args as { poolIdList?: string[] }
-        const result = await client.call("vault.stock-pool.stocks", { poolIdList })
+        const { poolIdList = ["all"], spaceType } = args as { poolIdList?: string[]; spaceType?: number }
+        const result = await client.call("vault.stock-pool.stocks", { spaceType, poolIdList })
         return contentResult(await buildToolContent(normalizeRows(result)))
       },
     }),
@@ -271,6 +295,46 @@ export const vaultFamily: FamilyModule = {
           .boolean()
           .optional()
           .describe("必须显式传 true 才会发出请求。这是不可恢复操作的二次确认：请先向用户复述将被删除的池名并得到同意，不要仅因为被拒绝过就补上这个参数重试"),
+      },
+    }),
+    defineWriteTool({
+      name: "gangtise_stock_note_add",
+      tier: "extended",
+      access: "write",
+      idempotent: false,
+      endpointKey: "vault.stock-note.add",
+      description: "新增一条个股笔记（写操作，只写本人笔记，与自选股池相互独立）。返回 {stockNoteId, securityList}。关联的证券建好后不能改：要换就新增一条、核对后再删旧的。⚠️ **不重放**：服务端没有防重，同样的请求再提交一次就是第二条笔记，所以超时不会自动重发——重跑前先用 gangtise_stock_note_list 查是否已写入。",
+      inputSchema: {
+        securityList: nonEmptyList().describe("要关联的证券代码，1~50 只（去重后计数），如 ['600519.SH','00700.HK']；股票、ETF 与指数都可以，申万行业指数（.SWI）不支持。任一只无效整条不建，报 120001 并点名"),
+        content: noteContent.describe("正文，纯文本（Markdown 按原文保存），最长 10000 个字符，原样保存不裁剪"),
+      },
+    }),
+    defineWriteTool({
+      name: "gangtise_stock_note_update",
+      tier: "extended",
+      // 整体覆盖旧正文、没有版本：旧内容找不回来，不是仅追加的写入。
+      access: "destructive",
+      idempotent: true,
+      endpointKey: "vault.stock-note.update",
+      description: "改写一条个股笔记的正文（写操作）：整体替换，不是追加；关联证券不变。成功返回 {}，没有版本控制，并发改写以最后提交的为准。笔记不存在或不属于本人报 130002。",
+      inputSchema: {
+        stockNoteId: nonEmptyString.describe("笔记 ID，来自 gangtise_stock_note_list"),
+        content: noteContent.describe("新正文，整体替换旧正文；规则同 gangtise_stock_note_add"),
+      },
+    }),
+    defineWriteTool({
+      name: "gangtise_stock_note_delete",
+      tier: "extended",
+      access: "destructive",
+      idempotent: true,
+      endpointKey: "vault.stock-note.delete",
+      description: `删除个股笔记（写操作）。🔴 ${STOCK_NOTE_DELETE_WARNING}删之前先用 gangtise_stock_note_list 按 stockNoteIdList 核对内容、向用户确认，再把 confirm 置为 true。已删的、不存在的、不属于本人的 ID 都算成功。返回 {successList, failList}；单条失败不会让整次调用报错，只标 _partial + failedItems，只需对 failList 里的 ID 重试。`,
+      inputSchema: {
+        stockNoteIdList: nonEmptyList().describe("要删除的笔记 ID，最多 100 个，来自 gangtise_stock_note_list；没有 all"),
+        confirm: z
+          .boolean()
+          .optional()
+          .describe("必须显式传 true 才会发出请求。这是不可恢复操作的二次确认：请先向用户复述将被删除的笔记并得到同意，不要仅因为被拒绝过就补上这个参数重试"),
       },
     }),
     defineJsonTool({

@@ -1,7 +1,7 @@
 {
   "source": "gangtise-openapi-cli",
-  "version": "0.49.0",
-  "commit": "12bbdbc6e86f16e391446f5e1fb093f23687fdec",
+  "version": "0.50.0",
+  "commit": "2a12b7ff3b18379044c8b27e67a585fc2a3caa9e",
   "endpoints": {
     "ai.earnings-review.get-content": {
       "method": "POST",
@@ -1163,6 +1163,12 @@
       "kind": "json",
       "expects": "list"
     },
+    "quote.sector-fund-flow": {
+      "method": "POST",
+      "path": "/application/open-quote/fund-flow/sector-daily",
+      "kind": "json",
+      "expects": "list"
+    },
     "reference.chiefs-search": {
       "method": "POST",
       "path": "/application/open-reference/chiefs/search",
@@ -1344,6 +1350,33 @@
       "pagination": {
         "maxPageSize": 50
       }
+    },
+    "vault.stock-note.add": {
+      "method": "POST",
+      "path": "/application/open-vault/stock-pool/addNote",
+      "kind": "json",
+      "retry": "no-replay"
+    },
+    "vault.stock-note.delete": {
+      "method": "POST",
+      "path": "/application/open-vault/stock-pool/deleteNote",
+      "kind": "json",
+      "itemFailures": true,
+      "destructive": true
+    },
+    "vault.stock-note.list": {
+      "method": "POST",
+      "path": "/application/open-vault/stock-pool/getNoteList",
+      "kind": "json",
+      "rowId": "stockNoteId",
+      "pagination": {
+        "maxPageSize": 50
+      }
+    },
+    "vault.stock-note.update": {
+      "method": "POST",
+      "path": "/application/open-vault/stock-pool/updateNote",
+      "kind": "json"
     },
     "vault.stock-pool.add-stock": {
       "method": "POST",

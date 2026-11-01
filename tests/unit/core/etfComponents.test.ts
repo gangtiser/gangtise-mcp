@@ -26,6 +26,8 @@ function lookup(search: Record<string, Listing[]>, prices: Record<string, number
 
 const row = (fundCode: string, serialNumber: number, componentName: string, close: number | null) => ({ fundCode, serialNumber, componentName, close })
 const codesOf = (rows: Array<Record<string, unknown>>) => rows.map((r) => r.componentCode)
+const withCloses = (api: CodeLookup, history: Record<string, Array<[string, number]>>): CodeLookup => ({ ...api, async closes(codes) { return new Map(codes.filter((c) => history[c]).map((c) => [c, history[c]])) } })
+const down = async () => { throw Object.assign(new Error("服务故障"), { code: "999999" }) }
 
 const AH_MOBILE: Listing[] = [["600941.SH", "中国移动"], ["00941.HK", "中国移动"]]
 const MOBILE_PRICES = { "600941.SH": [101.3, 100.7], "00941.HK": [77.3, 78.1] }
@@ -74,6 +76,9 @@ describe("fillComponentCodes", () => {
     const { rows, unresolved } = await fillComponentCodes([row("510300.SH", 1, "贵州茅台", 1349.98), row("510300.SH", 2, "上海银行", 9.55), row("510300.SH", 3, "中海油", 20.1)], api)
     expect(codesOf(rows)).toEqual(["600519.SH", null, null])
     expect(unresolved).toEqual([{ fundCode: "510300.SH", serialNumber: 2, componentName: "上海银行" }, { fundCode: "510300.SH", serialNumber: 3, componentName: "中海油" }])
+    // 两只前缀候选的近期收盘价都对不上 20.1：中海油不再可能是港股，ETF 定为只有 A 股，上海银行按名称取 A 股。
+    const ruledOut = await fillComponentCodes([row("510300.SH", 1, "贵州茅台", 1349.98), row("510300.SH", 2, "上海银行", 9.55), row("510300.SH", 3, "中海油", 20.1)], withCloses(api, { "601808.SH": [["2026-10-27", 14.6]], "02883.HK": [["2026-10-27", 7.5]] }))
+    expect(codesOf(ruledOut.rows)).toEqual(["600519.SH", "601229.SH", null])
   })
 
   it("does not let a name match outside the ETF's market stand on the name alone", async () => {
@@ -151,8 +156,11 @@ describe("fillComponentCodes", () => {
     const mixed = await fillComponentCodes([row("517180.SH", 1, "中国石油", 13.38), row("517180.SH", 2, "华润啤酒", 19.48), row("517180.SH", 70, "龙源电力", 5.065)], failing)
     expect(codesOf(mixed.rows)).toEqual([null, null, null])
     // 招商银行 could be either listing, so the other rows cannot say the ETF holds A shares only.
-    const pure = await fillComponentCodes([row("510300.SH", 1, "贵州茅台", 1349.98), row("510300.SH", 5, "招商银行", 42.5)], failing)
-    expect(codesOf(pure.rows)).toEqual([null, null])
+    const pureRows = [row("510300.SH", 1, "贵州茅台", 1349.98), row("510300.SH", 5, "招商银行", 42.5)]
+    expect(codesOf((await fillComponentCodes(pureRows, failing)).rows)).toEqual([null, null])
+    // H 股的近期收盘价都对不上 42.5：招商银行不再可能是 H 股，ETF 只有 A 股。
+    const ruledOut = await fillComponentCodes(pureRows, withCloses(failing, { "03968.HK": [["2026-10-27", 39.0]] }))
+    expect(codesOf(ruledOut.rows)).toEqual(["600519.SH", "600036.SH"])
   })
 
   it("in an ETF holding both markets, leaves a row null when its price decides nothing, quoted or not", async () => {
@@ -178,8 +186,11 @@ describe("fillComponentCodes", () => {
     // The H quote is missing; 紫金矿业's A share (27.85) is close to the H row (27.74) by chance.
     // Not confirmed by it, the row is left to the name, which cannot say which listing it is.
     const { api } = lookup({ 紫金矿业: [["02899.HK", "紫金矿业"], ["601899.SH", "紫金矿业"]], 腾讯控股: [["00700.HK", "腾讯控股"]] }, { "00700.HK": [386.4, 390], "601899.SH": [27.47, 27.85] })
-    const { rows } = await fillComponentCodes([row("159920.SZ", 1, "腾讯控股", 386.4), row("159920.SZ", 2, "紫金矿业", 27.74)], api)
-    expect(codesOf(rows)).toEqual(["00700.HK", null])
+    const rows2 = [row("159920.SZ", 1, "腾讯控股", 386.4), row("159920.SZ", 2, "紫金矿业", 27.74)]
+    expect(codesOf((await fillComponentCodes(rows2, api)).rows)).toEqual(["00700.HK", null])
+    // A 股的近期收盘价都对不上 27.74 时它被排除，港股 ETF 里按名称取 H 股。
+    const { rows } = await fillComponentCodes(rows2, withCloses(api, { "601899.SH": [["2026-10-26", 27.47], ["2026-10-27", 27.85]] }))
+    expect(codesOf(rows)).toEqual(["00700.HK", "02899.HK"])
   })
 
   it("splits a failed quote batch only on 120001, one half at a time, and sends any other failure once", async () => {
@@ -369,6 +380,37 @@ describe("fillComponentCodes", () => {
     const failing: CodeLookup = { ...lookup(search, {}).api, quotes: async () => { throw Object.assign(new Error("服务故障"), { code: "999999" }) } }
     const { rows } = await fillComponentCodes([row("517180.SH", 1, "贵州茅台", 1349.98), row("517180.SH", 2, "腾讯控股", 386.4), row("517180.SH", 3, "中国移动", 78.1)], failing)
     expect(codesOf(rows)).toEqual([null, null, null])
+  })
+
+  it("leaves the market unknown when a name's lookup failed", async () => {
+    const { api } = lookup({ 贵州茅台: [["600519.SH", "贵州茅台"]], 中国移动: AH_MOBILE }, {}, { search: "腾讯控股" })
+    const { rows, unresolved } = await fillComponentCodes([row("517180.SH", 1, "贵州茅台", 1349.98), row("517180.SH", 2, "腾讯控股", 386.4), row("517180.SH", 3, "中国移动", 78.1)], { ...api, quotes: down })
+    expect(codesOf(rows)).toEqual([null, null, null])
+    expect(unresolved).toHaveLength(3)
+    // 每行都有价格时它守的是：腾讯控股本可显出这只 ETF 持有港股，所以招商银行 A / H 价格都对得上时不按 A 股定。
+    const tie = lookup({ 贵州茅台: [["600519.SH", "贵州茅台"]], 招商银行: [["600036.SH", "招商银行"], ["03968.HK", "招商银行"]] }, { "600519.SH": [1335, 1349.98], "600036.SH": [42.5, 42.3], "03968.HK": [42.5, 42.6] }, { search: "腾讯控股" }).api
+    const tied = await fillComponentCodes([row("517180.SH", 1, "贵州茅台", 1349.98), row("517180.SH", 2, "腾讯控股", 386.4), row("517180.SH", 3, "招商银行", 42.5)], tie)
+    expect(codesOf(tied.rows)).toEqual(["600519.SH", null, null])
+    // 只是什么都没搜到的名称（现金行）不藏市场。
+    const cash = await fillComponentCodes([row("510300.SH", 1, "贵州茅台", 1349.98), row("510300.SH", 2, "申赎现金", null)], { ...lookup({ 贵州茅台: [["600519.SH", "贵州茅台"]], 申赎现金: [] }, {}).api, quotes: down })
+    expect(codesOf(cash.rows)).toEqual(["600519.SH", null])
+  })
+
+  it("counts a listing that both suffix searches find once", async () => {
+    const { api } = lookup({ TRI: [["TRI.LON", "Trifast"]], "TRI.O": [["TRI.O", "汤森路透"]], "TRI.N": [["TRI.O", "汤森路透"]], NVDA: [["NVDA.O", "英伟达"]] }, { "TRI.O": [122.08, 121], "NVDA.O": [216, 218] })
+    const { rows } = await fillComponentCodes([row("513100.SH", 1, "NVDA", 216), row("513100.SH", 2, "TRI", 122.08)], api)
+    expect(codesOf(rows)).toEqual(["NVDA.O", "TRI.O"])
+  })
+
+  it("settles a price tie across markets by the ETF's one market, and leaves it null in an ETF holding both", async () => {
+    // 招商银行 A 股（42.5 元）与 H 股（42.5 港元）的价格都对得上。
+    const search: Record<string, Listing[]> = { 贵州茅台: [["600519.SH", "贵州茅台"]], 招商银行: [["600036.SH", "招商银行"], ["03968.HK", "招商银行"]], 华润啤酒: [["00291.HK", "华润啤酒"]] }
+    const prices = { "600519.SH": [1335, 1349.98], "600036.SH": [42.5, 42.3], "03968.HK": [42.5, 42.6], "00291.HK": [19.48, 19.6] }
+    const api = withCloses(lookup(search, prices).api, {})
+    const one = await fillComponentCodes([row("510300.SH", 1, "贵州茅台", 1349.98), row("510300.SH", 5, "招商银行", 42.5)], api)
+    expect(codesOf(one.rows)).toEqual(["600519.SH", "600036.SH"])
+    const both = await fillComponentCodes([row("517180.SH", 1, "贵州茅台", 1349.98), row("517180.SH", 2, "华润啤酒", 19.48), row("517180.SH", 3, "招商银行", 42.5)], api)
+    expect(codesOf(both.rows)).toEqual(["600519.SH", "00291.HK", null])
   })
 
   it("leaves only the name whose search failed null", async () => {

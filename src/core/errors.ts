@@ -87,7 +87,7 @@ const ERROR_HINTS: Record<string, string> = {
   // 此码现在盖三层：list 类的单页上限（50）、全市场 K 线的行数上限，以及 EDE 截面 /
   // 时序的单次单元格上限。两个 indicator 工具没有 size 可调，只能按乘积拆批，所以
   // 单独给出口径——否则「调小 size」对它们是一句无法执行的建议。
-  "100006": "缩短日期范围或调小 size / limit（list 类接口单页上限为 50）；EDE 指标截面 / 时序另有单次单元格上限（截面 = 证券数 × 指标数，时序 = 序列数 × 日期数，msg 里写明了限额），超出请按证券或指标分批、或缩短日期区间。注意 securityCodeList 里传板块 ID 时服务端会展开成全部成分股，实际证券数远大于写进参数的条数。",
+  "100006": "缩短日期范围或调小 size / limit（list 类接口单页上限为 50）；EDE 指标截面 / 时序另有单次单元格上限（截面 = 证券数 × 指标数，时序 = 序列数 × 日期数，msg 里写明了限额），超出请按证券或指标分批、或缩短日期区间。注意 securityCodeList 里传板块 ID 时服务端会展开成全部成分股，实际证券数远大于写进参数的条数。gangtise_sector_fund_flow 撞此码是计算量超限：缩短日期区间、减少 sectorList 或 fieldList，调小 limit 无效。",
   // 按参数名判断，不要按工具族：ai 的 reportDate 是 date 型，而同属 ai 的
   // knowledge_batch 收 datetime 或 epoch 毫秒。
   "110001": "看参数名：*Date 用 YYYY-MM-DD，*Time 用 YYYY-MM-DD HH:mm:ss（gangtise_knowledge_batch 的 startTime/endTime 另可传 epoch 时间戳，10 位秒或 13 位毫秒）。",
@@ -101,8 +101,9 @@ const ERROR_HINTS: Record<string, string> = {
   "120001": "用 gangtise_securities_search 确认证券代码与后缀（如 600519.SH / 00700.HK / AAPL.O）。",
   "130001": "先核对查询条件；EDE 指标端点此码也可能是未开通该指标权限，仍失败联系客户经理。",
   // 非法 fileType 已拆到 130005、资源未生成已拆到 130003，但历史上两者都归过此码，
-  // 所以提示保留对 fileType 的指引。云盘对不存在（含已被删除）的文件 / 文件夹 ID 也回此码。
-  "130002": "确认 ID 有效且本账号可见（云盘的文件 / 文件夹已被删除也回此码）；下载类还需检查 fileType 取值是否合法。",
+  // 所以提示保留对 fileType 的指引。云盘对不存在（含已被删除）的文件 / 文件夹 ID 也回此码，
+// 改写笔记时笔记 ID 不存在或不属于本人同样。
+  "130002": "确认 ID 有效且本账号可见（云盘的文件 / 文件夹已被删除也回此码；笔记 ID 用 gangtise_stock_note_list 核对）；下载类还需检查 fileType 取值是否合法。",
   "130003": "资源未生成，或该条记录未附带文件——换一条列表里标着有附件的记录，或稍后再试。",
   "130004": "下载 ID 需为数字，检查该工具的 *Id 参数是否传对。",
   "130005": "对照工具参数说明检查 fileType / contentType 取值。",
@@ -163,7 +164,7 @@ const ERROR_HINTS: Record<string, string> = {
  * indicator parameter problem, so their per-code hints can only be generic.
  *
  * Kept to cases where the message names the problem but not the fix: the caller is told
- * 「缺少必填参数 reportDate」 and still has to work out that such indicators need an
+ * 「必填参数 reportDate 不能为空」 and still has to work out that such indicators need an
  * `indicatorParamList` entry rather than the tool's own `date`.
  *
  * ⚠️ 不要把这里改写成「哪些指标吃哪个日期」的归纳规则 —— 这两件事都不按 code 前缀分
@@ -173,8 +174,9 @@ const ERROR_HINTS: Record<string, string> = {
 // 身上（`all` 全中 + `none` 全不中 + `when` 成立），任意重排结果不变，`errors.test.ts` 的
 // "does not depend on rule order" 逐一轮转验证。**新增规则时给足判别式，别靠往表头插。**
 //
-// 服务端的日期报错有两种形态：**拼接句**（`指标 X 不支持参数 A; 指标 X 缺少必填参数 B`，
-// 两半同时出现，能唯一确定该换成哪个键）和**半句**（只有「不支持 A」，没有「缺少 B」）。
+// 服务端的日期报错有两种形态：**拼接句**（`X: 不支持参数 A; 必填参数 B 不能为空`，
+// 两半同时出现，能唯一确定该换成哪个键）和**半句**（只有「不支持 A」，没有「B 必填」）。
+// 报文有新旧两种写法，规则两种都认（见 `missing` 与 `distinctFailureShapes`）。
 // 半句只证明「A 被拒了」，**推不出该换成哪个键**——推断就会断错：
 //   - 只有「不支持 tradeDate」的指标，可能吃 reportDate、可能吃 fiscalYear、也可能一个
 //     日期都不吃（如上市日期、交易市场这类静态属性）。
@@ -190,8 +192,10 @@ const MULTI_NOTE = " ⚠️ 一条报错可能同时点名多个指标，且各�
 
 /** 这条报错里出现了几种**互不相同**的失败形态。
  *
- * 服务端把每个指标的每个问题写成一个分句（`指标 X 不支持参数 tradeDate; 指标 X 缺少必填
- * 参数 reportDate; 指标 Y 不支持参数 tradeDate`）。按指标聚成各自的形态再去重：
+ * 服务端把每个指标的每个问题写成一个分句，按指标聚成各自的形态再去重。两种写法：
+ * 现行的把指标名写在它那组分句前面一次（`X: 不支持参数 tradeDate; 必填参数 reportDate
+ * 不能为空; Y: 不支持参数 tradeDate`，条件选股写成 `F1 (指标代码 X): …`）；旧的每个分句都
+ * 写一遍（`指标 X 不支持参数 tradeDate; 指标 X 缺少必填参数 reportDate`）。
  * 上例里 X 是「换键」、Y 是「一个日期都不要」，两种改法完全不同。
  *
  * 为什么需要它：下面每条断言式提示都只讲一种形态，而 `find` 只会命中一条。形态不止一种
@@ -202,10 +206,22 @@ const MULTI_NOTE = " ⚠️ 一条报错可能同时点名多个指标，且各�
  * 该退回旧行为，不该整张表一起哑掉。 */
 export function distinctFailureShapes(message: string): number {
   const byIndicator = new Map<string, Set<string>>()
+  let current: string | undefined
   for (const clause of message.split(/[;；]/)) {
-    const matched = /指标\s+(\S+)\s+(不支持参数|缺少必填参数)[:：]?\s*(\S+)/.exec(clause)
-    if (!matched) continue
-    const [, indicator, kind, key] = matched
+    let indicator: string, kind: string, key: string
+    const old = /指标\s+(\S+)\s+(不支持参数|缺少必填参数)[:：]?\s*(\S+)/.exec(clause)
+    if (old) {
+      [, indicator, kind, key] = old
+    } else {
+      // 现行写法：分句开头的「X:」/「F1 (指标代码 X):」换当前指标，后面不带名字的分句沿用它。
+      const head = /^\s*([^\s:：]+)(?:\s*\(指标代码\s*[^)]*\))?\s*[:：]/.exec(clause)
+      if (head) current = head[1]
+      const body = /不支持参数\s*(\S+)|必填参数\s*(\S+)\s*不能为空/.exec(clause)
+      if (!body || !current) continue
+      indicator = current
+      kind = body[1] ? "不支持参数" : "缺少必填参数"
+      key = body[1] ?? body[2]
+    }
     const shape = byIndicator.get(indicator) ?? new Set<string>()
     shape.add(`${kind}:${key}`)
     byIndicator.set(indicator, shape)
@@ -219,10 +235,13 @@ export function distinctFailureShapes(message: string): number {
 const oneShape = (message: string) => distinctFailureShapes(message) <= 1
 const manyShapes = (message: string) => distinctFailureShapes(message) > 1
 
+/** 「必填参数 K 不能为空」（现行）或「缺少必填参数 K」（旧写法）。 */
+const missing = (keys: string) => new RegExp(`缺少必填参数[:：]?\\s*(?:${keys})|必填参数\\s*(?:${keys})\\s*不能为空`)
+
 /** 判别式全部写在规则自己身上：`all` 必须全中、`none` 必须全不中、`when` 必须成立。
  *
  * 🔴 `none` 是**必需**的，不是保险。拼接句同时匹配它自己那条和「半句」那条——
- * 「不支持参数 tradeDate; 缺少必填参数 reportDate」既中「缺 reportDate」那条（该换成
+ * 「不支持参数 tradeDate; 必填参数 reportDate 不能为空」既中「缺 reportDate」那条（该换成
  * reportDate，对的），又中「只拒 tradeDate」那条（一个日期都不要，对这条**是错的**）。
  * 此前靠前者排在后者前面兜住，把表里两条挪一下顺序就会给出完全相反的药方，而所有测试
  * 照样全绿。**规则之间用报文形态互相指认，不要用序号**——序号会随新增规则整体漂移。
@@ -238,14 +257,14 @@ export const MESSAGE_HINTS: Array<{
   {
     // 多个指标、失败形态互不相同：任何一条断言式提示都会对其中一部分说错话。
     codes: ["100001", "100003"],
-    all: [/不支持参数\s*(?:tradeDate|reportDate)|缺少必填参数[:：]?\s*(?:tradeDate|reportDate)/],
+    all: [new RegExp(`不支持参数\\s*(?:tradeDate|reportDate)|${missing("tradeDate|reportDate").source}`)],
     when: manyShapes,
-    hint: "🔴 **这条报错点名了多个指标，而且它们失败的方式不一样**——同一个改法套不到全部，按 msg 里每个指标各自说的话分别处理：对某个指标说「不支持参数 X; 缺少必填参数 Y」= 把该指标的 X 换成 Y；只说「不支持参数 tradeDate」而没说缺什么 = 该指标一个日期都不要，给它加 noQueryDate: true（截面写进 indicatorParamList 那条，条件选股写进该变量自己的绑定）；只说「缺少必填参数 Y」= 把 Y 补进该指标的 parameters。**最省事的办法是把这批指标拆成几次单独查**，那样每条报错只对应一个指标，提示也能给准。要哪些键以 gangtise_indicator_search 返回的 parameterList 为准。",
+    hint: "🔴 **这条报错点名了多个指标，而且它们失败的方式不一样**——同一个改法套不到全部，按 msg 里每个指标各自说的话分别处理：对某个指标说「不支持参数 X; 必填参数 Y 不能为空」= 把该指标的 X 换成 Y；只说「不支持参数 tradeDate」而没说缺什么 = 该指标一个日期都不要，给它加 noQueryDate: true（截面写进 indicatorParamList 那条，条件选股写进该变量自己的绑定）；只说 Y 必填 = 把 Y 补进该指标的 parameters。**最省事的办法是把这批指标拆成几次单独查**，那样每条报错只对应一个指标，提示也能给准。要哪些键以 gangtise_indicator_search 返回的 parameterList 为准。",
   },
   {
     // 拼接句 / 半句都成立：明确点名「缺 reportDate」，那就是要 reportDate。
     codes: ["100001", "100003"],
-    all: [/缺少必填参数[:：]?\s*reportDate/],
+    all: [missing("reportDate")],
     when: oneShape,
     hint: "报错里点名的那个指标要的是 reportDate（报告期），不是本工具的 date 下发的 tradeDate：在 indicatorParamList 里给该指标补一条 { indicatorCode, parameters: [{ paramKey: 'reportDate', paramValue: 'YYYY-MM-DD' }] }（条件选股写在对应变量上），date 参数仍要保留。以 gangtise_indicator_search 返回的 parameterList 为准，别按指标 code 前缀推断要哪个日期。" + MULTI_NOTE,
   },
@@ -253,7 +272,7 @@ export const MESSAGE_HINTS: Array<{
     // 拼接句：拒收 reportDate **且**缺 tradeDate ⇒ 这是个交易日指标，删掉多传的
     // reportDate 就好——删掉后本服务会自动把 date 作为 tradeDate 注入，那半句一并消失。
     codes: ["100001", "100003"],
-    all: [/不支持参数\s*reportDate/, /缺少必填参数[:：]?\s*tradeDate/],
+    all: [/不支持参数\s*reportDate/, missing("tradeDate")],
     when: oneShape,
     hint: "报错里点名的那个指标要的是 tradeDate（交易日），不吃 reportDate：把 indicatorParamList 里该指标的 reportDate 删掉即可——删掉后本工具的 date 会自动作为 tradeDate 下发，不需要另外补。以 gangtise_indicator_search 返回的 parameterList 为准。" + MULTI_NOTE,
   },
@@ -263,7 +282,7 @@ export const MESSAGE_HINTS: Array<{
     codes: ["100001", "100003"],
     all: [/不支持参数\s*reportDate/],
     // 拼接句（还说了「缺 tradeDate」）归上一条：那种形态能唯一确定该换成哪个键。
-    none: [/缺少必填参数[:：]?\s*tradeDate/],
+    none: [missing("tradeDate")],
     when: oneShape,
     hint: "报错里点名的那个指标不接受 reportDate：先把 indicatorParamList 里该指标的 reportDate 删掉，再照 gangtise_indicator_search 返回的 parameterList 补它真正要的键（可能是 tradeDate，也可能是 fiscalYear，或者一个日期都不要）。" + MULTI_NOTE,
   },
@@ -276,7 +295,7 @@ export const MESSAGE_HINTS: Array<{
     all: [/不支持参数\s*tradeDate/],
     // 🔴 服务端顺带说了「缺哪个键」时，那就不是「一个日期都不要」，而是「换成它说的那个」
     // ——归第一条。少了这个否定判别式，本条会把拼接句也接走并给出完全相反的药方。
-    none: [/缺少必填参数[:：]?\s*(?:reportDate|tradeDate)/],
+    none: [missing("reportDate|tradeDate")],
     when: oneShape,
     hint: "报错里点名的那个指标不接受 tradeDate，而截面/条件选股默认会把 date 作为 tradeDate 下发给每个指标。**给它加 noQueryDate: true 即可**——date 参数仍要保留，本工具只是不再给这个指标注入日期；它若另有必填键（如股利支付率、年度现金分红总额要的 fiscalYear），写进同一条的 parameters 里。两个端点的写法只差一层：截面写在 indicatorParamList 里 { indicatorCode: '<该指标>', noQueryDate: true }；条件选股写在该变量自己的绑定里 { field: 'F1', indicatorCode: '<该指标>', noQueryDate: true }。它真正要哪些键以 gangtise_indicator_search 返回的 parameterList 为准。" + MULTI_NOTE,
   },
@@ -284,7 +303,7 @@ export const MESSAGE_HINTS: Array<{
     // 半句：没有任何键被拒，只是缺 tradeDate。本服务见到已声明的 reportDate、或调用方
     // 声明了 noQueryDate，就不再注入 tradeDate（见 withQueryDate）——两条路都会走到这里。
     codes: ["100001", "100003"],
-    all: [/缺少必填参数[:：]?\s*tradeDate/],
+    all: [missing("tradeDate")],
     // 同时说了「不支持 reportDate」的拼接句归第二条：那是「删掉多传的 reportDate」，
     // 而不是「两个日期都补上」。
     none: [/不支持参数\s*reportDate/],

@@ -42,7 +42,24 @@ export const vaultExamples: ToolExamples = {
     { title: "群 + 标签", args: { wechatGroupIdList: ["g-1"], tagList: ["research"], industryIdList: ["100800119"] }, expect: { requests: [{ method: "POST", path: "/application/open-vault/wechatgroupmsg/list", body: { wechatGroupIdList: ["g-1"], industryIdList: ["100800119"], tagList: ["research"], size: 20, from: 0 } }] } },
   ],
   gangtise_stock_pool_list: [
-    { title: "无参", args: {}, expect: { requests: [{ method: "POST", path: "/application/open-vault/stock-pool/getPoolList", body: {} }] } },
+    { title: "无参：不发 spaceType", args: {}, expect: { requests: [{ method: "POST", path: "/application/open-vault/stock-pool/getPoolList", body: {} }] } },
+    { title: "租户股票池", args: { spaceType: 2 }, expect: { requests: [{ method: "POST", path: "/application/open-vault/stock-pool/getPoolList", body: { spaceType: 2 } }] } },
+  ],
+  gangtise_stock_note_list: [
+    { title: "不传筛选读作全部", args: {}, expect: { requests: [{ method: "POST", path: "/application/open-vault/stock-pool/getNoteList", body: { securityList: ["all"], size: 20, from: 0 } }] } },
+    { title: "按笔记 ID 查不带 securityList", args: { stockNoteIdList: ["n-1"] }, expect: { requests: [{ method: "POST", path: "/application/open-vault/stock-pool/getNoteList", body: { stockNoteIdList: ["n-1"], size: 20, from: 0 } }] } },
+    { title: "两个筛选同传本地拒绝", args: { securityList: ["600519.SH"], stockNoteIdList: ["n-1"] }, expect: { rejects: /二选一/ } },
+  ],
+  gangtise_stock_note_add: [
+    { title: "securityList + content 原样下发", args: { securityList: ["600519.SH", "00700.HK"], content: " 第一行\n第二行 " }, expect: { requests: [{ method: "POST", path: "/application/open-vault/stock-pool/addNote", body: { securityList: ["600519.SH", "00700.HK"], content: " 第一行\n第二行 " } }] } },
+    { title: "全空白正文本地拒绝", args: { securityList: ["600519.SH"], content: "  " }, expect: { rejects: /全是空白/ } },
+  ],
+  gangtise_stock_note_update: [
+    { title: "stockNoteId + content", args: { stockNoteId: "n-1", content: "新正文" }, expect: { requests: [{ method: "POST", path: "/application/open-vault/stock-pool/updateNote", body: { stockNoteId: "n-1", content: "新正文" } }] } },
+  ],
+  gangtise_stock_note_delete: [
+    { title: "confirm=true 才下发，confirm 不进 body", args: { stockNoteIdList: ["n-1"], confirm: true }, expect: { requests: [{ method: "POST", path: "/application/open-vault/stock-pool/deleteNote", body: { stockNoteIdList: ["n-1"] } }] } },
+    { title: "未确认零请求拒绝", args: { stockNoteIdList: ["n-1"] }, expect: { rejects: /不可恢复.*confirm 置为 true/ } },
   ],
   gangtise_drive_download: [
     { title: "fileId", args: { fileId: "file-1" }, expect: { requests: [{ method: "GET", path: "/application/open-vault/drive/download/file", query: { fileId: "file-1" } }] } },
@@ -59,6 +76,7 @@ export const vaultExamples: ToolExamples = {
   ],
   gangtise_stock_pool_stocks: [
     { title: "缺省为 ['all']", args: {}, expect: { requests: [{ method: "POST", path: "/application/open-vault/stock-pool/getStockList", body: { poolIdList: ["all"] } }] } },
+    { title: "租户股票池全部", args: { spaceType: 2 }, expect: { requests: [{ method: "POST", path: "/application/open-vault/stock-pool/getStockList", body: { spaceType: 2, poolIdList: ["all"] } }] } },
     { title: "空数组本地拒绝", args: { poolIdList: [] }, expect: { rejects: /不能为空数组/ } },
   ],
   gangtise_stock_pool_create: [

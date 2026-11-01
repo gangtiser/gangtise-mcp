@@ -130,6 +130,9 @@ describe("MCP server integration", () => {
       "gangtise_drive_upload",
       "gangtise_earnings_review",
       "gangtise_file_parse",
+      "gangtise_stock_note_add",
+      "gangtise_stock_note_delete",
+      "gangtise_stock_note_update",
       "gangtise_stock_pool_add_stock",
       "gangtise_stock_pool_create",
       "gangtise_stock_pool_delete",
@@ -139,7 +142,7 @@ describe("MCP server integration", () => {
     ])
     // 不可逆的那些必须自报 destructiveHint，客户端才好在调用前要确认。
     const destructive = tools.filter(t => t.annotations?.destructiveHint === true).map(t => t.name).sort()
-    expect(destructive).toEqual(["gangtise_drive_manage", "gangtise_stock_pool_delete", "gangtise_stock_pool_remove_stock"])
+    expect(destructive).toEqual(["gangtise_drive_manage", "gangtise_stock_note_delete", "gangtise_stock_note_update", "gangtise_stock_pool_delete", "gangtise_stock_pool_remove_stock"])
     // 只有联网搜索的结果来自公开网页（openWorldHint: true），其余只访问本平台或本地数据。
     expect(tools.filter(t => t.annotations?.openWorldHint !== false).map(t => t.name)).toEqual(["gangtise_web_search"])
   })
@@ -1072,6 +1075,8 @@ const CLOSED_SET_SNAPSHOT = [
     "record_download.contentType",
     "my_conference_download.contentType",
     "drive_folder_list.spaceType",
+    "stock_pool_list.spaceType",
+    "stock_pool_stocks.spaceType",
     "drive_manage.action",
     "drive_manage.spaceType",
     "drive_manage.type",
@@ -1325,7 +1330,11 @@ describe("no blank string reaches upstream (enumerated from tools/list)", () => 
 // `startTime/endTime` 而我传的是 `startDate/endDate`，被 strict schema 挡下 —— 测试因为
 // **错误的原因**变绿，把日期校验整个删掉都不红。
 describe("inverted date ranges are rejected before the request goes out", () => {
-  const PAIRS = [["startDate", "endDate", "2026-08-10", "2026-08-01"], ["startTime", "endTime", "2026-08-10 00:00:00", "2026-08-01 00:00:00"]] as const
+  const PAIRS = [
+    ["startDate", "endDate", "2026-08-10", "2026-08-01"],
+    ["startTime", "endTime", "2026-08-10 00:00:00", "2026-08-01 00:00:00"],
+    ["publishStartTime", "publishEndTime", "2026-08-10 00:00:00", "2026-08-01 00:00:00"],
+  ] as const
 
   it("covers every tool exposing a start/end pair", async () => {
     const probe = await makeTestClient(makeMockClient())
@@ -1354,6 +1363,8 @@ describe("inverted date ranges are rejected before the request goes out", () => 
     }
 
     expect(checked, "没有枚举到带区间的工具，判据自身失效了").toBeGreaterThan(40)
+    // 日程四个列表各有一对收录时间：一对都没枚举到，就是这组参数被改名或漏掉了。
+    expect(tools.filter((t) => (t.inputSchema as Record<string, any>)?.properties?.publishStartTime).length).toBe(4)
     expect(missed, `这些工具接受了倒置区间：\n  ${missed.join("\n  ")}`).toEqual([])
   })
 })
