@@ -71,7 +71,7 @@ export const listSpecs: JsonToolSpec[] = [
   {
     name: "gangtise_wechat_message_list",
     tier: "core",
-    description: "查询微信群消息列表，支持按群 ID、行业、类别、标签、时间范围筛选。",
+    description: "查询微信群消息列表，支持按群 ID、行业、类别、标签、时间范围筛选。document / image / audio / video 消息的 fileInfo 给文件名与字节数，文件本身用 gangtise_download kind=wechat_message 按 msgId 下载（引用里的文件用 quoteMsg.quoteMsgId）。",
     endpointKey: "vault.wechat-message.list",
     paginated: true,
     inputSchema: {
@@ -80,7 +80,7 @@ export const listSpecs: JsonToolSpec[] = [
       securityList: nonEmptyList().optional().describe("证券代码列表，如 ['000001.SZ']"),
       wechatGroupIdList: nonEmptyList().optional().describe("群 ID，来自 gangtise_wechat_chatroom_list"),
       industryIdList: nonEmptyList().optional().describe("行业 ID，来自 gangtise_constant_list category=citicIndustry（1008001xx）；本端点只认中信码，申万码（104xxxxxx）会被接口拒绝"),
-      categoryList: enumList(z.enum(["text", "image", "documents", "url"])).optional().describe("text=文字 | image=图片 | documents=文件 | url=链接"),
+      categoryList: enumList(z.enum(["text", "image", "document", "url", "audio", "video"])).optional().describe("text=文字 | image=图片 | document=文档 | url=链接 | audio=音频 | video=视频"),
       tagList: enumList(z.enum(["roadShow", "research", "strategyMeeting", "meetingSummary", "industryComment", "companyComment", "earningsReview"])).optional().describe("roadShow=路演 | research=调研 | strategyMeeting=策略会 | meetingSummary=会议纪要 | industryComment=行业点评 | companyComment=公司点评 | earningsReview=业绩点评"),
       startTime: dateTimeString.optional(),
       endTime: dateTimeString.optional(),

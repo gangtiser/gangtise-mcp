@@ -217,6 +217,12 @@ const SCENARIOS: Scenario[] = [
   { name: "present-download-text", tool: "gangtise_research_download", args: { reportId: "rep-1", fileType: 2 }, upstream: on("insight.research.download", () => ({ text: "# 研报\n\n正文", headers: { "content-type": "text/markdown; charset=utf-8" } })) },
   { name: "present-download-binary", tool: "gangtise_report_image_download", args: { chunkId: "chunk-1" }, upstream: on("insight.report-image.download", () => ({ bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xe0]), headers: { "content-type": "image/jpeg", "content-disposition": 'attachment; filename="chart.jpg"' } })) },
   { name: "present-download-url", tool: "gangtise_drive_download", args: { fileId: "file-1" }, upstream: on("vault.drive.download", () => ({ data: { url: "https://files.example.com/signed/abc" } })) },
+  { name: "present-download-wechat-file", tool: "gangtise_download", args: { kind: "wechat_message", id: "4784255865508301077" }, upstream: on("vault.wechat-message.download", () => ({ bytes: new Uint8Array([0xc4, 0xe3, 0xba, 0xc3]), headers: { "content-type": "text/plain", "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent("群里的笔记.txt")}` } })) },
+  { name: "present-index-weight-missing-index", tool: "gangtise_index_weight", args: { indexCodeList: ["000300.sh", "999999.SH"], tradeDate: "2026-10-30" }, upstream: on("reference.index-weight", () => ({ data: { total: 2, list: [
+    { indexCode: "000300.SH", indexName: "沪深300", tradeDate: "2026-10-30", securityCode: "600519.SH", securityName: "贵州茅台", weight: 3.9561 },
+    { indexCode: "000300.SH", indexName: "沪深300", tradeDate: "2026-10-30", securityCode: "300750.SZ", securityName: "宁德时代", weight: 3.4127 },
+  ] } })) },
+  { name: "present-index-weight-empty", tool: "gangtise_index_weight", args: { indexCodeList: ["000300.SH"], tradeDate: "2026-10-29" }, upstream: on("reference.index-weight", () => ({ data: { total: 0, list: [] } })) },
   { name: "present-async-timeout", tool: "gangtise_earnings_review", args: { securityCode: "600519.SH", period: "2025q3", waitSeconds: 0 } },
   { name: "present-valuation-skipnull", tool: "gangtise_valuation_analysis", args: { securityCode: "600519.SH", indicator: "peTtm", startDate: "2026-09-01", endDate: "2026-09-03", skipNull: true }, upstream: on("fundamental.valuation-analysis", () => ({ data: { total: 3, fieldList: ["tradeDate", "value", "percentileRank"], list: [["2026-09-01", 25.1, 0.31], ["2026-09-02", null, null], ["2026-09-03", 24.8, 0.29]] } })) },
 

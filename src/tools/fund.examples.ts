@@ -78,7 +78,7 @@ export const fundExamples: ToolExamples = {
         ...["1000000002", "1000002615", "1000002618"].map((sectorId) => ({ method: "POST" as const, path: "/application/open-reference/sectors/constituents", body: { sectorId } })),
         { method: "POST", path: "/application/open-reference/securities/search", body: { keyword: "申赎现金", top: 10 } },
         { method: "POST", path: "/application/open-quote/quote/realtime", body: { securityList: ["600941.SH", "00941.HK"] } },
-        { method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["600941.SH", "00941.HK"], ...closesWindow(), fieldList: ["securityCode", "tradeDate", "close"], limit: 10_000 } },
+        { method: "POST", path: "/application/open-quote/kline/daily", body: { securityList: ["600941.SH", "00941.HK"], ...closesWindow(), fieldList: ["securityCode", "tradeDate", "close", "preClose"], limit: 10_000 } },
       ] },
     },
   ],

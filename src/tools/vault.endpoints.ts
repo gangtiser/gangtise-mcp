@@ -138,6 +138,15 @@ export const vaultEndpoints: EndpointTable = {
     pagination: { mode: "offset", maxPageSize: 50, maxWindow: 10_000 },
     rowId: "msgId",
   },
+  // document / image / audio / video 消息的文件。text / url 消息回 130005；消息不存在、无权访问或文件已不可用回 130003。
+  "vault.wechat-message.download": {
+    method: "GET",
+    path: "/application/open-vault/wechatgroupmsg/download/file",
+    kind: "download",
+    description: "Download the file of a WeChat group message (document / image / audio / video)",
+    billing: { kind: "free" },
+    fileOnSuccess: true,
+  },
   "vault.wechat-chatroom.list": {
     method: "POST",
     path: "/application/open-vault/wechatgroupmsg/chatroomId",

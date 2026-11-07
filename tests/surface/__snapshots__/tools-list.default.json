@@ -337,6 +337,40 @@
     }
   },
   {
+    "name": "gangtise_index_weight",
+    "description": "查询指数成分股及权重：indexCode / indexName / tradeDate / securityCode / securityName / weight（单位 %，最多四位小数；同一指数合计约为 100，受舍入影响不严格等于 100）。一次返回所选指数当日的全部成分（不分页），多个指数合在一个列表里按 indexCode 区分。权重只按每月最后一个交易日提供：其他交易日、非交易日与写错的指数代码都返回空结果、不报错；要最新权重取上个月最后一个交易日。只要成分名单、不要权重用 gangtise_sector_constituents。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "indexCodeList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "指数代码，如 000300.SH / 000905.SH / 399006.SZ；不确定用 gangtise_securities_search category=['index']"
+        },
+        "tradeDate": {
+          "type": "string",
+          "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
+        }
+      },
+      "required": [
+        "indexCodeList",
+        "tradeDate"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
     "name": "gangtise_opinion_list",
     "description": "查询国内机构首席观点列表，支持按证券、券商、研究方向、行业、观点类别、投研标签、机构标签、时间范围等筛选；返回行带 categoryList / llmTagList / brokerTagList（无标签为 []）。正文见 withContent。【积分：1/条】",
     "inputSchema": {
@@ -4391,7 +4425,7 @@
   },
   {
     "name": "gangtise_fund_etf_pcf_components",
-    "description": "查询 ETF 最新一份申购赎回清单的成分（没有日期参数，查不了历史清单）：每个成分一行，含名称 componentName、收盘价、涨跌幅、权重（%）、申购数量（股）、现金替代标志（允许 / 必须）与溢价比例、替代金额（元）。⚠️ 接口只返回名称，componentCode（带后缀，如 600519.SH / 00941.HK / NVDA.O）由本工具按名称匹配、再用该行 close 核对行情价补上，A+H ETF 里同名的 A 股与 H 股行据此分开；现金行、商品与价格定不了的为 null（只在确知成分都在一个市场时才按名称或该市场取），_note 列出这些行。⚠️「都在一个市场」是从其余各行推断的：A+H ETF 若别的行都显不出港股、而这一行 A / H 价格恰好都对得上，会被补成 A 股代码——用 A+H ETF 的 componentCode 前先看港股行是否都有代码。成分 close 是清单给的价格，可能早于 tradeDate 的前一交易日，A 股与港股的日期也可能不同，算市值或涨跌以行情为准。宽基 ETF 数百行，多只一起查注意 10000 行上限。【积分：0.4/次】",
+    "description": "查询 ETF 最新一份申购赎回清单的成分（没有日期参数，查不了历史清单）：每个成分一行，含名称 componentName、收盘价、涨跌幅、权重（%）、申购数量（股）、现金替代标志（允许 / 必须）与溢价比例、替代金额（元）。⚠️ 接口只返回名称，componentCode（带后缀，如 600519.SH / 00941.HK / NVDA.O）由本工具按名称匹配、再用该行 close 核对行情价补上（同名 A / H 股价格都对得上时再比该行涨跌幅），A+H ETF 里同名的 A 股与 H 股行据此分开；现金行、商品与价格定不了的为 null（只在确知成分都在一个市场时才按名称取），_note 列出这些行。成分 close 是清单给的价格，可能早于 tradeDate 的前一交易日，A 股与港股的日期也可能不同，算市值或涨跌以行情为准。宽基 ETF 数百行，多只一起查注意 10000 行上限。【积分：0.4/次】",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -4687,6 +4721,111 @@
         "withCloseReading": {
           "type": "boolean",
           "description": "是否返回话题精读长文（默认 true；传 false 可大幅减小响应体积）"
+        },
+        "from": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "fetchAll": {
+          "type": "boolean"
+        },
+        "confirmCost": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "gangtise_expert_intel",
+    "description": "查询 AI 专家情报：AI 从专家会议、会议纪要提炼的个股情报，一条 = 主体公司 mainSecurity + 核心观点 title + 内容标签 tagList（纯文本）+ 正文 content，附关联证券 securityList（含主体公司在其他市场的上市主体）、研究方向 researchAreaList 与题材 conceptList，按发布时间 publishTime（北京时间）倒序。不同筛选之间为「且」，同一筛选的多个取值为「或」；写错的研究方向 / 题材 ID 与标签按无匹配处理，返回空结果、不报错。单次约 400 积分。【积分：20/条】",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "securityList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "证券代码，须带市场后缀，如 300750.SZ；任一关联证券命中即返回。缺后缀或后缀不存在报 120001；后缀与代码的市场对不上（600519.SZ）不报错、返回空结果"
+        },
+        "researchAreaList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "研究方向 ID：用 gangtise_constant_list category=citicIndustry 的中信码（1008001xx）；申万码与 gangtiseIndustry 方向码在本工具返回空结果、不报错"
+        },
+        "conceptList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "题材 ID，来自 gangtise_concept_search"
+        },
+        "tagList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "内容标签，纯文本，如 景气上行 / 超预期 / 重大催化 / 产品进展"
+        },
+        "keyword": {
+          "type": "string",
+          "minLength": 1
+        },
+        "searchType": {
+          "type": "number",
+          "enum": [
+            1,
+            2
+          ],
+          "description": "keyword 的检索范围：1=只搜标题 | 2=标题 + 正文（缺省）。标题不含公司名，按公司查用 securityList"
+        },
+        "startTime": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
+            },
+            {
+              "type": "string",
+              "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2}) ([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$"
+            }
+          ],
+          "description": "发布时间起（北京时间）：YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss"
+        },
+        "endTime": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
+            },
+            {
+              "type": "string",
+              "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2}) ([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$"
+            }
+          ],
+          "description": "发布时间止（北京时间）：YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss；只写日期含当天整天"
         },
         "from": {
           "type": "integer",
@@ -5473,7 +5612,7 @@
   },
   {
     "name": "gangtise_wechat_message_list",
-    "description": "查询微信群消息列表，支持按群 ID、行业、类别、标签、时间范围筛选。",
+    "description": "查询微信群消息列表，支持按群 ID、行业、类别、标签、时间范围筛选。document / image / audio / video 消息的 fileInfo 给文件名与字节数，文件本身用 gangtise_download kind=wechat_message 按 msgId 下载（引用里的文件用 quoteMsg.quoteMsgId）。",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -5519,12 +5658,14 @@
             "enum": [
               "text",
               "image",
-              "documents",
-              "url"
+              "document",
+              "url",
+              "audio",
+              "video"
             ]
           },
           "minItems": 1,
-          "description": "text=文字 | image=图片 | documents=文件 | url=链接"
+          "description": "text=文字 | image=图片 | document=文档 | url=链接 | audio=音频 | video=视频"
         },
         "tagList": {
           "type": "array",
@@ -6160,7 +6301,7 @@
   },
   {
     "name": "gangtise_download",
-    "description": "下载研报、纪要、公告、独立观点、公众号、图表、业绩报告、知识库资源、云盘文件与录音 / 会议转写：kind 选资源，id 填对应列表返回的 ID。文本类直接返回内容（大文件落盘返回路径），二进制返回文件路径。【积分：按下载类型】",
+    "description": "下载研报、纪要、公告、独立观点、公众号、图表、业绩报告、知识库资源、云盘文件、群消息文件与录音 / 会议转写：kind 选资源，id 填对应列表返回的 ID。文本类直接返回内容（大文件落盘返回路径），二进制返回文件路径。【积分：按下载类型】",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -6181,9 +6322,10 @@
             "knowledge_resource",
             "drive",
             "record",
-            "my_conference"
+            "my_conference",
+            "wechat_message"
           ],
-          "description": "summary=纪要（summaryId，来自 summary_list；30/条） | pamirs_summary=帕米尔专家纪要（summaryId，来自 pamirs_summary_list；单价以平台计费为准） | research=券商研报（reportId，来自 research_list；10/条） | foreign_report=外资研报（reportId，来自 foreign_report_list；30/条） | announcement=A股公告（announcementId，来自 announcement_list；1/条） | announcement_hk=港股公告（announcementId，来自 announcement_list；2/条） | announcement_us=美股公告（announcementId，来自 announcement_list；2/条） | independent_opinion=独立观点 HTML（independentOpinionId，来自 independent_opinion_list；30/条） | official_account=公众号文章（articleId，来自 official_account_list；10/条） | report_image=研报图表原图 JPEG（chunkId，来自 report_image_list；0.1/张） | performance_calendar=业绩报告原文 PDF（performanceReportId，来自 performance_calendar_list，仅 hasAttachment=true 的可下载；1/条，港美股为 2/条） | knowledge_resource=知识库资源（sourceId，来自 knowledge_batch；按下游资源类型计） | drive=云盘文件（fileId，来自 drive_list；免费） | record=录音（recordId，来自 record_list；免费） | my_conference=我的会议（conferenceId，来自 my_conference_list；30/条）"
+          "description": "summary=纪要（summaryId，来自 summary_list；30/条） | pamirs_summary=帕米尔专家纪要（summaryId，来自 pamirs_summary_list；单价以平台计费为准） | research=券商研报（reportId，来自 research_list；10/条） | foreign_report=外资研报（reportId，来自 foreign_report_list；30/条） | announcement=A股公告（announcementId，来自 announcement_list；1/条） | announcement_hk=港股公告（announcementId，来自 announcement_list；2/条） | announcement_us=美股公告（announcementId，来自 announcement_list；2/条） | independent_opinion=独立观点 HTML（independentOpinionId，来自 independent_opinion_list；30/条） | official_account=公众号文章（articleId，来自 official_account_list；10/条） | report_image=研报图表原图 JPEG（chunkId，来自 report_image_list；0.1/张） | performance_calendar=业绩报告原文 PDF（performanceReportId，来自 performance_calendar_list，仅 hasAttachment=true 的可下载；1/条，港美股为 2/条） | knowledge_resource=知识库资源（sourceId，来自 knowledge_batch；按下游资源类型计） | drive=云盘文件（fileId，来自 drive_list；免费） | record=录音（recordId，来自 record_list；免费） | my_conference=我的会议（conferenceId，来自 my_conference_list；30/条） | wechat_message=群消息文件（msgId，来自 wechat_message_list，仅 document / image / audio / video 消息有文件，一律按原文件落盘返回路径；免费）"
         },
         "id": {
           "type": "string",
@@ -6371,7 +6513,7 @@
   },
   {
     "name": "gangtise_indicator_search",
-    "description": "按名称搜索证券级数据指标（EDE），返回 indicatorCode、scopeList（覆盖市场，附 usageRestriction）及 parameterList（含 required 必填标记与枚举）。取数前必先用本工具拿 code，并核对 indicatorName/description 语义、scopeList 是否覆盖目标市场、parameterList 取值——任一不符即回退专用工具。scopeList 是声明不是保证，usageRestriction（如「不支持指标时间序列接口」）也不是硬约束、按「口径可能不对」理解，均以实际抽查为准。基础行情（开高低收/成交量额/换手/涨跌幅）虽可搜到仍优先 realtime/day_kline，但**总市值 qte_mkt_cptl 这两个专用工具都没有、单票也走 EDE**（A/港/美股均已有数，默认「元」，用 scale 缩放）；同样只有 EDE 才有的还包括融资融券 mgn_*（两融余额/融资/融券及其区间变体，仅 A 股；区间变体的 changePeriod 是可选的）与所属行业：通用的 scr_indu（一个指标覆盖申万/中信/恒生/GICS 四套，必填 industryType+industryLevel，体系要与市场配对），以及把体系写进编码、只需可选 industryLevel 的 scr_indu_citic / scr_indu_sw / scr_indu_gics；⚠️ **个股资金流向 flow_*（仅 A 股）与 gangtise_fund_flow 返回的是同一套数（逐位相同）**，而后者还多给各档占比字段、并支持全市场——除非要与其他 EDE 指标同批取，否则一律用 gangtise_fund_flow（两边的计价档见各自标签）；单票完整报表、盈利预测(一致预期)、估值历史分位仍用专用工具（当前 EDE 搜索未覆盖后两类）；EDE 批量优先仅针对多证券取一批已实现财务/估值指标。基金代码（005827.OF / 510300.SH）也能查：基金分类 fund_cls*、复权净值 fund_adj_nav 与区间收益 / 风险指标（finc_* 收益率、波动率、最大回撤、夏普、Alpha，fund_* 卡玛、同类排名）适合多只基金横向比，单只基金的净值序列、持仓、规模用 gangtise_fund_*；⚠️ 同类排名 fund_ret_rank / fund_ret_rank_pct 的同类基金数不一定等于所属分类的基金数，按同类位置下结论前先核对分母。宏观/行业数据（产量、价格、PMI 等）请改用 gangtise_edb_search，不要猜编码。",
+    "description": "按名称搜索证券级数据指标（EDE），返回 indicatorCode、scopeList（覆盖市场，附 usageRestriction）及 parameterList（含 required 必填标记与枚举）。取数前必先用本工具拿 code，并核对 indicatorName/description 语义、scopeList 是否覆盖目标市场、parameterList 取值——任一不符即回退专用工具。scopeList 是声明不是保证，usageRestriction（如「不支持指标时间序列接口」）也不是硬约束、按「口径可能不对」理解，均以实际抽查为准。基础行情（开高低收/成交量额/换手/涨跌幅）虽可搜到仍优先 realtime/day_kline，但**总市值 qte_mkt_cptl 这两个专用工具都没有、单票也走 EDE**（A/港/美股均已有数，默认「元」，用 scale 缩放）；同样只有 EDE 才有的还包括融资融券 mgn_*（两融余额/融资/融券及其区间变体，仅 A 股；区间变体的 changePeriod 是可选的）与所属行业 scr_indu_citic / scr_indu_sw / scr_indu_gics（体系写进编码，industryLevel 可选；scr_indu 预计下线、已搜不到，恒生行业暂只能用 scr_indu 的 industryType=3）；⚠️ **个股资金流向 flow_*（仅 A 股）与 gangtise_fund_flow 返回的是同一套数（逐位相同）**，而后者还多给各档占比字段、并支持全市场——除非要与其他 EDE 指标同批取，否则一律用 gangtise_fund_flow（两边的计价档见各自标签）；单票完整报表、盈利预测(一致预期)仍用专用工具；A 股估值历史分位用 gangtise_valuation_analysis，港 / 美股用 EDE 的 finc_*_quantile（sDate 必填，覆盖市场逐个核 scopeList）；EDE 批量优先仅针对多证券取一批已实现财务/估值指标。基金代码（005827.OF / 510300.SH）也能查：基金分类 fund_cls*、复权净值 fund_adj_nav 与区间收益 / 风险指标（finc_* 收益率、波动率、最大回撤、夏普、Alpha，fund_* 卡玛、同类排名）适合多只基金横向比，单只基金的净值序列、持仓、规模用 gangtise_fund_*；同类排名 fund_ret_rank / fund_ret_rank_pct 的同类按 industryLevel 那一级的 fund_cls1_typ / fund_cls2_typ 分。宏观/行业数据（产量、价格、PMI 等）请改用 gangtise_edb_search，不要猜编码。",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -6493,7 +6635,7 @@
               },
               "noQueryDate": {
                 "type": "boolean",
-                "description": "声明**这个指标不接受查询日期**，本工具就不给它注入 date 下发的 tradeDate。用于 parameterList 里既没有 tradeDate 也没有 reportDate 的指标——公司属性 pty_*（主营业务/经营范围/注册地/法定代表人…）与证券属性 scr_*（上市市场/上市板块/上市日期/ISIN…）两族，以及 div_cash_paid_ratio（股利支付率）/ div_cash_yr（年度现金分红总额）/ pty_shr_reg（注册资本）、基金的 fund_main_code（主代码）/ fund_estb_dt（成立日期）。不加这个开关，它们一律报 100003「不支持参数 tradeDate」而取不到数。可与真实参数共存（如 { indicatorCode: 'div_cash_yr', parameters: [{ paramKey: 'fiscalYear', paramValue: '2025' }], noQueryDate: true }）。加了这个开关仍要补齐该指标 parameterList 里其余 required 键（如上例的 fiscalYear），缺了报 100001 并指名。⚠️ 只对**确实不要日期**的指标加：给要日期的指标加上会变成「缺少必填参数 tradeDate」——注意 scr_ 里的 scr_indu / scr_indu_citic / scr_indu_sw / scr_indu_gics / scr_concept 反而**必填 tradeDate**，别给它们加。哪些指标属于这一类以 gangtise_indicator_search 返回的 parameterList 为准，别按 code 前缀推断（同一前缀下两类都有）。"
+                "description": "声明**这个指标不接受查询日期**，本工具就不给它注入 date 下发的 tradeDate。用于 parameterList 里既没有 tradeDate 也没有 reportDate 的指标——公司属性 pty_*（主营业务/经营范围/注册地/法定代表人…）与证券属性 scr_*（上市市场/上市板块/上市日期/ISIN…）两族，以及 div_cash_paid_ratio（股利支付率）/ div_cash_yr（年度现金分红总额）/ pty_shr_reg（注册资本）、基金的 fund_main_code（主代码）/ fund_estb_dt（成立日期）。不加这个开关，它们一律报 100003「不支持参数 tradeDate」而取不到数。可与真实参数共存（如 { indicatorCode: 'div_cash_yr', parameters: [{ paramKey: 'fiscalYear', paramValue: '2025' }], noQueryDate: true }）。加了这个开关仍要补齐该指标 parameterList 里其余 required 键（如上例的 fiscalYear），缺了报 100001 并指名。⚠️ 只对**确实不要日期**的指标加：给要日期的指标加上会变成「缺少必填参数 tradeDate」——注意 scr_ 里的 scr_concept 反而**必填 tradeDate**，别给它加。哪些指标属于这一类以 gangtise_indicator_search 返回的 parameterList 为准，别按 code 前缀推断（同一前缀下两类都有）。"
               }
             },
             "required": [
@@ -6695,7 +6837,7 @@
               },
               "noQueryDate": {
                 "type": "boolean",
-                "description": "声明**这个指标不接受查询日期**，本工具就不给它注入 date 下发的 tradeDate。用于 parameterList 里既没有 tradeDate 也没有 reportDate 的指标——公司属性 pty_*（主营业务/经营范围/注册地/法定代表人…）与证券属性 scr_*（上市市场/上市板块/上市日期/ISIN…）两族，以及 div_cash_paid_ratio（股利支付率）/ div_cash_yr（年度现金分红总额）/ pty_shr_reg（注册资本）、基金的 fund_main_code（主代码）/ fund_estb_dt（成立日期）。不加这个开关，它们一律报 100003「不支持参数 tradeDate」而取不到数。可与真实参数共存（如 { indicatorCode: 'div_cash_yr', parameters: [{ paramKey: 'fiscalYear', paramValue: '2025' }], noQueryDate: true }）。加了这个开关仍要补齐该指标 parameterList 里其余 required 键（如上例的 fiscalYear），缺了报 100001 并指名。⚠️ 只对**确实不要日期**的指标加：给要日期的指标加上会变成「缺少必填参数 tradeDate」——注意 scr_ 里的 scr_indu / scr_indu_citic / scr_indu_sw / scr_indu_gics / scr_concept 反而**必填 tradeDate**，别给它们加。哪些指标属于这一类以 gangtise_indicator_search 返回的 parameterList 为准，别按 code 前缀推断（同一前缀下两类都有）。 📌 本端点上这个开关**同时解锁了按静态属性筛股**——`contains` / `notcontains` 正是 pty_*/scr_* 这类字符串指标最自然的用法（筛上市板块、筛经营范围、筛注册地）。"
+                "description": "声明**这个指标不接受查询日期**，本工具就不给它注入 date 下发的 tradeDate。用于 parameterList 里既没有 tradeDate 也没有 reportDate 的指标——公司属性 pty_*（主营业务/经营范围/注册地/法定代表人…）与证券属性 scr_*（上市市场/上市板块/上市日期/ISIN…）两族，以及 div_cash_paid_ratio（股利支付率）/ div_cash_yr（年度现金分红总额）/ pty_shr_reg（注册资本）、基金的 fund_main_code（主代码）/ fund_estb_dt（成立日期）。不加这个开关，它们一律报 100003「不支持参数 tradeDate」而取不到数。可与真实参数共存（如 { indicatorCode: 'div_cash_yr', parameters: [{ paramKey: 'fiscalYear', paramValue: '2025' }], noQueryDate: true }）。加了这个开关仍要补齐该指标 parameterList 里其余 required 键（如上例的 fiscalYear），缺了报 100001 并指名。⚠️ 只对**确实不要日期**的指标加：给要日期的指标加上会变成「缺少必填参数 tradeDate」——注意 scr_ 里的 scr_concept 反而**必填 tradeDate**，别给它加。哪些指标属于这一类以 gangtise_indicator_search 返回的 parameterList 为准，别按 code 前缀推断（同一前缀下两类都有）。 📌 本端点上这个开关**同时解锁了按静态属性筛股**——`contains` / `notcontains` 正是 pty_*/scr_* 这类字符串指标最自然的用法（筛上市板块、筛经营范围、筛注册地）。"
               }
             },
             "required": [

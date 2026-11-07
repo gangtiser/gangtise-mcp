@@ -113,6 +113,19 @@ export const aiEndpoints: EndpointTable = {
     pagination: { mode: "offset", maxPageSize: 20 },
     retry: "no-replay",
   },
+  "ai.expert-intel.list": {
+    method: "POST",
+    path: "/application/open-insight/expertIntel/getList",
+    kind: "json",
+    description: "List AI expert intel (takeaways distilled from expert meetings and minutes)",
+    // 按返回条数计，一页 50 条 = 1000 积分：重发一页就是把已交付的行再计一次费，与热点话题同理。
+    billing: { kind: "fixed", per: "row", price: 20, amplify: "单次约 400 积分" },
+    pagination: { mode: "offset", maxPageSize: 50 },
+    rowId: "intelId",
+    rowIdUnverified: true,
+    retry: "no-replay",
+    expects: "list",
+  },
   "ai.management-discuss-announcement": {
     method: "POST",
     path: "/application/open-ai/management-discuss/from-announcement",

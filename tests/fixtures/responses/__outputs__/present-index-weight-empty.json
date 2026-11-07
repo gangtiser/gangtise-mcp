@@ -1,0 +1,8 @@
+{
+  "isError": false,
+  "result": {
+    "total": 0,
+    "list": [],
+    "_hint": "0 行结果：权重只按每月最后一个交易日提供，其他日期与写错的指数代码都返回空结果、不报错——核对 tradeDate 是不是月末最后一个交易日，指数代码用 gangtise_securities_search category=['index'] 核对。"
+  }
+}

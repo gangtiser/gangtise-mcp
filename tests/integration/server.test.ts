@@ -1061,6 +1061,7 @@ const CLOSED_SET_SNAPSHOT = [
     "security_clue_list.queryMode",
     "security_clue_list.source",
     "hot_topic.categoryList",
+    "expert_intel.searchType",
     "management_discuss_announcement.discussionDimension",
     "management_discuss_earnings_call.discussionDimension",
     "knowledge_resource_download.resourceType",

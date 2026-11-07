@@ -105,6 +105,10 @@ export interface EndpointDefinition {
   /** 可能以超出安全整数的**数字**返回的 ID 字段：解析前加上引号，按字符串读出。数字形式的大整数经
    *  `JSON.parse` 会被静默舍入——对按页计费的解析任务，舍入后的 taskId 意味着付过费的结果取不回来。 */
   bigIntFields?: readonly string[]
+  /** 只对下载端点：2xx 响应就是文件本身，不论 Content-Type——按原字节落盘、用服务端给的文件名。不标时
+   *  `text/*` 正文按 UTF-8 解码内联返回、不带 Content-Disposition 的 `application/json` 按信封解析，而用户
+   *  分享的文件可以是其中任一种。只给错误一律以非 2xx 返回的端点标（群消息文件下载：400 / 404 + JSON 信封）。 */
+  fileOnSuccess?: true
 }
 
 /** 按条计费且有单价的端点的计费声明：分页层的积分预估保护与分页工具的 `confirmCost` 参数都由它派生。 */

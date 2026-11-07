@@ -35,6 +35,7 @@ const KINDS: Record<string, Kind> = {
   drive: { label: "云盘文件", endpoint: "vault.drive.download", idParam: "fileId", from: "drive_list" },
   record: { label: "录音", endpoint: "vault.record.download", idParam: "recordId", from: "record_list", contentType: { values: ["original", "asr", "summary"], desc: "original=原始音频 | asr=语音转文字 | summary=AI摘要，必填" } },
   my_conference: { label: "我的会议", endpoint: "vault.my-conference.download", idParam: "conferenceId", from: "my_conference_list", contentType: { values: ["asr", "summary"], desc: "asr=语音转文字 | summary=AI摘要，必填，不支持原始音频" } },
+  wechat_message: { label: "群消息文件", endpoint: "vault.wechat-message.download", idParam: "msgId", from: "wechat_message_list", note: "仅 document / image / audio / video 消息有文件，一律按原文件落盘返回路径" },
 }
 const KIND_NAMES = Object.keys(KINDS) as [string, ...string[]]
 const RESOURCE_TYPES = [10, 11, 20, 40, 50, 51, 60, 70, 80, 90] as const
@@ -73,7 +74,7 @@ export const downloadFamily: FamilyModule = {
       tier: "core",
       access: "read",
       billingLabel: { kind: "variable", note: "单价随 kind 对应的资源而定，见 kind 说明", basis: "按下载类型" },
-      description: "下载研报、纪要、公告、独立观点、公众号、图表、业绩报告、知识库资源、云盘文件与录音 / 会议转写：kind 选资源，id 填对应列表返回的 ID。文本类直接返回内容（大文件落盘返回路径），二进制返回文件路径。",
+      description: "下载研报、纪要、公告、独立观点、公众号、图表、业绩报告、知识库资源、云盘文件、群消息文件与录音 / 会议转写：kind 选资源，id 填对应列表返回的 ID。文本类直接返回内容（大文件落盘返回路径），二进制返回文件路径。",
       input: {
         kind: z.enum(KIND_NAMES).describe(KIND_DESC),
         id: nonEmptyString.describe("资源 ID，按 kind 说明里的来源取"),

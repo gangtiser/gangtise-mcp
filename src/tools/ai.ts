@@ -139,6 +139,23 @@ export const jsonSpecs: JsonToolSpec[] = [
     },
   },
   {
+    name: "gangtise_expert_intel",
+    tier: "extended",
+    description: "查询 AI 专家情报：AI 从专家会议、会议纪要提炼的个股情报，一条 = 主体公司 mainSecurity + 核心观点 title + 内容标签 tagList（纯文本）+ 正文 content，附关联证券 securityList（含主体公司在其他市场的上市主体）、研究方向 researchAreaList 与题材 conceptList，按发布时间 publishTime（北京时间）倒序。不同筛选之间为「且」，同一筛选的多个取值为「或」；写错的研究方向 / 题材 ID 与标签按无匹配处理，返回空结果、不报错。",
+    endpointKey: "ai.expert-intel.list",
+    paginated: true,
+    inputSchema: {
+      securityList: nonEmptyList().optional().describe("证券代码，须带市场后缀，如 300750.SZ；任一关联证券命中即返回。缺后缀或后缀不存在报 120001；后缀与代码的市场对不上（600519.SZ）不报错、返回空结果"),
+      researchAreaList: nonEmptyList().optional().describe("研究方向 ID：用 gangtise_constant_list category=citicIndustry 的中信码（1008001xx）；申万码与 gangtiseIndustry 方向码在本工具返回空结果、不报错"),
+      conceptList: nonEmptyList().optional().describe("题材 ID，来自 gangtise_concept_search"),
+      tagList: nonEmptyList().optional().describe("内容标签，纯文本，如 景气上行 / 超预期 / 重大催化 / 产品进展"),
+      keyword: nonEmptyString.optional(),
+      searchType: intLiteralEnum([1, 2]).optional().describe("keyword 的检索范围：1=只搜标题 | 2=标题 + 正文（缺省）。标题不含公司名，按公司查用 securityList"),
+      startTime: sentimentTime.optional().describe("发布时间起（北京时间）：YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss"),
+      endTime: sentimentTime.optional().describe("发布时间止（北京时间）：YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss；只写日期含当天整天"),
+    },
+  },
+  {
     name: "gangtise_management_discuss_announcement",
     tier: "core",
     description: "从财报公告（半年报/年报）中提取 AI 整理的管理层讨论内容，仅支持中报和年报。",

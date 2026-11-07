@@ -40,6 +40,8 @@ export const vaultExamples: ToolExamples = {
     { title: "from 越过偏移窗口本地拒绝", args: { from: 10000, keyword: "AI" }, expect: { rejects: /只能按偏移取到第 10000 行/ } },
     { title: "首页不跨偏移窗口", args: { from: 9990, keyword: "AI", fetchAll: true }, expect: { requests: [{ method: "POST", path: "/application/open-vault/wechatgroupmsg/list", body: { from: 9990, keyword: "AI", size: 10 } }] } },
     { title: "群 + 标签", args: { wechatGroupIdList: ["g-1"], tagList: ["research"], industryIdList: ["100800119"] }, expect: { requests: [{ method: "POST", path: "/application/open-vault/wechatgroupmsg/list", body: { wechatGroupIdList: ["g-1"], industryIdList: ["100800119"], tagList: ["research"], size: 20, from: 0 } }] } },
+    { title: "文件类消息", args: { categoryList: ["document", "audio", "video"] }, expect: { requests: [{ method: "POST", path: "/application/open-vault/wechatgroupmsg/list", body: { categoryList: ["document", "audio", "video"], size: 20, from: 0 } }] } },
+    { title: "documents 不是有效类别", args: { categoryList: ["documents"] }, expect: { rejects: /at categoryList/ } },
   ],
   gangtise_stock_pool_list: [
     { title: "无参：不发 spaceType", args: {}, expect: { requests: [{ method: "POST", path: "/application/open-vault/stock-pool/getPoolList", body: {} }] } },

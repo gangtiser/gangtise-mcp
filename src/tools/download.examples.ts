@@ -32,6 +32,8 @@ export const downloadExamples: ToolExamples = {
     { title: "record：contentType 必填", args: { kind: "record", id: "rec-1" }, expect: { rejects: /contentType 必填/ } },
     { title: "my_conference", args: { kind: "my_conference", id: "conf-1", contentType: "summary" }, expect: { requests: [{ method: "GET", path: "/application/open-vault/my-conference/download/file", query: { conferenceId: "conf-1", contentType: "summary" } }] } },
     { title: "my_conference：contentType 只收 asr / summary", args: { kind: "my_conference", id: "conf-1", contentType: "original" }, expect: { rejects: /contentType 只收 asr \/ summary/ } },
+    { title: "wechat_message：msgId 按字符串原样传", args: { kind: "wechat_message", id: "4784255865508301077" }, expect: { requests: [{ method: "GET", path: "/application/open-vault/wechatgroupmsg/download/file", query: { msgId: "4784255865508301077" } }] } },
+    { title: "wechat_message：不收 fileType", args: { kind: "wechat_message", id: "4784255865508301077", fileType: 1 }, expect: { rejects: /不收 fileType/ } },
     { title: "未知 kind 在 schema 层拒绝", args: { kind: "opinion", id: "x" }, expect: { rejects: /at kind/ } },
   ],
 }

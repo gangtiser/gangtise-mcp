@@ -1,0 +1,25 @@
+{
+  "isError": false,
+  "result": {
+    "total": 2,
+    "_note": "999999.SH 没有返回成分：同一天别的指数有数据，多半是代码写错（写错的指数代码返回空结果、不报错），用 gangtise_securities_search category=['index'] 核对",
+    "list": [
+      {
+        "indexCode": "000300.SH",
+        "indexName": "沪深300",
+        "tradeDate": "2026-10-30",
+        "securityCode": "600519.SH",
+        "securityName": "贵州茅台",
+        "weight": 3.9561
+      },
+      {
+        "indexCode": "000300.SH",
+        "indexName": "沪深300",
+        "tradeDate": "2026-10-30",
+        "securityCode": "300750.SZ",
+        "securityName": "宁德时代",
+        "weight": 3.4127
+      }
+    ]
+  }
+}

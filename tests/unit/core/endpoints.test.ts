@@ -24,6 +24,8 @@ const NO_REPLAY_KEYS = [
   "ai.theme-tracking",
   "ai.research-outline",
   "ai.hot-topic",
+  // 专家情报 20 积分/条、满页 1000：重发一页即把已交付的行再计一次，与热点话题同理（同 CLI）。
+  "ai.expert-intel.list",
   "ai.management-discuss-announcement",
   "ai.management-discuss-earnings-call",
   // 管理层情绪逐条问答 10/次；两个情绪列表按条计费、满页 500，留默认重试。

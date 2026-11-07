@@ -1686,7 +1686,7 @@ describe("indicator descriptions point at the right parameters", () => {
   it("keeps 所属行业 attached to the EDE-only list, not to the fund-flow advice", async () => {
     const search = (await describedTools()).get("gangtise_indicator_search")!
     expect(search.description).not.toMatch(/gangtise_fund_flow[^；。]*与所属行业/)
-    expect(search.description).toMatch(/融资融券 mgn_\*（[^）]*）与所属行业：通用的 scr_indu/)
+    expect(search.description).toMatch(/融资融券 mgn_\*（[^）]*）与所属行业 scr_indu_citic/)
   })
 
   it("names noQueryDate as the exception to the screener date being sent", async () => {

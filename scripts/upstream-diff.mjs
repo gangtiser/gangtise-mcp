@@ -16,7 +16,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const UPSTREAM_FIXTURE = path.join(ROOT, "tests/fixtures/upstream-endpoints.json")
 const EXCEPTIONS_FIXTURE = path.join(ROOT, "tests/fixtures/sync-exceptions.json")
 
-const SCALAR_FIELDS = ["method", "path", "kind", "retry", "timeoutMs", "rowId", "rowIdUnverified", "expects", "itemFailures", "bigIntFields"]
+const SCALAR_FIELDS = ["method", "path", "kind", "retry", "timeoutMs", "rowId", "rowIdUnverified", "expects", "itemFailures", "bigIntFields", "fileOnSuccess"]
 
 /** 端点里两仓都有、且会影响请求或结果的字段。计费只比 fixed 的单价（本仓的其余计费种类在上游没有
  *  对应写法）；不可逆标记只比有无（文案各写各的）。 */

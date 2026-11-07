@@ -1,7 +1,7 @@
 {
   "source": "gangtise-openapi-cli",
-  "version": "0.50.0",
-  "commit": "2a12b7ff3b18379044c8b27e67a585fc2a3caa9e",
+  "version": "0.51.0",
+  "commit": "4c0e7daf84b846ffb5a5b0ad4b4c948fa2391a9b",
   "endpoints": {
     "ai.earnings-review.get-content": {
       "method": "POST",
@@ -15,6 +15,22 @@
       "retry": "no-replay",
       "billing": {
         "per": "call",
+        "price": 20
+      }
+    },
+    "ai.expert-intel.list": {
+      "method": "POST",
+      "path": "/application/open-insight/expertIntel/getList",
+      "kind": "json",
+      "retry": "no-replay",
+      "rowId": "intelId",
+      "rowIdUnverified": true,
+      "expects": "list",
+      "pagination": {
+        "maxPageSize": 50
+      },
+      "billing": {
+        "per": "row",
         "price": 20
       }
     },
@@ -1189,6 +1205,12 @@
       "path": "/application/open-reference/constants/getList",
       "kind": "json"
     },
+    "reference.index-weight": {
+      "method": "POST",
+      "path": "/application/open-quote/index/constituent-weight",
+      "kind": "json",
+      "expects": "list"
+    },
     "reference.institution-search": {
       "method": "POST",
       "path": "/application/open-reference/institutions/search",
@@ -1426,6 +1448,12 @@
       "pagination": {
         "maxPageSize": 50
       }
+    },
+    "vault.wechat-message.download": {
+      "method": "GET",
+      "path": "/application/open-vault/wechatgroupmsg/download/file",
+      "kind": "download",
+      "fileOnSuccess": true
     },
     "vault.wechat-message.list": {
       "method": "POST",

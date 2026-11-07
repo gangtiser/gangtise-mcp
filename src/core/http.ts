@@ -470,10 +470,13 @@ export class HttpClient {
         throw error
       }
 
+      // 这类端点的成功响应就是文件本身（见 `fileOnSuccess`），不按信封或正文读。
+      const rawFile = endpoint.fileOnSuccess === true && response.statusCode < 300
+
       // A JSON body carrying content-disposition is a real file attachment (e.g.
       // a user-stored .json in the vault drive), not an API envelope — fall
       // through to the binary path so its bytes are returned untouched.
-      if (contentType?.includes('application/json') && !contentDisposition) {
+      if (!rawFile && contentType?.includes('application/json') && !contentDisposition) {
         const text = await readTextCapped(response.body, maxBytes)
         logTiming(`GET ${endpoint.path} (json)`, Date.now() - startedAt, `${response.statusCode}, ${text.length}B`)
         let parsed: unknown
@@ -502,7 +505,7 @@ export class HttpClient {
 
       // text/markdown 与 plain/html 同为正文：不认它会把一份 Markdown 研报当二进制落盘成
       // download.bin，调用方拿到的是文件路径而不是正文。
-      if (contentType?.includes('text/plain') || contentType?.includes('text/html') || contentType?.includes('text/markdown')) {
+      if (!rawFile && (contentType?.includes('text/plain') || contentType?.includes('text/html') || contentType?.includes('text/markdown'))) {
         const text = await readTextCapped(response.body, maxBytes)
         logTiming(`GET ${endpoint.path} (text)`, Date.now() - startedAt, `${response.statusCode}, ${text.length}B`)
         if (response.statusCode >= 400) await failDownload(text)

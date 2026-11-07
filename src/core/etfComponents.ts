@@ -12,10 +12,11 @@ import { runWithConcurrency } from "./transport.js"
  *  这个价格就是该成分所在市场的某个近期收盘价（14 只 ETF 实测：A 股、港股、美股、A+H、债券、黄金）。
  *  先比实时行情的最新价与昨收，比不上的再按清单价格所属的那天（`listDates`，A 股与港股各自定日）比日 K
  *  收盘价。同一公司的 A 股与 H 股在 A+H ETF 里是同名两行，只能靠价格分开；候选跨市场时，实时价相符还要
- *  另一市场那只的近期收盘价都对不上才算数（清单价格落后于行情时，它的实时价可能碰巧等于该行）。价格定不了时
- *  （除权除息当天、停牌、没有行情的债券），只有确知成分都在一个市场的 ETF 才按完全同名取该市场的那只（同市场
- *  多只取 ETF 自己的交易所），两个市场的价格都对得上、或另一市场那只排除不了的行同样取该市场那只；成分跨市场、
- *  有一行可能在两个市场又没定下来、或有名称查询失败时，这些行都留 null。 */
+ *  另一市场那只的近期收盘价都对不上才算数（清单价格落后于行情时，它的实时价可能碰巧等于该行）。价格把一行留在
+ *  两个上市之间的（两个市场的价格都对得上、或另一市场那只排除不了），再用该行自己的 `pctChange` 定：哪只有一天的
+ *  收盘价与涨跌幅都和该行相同就是哪只。价格定不了时（除权除息当天、停牌、没有行情的债券），只有确知成分都在一个
+ *  市场的 ETF 才按完全同名取该市场的那只（同市场多只取 ETF 自己的交易所）；成分跨市场、有一行可能在两个市场又没
+ *  定下来、或有名称查询失败时，这些行都留 null。 */
 
 interface Candidate { code: string; name: string; category: string; prefix: boolean }
 
@@ -25,16 +26,22 @@ export interface CodeLookup {
   search(keyword: string): Promise<unknown[]>
   /** 实时行情知道的代码 → [昨收, 最新价]。 */
   quotes(codes: string[]): Promise<Map<string, number[]>>
-  /** 两个日期之间每只的日收盘价，旧在前：给价格落后行情一天以上的清单用。没有它时这类行交给名称判。 */
-  closes?(codes: string[], startDate: string, endDate: string): Promise<Map<string, Array<[date: string, close: number]>>>
+  /** 两个日期之间每只的日收盘价，旧在前，昨收已知时附当天涨跌幅（%）：给价格落后行情一天以上的清单、以及价格
+   *  留在两个上市之间的行用。没有它时这类行交给名称判。 */
+  closes?(codes: string[], startDate: string, endDate: string): Promise<Map<string, Bar[]>>
 }
 
 type Row = Record<string, unknown>
+type Bar = [date: string, close: number, change?: number]
 
 /** 成分的 close 就是行情价本身：14 只 ETF（2026-10-27）里每个确认的行都分毫不差，而同名在另一市场的
  *  上市最近只差 0.15%（同一公司的 A 股与 H 股，常见 0.3%）。容差远小于这个间距。 */
 const PRICE_TOLERANCE = 0.0005
 const agrees = (close: number, price: number) => price > 0 && Math.abs(close - price) / price <= PRICE_TOLERANCE
+/** 一行的 `pctChange` 是它那只证券在该行 close 所属那天的涨跌幅——收盘价比昨收，清单保留四位小数（45 只 ETF
+ *  实测，2026-11-07；美股一行差过一次，多半是除权除息日）。与收盘价合起来是第二个指纹：同名 A / H 股收盘价碰巧
+ *  相同的那天，涨跌幅不会也相同。它只在价格留下的几个上市之间裁，从不排除价格已印证的那只。 */
+const CHANGE_TOLERANCE = 0.005
 /** 实时行情收的代码格式；别的一律不发（债券、其他市场的上市、搜索返回的占位代码）。 */
 const QUOTABLE = /^(\d{6}\.(SH|SZ|BJ)|\d{5}\.HK|[A-Z][A-Z0-9.]*\.(O|N|A))$/
 const QUOTE_BATCH = 500
@@ -144,7 +151,7 @@ const inBatches = (codes: string[], size: number) => Array.from({ length: Math.c
 
 /** 本 ETF 清单价格按市场各属哪个交易日——同一份清单的 A 股可以是一天的收盘、H 股是另一天的：在该市场里
  *  只有一个完全同名上市的行中，与那只收盘价相符最多的那天。至少两行同指一天、且没有别的日子并列，才定得下。 */
-function listDates(rows: Row[], candidates: Map<string, Candidate[]>, history: Map<string, Array<[string, number]>>): Map<string, string> {
+function listDates(rows: Row[], candidates: Map<string, Candidate[]>, history: Map<string, Bar[]>): Map<string, string> {
   const votes = new Map<string, Map<string, number>>()
   for (const row of rows) {
     if (typeof row.close !== "number") continue
@@ -165,7 +172,7 @@ function listDates(rows: Row[], candidates: Map<string, Candidate[]>, history: M
 }
 
 /** 每只在其市场那天的收盘价，那天没有（市场休市、停牌）就取之前最近的一个。 */
-function closesOn(dates: Map<string, string>, history: Map<string, Array<[string, number]>>): Map<string, number[]> {
+function closesOn(dates: Map<string, string>, history: Map<string, Bar[]>): Map<string, number[]> {
   const out = new Map<string, number[]>()
   for (const [code, series] of history) {
     const date = dates.get(market(code))
@@ -208,7 +215,7 @@ export async function fillComponentCodes(rows: Row[], lookup: CodeLookup): Promi
 
   const codes = new Map<Row, string | null>()
   // 价格把范围缩到不止一个市场的上市（两个市场的价格都对得上），或缩到一只、但另一市场那只排除不了的行：
-  // 等知道本 ETF 只在一个市场时取该市场那只，否则留 null。
+  // 先按该行的涨跌幅定，定不了的等知道本 ETF 只在一个市场时取该市场那只，否则留 null。
   const tentative = new Map<Row, Candidate[]>()
   const etfs = new Map<unknown, { own: Row[]; etf: EtfContext }>()
   const place = (row: Row, code: string | null, etf: EtfContext) => {
@@ -242,7 +249,7 @@ export async function fillComponentCodes(rows: Row[], lookup: CodeLookup): Promi
   // 清单价格落后行情一天以上时这些行没定下来，停牌与除权除息日也是：按清单价格在各市场所属那天的日 K 核对。
   const open = (own: Row[]) => own.filter((r) => !codes.has(r) && typeof r.close === "number" && candidatesOf(r).some(isQuotable))
   const lagging = [...etfs.values()].filter(({ own }) => open(own).length)
-  const history = new Map<string, Array<[string, number]>>()
+  const history = new Map<string, Bar[]>()
   if (lagging.length && lookup.closes) {
     const wanted = [...new Set(lagging.flatMap(({ own }) => own.flatMap((r) => candidatesOf(r).filter(isQuotable).map((c) => c.code))))]
     const { startDate, endDate } = closesWindow()
@@ -276,8 +283,28 @@ export async function fillComponentCodes(rows: Row[], lookup: CodeLookup): Promi
       }
     }
   }
+  // 价格留在几个上市之间（跨市场并列、另一市场的收盘价排除不了）或还没定下的行：哪个市场的上市有一天的收盘价与
+  // 涨跌幅都和该行相同，且只有这一个市场，就是它。可能是它的上市都要有日 K 才排除得了，还要在该行收盘价那天
+  // 算得出涨跌幅；涨跌幅和哪只都对不上的（除权除息会挪动昨收），交给下面的规则。
   for (const { own, etf } of etfs.values()) {
-    // 本 ETF 持有哪些市场，就已知的而言：价格印证过的上市，以及没定下的行里、剩下的候选都在一个市场的名称。
+    for (const row of own) {
+      const change = row.pctChange
+      if (codes.has(row) || typeof change !== "number" || typeof row.close !== "number") continue
+      const close = row.close
+      const pool = candidatesOf(row).filter((c) => !etf.used.has(c.code))
+      if (!pool.length || !pool.every((c) => isQuotable(c) && history.has(c.code))) continue
+      const atClose = (c: Candidate) => history.get(c.code)!.filter(([, price]) => agrees(close, price))
+      const hit = pool.filter((c) => atClose(c).some(([, , moved]) => moved !== undefined && Math.abs(moved - change) <= CHANGE_TOLERANCE))
+      // 在该行收盘价那天算不出涨跌幅（没有昨收）的上市排除不了。
+      const unknown = pool.some((c) => !hit.includes(c) && atClose(c).some(([, , moved]) => moved === undefined))
+      if (!hit.length || unknown || marketsOf(hit).size > 1) continue
+      const code = narrow(hit, etf)
+      if (code) place(row, code, etf)
+    }
+  }
+  for (const { own, etf } of etfs.values()) {
+    // 本 ETF 持有哪些市场，就已知的而言：价格印证过的上市，以及没定下的行里、剩下的候选都在一个市场的名称——价格
+    // 缩小了范围却没定下的行也算没定下，否则其余各行的市场正好替它做了跨市场核对拒绝的那个猜测。
     // 没定下的行里有一个名称的候选跨市场（同名的 A 股与 H 股，或港股名称更长的同一公司：「中国石油」/「中国石油股份」），
     // 或有名称查询失败，那一行在哪个市场就不知道，本 ETF 是否只在一个市场也就判断不了——不凭其余几行定整只 ETF 的市场，
     // 按市场兜底一行都不做。已被别的行占用的、近期收盘价都对不上的候选不再算「可能是它」。前缀候选只在这里算，
@@ -285,7 +312,7 @@ export async function fillComponentCodes(rows: Row[], lookup: CodeLookup): Promi
     const markets = new Set([...etf.used].map(market))
     let undecided = own.some((r) => failed.has(r.componentName as string))
     for (const r of own) {
-      if (codes.get(r) || tentative.has(r)) continue
+      if (codes.get(r)) continue
       const held = marketsOf(candidatesOf(r).filter((c) => !etf.used.has(c.code) && (typeof r.close !== "number" || mayBe(r, c))))
       if (held.size > 1) undecided = true
       else if (held.size === 1) markets.add([...held][0])
@@ -405,11 +432,12 @@ export function clientLookup(client: { call(endpointKey: string, body?: unknown)
       return Array.isArray(data?.list) ? data.list : []
     },
     async closes(codes, startDate, endDate) {
-      const out = new Map<string, Array<[string, number]>>()
-      for (const k of listOf(await client.call("quote.day-kline", { securityList: codes, startDate, endDate, fieldList: ["securityCode", "tradeDate", "close"], limit: 10_000 }))) {
+      const out = new Map<string, Bar[]>()
+      for (const k of listOf(await client.call("quote.day-kline", { securityList: codes, startDate, endDate, fieldList: ["securityCode", "tradeDate", "close", "preClose"], limit: 10_000 }))) {
         if (typeof k.securityCode !== "string" || typeof k.tradeDate !== "string" || typeof k.close !== "number") continue
         const series = out.get(k.securityCode) ?? []
-        series.push([k.tradeDate, k.close])
+        // 用两个收盘价算，不取日 K 自带的 pctChange：港股那一列只保留两位小数。
+        series.push(typeof k.preClose === "number" && k.preClose > 0 ? [k.tradeDate, k.close, (k.close / k.preClose - 1) * 100] : [k.tradeDate, k.close])
         out.set(k.securityCode, series)
       }
       for (const series of out.values()) series.sort((a, b) => (a[0] < b[0] ? -1 : 1))

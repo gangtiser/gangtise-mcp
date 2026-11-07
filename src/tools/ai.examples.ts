@@ -18,6 +18,14 @@ export const aiExamples: ToolExamples = {
   gangtise_hot_topic: [
     { title: "版别 + 精简开关", args: { startDate: "2026-09-01", endDate: "2026-09-05", categoryList: ["morningBriefing"], withCloseReading: false }, expect: { requests: [{ method: "POST", path: "/application/open-ai/hot-topic/getList", body: { startDate: "2026-09-01", endDate: "2026-09-05", categoryList: ["morningBriefing"], withCloseReading: false, size: 20, from: 0 } }] } },
   ],
+  gangtise_expert_intel: [
+    { title: "证券 + 标签 + 只写日期的区间，默认 20 条；searchType 不传不发", args: { securityList: ["300750.SZ"], tagList: ["景气上行", "超预期"], startTime: "2026-10-01", endTime: "2026-11-06" }, expect: { requests: [{ method: "POST", path: "/application/open-insight/expertIntel/getList", body: { securityList: ["300750.SZ"], tagList: ["景气上行", "超预期"], startTime: "2026-10-01", endTime: "2026-11-06", size: 20, from: 0 } }] } },
+    { title: "keyword 只搜标题", args: { keyword: "产能", searchType: 1, size: 5 }, expect: { requests: [{ method: "POST", path: "/application/open-insight/expertIntel/getList", body: { keyword: "产能", searchType: 1, size: 5, from: 0 } }] } },
+    { title: "起止倒置本地拒绝", args: { startTime: "2026-11-06", endTime: "2026-11-01" }, expect: { rejects: /startTime .* 晚于 endTime/ } },
+    { title: "不限条件的 fetchAll：整页 1000 积分先探 1 条，按 20/条估算超阈值拒绝", args: { fetchAll: true }, upstream: paged(60), expect: { rejects: /预计取 60 条（20 积分\/条），约 1220 积分（含探总数时重复计费的 1 条）.*confirmCost: true/, requests: [
+        { method: "POST", path: "/application/open-insight/expertIntel/getList", body: { from: 0, size: 1 } },
+      ] } },
+  ],
   gangtise_management_discuss_announcement: [
     { title: "年报", args: { securityCode: "600519.SH", reportDate: "2025-12-31", discussionDimension: "all" }, expect: { requests: [{ method: "POST", path: "/application/open-ai/management-discuss/from-announcement", body: { securityCode: "600519.SH", reportDate: "2025-12-31", discussionDimension: "all" } }] } },
     { title: "一季报日期本地拒绝", args: { securityCode: "600519.SH", reportDate: "2025-03-31", discussionDimension: "all" }, expect: { rejects: /季末日/ } },

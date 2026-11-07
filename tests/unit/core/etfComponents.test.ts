@@ -26,7 +26,7 @@ function lookup(search: Record<string, Listing[]>, prices: Record<string, number
 
 const row = (fundCode: string, serialNumber: number, componentName: string, close: number | null) => ({ fundCode, serialNumber, componentName, close })
 const codesOf = (rows: Array<Record<string, unknown>>) => rows.map((r) => r.componentCode)
-const withCloses = (api: CodeLookup, history: Record<string, Array<[string, number]>>): CodeLookup => ({ ...api, async closes(codes) { return new Map(codes.filter((c) => history[c]).map((c) => [c, history[c]])) } })
+const withCloses = (api: CodeLookup, history: Record<string, Array<[string, number, number?]>>): CodeLookup => ({ ...api, async closes(codes) { return new Map(codes.filter((c) => history[c]).map((c) => [c, history[c]])) } })
 const down = async () => { throw Object.assign(new Error("服务故障"), { code: "999999" }) }
 
 const AH_MOBILE: Listing[] = [["600941.SH", "中国移动"], ["00941.HK", "中国移动"]]
@@ -402,15 +402,73 @@ describe("fillComponentCodes", () => {
     expect(codesOf(rows)).toEqual(["NVDA.O", "TRI.O"])
   })
 
-  it("settles a price tie across markets by the ETF's one market, and leaves it null in an ETF holding both", async () => {
+  it("settles a price tie across markets by the ETF's one market once the other listing's recent closes rule it out, and leaves it null otherwise", async () => {
     // 招商银行 A 股（42.5 元）与 H 股（42.5 港元）的价格都对得上。
     const search: Record<string, Listing[]> = { 贵州茅台: [["600519.SH", "贵州茅台"]], 招商银行: [["600036.SH", "招商银行"], ["03968.HK", "招商银行"]], 华润啤酒: [["00291.HK", "华润啤酒"]] }
     const prices = { "600519.SH": [1335, 1349.98], "600036.SH": [42.5, 42.3], "03968.HK": [42.5, 42.6], "00291.HK": [19.48, 19.6] }
-    const api = withCloses(lookup(search, prices).api, {})
-    const one = await fillComponentCodes([row("510300.SH", 1, "贵州茅台", 1349.98), row("510300.SH", 5, "招商银行", 42.5)], api)
+    // H 股的近期收盘价都对不上：这一行不是它。
+    const ruledOut = withCloses(lookup(search, prices).api, { "03968.HK": [["2026-10-26", 44.1], ["2026-10-27", 44.3]] })
+    const one = await fillComponentCodes([row("510300.SH", 1, "贵州茅台", 1349.98), row("510300.SH", 5, "招商银行", 42.5)], ruledOut)
     expect(codesOf(one.rows)).toEqual(["600519.SH", "600036.SH"])
-    const both = await fillComponentCodes([row("517180.SH", 1, "贵州茅台", 1349.98), row("517180.SH", 2, "华润啤酒", 19.48), row("517180.SH", 3, "招商银行", 42.5)], api)
+    // 没有 H 股的收盘价就排除不了它，单凭贵州茅台一行也说明不了本 ETF 只持 A 股。
+    const open = await fillComponentCodes([row("510300.SH", 1, "贵州茅台", 1349.98), row("510300.SH", 5, "招商银行", 42.5)], withCloses(lookup(search, prices).api, {}))
+    expect(codesOf(open.rows)).toEqual(["600519.SH", null])
+    const both = await fillComponentCodes([row("517180.SH", 1, "贵州茅台", 1349.98), row("517180.SH", 2, "华润啤酒", 19.48), row("517180.SH", 3, "招商银行", 42.5)], ruledOut)
     expect(codesOf(both.rows)).toEqual(["600519.SH", "00291.HK", null])
+  })
+
+  it("does not fill a quote the other market's recent closes leave contested from the other rows' market", async () => {
+    // 恒瑞医药的清单价等于 A 股实时价，也等于 H 股的一个收盘价：两只都可能，另外两行 A 股说明不了是哪只。
+    const search: Record<string, Listing[]> = { 中国石油: [["601857.SH", "中国石油"]], 中国神华: [["601088.SH", "中国神华"]], 恒瑞医药: [["600276.SH", "恒瑞医药"], ["01276.HK", "恒瑞医药"]] }
+    const prices = { "601857.SH": [13.38, 13.2], "601088.SH": [38.5, 38.1], "600276.SH": [47.44, 47.0], "01276.HK": [52.1, 51.8] }
+    const api = withCloses(lookup(search, prices).api, { "01276.HK": [["2026-10-27", 47.44]] })
+    const { rows, unresolved } = await fillComponentCodes([row("510300.SH", 1, "中国石油", 13.38), row("510300.SH", 2, "中国神华", 38.5), row("510300.SH", 3, "恒瑞医药", 47.44)], api)
+    expect(codesOf(rows)).toEqual(["601857.SH", "601088.SH", null])
+    expect(unresolved.map((u) => u.componentName)).toEqual(["恒瑞医药"])
+  })
+
+  describe("a row's own change decides between listings its price leaves open", () => {
+    // 招商银行 A 股（元）与 H 股（港元）10-27 都收 42.5，涨跌幅 +0.47% 与 -0.23%。
+    const search: Record<string, Listing[]> = { 贵州茅台: [["600519.SH", "贵州茅台"]], 招商银行: [["600036.SH", "招商银行"], ["03968.HK", "招商银行"]], 华润啤酒: [["00291.HK", "华润啤酒"]] }
+    const prices = { "600519.SH": [1335, 1349.98], "600036.SH": [42.5, 42.3], "03968.HK": [42.5, 42.6], "00291.HK": [19.48, 19.6] }
+    const bars: Record<string, Array<[string, number, number?]>> = { "600036.SH": [["2026-10-27", 42.5, 0.4728]], "03968.HK": [["2026-10-27", 42.5, -0.2347]] }
+    const withChange = (fundCode: string, serialNumber: number, name: string, close: number, pctChange: number) => ({ ...row(fundCode, serialNumber, name, close), pctChange })
+
+    it("settles a tie across markets, also in an ETF holding both", async () => {
+      const api = withCloses(lookup(search, prices).api, bars)
+      const aOnly = await fillComponentCodes([withChange("510300.SH", 1, "贵州茅台", 1349.98, 1.12), withChange("510300.SH", 5, "招商银行", 42.5, 0.4728)], api)
+      expect(codesOf(aOnly.rows)).toEqual(["600519.SH", "600036.SH"])
+      const both = await fillComponentCodes([withChange("517180.SH", 1, "贵州茅台", 1349.98, 1.12), withChange("517180.SH", 2, "华润啤酒", 19.48, -0.61), withChange("517180.SH", 3, "招商银行", 42.5, -0.2347)], api)
+      expect(codesOf(both.rows)).toEqual(["600519.SH", "00291.HK", "03968.HK"])
+    })
+
+    it("settles a quote the other market's close contested, either way", async () => {
+      // 恒瑞医药 A 股实时价 47.44；H 股 10-27 也收 47.44，涨跌幅不同。
+      const hengrui: Record<string, Listing[]> = { 中国石油: [["601857.SH", "中国石油"]], 中国神华: [["601088.SH", "中国神华"]], 恒瑞医药: [["600276.SH", "恒瑞医药"], ["01276.HK", "恒瑞医药"]] }
+      const quoted = { "601857.SH": [13.38, 13.2], "601088.SH": [38.5, 38.1], "600276.SH": [47.44, 47.0], "01276.HK": [52.1, 51.8] }
+      const history: Record<string, Array<[string, number, number?]>> = { "600276.SH": [["2026-10-27", 47.44, 0.9362]], "01276.HK": [["2026-10-27", 47.44, 2.5065]] }
+      const api = withCloses(lookup(hengrui, quoted).api, history)
+      const rows = (change: number) => [withChange("510300.SH", 1, "中国石油", 13.38, 1.36), withChange("510300.SH", 2, "中国神华", 38.5, 1.05), withChange("510300.SH", 3, "恒瑞医药", 47.44, change)]
+      expect(codesOf((await fillComponentCodes(rows(0.9362), api)).rows)).toEqual(["601857.SH", "601088.SH", "600276.SH"])
+      expect(codesOf((await fillComponentCodes(rows(2.5065), api)).rows)).toEqual(["601857.SH", "601088.SH", "01276.HK"])
+    })
+
+    it("decides nothing when a listing it could be has no daily bars, or the change fits neither", async () => {
+      const partial = withCloses(lookup(search, prices).api, { "600036.SH": bars["600036.SH"] })
+      expect(codesOf((await fillComponentCodes([withChange("517180.SH", 1, "贵州茅台", 1349.98, 1.12), withChange("517180.SH", 2, "华润啤酒", 19.48, -0.61), withChange("517180.SH", 3, "招商银行", 42.5, 0.4728)], partial)).rows)).toEqual(["600519.SH", "00291.HK", null])
+      const api = withCloses(lookup(search, prices).api, bars)
+      expect(codesOf((await fillComponentCodes([withChange("517180.SH", 1, "贵州茅台", 1349.98, 1.12), withChange("517180.SH", 2, "华润啤酒", 19.48, -0.61), withChange("517180.SH", 3, "招商银行", 42.5, 3.1)], api)).rows)).toEqual(["600519.SH", "00291.HK", null])
+    })
+
+    it("does not rule out a listing whose day at the row's close has no change to compare", async () => {
+      // H 股也收 42.5，但没有昨收、算不出涨跌幅。
+      const api = withCloses(lookup(search, prices).api, { "600036.SH": bars["600036.SH"], "03968.HK": [["2026-10-27", 42.5]] })
+      expect(codesOf((await fillComponentCodes([withChange("510300.SH", 1, "贵州茅台", 1349.98, 1.12), withChange("510300.SH", 5, "招商银行", 42.5, 0.4728)], api)).rows)).toEqual(["600519.SH", null])
+      expect(codesOf((await fillComponentCodes([withChange("517180.SH", 1, "贵州茅台", 1349.98, 1.12), withChange("517180.SH", 2, "华润啤酒", 19.48, -0.61), withChange("517180.SH", 3, "招商银行", 42.5, 0.4728)], api)).rows)).toEqual(["600519.SH", "00291.HK", null])
+      // 别的收盘价那天没有涨跌幅，两边都排除不了什么：对得上的那根照样定。
+      const elsewhere = withCloses(lookup(search, prices).api, { "600036.SH": bars["600036.SH"], "03968.HK": [["2026-10-24", 41.9], ["2026-10-27", 42.5, -0.2347]] })
+      expect(codesOf((await fillComponentCodes([withChange("510300.SH", 1, "贵州茅台", 1349.98, 1.12), withChange("510300.SH", 5, "招商银行", 42.5, 0.4728)], elsewhere)).rows)).toEqual(["600519.SH", "600036.SH"])
+    })
   })
 
   it("leaves only the name whose search failed null", async () => {
@@ -458,17 +516,20 @@ describe("securities table", () => {
     for (const keyword of ["比亚迪电", "26国债15", "申赎现金"]) expect(search(keyword)).toBeUndefined()
   })
 
-  it("reads the daily closes of a day-kline answer, oldest first, per code", async () => {
+  it("reads the daily closes of a day-kline answer, oldest first, per code, with each day's change from the two closes", async () => {
     const calls: Array<[string, unknown]> = []
     const client = {
       async call(endpoint: string, body: unknown) {
         calls.push([endpoint, body])
-        return { total: 3, fieldList: ["securityCode", "tradeDate", "close"], list: [["00941.HK", "2026-10-27", 78.1], ["00941.HK", "2026-10-26", 77.3], ["600941.SH", "2026-10-26", 101.3]] }
+        return { total: 3, fieldList: ["securityCode", "tradeDate", "close", "preClose"], list: [["00941.HK", "2026-10-27", 78.1, 77.3], ["00941.HK", "2026-10-26", 77.3, null], ["600941.SH", "2026-10-26", 101.3, 100]] }
       },
     }
     const closes = await clientLookup(client).closes!(["00941.HK", "600941.SH"], "2026-10-18", "2026-10-28")
-    expect([...closes]).toEqual([["00941.HK", [["2026-10-26", 77.3], ["2026-10-27", 78.1]]], ["600941.SH", [["2026-10-26", 101.3]]]])
-    expect(calls).toEqual([["quote.day-kline", { securityList: ["00941.HK", "600941.SH"], startDate: "2026-10-18", endDate: "2026-10-28", fieldList: ["securityCode", "tradeDate", "close"], limit: 10_000 }]])
+    expect([...closes].map(([code, bars]) => [code, bars.map(([d, c, change]) => [d, c, change === undefined ? undefined : Number(change.toFixed(4))])])).toEqual([
+      ["00941.HK", [["2026-10-26", 77.3, undefined], ["2026-10-27", 78.1, 1.0349]]],
+      ["600941.SH", [["2026-10-26", 101.3, 1.3]]],
+    ])
+    expect(calls).toEqual([["quote.day-kline", { securityList: ["00941.HK", "600941.SH"], startDate: "2026-10-18", endDate: "2026-10-28", fieldList: ["securityCode", "tradeDate", "close", "preClose"], limit: 10_000 }]])
   })
 
   it("is fetched once per lookup, and only the names it does not carry are searched", async () => {

@@ -796,6 +796,32 @@ describe("GangtiseClient download content handling", () => {
     expect(new TextDecoder().decode(result.data)).toBe(fileJson)
   })
 
+  // 群消息文件是用户分享的任意文件：成功响应按原字节返回、用服务端文件名，text/plain 不解码成正文，
+  // 不带 content-disposition 的 application/json 也不当信封解析。
+  it("returns a fileOnSuccess download's 2xx body as the file, whatever its content type", async () => {
+    const gbk = new Uint8Array([0xc4, 0xe3, 0xba, 0xc3]) // 「你好」的 GBK 字节，按 UTF-8 解码会变乱码
+    const envelopeLike = new TextEncoder().encode(JSON.stringify({ code: "999999", msg: "not an envelope" }))
+    for (const [contentType, bytes, disposition] of [
+      ["text/plain", gbk, `attachment; filename*=UTF-8''${encodeURIComponent("群里的笔记.txt")}`],
+      ["application/json", envelopeLike, undefined],
+    ] as const) {
+      requestMock.mockResolvedValue({
+        statusCode: 200,
+        headers: { "content-type": contentType, ...(disposition ? { "content-disposition": disposition } : {}) },
+        body: { text: vi.fn(), arrayBuffer: vi.fn().mockResolvedValue(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)) },
+      })
+      const result = await tokenClient().call("vault.wechat-message.download", undefined, { msgId: "4784255865508301077" }) as { filename?: string; data?: Uint8Array; text?: string }
+      expect(result.text).toBeUndefined()
+      expect(result.data).toEqual(bytes)
+      expect(result.filename).toBe(disposition ? "群里的笔记.txt" : undefined)
+    }
+  })
+
+  it("still reads a fileOnSuccess download's non-2xx JSON body as the error", async () => {
+    requestMock.mockResolvedValue(rawJsonResponse({ code: "130005", status: false, msg: "不支持的文件类型", data: "" }, 400))
+    await expect(tokenClient().call("vault.wechat-message.download", undefined, { msgId: "1" })).rejects.toMatchObject({ code: "130005" })
+  })
+
   // A non-JSON download failure (e.g. 404 reportId, 403 permission) used to throw
   // a bare "Download failed" with the status/body only in unread ApiError fields;
   // the message must now carry the HTTP status + a body preview so the model can

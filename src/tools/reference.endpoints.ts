@@ -68,4 +68,13 @@ export const referenceEndpoints: EndpointTable = {
     description: "List constituent securities of a sector",
     billing: UNPRICED_REFERENCE,
   },
+  // 在 open-quote 下、平台归在参考数据里。不分页：一次返回所选指数当日的全部成分。
+  "reference.index-weight": {
+    method: "POST",
+    path: "/application/open-quote/index/constituent-weight",
+    kind: "json",
+    description: "List index constituents with their weights (%) on one trading date",
+    billing: { kind: "free" },
+    expects: "list",
+  },
 }

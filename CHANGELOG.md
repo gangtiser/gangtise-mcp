@@ -2,6 +2,39 @@
 
 > README 顶部只放最近 5 个版本的一行摘要 + 历史里程碑；本文件是完整历史明细（中文），回溯至 0.1.3。
 
+### 0.3.9 (2026-11-07)
+
+新增 AI 专家情报与指数成分股权重两个工具，`gangtise_download` 可下载群消息里的文件；群消息列表的类别新增音频 / 视频；ETF 成分补代码按涨跌幅区分同名的 A / H 股。默认列出 125 个工具，`core` 仍为 96 个。
+
+**⚠️ 要改调用的**
+
+- **`gangtise_wechat_message_list` 的 `categoryList`**：文档类消息的取值是 `document`，`documents` 不再接受（本地拒绝）；新增 `audio`、`video`。
+
+**新增**
+
+- **`gangtise_expert_intel`**（extended，**20 积分/条**，默认一次 20 条约 400 积分）：AI 从专家会议、会议纪要提炼的个股情报，一条为主体公司 + 核心观点标题 + 内容标签 + 正文，附关联证券、研究方向与题材，按发布时间倒序。
+  - 筛选：`securityList`（须带市场后缀，任一关联证券命中即返回）、`researchAreaList`（中信码 `1008001xx`；申万码与方向码返回空结果、不报错）、`conceptList`、`tagList`（纯文本标签，如 `景气上行` / `超预期`）、`keyword` + `searchType`（`1` 只搜标题，缺省为标题 + 正文；标题不含公司名，按公司查用 `securityList`）、`startTime` / `endTime`（发布时间，只写日期的结束时间含当天整天）。不同筛选之间为「且」，同一筛选的多个取值为「或」
+  - 写错的研究方向 / 题材 ID 与标签、后缀与代码市场对不上的证券代码都返回空结果、不报错
+  - 单页 50 条；`fetchAll` 或 `size` 超过单页时按积分预估保护，超过阈值须 `confirmCost: true`；超时或 5xx 不自动重发
+- **`gangtise_index_weight`**（extended，免费）：传 `indexCodeList` + `tradeDate`，返回该日全部成分股及权重（`weight`，单位 %，最多四位小数；同一指数合计约为 100）。不分页，多个指数合在一个列表里按 `indexCode` 区分。
+  - 权重按每月最后一个交易日提供：其他交易日、非交易日与写错的指数代码都返回空结果、不报错，空结果的 `_hint` 指向日期与代码；有指数没取到时 `_note` 点名
+- **`gangtise_download` 的 `kind=wechat_message`**（免费）：`id` 传 `gangtise_wechat_message_list` 返回的 `msgId`（引用里的文件用 `quoteMsg.quoteMsgId`），下载 document / image / audio / video 消息的文件。
+  - 一律按原字节落盘、用服务端给的文件名，返回文件路径；`.txt` / `.json` / `.html` 这类文本文件也不解码、不内联
+  - `130005` = 该消息是 text / url、没有文件；`130003` = 消息不存在、无权访问或文件已不可用，重试不会变
+
+**变更**
+
+- **`gangtise_fund_etf_pcf_components` 补代码**：同名证券在两个市场都有、价格定不了是哪只时，再用该行的涨跌幅 `pctChange` 核对；涨跌幅也定不了的行留 `null`，不按其余各行所在的市场补。请求数不变。
+- **`130003` / `130005` 报错提示**补上群消息文件下载时的含义。
+
+**说明更正**
+
+- `gangtise_indicator_search`：
+  - 所属行业改指 `scr_indu_citic` / `scr_indu_sw` / `scr_indu_gics`（`industryLevel` 可选）；`scr_indu` 预计下线、已搜不到，恒生行业暂时只能用它的 `industryType=3`
+  - 港 / 美股估值历史分位走 EDE 的 `finc_*_quantile`（`sDate` 必填，各指标覆盖的市场以 `scopeList` 为准）；A 股仍用 `gangtise_valuation_analysis`
+  - 基金同类排名 `fund_ret_rank` / `fund_ret_rank_pct` 的「同类」是 `industryLevel` 那一级的 `fund_cls1_typ` / `fund_cls2_typ`，同分类的基金分母相同
+- 截面与条件选股的 `noQueryDate`：三个行业组合指标不必传 `tradeDate`；`scr_concept` 必填 `tradeDate`，不要给它加 `noQueryDate`。
+
 ### 0.3.8 (2026-11-02)
 
 新增个股笔记四个工具与板块资金流向；股票池可查所属租户的池；日程四个列表可按收录时间筛选；证券级指标时序不传 `calendarType` 时由服务端按指标定日期轴；ETF 成分补代码在跨市场情形下更稳妥。默认列出 123 个工具，`core` 仍为 96 个。

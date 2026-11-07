@@ -3,8 +3,22 @@ import { normalizeRows } from "../core/normalize.js"
 import { defineJsonTool, defineTool, type FamilyModule, type JsonToolSpec } from "../mcp/define.js"
 import { buildToolContent } from "../core/present.js"
 import { contentResult } from "../mcp/handler.js"
-import { nonEmptyString, enumList } from "../mcp/schemas.js"
+import { nonEmptyString, nonEmptyList, enumList } from "../mcp/schemas.js"
+import { dateString } from "../core/dateContext.js"
+import { withNote } from "../core/lateStart.js"
 import { referenceEndpoints } from "./reference.endpoints.js"
+
+const INDEX_WEIGHT_EMPTY = "权重只按每月最后一个交易日提供，其他日期与写错的指数代码都返回空结果、不报错"
+
+/** 有成分返回、但个别请求的指数一行都没有时点名：同一天别的指数有数，多半是代码写错。全部为空交给 emptyHint。
+ *  服务端不分大小写认代码、按大写返回。 */
+function missingIndexNote(data: unknown, requested: string[]): string | undefined {
+  const list = (data as { list?: unknown } | null)?.list
+  if (!Array.isArray(list) || !list.length) return undefined
+  const found = new Set(list.map((row) => String((row as { indexCode?: unknown } | null)?.indexCode).toUpperCase()))
+  const missing = [...new Set(requested.filter((code) => !found.has(code.toUpperCase())))]
+  return missing.length ? `${missing.join("、")} 没有返回成分：同一天别的指数有数据，多半是代码写错（写错的指数代码返回空结果、不报错），用 gangtise_securities_search category=['index'] 核对` : undefined
+}
 
 export const referenceSpecs: JsonToolSpec[] = [
   {
@@ -116,6 +130,22 @@ export const referenceSpecs: JsonToolSpec[] = [
     inputSchema: {
       sectorId: nonEmptyString.describe("板块 ID，来自 gangtise_sector_search（必填）"),
     },
+  },
+  {
+    name: "gangtise_index_weight",
+    tier: "extended",
+    description:
+      "查询指数成分股及权重：indexCode / indexName / tradeDate / securityCode / securityName / weight（单位 %，最多四位小数；同一指数合计约为 100，受舍入影响不严格等于 100）。一次返回所选指数当日的全部成分（不分页），多个指数合在一个列表里按 indexCode 区分。权重只按每月最后一个交易日提供：其他交易日、非交易日与写错的指数代码都返回空结果、不报错；要最新权重取上个月最后一个交易日。只要成分名单、不要权重用 gangtise_sector_constituents。",
+    endpointKey: "reference.index-weight",
+    inputSchema: {
+      indexCodeList: nonEmptyList().describe("指数代码，如 000300.SH / 000905.SH / 399006.SZ；不确定用 gangtise_securities_search category=['index']"),
+      tradeDate: dateString,
+    },
+    call: async (client, endpointKey, body) => {
+      const data = await client.call(endpointKey, body)
+      return withNote(data, missingIndexNote(data, body.indexCodeList as string[]))
+    },
+    emptyHint: `0 行结果：${INDEX_WEIGHT_EMPTY}——核对 tradeDate 是不是月末最后一个交易日，指数代码用 gangtise_securities_search category=['index'] 核对。`,
   },
 ]
 
