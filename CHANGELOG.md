@@ -2,6 +2,16 @@
 
 > README 顶部只放最近 5 个版本的一行摘要 + 历史里程碑；本文件是完整历史明细（中文），回溯至 0.1.3。
 
+### 0.3.11 (2026-11-14)
+
+A 股单季报表可取第二、第四季度；主营构成的报告期筛选参数改名为 `period` 并生效；三大报表与十大股东只传 `latest` 以外的 `period`、不带年份或日期时本地拒绝。默认列出 127 个工具，`core` 仍为 96 个。
+
+**⚠️ 要改调用的**
+
+- **`gangtise_main_business`**：按中报 / 年报筛选的参数由 `periodList` 改名为 `period`（取值不变：`interim` / `annual`），`periodList` 不再接受。用 `periodList` 取到的结果包含全部报告期，按年报或中报汇总过的请改用 `period` 重取。
+- **A 股单季报表**（`gangtise_income_statement` / `gangtise_cash_flow` 带 `quarterly: true`，以及 legacy 档 `gangtise_income_statement_quarterly` / `gangtise_cash_flow_quarterly`）：`period` 取值为 `q1` / `interim`（第二季度）/ `q3` / `annual`（第四季度）/ `latest`，与累计口径同名；`q2` / `q4` 不再接受。返回行的 `period` 仍是报告名：「2025年报」那行是第四季度的单季值，不是全年累计，读数时别当成年报。
+- **三大报表（含 legacy 档 8 个旧报表工具）与 `gangtise_top_holders`**：传了 `latest` 以外的 `period` 时须同时传 `fiscalYear` 或 `startDate` / `endDate`，否则本地拒绝、不发请求——只给 `period` 时本接口返回最新一期，`period` 不起作用。要某年年报写 `fiscalYear: [2025], period: ['annual']`；只给 `startDate` 配 `period` 取该日以来的各期。
+
 ### 0.3.10 (2026-11-14)
 
 新增海外观点列表与海外观点账号搜索，`gangtise_opinion_detail` 可取海外观点全文；三大报表与十大股东按年份或日期查时须同时传 `period`；ETF 成分补代码排除同名候选要有日 K 证据。默认列出 127 个工具，`core` 仍为 96 个。

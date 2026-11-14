@@ -211,6 +211,28 @@ describe("gangtise_valuation_analysis skipNull × fieldList", () => {
   })
 })
 
+// 单季口径返回行的 period 用的是报告名：第四季度单季那行写「2025年报」，与累计年报只差一个字，
+// 读成全年数就是错数。声明住在两个面上：统一入口在 quarterly 参数说明，legacy 单季工具在工具描述——各钉各的。
+describe("single-quarter period label note", () => {
+  const NOTE = /period 仍是报告名.{0,40}第四季度单季.{0,30}不是累计/
+  it("is on the quarterly param of the unified income and cash-flow statements", async () => {
+    const mcp = await connect(makeClient())
+    const tools = new Map((await mcp.listTools()).tools.map((t) => [t.name, t]))
+    for (const n of ["gangtise_income_statement", "gangtise_cash_flow"]) {
+      const quarterly = (tools.get(n)?.inputSchema.properties as Record<string, { description?: string }>).quarterly
+      expect(quarterly?.description, `${n} 的 quarterly 说明应写明单季行的 period 标签`).toMatch(NOTE)
+    }
+  })
+
+  it("is in the description of the legacy single-quarter tools", async () => {
+    const mcp = await connect(makeClient())
+    const byName = new Map((await mcp.listTools()).tools.map((t) => [t.name, t.description ?? ""]))
+    for (const n of ["gangtise_income_statement_quarterly", "gangtise_cash_flow_quarterly"]) {
+      expect(byName.get(n), `${n} 应写明单季行的 period 标签`).toMatch(NOTE)
+    }
+  })
+})
+
 // roe 的单位是百分比：再做一次 ÷100 得到的数字看着仍像个 ROE，不会报错。
 describe("gangtise_earning_forecast unit note", () => {
   it("states the roe percentage unit in the description", async () => {

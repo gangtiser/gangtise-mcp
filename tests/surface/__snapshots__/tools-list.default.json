@@ -2873,7 +2873,7 @@
             "type": "integer"
           },
           "minItems": 1,
-          "description": "财年列表，如 [2023, 2024]；须同时传 period（latest 以外）"
+          "description": "财年列表，如 [2023, 2024]；period（latest 以外）须与 fiscalYear 或日期区间同时传"
         },
         "period": {
           "type": "array",
@@ -2881,9 +2881,7 @@
             "type": "string",
             "enum": [
               "q1",
-              "q2",
               "q3",
-              "q4",
               "interim",
               "h1",
               "h2",
@@ -2893,11 +2891,11 @@
             ]
           },
           "minItems": 1,
-          "description": "按市场取值：A股累计 q1/interim/q3/annual/latest；A股单季 q1/q2/q3/q4/latest；港股 q1/h1/q3/h2/nsd/annual/latest；美股 q1/h1/q3/nsd/annual/latest（interim/h1=中报 h2=下半年报 nsd=不规则跨度）"
+          "description": "按市场取值：A股 q1/interim/q3/annual/latest（quarterly=true 时同名取值按单季：interim=第二季度、annual=第四季度）；港股 q1/h1/q3/h2/nsd/annual/latest；美股 q1/h1/q3/nsd/annual/latest（interim/h1=中报 h2=下半年报 nsd=不规则跨度）"
         },
         "quarterly": {
           "type": "boolean",
-          "description": "true=A股单季口径（港股、美股没有）"
+          "description": "true=A股单季口径（港股、美股没有）；返回行的 period 仍是报告名（如「2025年报」即第四季度单季），数值是该季单季值，不是累计"
         },
         "reportType": {
           "type": "array",
@@ -2960,7 +2958,7 @@
             "type": "integer"
           },
           "minItems": 1,
-          "description": "财年列表，如 [2023, 2024]；须同时传 period（latest 以外）"
+          "description": "财年列表，如 [2023, 2024]；period（latest 以外）须与 fiscalYear 或日期区间同时传"
         },
         "period": {
           "type": "array",
@@ -2968,9 +2966,7 @@
             "type": "string",
             "enum": [
               "q1",
-              "q2",
               "q3",
-              "q4",
               "interim",
               "h1",
               "h2",
@@ -2980,7 +2976,7 @@
             ]
           },
           "minItems": 1,
-          "description": "按市场取值：A股累计 q1/interim/q3/annual/latest；A股单季 q1/q2/q3/q4/latest；港股 q1/h1/q3/h2/nsd/annual/latest；美股 q1/h1/q3/nsd/annual/latest（interim/h1=中报 h2=下半年报 nsd=不规则跨度）"
+          "description": "按市场取值：A股 q1/interim/q3/annual/latest（quarterly=true 时同名取值按单季：interim=第二季度、annual=第四季度）；港股 q1/h1/q3/h2/nsd/annual/latest；美股 q1/h1/q3/nsd/annual/latest（interim/h1=中报 h2=下半年报 nsd=不规则跨度）"
         },
         "reportType": {
           "type": "array",
@@ -3043,7 +3039,7 @@
             "type": "integer"
           },
           "minItems": 1,
-          "description": "财年列表，如 [2023, 2024]；须同时传 period（latest 以外）"
+          "description": "财年列表，如 [2023, 2024]；period（latest 以外）须与 fiscalYear 或日期区间同时传"
         },
         "period": {
           "type": "array",
@@ -3051,9 +3047,7 @@
             "type": "string",
             "enum": [
               "q1",
-              "q2",
               "q3",
-              "q4",
               "interim",
               "h1",
               "h2",
@@ -3063,11 +3057,11 @@
             ]
           },
           "minItems": 1,
-          "description": "按市场取值：A股累计 q1/interim/q3/annual/latest；A股单季 q1/q2/q3/q4/latest；港股 q1/h1/q3/h2/nsd/annual/latest；美股 q1/h1/q3/nsd/annual/latest（interim/h1=中报 h2=下半年报 nsd=不规则跨度）"
+          "description": "按市场取值：A股 q1/interim/q3/annual/latest（quarterly=true 时同名取值按单季：interim=第二季度、annual=第四季度）；港股 q1/h1/q3/h2/nsd/annual/latest；美股 q1/h1/q3/nsd/annual/latest（interim/h1=中报 h2=下半年报 nsd=不规则跨度）"
         },
         "quarterly": {
           "type": "boolean",
-          "description": "true=A股单季口径（港股、美股没有）"
+          "description": "true=A股单季口径（港股、美股没有）；返回行的 period 仍是报告名（如「2025年报」即第四季度单季），数值是该季单季值，不是累计"
         },
         "reportType": {
           "type": "array",
@@ -3133,7 +3127,7 @@
           "type": "string",
           "pattern": "^(\\d{4})([-/]?)(\\d{2})\\2(\\d{2})$"
         },
-        "periodList": {
+        "period": {
           "type": "array",
           "items": {
             "type": "string",
@@ -3218,7 +3212,7 @@
             "type": "integer"
           },
           "minItems": 1,
-          "description": "财年列表，如 [2023, 2024]；须同时传 period（latest 以外）"
+          "description": "财年列表，如 [2023, 2024]；period（latest 以外）须与 fiscalYear 或日期区间同时传"
         },
         "period": {
           "type": "array",

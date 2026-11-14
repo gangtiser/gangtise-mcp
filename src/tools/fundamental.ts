@@ -14,7 +14,7 @@ import { ValidationError } from "../core/errors.js"
 import { fundamentalEndpoints } from "./fundamental.endpoints.js"
 
 const periodEnum = enumList(z.enum(["q1", "interim", "q3", "annual", "latest"])).optional().describe("q1=一季报 | interim=中报 | q3=三季报 | annual=年报 | latest=最新")
-const quarterlyPeriodEnum = enumList(z.enum(["q1", "q2", "q3", "q4", "latest"])).optional().describe("q1 | q2 | q3 | q4 | latest")
+const quarterlyPeriodEnum = enumList(z.enum(["q1", "interim", "q3", "annual", "latest"])).optional().describe("q1 | interim=第二季度 | q3 | annual=第四季度 | latest")
 const hkPeriodEnum = enumList(z.enum(["q1", "h1", "q3", "h2", "nsd", "annual", "latest"])).optional().describe("q1 | h1=中报 | q3 | h2=下半年报 | nsd=不规则跨度 | annual=年报 | latest")
 const usPeriodEnum = enumList(z.enum(["q1", "h1", "q3", "nsd", "annual", "latest"])).optional().describe("q1 | h1=中报 | q3 | nsd=不规则跨度 | annual=年报 | latest")
 // 口径表由 server.instructions 的「通用参数」行统一声明（11 处共用）。别在这里加回描述。
@@ -26,8 +26,8 @@ const dateRange = {
   startDate: dateString.optional(),
   endDate: dateString.optional(),
 }
-// 后半句随 A39 撤：服务端在 period 缺省时也按 fiscalYear 取数后删（撤除清单见 bug/server-open.md）。
-const fiscalYear = enumList(z.number().int()).optional().describe("财年列表，如 [2023, 2024]；须同时传 period（latest 以外）")
+// 后半句随 A39 撤：服务端对 period 与 fiscalYear / 日期区间各自生效后删（撤除清单见 bug/server-open.md）。
+const fiscalYear = enumList(z.number().int()).optional().describe("财年列表，如 [2023, 2024]；period（latest 以外）须与 fiscalYear 或日期区间同时传")
 const fieldList = uniqueFieldList("指定返回字段")
 // valuation-analysis 全表就 7 列，且**没有 securityCode**；tradeDate 总是自动前置到每一行。
 // 2026-10-17 复核：不存在的字段名（含 securityCode）整条报 100005 并点名，显式 tradeDate 与重复字段
@@ -91,14 +91,23 @@ function flagValuationRange(normalized: unknown, limit: number, startDate: unkno
 // 什么也测不出来。
 const PIT_NOTE = "做 point-in-time / 时点对齐时，announcementDate 是当前返回报表版本的公告日，earliestAnncDate 是接口记录的首次公告日。consolidated 也可能返回后来重述的数值，不能把它配上 earliestAnncDate 就当成首次披露值；category 仍可能是一季报/半年报告/三季报，不能靠它排除重述。应按返回版本的公告日控制数值可见时间；需要首次披露的原始数值时，请核对当时公告。"
 
-/** 三表（含 legacy 各变体）与十大股东：period 缺省按 latest 取数，这时 fiscalYear 与日期区间都不起作用、照样返回最新一期，
- *  显式只传 latest 也一样。按年份或区间查却拿到最新一期，看起来像正常结果，所以在本地拒。 */
-function requirePeriodWithRange(body: Record<string, unknown>): Record<string, unknown> {
+/** 三表（含 legacy 各变体）与十大股东：period（latest 以外）与 fiscalYear / 日期区间只在同时给出时生效，缺任一边都返回最新一期
+ *  （period 缺省、显式只传 latest、或只传 period 都一样）。按年份、区间或报告期查却拿到最新一期，看起来像正常结果，所以在本地拒。 */
+function periodRangeProblem(body: Record<string, unknown>): string | undefined {
   const ranged = (Array.isArray(body.fiscalYear) && body.fiscalYear.length > 0) || body.startDate !== undefined || body.endDate !== undefined
   const periods = Array.isArray(body.period) ? body.period.map(String) : []
   if (ranged && periods.every((p) => p === "latest")) {
-    throw new ValidationError("传了 fiscalYear 或 startDate / endDate 时须同时传 period（latest 以外的取值，如 ['annual']，单季口径用 q1–q4；要全年各期就列出各期）：period 缺省或只给 latest 时本接口返回最新一期，年份与日期区间都不起作用。只要最新一期就去掉 fiscalYear / startDate / endDate。")
+    return "传了 fiscalYear 或 startDate / endDate 时须同时传 period（latest 以外的取值，如 ['annual']；要全年各期就列出各期）：period 缺省或只给 latest 时本接口返回最新一期，年份与日期区间都不起作用。只要最新一期就去掉 fiscalYear / startDate / endDate。"
   }
+  if (!ranged && periods.some((p) => p !== "latest")) {
+    return "传了 latest 以外的 period 时须同时传 fiscalYear 或 startDate / endDate（如 fiscalYear: [2025] 配 period: ['annual']；要近几年的某一期可只给 startDate）：只给 period 时本接口返回最新一期，period 不起作用。只要最新一期就去掉 period。"
+  }
+  return undefined
+}
+
+function requirePeriodWithRange(body: Record<string, unknown>): Record<string, unknown> {
+  const problem = periodRangeProblem(body)
+  if (problem) throw new ValidationError(problem)
   return body
 }
 
@@ -106,11 +115,11 @@ function requirePeriodWithRange(body: Record<string, unknown>): Record<string, u
  *  工具一致；对外 schema 是并集，resolve 定了市场再按那一套校验。单季口径只有 A 股利润表与现金流量表有。 */
 const STATEMENT_PERIODS = {
   cn: ["q1", "interim", "q3", "annual", "latest"],
-  cnQuarterly: ["q1", "q2", "q3", "q4", "latest"],
+  cnQuarterly: ["q1", "interim", "q3", "annual", "latest"],
   hk: ["q1", "h1", "q3", "h2", "nsd", "annual", "latest"],
   us: ["q1", "h1", "q3", "nsd", "annual", "latest"],
 } as const
-const STATEMENT_PERIOD_VALUES = ["q1", "q2", "q3", "q4", "interim", "h1", "h2", "nsd", "annual", "latest"] as const
+const STATEMENT_PERIOD_VALUES = ["q1", "q3", "interim", "h1", "h2", "nsd", "annual", "latest"] as const
 const MARKET_NAME = { cn: "A股", hk: "港股", us: "美股" } as const
 
 function statementSpec(config: {
@@ -129,23 +138,25 @@ function statementSpec(config: {
       securityCode: nonEmptyString.describe("证券代码，按后缀选市场：A股 .SH/.SZ/.BJ（如 600519.SH）、港股 .HK（5 位数字前补零，如 00700.HK）、美股 .O/.N/.A（如 TSLA.O）"),
       ...dateRange,
       fiscalYear,
-      period: enumList(z.enum(STATEMENT_PERIOD_VALUES)).optional().describe("按市场取值：A股累计 q1/interim/q3/annual/latest；A股单季 q1/q2/q3/q4/latest；港股 q1/h1/q3/h2/nsd/annual/latest；美股 q1/h1/q3/nsd/annual/latest（interim/h1=中报 h2=下半年报 nsd=不规则跨度）"),
-      ...(endpoints.cnQuarterly ? { quarterly: z.boolean().optional().describe("true=A股单季口径（港股、美股没有）") } : {}),
+      period: enumList(z.enum(STATEMENT_PERIOD_VALUES)).optional().describe("按市场取值：A股 q1/interim/q3/annual/latest（quarterly=true 时同名取值按单季：interim=第二季度、annual=第四季度）；港股 q1/h1/q3/h2/nsd/annual/latest；美股 q1/h1/q3/nsd/annual/latest（interim/h1=中报 h2=下半年报 nsd=不规则跨度）"),
+      ...(endpoints.cnQuarterly ? { quarterly: z.boolean().optional().describe("true=A股单季口径（港股、美股没有）；返回行的 period 仍是报告名（如「2025年报」即第四季度单季），数值是该季单季值，不是累计") } : {}),
       reportType: reportTypeEnum,
       fieldList,
     },
     resolve: ({ quarterly, ...body }) => {
-      requirePeriodWithRange(body)
       const code = String(body.securityCode)
       const market = parseSecurityCode(code).market
-      if (!market) throw new ValidationError(`无法从 '${code}' 的后缀判断市场：A股 .SH/.SZ/.BJ、港股 .HK、美股 .O/.N/.A。`)
-      if (quarterly === true && market !== "cn") throw new ValidationError(`单季口径（quarterly）只有 A 股有，'${code}' 是${MARKET_NAME[market]}代码：去掉 quarterly。`)
+      // 区间缺失与后缀 / quarterly / 取值错同时存在时一并报出，免得改完一处再撞另一处。
+      const rangeProblem = periodRangeProblem(body) ?? ""
+      if (!market) throw new ValidationError(`无法从 '${code}' 的后缀判断市场：A股 .SH/.SZ/.BJ、港股 .HK、美股 .O/.N/.A。${rangeProblem}`)
+      if (quarterly === true && market !== "cn") throw new ValidationError(`单季口径（quarterly）只有 A 股有，'${code}' 是${MARKET_NAME[market]}代码：去掉 quarterly。${rangeProblem}`)
       const scheme = market === "cn" ? (quarterly === true ? "cnQuarterly" : "cn") : market
       const allowed: readonly string[] = STATEMENT_PERIODS[scheme]
       const bad = (Array.isArray(body.period) ? body.period : []).filter((p) => !allowed.includes(String(p)))
       if (bad.length > 0) {
-        throw new ValidationError(`${MARKET_NAME[market]}${scheme === "cnQuarterly" ? "单季" : ""}报表的 period 只收 ${allowed.join(" / ")}，'${bad[0]}' 不在其中。`)
+        throw new ValidationError(`${MARKET_NAME[market]}${scheme === "cnQuarterly" ? "单季" : ""}报表的 period 只收 ${allowed.join(" / ")}，'${bad[0]}' 不在其中。${rangeProblem}`)
       }
+      if (rangeProblem) throw new ValidationError(rangeProblem)
       const endpointKey = scheme === "cnQuarterly" ? endpoints.cnQuarterly! : endpoints[market]
       return { endpointKey, body }
     },
@@ -174,7 +185,7 @@ export const specs: JsonToolSpec[] = [
   {
     name: "gangtise_income_statement_quarterly",
     tier: "legacy",
-    description: `查询A股单季利润表。${PIT_NOTE}本工具的 companyType 返回的是未映射的数字码，要读公司类型请取累计口径报表的同名字段。`,
+    description: `查询A股单季利润表。返回行的 period 仍是报告名（如「2025年报」即第四季度单季），数值是该季单季值，不是累计。${PIT_NOTE}本工具的 companyType 返回的是未映射的数字码，要读公司类型请取累计口径报表的同名字段。`,
     endpointKey: "fundamental.income-statement-quarterly",
     paginated: false,
     inputSchema: {
@@ -200,7 +211,7 @@ export const specs: JsonToolSpec[] = [
   {
     name: "gangtise_cash_flow_quarterly",
     tier: "legacy",
-    description: `查询A股单季现金流量表。${PIT_NOTE}本工具的 companyType 返回的是未映射的数字码，要读公司类型请取累计口径报表的同名字段。`,
+    description: `查询A股单季现金流量表。返回行的 period 仍是报告名（如「2025年报」即第四季度单季），数值是该季单季值，不是累计。${PIT_NOTE}本工具的 companyType 返回的是未映射的数字码，要读公司类型请取累计口径报表的同名字段。`,
     endpointKey: "fundamental.cash-flow-quarterly",
     paginated: false,
     inputSchema: {
@@ -223,7 +234,7 @@ export const specs: JsonToolSpec[] = [
       securityCode,
       breakdown: z.enum(["product", "industry", "region"]).describe("product=产品 | industry=行业 | region=地区（必填）"),
       ...dateRange,
-      periodList: enumList(z.enum(["interim", "annual"])).optional().describe("interim=中报 | annual=年报"),
+      period: enumList(z.enum(["interim", "annual"])).optional().describe("interim=中报 | annual=年报"),
       fieldList: mainBusinessFieldList,
     },
   },

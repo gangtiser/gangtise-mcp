@@ -1025,7 +1025,7 @@ const CLOSED_SET_SNAPSHOT = [
     "cash_flow_quarterly.period",
     "cash_flow_quarterly.reportType",
     "main_business.breakdown",
-    "main_business.periodList",
+    "main_business.period",
     "main_business.fieldList",
     "top_holders.holderType",
     "top_holders.period",
@@ -1171,7 +1171,9 @@ describe("closed-set params reject illegal values before calling upstream", () =
       for (const [key, spec] of Object.entries(props)) {
         const vals = enumValuesOf(spec)
         if (!vals || vals.length === 0) continue
-        const base = { ...fillRequired(schema, key), ...COMPANIONS[tool.name]?.(key) }
+        // 三表与十大股东：latest 以外的 period 须配 fiscalYear 或日期区间，否则本地拒。
+        const withYear = key === "period" && props.fiscalYear ? { fiscalYear: [2025] } : {}
+        const base = { ...fillRequired(schema, key), ...COMPANIONS[tool.name]?.(key), ...withYear }
         const wrap = (v: unknown) => (isArrayParam(spec) ? [v] : v)
 
         // ② 正向对照先跑：换成合法值必须打通。打不通说明这条用例的「红」另有原因
@@ -1208,6 +1210,56 @@ describe("closed-set params reject illegal values before calling upstream", () =
   })
 })
 
+
+// 🔴 按声明钉：schema 同时带 fiscalYear 与 period 的工具（三表统一入口、legacy 变体、十大股东），
+// 只传 period、只传 fiscalYear 都必须零请求拒绝——本接口两者缺一都返回最新一期（A39）。
+// 从 tools/list 枚举，新增报表工具自动纳入；只在少数工具上写示例，挡不住某个 legacy 变体漏了守卫。
+describe("period and fiscalYear only go out together (enumerated from tools/list)", () => {
+  it("rejects period alone and fiscalYear alone before calling upstream", async () => {
+    const client = makeMockClient()
+    const probe = await makeTestClient(client)
+    const call = client.call as ReturnType<typeof vi.fn>
+    const covered: string[] = []
+    for (const tool of (await probe.listTools()).tools) {
+      const schema = tool.inputSchema as { properties?: Record<string, { enum?: string[]; items?: { enum?: string[] } }>; required?: string[] }
+      const props = schema.properties ?? {}
+      if (!props.fiscalYear || !props.period) continue
+      const period = (props.period.items?.enum ?? []).find((v) => v !== "latest")
+      const base: Record<string, unknown> = {}
+      for (const key of schema.required ?? []) base[key] = props[key]?.enum?.[0] ?? "600519.SH"
+      const run = async (args: Record<string, unknown>) => {
+        call.mockClear()
+        const r = await probe.callTool({ name: tool.name, arguments: { ...base, ...args } })
+        return { isError: Boolean(r.isError), called: call.mock.calls.length, text: String((r.content as Array<{ text?: string }>)[0]?.text ?? "") }
+      }
+      // 正向对照：两者都给必须打通，否则下面的拒绝可能另有原因。
+      expect((await run({ fiscalYear: [2025], period: [period] })).isError, `${tool.name}：fiscalYear + period 应放行`).toBe(false)
+      const onlyPeriod = await run({ period: [period] })
+      expect(onlyPeriod, `${tool.name}：只传 period 应零请求拒绝`).toMatchObject({ isError: true, called: 0 })
+      expect(onlyPeriod.text).toMatch(/须同时传 fiscalYear 或 startDate/)
+      const onlyYear = await run({ fiscalYear: [2025] })
+      expect(onlyYear, `${tool.name}：只传 fiscalYear 应零请求拒绝`).toMatchObject({ isError: true, called: 0 })
+      expect(onlyYear.text).toMatch(/须同时传 period/)
+      covered.push(tool.name)
+    }
+    // 钉名单而不只是个数：一个工具掉出枚举（如十大股东去掉 fiscalYear、只留日期）的同时新增一个报表工具，个数不变。
+    // 掉出去的工具 A39 照样适用，要么把它加回枚举条件，要么另写用例；新增的报表工具补进名单。
+    expect(covered.sort()).toEqual([
+      "gangtise_balance_sheet",
+      "gangtise_balance_sheet_hk",
+      "gangtise_balance_sheet_us",
+      "gangtise_cash_flow",
+      "gangtise_cash_flow_hk",
+      "gangtise_cash_flow_quarterly",
+      "gangtise_cash_flow_us",
+      "gangtise_income_statement",
+      "gangtise_income_statement_hk",
+      "gangtise_income_statement_quarterly",
+      "gangtise_income_statement_us",
+      "gangtise_top_holders",
+    ])
+  })
+})
 
 // 🔴 **从 tools/list 自动枚举**，不手选样本。
 //
