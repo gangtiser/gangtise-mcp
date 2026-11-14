@@ -14,7 +14,9 @@ import { runWithConcurrency } from "./transport.js"
  *  收盘价。同一公司的 A 股与 H 股在 A+H ETF 里是同名两行，只能靠价格分开；候选跨市场时，实时价相符还要
  *  另一市场那只的近期收盘价都对不上才算数（清单价格落后于行情时，它的实时价可能碰巧等于该行）。价格把一行留在
  *  两个上市之间的（两个市场的价格都对得上、或另一市场那只排除不了），再用该行自己的 `pctChange` 定：哪只有一天的
- *  收盘价与涨跌幅都和该行相同就是哪只。价格定不了时（除权除息当天、停牌、没有行情的债券），只有确知成分都在一个
+ *  收盘价与涨跌幅都和该行相同就是哪只。排除另一只要有证据：它的日 K 要覆盖到相应那天、且收盘价对不上——实时行情
+ *  在日 K 还没到的那天（按行情 tradeDate 判）印证了该行的价、或日 K 从更晚的日子才开始的，都不算排除，每一步都按这条。
+ *  价格定不了时（除权除息当天、停牌、没有行情的债券），只有确知成分都在一个
  *  市场的 ETF 才按完全同名取该市场的那只（同市场多只取 ETF 自己的交易所）；成分跨市场、有一行可能在两个市场又没
  *  定下来、或有名称查询失败时，这些行都留 null。 */
 
@@ -24,8 +26,8 @@ interface Candidate { code: string; name: string; category: string; prefix: bool
 export interface CodeLookup {
   /** 按关键字找证券，行形同 securities-search。 */
   search(keyword: string): Promise<unknown[]>
-  /** 实时行情知道的代码 → [昨收, 最新价]。 */
-  quotes(codes: string[]): Promise<Map<string, number[]>>
+  /** 实时行情知道的代码 → 昨收、最新价与最新价所属交易日。 */
+  quotes(codes: string[]): Promise<Map<string, Quote>>
   /** 两个日期之间每只的日收盘价，旧在前，昨收已知时附当天涨跌幅（%）：给价格落后行情一天以上的清单、以及价格
    *  留在两个上市之间的行用。没有它时这类行交给名称判。 */
   closes?(codes: string[], startDate: string, endDate: string): Promise<Map<string, Bar[]>>
@@ -33,6 +35,16 @@ export interface CodeLookup {
 
 type Row = Record<string, unknown>
 type Bar = [date: string, close: number, change?: number]
+/** `date`：YYYY-MM-DD，`latest` 所属的交易日。 */
+export interface Quote { previous?: number; latest?: number; date?: string }
+
+/** YYYY-MM-DD 前一个工作日。 */
+function weekdayBefore(day: string): string {
+  const d = new Date(`${day}T00:00:00Z`)
+  do d.setUTCDate(d.getUTCDate() - 1)
+  while (d.getUTCDay() === 0 || d.getUTCDay() === 6)
+  return d.toISOString().slice(0, 10)
+}
 
 /** 成分的 close 就是行情价本身：14 只 ETF（2026-10-27）里每个确认的行都分毫不差，而同名在另一市场的
  *  上市最近只差 0.15%（同一公司的 A 股与 H 股，常见 0.3%）。容差远小于这个间距。 */
@@ -211,7 +223,8 @@ export async function fillComponentCodes(rows: Row[], lookup: CodeLookup): Promi
   }, signal)
   const isQuotable = (c: Candidate) => ["stock", "dr"].includes(c.category) && QUOTABLE.test(c.code)
   const quotable = [...new Set([...candidates.values()].flat().filter(isQuotable).map((c) => c.code))]
-  const prices = new Map((await runWithConcurrency(inBatches(quotable, QUOTE_BATCH), PAGE_CONCURRENCY, (batch) => splitting(batch, (codes) => lookup.quotes(codes)), signal)).flatMap((quoted) => [...quoted]))
+  const quotes = new Map((await runWithConcurrency(inBatches(quotable, QUOTE_BATCH), PAGE_CONCURRENCY, (batch) => splitting(batch, (codes) => lookup.quotes(codes)), signal)).flatMap((quoted) => [...quoted]))
+  const prices = new Map([...quotes].map(([code, q]) => [code, [q.previous, q.latest].filter((p): p is number => typeof p === "number")]))
 
   const codes = new Map<Row, string | null>()
   // 价格把范围缩到不止一个市场的上市（两个市场的价格都对得上），或缩到一只、但另一市场那只排除不了的行：
@@ -257,8 +270,36 @@ export async function fillComponentCodes(rows: Row[], lookup: CodeLookup): Promi
       for (const [code, series] of part) history.set(code, series)
     }
   }
-  /** 按「清单价格是某个近期收盘价」这一前提，该上市仍可能是这一行：近期收盘价有一个相符，或取不到它的日 K。 */
-  const mayBe = (row: Row, c: Candidate) => !history.has(c.code) || history.get(c.code)!.some(([, close]) => agrees(row.close as number, close))
+  /** 行情说这只在某天收于 `close`，而日 K 可能还没覆盖那天：实时行情可能比日 K 快一天。按日期判、不按价格（收盘价会重复）。
+   *  日 K 到了行情那天才算覆盖了最新价；覆盖昨收要到行情那天、或它前一个工作日——两天之间没有工作日，那里的 K 线
+   *  就是上一交易日的（那个工作日若是假日则仍算没覆盖）。不带日期的行情两者都不算覆盖。 */
+  const unshown = (close: number, c: Candidate) => {
+    const { previous, latest, date } = quotes.get(c.code) ?? {}
+    const onLatest = latest !== undefined && agrees(close, latest)
+    const onPrevious = previous !== undefined && agrees(close, previous)
+    if (!onLatest && !onPrevious) return false
+    if (date === undefined) return true
+    const days = (history.get(c.code) ?? []).map(([day]) => day)
+    const reachesQuote = days.some((day) => day >= date)
+    const reachesPrevious = reachesQuote || days.includes(weekdayBefore(date))
+    return (onLatest && !reachesQuote) || (onPrevious && !reachesPrevious)
+  }
+  /** 各 ETF 在各市场的清单价格所属日（`listDates`，由其行能定出的）。 */
+  const marketDays = new Map([...etfs].map(([fundCode, { own }]) => [fundCode, listDates(own, candidates, history)]))
+  /** 这只的日 K 开始得太晚（或没有），说不出它在该行那天收于多少。该行那天取本 ETF 在这只所在市场定出的日子——
+   *  绝不用别的市场的：一份清单里各市场的价格属于不同的日子。那个市场没定出日子时，看该行的其他候选有没有
+   *  早于这只日 K 起点、收于该行 close 的一天。 */
+  const startsLate = (row: Row, c: Candidate) => {
+    const first = history.get(c.code)?.[0]?.[0]
+    if (first === undefined) return true
+    const day = marketDays.get(row.fundCode)?.get(market(c.code))
+    if (day !== undefined) return first > day
+    return candidatesOf(row).some((o) => o.code !== c.code && (history.get(o.code) ?? []).some(([d, price]) => d < first && agrees(row.close as number, price)))
+  }
+  /** 按「清单价格是某个近期收盘价」这一前提，该上市仍可能是这一行：近期收盘价有一个相符，或日 K 没覆盖到相应那天
+   *  （行情在日 K 还没到的那天印证了这个价、或日 K 起点晚于那天），或取不到它的日 K。排除一只的每一步（实时价
+   *  有争议、清单落后时按日核对、涨跌幅、ETF 的市场与随之的名称兜底）都问它，所以共用同一条「日 K 覆盖到哪天」的规则。 */
+  const mayBe = (row: Row, c: Candidate) => !history.has(c.code) || history.get(c.code)!.some(([, close]) => agrees(row.close as number, close)) || unshown(row.close as number, c) || startsLate(row, c)
   for (const { own, etf } of etfs.values()) {
     for (const row of own) {
       const matched = unverified.get(row)
@@ -295,9 +336,16 @@ export async function fillComponentCodes(rows: Row[], lookup: CodeLookup): Promi
       if (!pool.length || !pool.every((c) => isQuotable(c) && history.has(c.code))) continue
       const atClose = (c: Candidate) => history.get(c.code)!.filter(([, price]) => agrees(close, price))
       const hit = pool.filter((c) => atClose(c).some(([, , moved]) => moved !== undefined && Math.abs(moved - change) <= CHANGE_TOLERANCE))
-      // 在该行收盘价那天算不出涨跌幅（没有昨收）的上市排除不了。
-      const unknown = pool.some((c) => !hit.includes(c) && atClose(c).some(([, , moved]) => moved === undefined))
-      if (!hit.length || unknown || marketsOf(hit).size > 1) continue
+      if (!hit.length) continue
+      // 排除另一只靠它的日 K 显示了什么，不靠缺了什么：在该行收盘价那天算不出涨跌幅（没有昨收）、行情在日 K
+      // 可能还没覆盖的那天印证了该行收盘价（`unshown`）、或日 K 起点晚于另一只收于该行 close 的那天（`startsLate`），
+      // 这只都排除不了。
+      const unknown = pool.some((c) => !hit.includes(c) && (
+        atClose(c).some(([, , moved]) => moved === undefined)
+        || unshown(close, c)
+        || startsLate(row, c)
+      ))
+      if (unknown || marketsOf(hit).size > 1) continue
       const code = narrow(hit, etf)
       if (code) place(row, code, etf)
     }
@@ -444,10 +492,11 @@ export function clientLookup(client: { call(endpointKey: string, body?: unknown)
       return out
     },
     async quotes(codes) {
-      const out = new Map<string, number[]>()
+      const out = new Map<string, Quote>()
+      const price = (value: unknown) => (typeof value === "number" ? value : undefined)
       for (const q of listOf(await client.call("quote.realtime", { securityList: codes }))) {
-        const prices = [q.preClose, q.latestPrice].filter((p): p is number => typeof p === "number")
-        if (typeof q.securityCode === "string" && prices.length) out.set(q.securityCode, prices)
+        const quote: Quote = { previous: price(q.preClose), latest: price(q.latestPrice), date: typeof q.tradeDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(q.tradeDate) ? q.tradeDate : undefined }
+        if (typeof q.securityCode === "string" && (quote.previous !== undefined || quote.latest !== undefined)) out.set(q.securityCode, quote)
       }
       return out
     },

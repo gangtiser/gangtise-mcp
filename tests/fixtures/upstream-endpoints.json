@@ -1,7 +1,7 @@
 {
   "source": "gangtise-openapi-cli",
-  "version": "0.51.0",
-  "commit": "4c0e7daf84b846ffb5a5b0ad4b4c948fa2391a9b",
+  "version": "0.52.0",
+  "commit": "e7e916d9e5ad778991beec0c37083be56b9b3484",
   "endpoints": {
     "ai.earnings-review.get-content": {
       "method": "POST",
@@ -280,7 +280,8 @@
     "alternative.edb-search": {
       "method": "POST",
       "path": "/application/open-alternative/EDB/search",
-      "kind": "json"
+      "kind": "json",
+      "expects": "array"
     },
     "auth.login": {
       "method": "POST",
@@ -634,37 +635,44 @@
     "fundamental.balance-sheet": {
       "method": "POST",
       "path": "/application/open-fundamental/financial-report/balance-sheet/accumulated",
-      "kind": "json"
+      "kind": "json",
+      "expects": "list"
     },
     "fundamental.balance-sheet-hk": {
       "method": "POST",
       "path": "/application/open-fundamental/financial-report/balance-sheet/hk",
-      "kind": "json"
+      "kind": "json",
+      "expects": "list"
     },
     "fundamental.balance-sheet-us": {
       "method": "POST",
       "path": "/application/open-fundamental/financial-report/balance-sheet/us",
-      "kind": "json"
+      "kind": "json",
+      "expects": "list"
     },
     "fundamental.cash-flow": {
       "method": "POST",
       "path": "/application/open-fundamental/financial-report/cash-flow-statement/accumulated",
-      "kind": "json"
+      "kind": "json",
+      "expects": "list"
     },
     "fundamental.cash-flow-hk": {
       "method": "POST",
       "path": "/application/open-fundamental/financial-report/cash-flow-statement/hk",
-      "kind": "json"
+      "kind": "json",
+      "expects": "list"
     },
     "fundamental.cash-flow-quarterly": {
       "method": "POST",
       "path": "/application/open-fundamental/financial-report/cash-flow-statement/quarterly",
-      "kind": "json"
+      "kind": "json",
+      "expects": "list"
     },
     "fundamental.cash-flow-us": {
       "method": "POST",
       "path": "/application/open-fundamental/financial-report/cash-flow-statement/us",
-      "kind": "json"
+      "kind": "json",
+      "expects": "list"
     },
     "fundamental.earning-forecast": {
       "method": "POST",
@@ -680,32 +688,38 @@
     "fundamental.income-statement": {
       "method": "POST",
       "path": "/application/open-fundamental/financial-report/income-statement/accumulated",
-      "kind": "json"
+      "kind": "json",
+      "expects": "list"
     },
     "fundamental.income-statement-hk": {
       "method": "POST",
       "path": "/application/open-fundamental/financial-report/income-statement/hk",
-      "kind": "json"
+      "kind": "json",
+      "expects": "list"
     },
     "fundamental.income-statement-quarterly": {
       "method": "POST",
       "path": "/application/open-fundamental/financial-report/income-statement/quarterly",
-      "kind": "json"
+      "kind": "json",
+      "expects": "list"
     },
     "fundamental.income-statement-us": {
       "method": "POST",
       "path": "/application/open-fundamental/financial-report/income-statement/us",
-      "kind": "json"
+      "kind": "json",
+      "expects": "list"
     },
     "fundamental.main-business": {
       "method": "POST",
       "path": "/application/open-fundamental/main-business",
-      "kind": "json"
+      "kind": "json",
+      "expects": "list"
     },
     "fundamental.top-holders": {
       "method": "POST",
       "path": "/application/open-fundamental/capital-structure/top-holders",
-      "kind": "json"
+      "kind": "json",
+      "expects": "list"
     },
     "fundamental.valuation-analysis": {
       "method": "POST",
@@ -729,7 +743,8 @@
       "method": "POST",
       "path": "/application/open-indicator/EDE/search",
       "kind": "json",
-      "retry": "no-999999"
+      "retry": "no-999999",
+      "expects": "array"
     },
     "indicator.time-series": {
       "method": "POST",
@@ -977,6 +992,33 @@
         "price": 30
       }
     },
+    "insight.overseas-opinion.detail": {
+      "method": "POST",
+      "path": "/application/open-insight/overseasOpinion/getDetail",
+      "kind": "json",
+      "retry": "no-replay",
+      "expects": "array",
+      "billing": {
+        "per": "row",
+        "price": 10,
+        "maxUnits": 20
+      }
+    },
+    "insight.overseas-opinion.list": {
+      "method": "POST",
+      "path": "/application/open-insight/overseasOpinion/getList",
+      "kind": "json",
+      "rowId": "overseasOpinionId",
+      "expects": "list",
+      "pagination": {
+        "maxPageSize": 50,
+        "maxWindow": 10000
+      },
+      "billing": {
+        "per": "row",
+        "price": 0.1
+      }
+    },
     "insight.pamirs-summary.download": {
       "method": "GET",
       "path": "/application/open-insight/pamirs-summary/download/file",
@@ -1038,7 +1080,8 @@
     "insight.report-image.list": {
       "method": "POST",
       "path": "/application/open-insight/report-image/getList",
-      "kind": "json"
+      "kind": "json",
+      "expects": "array"
     },
     "insight.research.download": {
       "method": "GET",
@@ -1188,22 +1231,26 @@
     "reference.chiefs-search": {
       "method": "POST",
       "path": "/application/open-reference/chiefs/search",
-      "kind": "json"
+      "kind": "json",
+      "expects": "list"
     },
     "reference.concept-search": {
       "method": "POST",
       "path": "/application/open-reference/concepts/search",
-      "kind": "json"
+      "kind": "json",
+      "expects": "list"
     },
     "reference.constant-category": {
       "method": "GET",
       "path": "/application/open-reference/constants/category",
-      "kind": "json"
+      "kind": "json",
+      "expects": "list"
     },
     "reference.constant-list": {
       "method": "POST",
       "path": "/application/open-reference/constants/getList",
-      "kind": "json"
+      "kind": "json",
+      "expects": "object"
     },
     "reference.index-weight": {
       "method": "POST",
@@ -1214,27 +1261,42 @@
     "reference.institution-search": {
       "method": "POST",
       "path": "/application/open-reference/institutions/search",
-      "kind": "json"
+      "kind": "json",
+      "expects": "list"
     },
     "reference.official-account-search": {
       "method": "POST",
       "path": "/application/open-reference/officialAccount/search",
-      "kind": "json"
+      "kind": "json",
+      "expects": "list"
+    },
+    "reference.overseas-account-search": {
+      "method": "POST",
+      "path": "/application/open-reference/overseasAccount/search",
+      "kind": "json",
+      "rowId": "accountId",
+      "expects": "list",
+      "pagination": {
+        "maxPageSize": 50
+      }
     },
     "reference.sector-constituents": {
       "method": "POST",
       "path": "/application/open-reference/sectors/constituents",
-      "kind": "json"
+      "kind": "json",
+      "expects": "list"
     },
     "reference.sector-search": {
       "method": "POST",
       "path": "/application/open-reference/sectors/search",
-      "kind": "json"
+      "kind": "json",
+      "expects": "list"
     },
     "reference.securities-search": {
       "method": "POST",
       "path": "/application/open-reference/securities/search",
-      "kind": "json"
+      "kind": "json",
+      "expects": "list"
     },
     "tool.file-parse.result": {
       "method": "POST",
@@ -1302,7 +1364,8 @@
     "vault.drive.folder-list": {
       "method": "POST",
       "path": "/application/open-vault/drive/getFolderList",
-      "kind": "json"
+      "kind": "json",
+      "expects": "object"
     },
     "vault.drive.list": {
       "method": "POST",
@@ -1438,7 +1501,8 @@
     "vault.stock-pool.stocks": {
       "method": "POST",
       "path": "/application/open-vault/stock-pool/getStockList",
-      "kind": "json"
+      "kind": "json",
+      "expects": "array"
     },
     "vault.wechat-chatroom.list": {
       "method": "POST",

@@ -92,7 +92,7 @@ const specs: JsonToolSpec[] = [
     "gangtise_fund_top10_holders",
     "extended",
     "fund.top10-holders",
-    "查询上市基金（LOF / ETF）的前十大持有人（中报、年报披露）：serialNumber 名次、持有人、持有份额（份）与占上市总份额比（%）。ETF 可能多一行 serialNumber=11，是它的联接基金，只要前十名按 serialNumber ≤ 10 过滤。最新一期可能晚于其他持仓类工具更新：按最新报告期查不到时先不带日期查一次，看已有哪些报告期。",
+    "查询上市基金（LOF / ETF）的前十大持有人（中报、年报披露）：serialNumber 名次、持有人、持有份额（份）与占上市总份额比（%）。ETF 可能多一行 serialNumber=11，是它的联接基金，只要前十名按 serialNumber ≤ 10 过滤。2026 年中报起，除另有披露规则的产品（如 REITs）外，基金中报不再披露前十大持有人，这一期查不到属正常（持有人结构仍有）；先不带日期查一次，看该基金有哪些报告期。",
   ),
   byCode(
     "gangtise_fund_stock_portfolio",

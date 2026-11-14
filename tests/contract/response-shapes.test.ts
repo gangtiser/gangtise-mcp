@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 
 import { startHarness, type Harness } from "../helpers/harness.js"
-import { edeInner, type RecordedRequest, type Responder, type UpstreamReply } from "../helpers/mockUpstream.js"
+import { type RecordedRequest, type Responder, type UpstreamReply } from "../helpers/mockUpstream.js"
 import { paged } from "../../src/mcp/contract.examples.js"
 
 /** 响应 fixture：代表性的服务端响应形状 → 工具最终交给模型的结果，逐字钉住。
@@ -74,9 +74,9 @@ const SCENARIOS: Scenario[] = [
   // 行情端点声明了 expects: "list"：没有 list 的载荷在 client 里就被拦下，报错带 traceId。
   { name: "shape-quote-no-list", tool: "gangtise_day_kline", args: { security: "600519.SH", startDate: "2026-09-01", endDate: "2026-09-03" }, upstream: on("quote.day-kline", () => ({ json: { code: "000000", msg: "ok", data: { message: "ok" }, traceId: "trace-q1" } })) },
   { name: "shape-quote-list-null-empty", tool: "gangtise_realtime", args: { security: "600519.SH" }, upstream: on("quote.realtime", () => ({ data: { total: 0, list: null } })) },
-  { name: "shape-ede-cross-section", tool: "gangtise_indicator_cross_section", args: { indicatorCodeList: ["qte_close", "qte_mkt_cptl"], securityCodeList: ["600519.SH", "00700.HK"], date: "2026-09-25" }, upstream: on("indicator.cross-section", () => ({ data: edeInner(fixture("ede-cross-section")) })) },
-  { name: "shape-ede-time-series", tool: "gangtise_indicator_time_series", args: { indicatorCodeList: ["qte_close"], securityCodeList: ["600519.SH", "000858.SZ"], startDate: "2026-09-01", endDate: "2026-09-02", calendarType: "TD" }, upstream: on("indicator.time-series", () => ({ data: edeInner(fixture("ede-time-series")) })) },
-  { name: "shape-ede-screener", tool: "gangtise_indicator_screener", args: { indicatorList: [{ field: "F1", indicatorCode: "qte_mkt_cptl", parameters: [{ paramKey: "scale", paramValue: "8" }] }, { field: "F2", indicatorCode: "scr_exchg_sctr", noQueryDate: true }], expression: "F1 >= 500 && F2 contains '创业板'", securityCodeList: ["2000000014"], date: "2026-09-25" }, upstream: on("indicator.screener", () => ({ data: edeInner(fixture("ede-screener")) })) },
+  { name: "shape-ede-cross-section", tool: "gangtise_indicator_cross_section", args: { indicatorCodeList: ["qte_close", "qte_mkt_cptl"], securityCodeList: ["600519.SH", "00700.HK"], date: "2026-09-25" }, upstream: on("indicator.cross-section", () => ({ data: fixture("ede-cross-section") })) },
+  { name: "shape-ede-time-series", tool: "gangtise_indicator_time_series", args: { indicatorCodeList: ["qte_close"], securityCodeList: ["600519.SH", "000858.SZ"], startDate: "2026-09-01", endDate: "2026-09-02", calendarType: "TD" }, upstream: on("indicator.time-series", () => ({ data: fixture("ede-time-series") })) },
+  { name: "shape-ede-screener", tool: "gangtise_indicator_screener", args: { indicatorList: [{ field: "F1", indicatorCode: "qte_mkt_cptl", parameters: [{ paramKey: "scale", paramValue: "8" }] }, { field: "F2", indicatorCode: "scr_exchg_sctr", noQueryDate: true }], expression: "F1 >= 500 && F2 contains '创业板'", securityCodeList: ["2000000014"], date: "2026-09-25" }, upstream: on("indicator.screener", () => ({ data: fixture("ede-screener") })) },
   { name: "shape-ede-empty", tool: "gangtise_indicator_cross_section", args: { indicatorCodeList: ["qte_close"], securityCodeList: ["600519.SH"], date: "2026-09-25" } },
   { name: "shape-list-null-empty", tool: "gangtise_summary_list", args: { securityList: ["600519.SH"] }, upstream: on("insight.summary.list", () => ({ data: fixture("list-null-empty") })) },
 
@@ -197,8 +197,8 @@ const SCENARIOS: Scenario[] = [
   { name: "partial-missing-fields", tool: "gangtise_realtime", args: { security: "600519.SH", fieldList: ["securityCode", "latestPrice", "turnoverRate"] }, upstream: on("quote.realtime", () => ({ data: { total: 1, fieldList: ["securityCode", "latestPrice"], list: [["600519.SH", 1510.2]] } })) },
   { name: "partial-failed-items", tool: "gangtise_stock_pool_add_stock", args: { poolId: "pool-1", securityCodeList: ["600519.SH", "600519.XX"] }, upstream: on("vault.stock-pool.add-stock", () => ({ data: fixture("stock-pool-item-failures") })) },
   { name: "partial-security-only-row-cap", tool: "gangtise_performance_calendar_list", args: { securityList: ["600519.SH"], fetchAll: true }, upstream: paged(1500) },
-  { name: "partial-omitted-securities", tool: "gangtise_indicator_cross_section", args: { indicatorCodeList: ["qte_close", "qte_mkt_cptl"], securityCodeList: ["600519.SH", "00700.HK", "AAPL.O"], date: "2026-09-25" }, upstream: on("indicator.cross-section", () => ({ data: edeInner(fixture("ede-cross-section")) })) },
-  { name: "partial-omitted-indicators", tool: "gangtise_indicator_cross_section", args: { indicatorCodeList: ["qte_close", "qte_mkt_cptl", "qte_pe_ttm"], securityCodeList: ["600519.SH", "00700.HK"], date: "2026-09-25" }, upstream: on("indicator.cross-section", () => ({ data: edeInner(fixture("ede-cross-section")) })) },
+  { name: "partial-omitted-securities", tool: "gangtise_indicator_cross_section", args: { indicatorCodeList: ["qte_close", "qte_mkt_cptl"], securityCodeList: ["600519.SH", "00700.HK", "AAPL.O"], date: "2026-09-25" }, upstream: on("indicator.cross-section", () => ({ data: fixture("ede-cross-section") })) },
+  { name: "partial-omitted-indicators", tool: "gangtise_indicator_cross_section", args: { indicatorCodeList: ["qte_close", "qte_mkt_cptl", "qte_pe_ttm"], securityCodeList: ["600519.SH", "00700.HK"], date: "2026-09-25" }, upstream: on("indicator.cross-section", () => ({ data: fixture("ede-cross-section") })) },
 
   // ─── 呈现：落盘指针、回读、下载 ───
   { name: "present-spill-list", tool: "gangtise_research_list", args: { keyword: "AI", size: 200 }, upstream: on("insight.research.list", (req) => {

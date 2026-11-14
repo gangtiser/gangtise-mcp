@@ -44,7 +44,7 @@ const AMPLIFY_HINTS = [...new Set(Object.values(ENDPOINTS).flatMap((e) => (e.bil
 describe("billing labels", () => {
   it("labels every registered tool from the frozen vocabulary", async () => {
     const live = await listLiveTools()
-    expect(live).toHaveLength(152)
+    expect(live).toHaveLength(154)
     for (const tool of live) {
       const label = labelOf(tool.description ?? "")
       expect(inFrozenVocabulary(label), `${tool.name} 标签越界：${label}`).toBe(true)
@@ -167,11 +167,11 @@ describe("billing labels", () => {
       return "fixed"
     })
     const count = (kind: string) => kinds.filter((k) => k === kind).length
-    expect(count("free")).toBe(49)
+    expect(count("free")).toBe(50)
     expect(count("fixed")).toBe(84)
     expect(count("downstream")).toBe(1)
-    // 3 个 EDE 取数（按所选指标）+ 下载网关（按下载类型）。
-    expect(count("variable")).toBe(4)
+    // 3 个 EDE 取数（按所选指标）+ 下载网关（按下载类型）+ 观点正文（按观点类型）。
+    expect(count("variable")).toBe(5)
     // 11 = 7 个参考类 + 2 个续查 + 帕米尔两个：未确认 ≠ 免费。
     expect(count("unknown")).toBe(11)
     expect(count("local")).toBe(3)

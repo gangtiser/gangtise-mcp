@@ -1,4 +1,4 @@
-import { ApiError, attachEnvelopeTraceId, ENVELOPE_TRACE_ID } from "./errors.js"
+import { ApiError } from "./errors.js"
 import { screenerExpressionFields, screenerExpressionIsEvaluable } from "./screenerExpression.js"
 
 // The EDE cross-section / time-series / screener endpoints return a `values`
@@ -24,46 +24,6 @@ interface MatrixData {
   securityNameList?: unknown
   indicatorList?: unknown
   values?: unknown
-}
-
-// The EDE endpoints double-wrap on success: the shared client strips the outer
-// envelope but leaves an inner { code, status, data } around the real payload.
-// Peel that inner envelope so the list (search) / matrix (cross-section,
-// time-series) is reachable. A failure code carried only by the inner envelope
-// must still surface instead of rendering its null payload as success.
-export function unwrapIndicatorData(raw: unknown): unknown {
-  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-    const record = raw as Record<string, unknown>
-    if ("code" in record || "status" in record) {
-      const code = record.code === undefined ? undefined : String(record.code)
-      const ok = record.status === true || code === "000000" || code === "0"
-      // A failure envelope may omit `data` entirely ({ code, status: false, msg })
-      // — gating on the data key would let a permission/quota error flow through
-      // as "successful" payload. Still require some envelope evidence
-      // (status/msg/data) so a non-envelope object that merely carries a `code`
-      // field can't be misread as a failure.
-      if (!ok && ("status" in record || "msg" in record || "data" in record)) {
-        throw new ApiError(
-          typeof record.msg === "string" && record.msg ? record.msg : "Indicator API request failed",
-          code,
-          undefined,
-          // Pass `record` as details: the inner envelope carries no traceId of its
-          // own, so ApiError.traceId falls back to the outer envelope's id that
-          // attachEnvelopeTraceId parked on this object. Without it these failures —
-          // the ones most in need of a support ticket — are unreportable.
-          record,
-        )
-      }
-      // Hand the envelope's traceId to the inner payload. unwrapEnvelope attached
-      // it to THIS object, but everything downstream (the shape guards below) only
-      // ever sees `record.data` — without this hand-off a shape failure, exactly
-      // the kind support needs to trace, arrives trace-less.
-      if (ok && "data" in record) {
-        return attachEnvelopeTraceId(record.data, (record as Record<PropertyKey, unknown>)[ENVELOPE_TRACE_ID] ?? record.traceId)
-      }
-    }
-  }
-  return raw
 }
 
 function asStringArray(value: unknown): string[] | undefined {
@@ -396,18 +356,16 @@ function resolveSecurityNames(names: unknown, codes: string[]): string[] | undef
 }
 
 /** The matrix endpoints cannot legitimately answer with a non-object payload, so
- * `null`, an array, or a foreign object is a protocol failure. Checked BEFORE the
- * envelope is discarded, because a `data: null` cannot carry the non-enumerable
- * traceId — passing the envelope as details is the only way such a failure stays
- * traceable. */
-export function requireIndicatorMatrix(raw: unknown): Record<string, unknown> {
-  const data = unwrapIndicatorData(raw)
+ * `null`, an array, or a foreign object is a protocol failure. The endpoints declare
+ * `expects: "object"`, which catches it in the HTTP layer while the envelope (and its
+ * traceId) is still in hand; this guard covers callers that bypass that check. */
+export function requireIndicatorMatrix(data: unknown): Record<string, unknown> {
   if (!data || typeof data !== "object" || Array.isArray(data)) {
     throw new ApiError(
       `Indicator API returned no matrix object (got ${data === null ? "null" : Array.isArray(data) ? "an array" : typeof data}) — the response layout may have changed`,
       undefined,
       undefined,
-      raw,
+      data,
     )
   }
   return data as Record<string, unknown>

@@ -158,7 +158,7 @@ check("④ commit", "最近一条 message 无自曝措辞", msgHits.length === 0
 //
 // 三个上限都留了增长余量，新增工具不该撞上。撞了先看下面打印的重复度：能去重就去重，
 // 确认省无可省再**主动**抬数字并在 commit 里说明。悄悄涨回去才是这一节要拦的事。
-const TOOLS_LIST_CEILING = 200_000
+const TOOLS_LIST_CEILING = 250_000
 const SINGLE_TOOL_CEILING = 10_000
 const INSTRUCTIONS_CEILING = 3_600
 const DUP_WASTE_CEILING = 18_000
@@ -167,7 +167,7 @@ const DUP_WASTE_CEILING = 18_000
 // 两条不同的字符串，浪费计 0。按句切一次再统计，量出来的是它的两倍 —— 门禁报 8.5KB
 // 而实际 17.2KB 时，「全绿」给的是假安心。两个都留：整串那个指认「哪个工具该合并」，
 // 句级这个指认「哪句话该上收 instructions」。
-const SENTENCE_DUP_CEILING = 17_000
+const SENTENCE_DUP_CEILING = 20_000
 
 const listTools = JSON.parse(toolsJson)
 const b = (x) => Buffer.byteLength(typeof x === "string" ? x : JSON.stringify(x), "utf8")

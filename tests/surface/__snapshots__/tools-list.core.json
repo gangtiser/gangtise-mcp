@@ -45,7 +45,7 @@
   },
   {
     "name": "gangtise_securities_search",
-    "description": "按关键词搜索证券，支持股票名称、代码（如 600519）、拼音或英文名。返回匹配证券及其 GTS 代码。⚠️ 可转债可能出现在任何 category 的结果里：按公司简称查 stock 时同名转债常排第一（「甬金」→ 113636.SH 甬金转债排在 603995.SH 甬金股份之前），只取返回 category 等于所查类别的行，别直接取第一条。基金同时返回场内（.SH / .SZ）与场外（.OF）代码，同一基金的不同份额一起返回，按 gtsName 区分。【积分：单价以平台计费为准】",
+    "description": "按关键词搜索证券，支持股票名称、代码（如 600519）、拼音或英文名。返回匹配证券及其 GTS 代码。带 category 只返回该类别；不带时按公司简称查，同名可转债可能排在正股前面（「甬金」→ 113636.SH 甬金转债排在 603995.SH 甬金股份之前），查股票请带 category=['stock']。基金同时返回场内（.SH / .SZ）与场外（.OF）代码，同一基金的不同份额一起返回，按 gtsName 区分。【积分：单价以平台计费为准】",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -168,14 +168,14 @@
   },
   {
     "name": "gangtise_official_account_search",
-    "description": "搜索公众号 ID：输入公众号名称/所属机构/关键字，返回 accountId（供 gangtise_official_account_list 的 accountIdList 使用）及 matchScore。注意：部分公众号不属任何分类（category 为 null），传 category 过滤会漏掉这些账号，要全量就不传 category。",
+    "description": "按公众号名称片段搜索公众号 ID，返回 accountId（供 gangtise_official_account_list 的 accountIdList 使用）及 matchScore。注意：部分公众号不属任何分类（category 为 null），传 category 过滤会漏掉这些账号，要全量就不传 category。",
     "inputSchema": {
       "type": "object",
       "properties": {
         "keyword": {
           "type": "string",
           "minLength": 1,
-          "description": "公众号名称/所属机构/关键字，如 '中信证券' '人民日报'"
+          "description": "公众号名称片段，如 '中信证券'（查到「中信证券研究」）。匹配的是名称：名称用简称的公众号按机构全称查不到（东吴证券 0 行，东吴 查到「东吴策略陈刚团队」），0 行时换简称再查"
         },
         "category": {
           "type": "array",
@@ -667,7 +667,7 @@
   },
   {
     "name": "gangtise_pamirs_summary_list",
-    "description": "查询帕米尔专家纪要列表（独立的专家纪要库，需单独购买该数据库）。与 gangtise_summary_list 是两个库、不是它的子集：只有明确点名「帕米尔 / Pamirs」时才用本工具，泛指的会议纪要/专家访谈仍用 gangtise_summary_list。筛选项比 summary 少：没有 sourceList / institutionList / participantRoleList。⚠️ 标签字段（categoryList / marketList / conceptList）**稀疏且不保证完整**：是否回填随记录与筛选条件而变，不带筛选时经常整条为空。所以不要拉全量再按这些字段本地分组——要按类别或市场分组就直接传对应筛选；也不要因为某条记录标签为空就断定它没有该属性。本接口没有概念筛选参数，conceptList 只能按返回值使用。【积分：单价以平台计费为准】",
+    "description": "查询帕米尔专家纪要列表（独立的专家纪要库，需单独购买该数据库）。与 gangtise_summary_list 是两个库、不是它的子集：只有明确点名「帕米尔 / Pamirs」时才用本工具，泛指的会议纪要/专家访谈仍用 gangtise_summary_list。筛选项比 summary 少：没有 sourceList / institutionList / participantRoleList。⚠️ 返回行的 categoryList / marketList 只在按 categoryList 或 marketList 筛选时完整：其余查法下 categoryList 为空、marketList 不含 aShares / usChinaConcept。所以不要拉全量再按这两个字段本地分组（A 股、中概股的归属会整批缺失）——要分组就按每个类别、每个市场各查一遍；也不要因为某条记录标签为空就断定它没有该属性。本接口没有概念筛选参数，conceptList 只能按返回值使用。【积分：单价以平台计费为准】",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2138,7 +2138,7 @@
   },
   {
     "name": "gangtise_report_image_list",
-    "description": "按关键词搜索研报图表，返回 chunkId 及元数据（标题/券商/页码/图注/该页 OCR 文本）；原图用 gangtise_download（kind=report_image）按 chunkId 下载。",
+    "description": "按关键词搜索研报图表，返回 chunkId 及元数据（标题/券商/页码/图注/该页 OCR 文本，发布时间 publishTime）；原图用 gangtise_download（kind=report_image）按 chunkId 下载。⚠️ startTime / endTime 目前不生效，带不带返回同样的结果，要限定时间就按返回的 publishTime 自行过滤。",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2182,7 +2182,7 @@
   },
   {
     "name": "gangtise_opinion_detail",
-    "description": "按 ID 取观点全文。⚠️ 没有正文的 ID 被跳过而不报错（ID 错、超出取数窗口、刚发布都可能），结果标 _partial 并列在 missingIds；某批失败时已取到的正文照常返回，未取的列在 unfetchedIds，只重跑这几个。【积分：30/条】",
+    "description": "按 ID 取观点全文。⚠️ 没有正文的 ID 被跳过而不报错（ID 错、超出取数窗口、刚发布都可能），结果标 _partial 并列在 missingIds；某批失败时已取到的正文照常返回，未取的列在 unfetchedIds，只重跑这几个。【积分：按观点类型】",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2190,9 +2190,10 @@
           "type": "string",
           "enum": [
             "domestic",
-            "foreign"
+            "foreign",
+            "overseas"
           ],
-          "description": "domestic=内资 chiefOpinionId | foreign=外资 foreignOpinionId（另有 contentTranslate）"
+          "description": "domestic=内资 chiefOpinionId | foreign=外资 foreignOpinionId | overseas=海外观点 overseasOpinionId；后两种另有 contentTranslate。积分：domestic / foreign 30/条，overseas 10/条"
         },
         "ids": {
           "type": "array",
@@ -2615,7 +2616,7 @@
             "type": "integer"
           },
           "minItems": 1,
-          "description": "财年列表，如 [2023, 2024]"
+          "description": "财年列表，如 [2023, 2024]；须同时传 period（latest 以外）"
         },
         "period": {
           "type": "array",
@@ -2702,7 +2703,7 @@
             "type": "integer"
           },
           "minItems": 1,
-          "description": "财年列表，如 [2023, 2024]"
+          "description": "财年列表，如 [2023, 2024]；须同时传 period（latest 以外）"
         },
         "period": {
           "type": "array",
@@ -2785,7 +2786,7 @@
             "type": "integer"
           },
           "minItems": 1,
-          "description": "财年列表，如 [2023, 2024]"
+          "description": "财年列表，如 [2023, 2024]；须同时传 period（latest 以外）"
         },
         "period": {
           "type": "array",
@@ -2960,7 +2961,7 @@
             "type": "integer"
           },
           "minItems": 1,
-          "description": "财年列表，如 [2023, 2024]"
+          "description": "财年列表，如 [2023, 2024]；须同时传 period（latest 以外）"
         },
         "period": {
           "type": "array",
@@ -5286,7 +5287,7 @@
   },
   {
     "name": "gangtise_indicator_search",
-    "description": "按名称搜索证券级数据指标（EDE），返回 indicatorCode、scopeList（覆盖市场，附 usageRestriction）及 parameterList（含 required 必填标记与枚举）。取数前必先用本工具拿 code，并核对 indicatorName/description 语义、scopeList 是否覆盖目标市场、parameterList 取值——任一不符即回退专用工具。scopeList 是声明不是保证，usageRestriction（如「不支持指标时间序列接口」）也不是硬约束、按「口径可能不对」理解，均以实际抽查为准。基础行情（开高低收/成交量额/换手/涨跌幅）虽可搜到仍优先 realtime/day_kline，但**总市值 qte_mkt_cptl 这两个专用工具都没有、单票也走 EDE**（A/港/美股均已有数，默认「元」，用 scale 缩放）；同样只有 EDE 才有的还包括融资融券 mgn_*（两融余额/融资/融券及其区间变体，仅 A 股；区间变体的 changePeriod 是可选的）与所属行业 scr_indu_citic / scr_indu_sw / scr_indu_gics（体系写进编码，industryLevel 可选；scr_indu 预计下线、已搜不到，恒生行业暂只能用 scr_indu 的 industryType=3）；⚠️ **个股资金流向 flow_*（仅 A 股）与 gangtise_fund_flow 返回的是同一套数（逐位相同）**，而后者还多给各档占比字段、并支持全市场——除非要与其他 EDE 指标同批取，否则一律用 gangtise_fund_flow（两边的计价档见各自标签）；单票完整报表、盈利预测(一致预期)仍用专用工具；A 股估值历史分位用 gangtise_valuation_analysis，港 / 美股用 EDE 的 finc_*_quantile（sDate 必填，覆盖市场逐个核 scopeList）；EDE 批量优先仅针对多证券取一批已实现财务/估值指标。基金代码（005827.OF / 510300.SH）也能查：基金分类 fund_cls*、复权净值 fund_adj_nav 与区间收益 / 风险指标（finc_* 收益率、波动率、最大回撤、夏普、Alpha，fund_* 卡玛、同类排名）适合多只基金横向比，单只基金的净值序列、持仓、规模用 gangtise_fund_*；同类排名 fund_ret_rank / fund_ret_rank_pct 的同类按 industryLevel 那一级的 fund_cls1_typ / fund_cls2_typ 分。宏观/行业数据（产量、价格、PMI 等）请改用 gangtise_edb_search，不要猜编码。",
+    "description": "按名称搜索证券级数据指标（EDE），返回 indicatorCode、scopeList（覆盖市场，附 usageRestriction）及 parameterList（含 required 必填标记与枚举）。取数前必先用本工具拿 code，并核对 indicatorName/description 语义、scopeList 是否覆盖目标市场、parameterList 取值——任一不符即回退专用工具。scopeList 是声明不是保证，usageRestriction（如「不支持指标时间序列接口」）也不是硬约束、按「口径可能不对」理解，均以实际抽查为准。基础行情（开高低收/成交量额/换手/涨跌幅）虽可搜到仍优先 realtime/day_kline，但**总市值 qte_mkt_cptl 这两个专用工具都没有、单票也走 EDE**（A/港/美股均已有数，默认「元」，用 scale 缩放）；同样只有 EDE 才有的还包括融资融券 mgn_*（两融余额/融资/融券及其区间变体，仅 A 股；区间变体的 changePeriod 是可选的）与所属行业 scr_indu_citic / scr_indu_sw / scr_indu_gics（体系写进编码，须传 industryLevel：0 全路径、1–4 各级；scr_indu 预计下线、已搜不到，恒生行业暂只能用 scr_indu 的 industryType=3）；⚠️ **个股资金流向 flow_*（仅 A 股）与 gangtise_fund_flow 返回的是同一套数（逐位相同）**，而后者还多给各档占比字段、并支持全市场——除非要与其他 EDE 指标同批取，否则一律用 gangtise_fund_flow（两边的计价档见各自标签）；单票完整报表、盈利预测(一致预期)仍用专用工具；A 股估值历史分位用 gangtise_valuation_analysis，港 / 美股用 EDE 的 finc_*_quantile（sDate 必填，覆盖市场逐个核 scopeList）；EDE 批量优先仅针对多证券取一批已实现财务/估值指标。基金代码（005827.OF / 510300.SH）也能查：基金分类 fund_cls*、复权净值 fund_adj_nav 与区间收益 / 风险指标（finc_* 收益率、波动率、最大回撤、夏普、Alpha，fund_* 卡玛、同类排名）适合多只基金横向比，单只基金的净值序列、持仓、规模用 gangtise_fund_*；同类排名 fund_ret_rank / fund_ret_rank_pct 的同类按 industryLevel 那一级的 fund_cls1_typ / fund_cls2_typ 分。宏观/行业数据（产量、价格、PMI 等）请改用 gangtise_edb_search，不要猜编码。",
     "inputSchema": {
       "type": "object",
       "properties": {

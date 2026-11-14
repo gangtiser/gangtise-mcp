@@ -13,20 +13,19 @@ import {
 import { registerFamilies } from "../../../src/mcp/register.js"
 import type { GangtiseClient } from "../../../src/core/client.js"
 import { ApiError } from "../../../src/core/errors.js"
-import { unwrapEnvelope } from "../../../src/core/envelope.js"
 
 const meta = (code: string, name: string) => ({ code, name, dataType: "number" })
 
-/** The EDE no-data answer: every structural array empty, inside the inner
- * { code, status, data } envelope the endpoints double-wrap with. */
+/** The EDE no-data answer: every structural array empty (what `client.call` returns once
+ * the envelope is unwrapped). */
 function emptyMatrix(withDates = true) {
   const data: Record<string, unknown> = { securityCodeList: [], securityNameList: [], indicatorList: [], values: [] }
   if (withDates) data.dates = []
-  return { code: "000000", status: true, data }
+  return data
 }
 
 function matrix(data: Record<string, unknown>) {
-  return { code: "000000", status: true, data }
+  return data
 }
 
 function makeMockClient(response: unknown = emptyMatrix()) {
@@ -405,14 +404,12 @@ describe("date guidance is per-endpoint, not shared", () => {
   })
 })
 
-// The EDE inner envelope ({ code, status, data }) can carry a failure even when
-// the outer envelope succeeded. Every indicator tool must surface it as isError
-// — regressing to registerJsonTool (or dropping unwrapIndicatorData) would
-// render it as "successful null data" with all tests green.
-describe("indicator inner-envelope failure surfacing", () => {
+// A failure answered by the API (HTTP 4xx envelope, thrown by the client) must surface
+// as isError on every indicator tool, with no second fetch attempt.
+describe("indicator API failure surfacing", () => {
   function failingClient() {
     return {
-      call: vi.fn().mockResolvedValue({ code: "410004", status: false, msg: "指标无权限" }),
+      call: vi.fn().mockRejectedValue(new ApiError("指标无权限", "410004", 400)),
       download: vi.fn(),
     } as unknown as GangtiseClient
   }
@@ -422,7 +419,7 @@ describe("indicator inner-envelope failure surfacing", () => {
     ["gangtise_indicator_cross_section", CS_ARGS],
     ["gangtise_indicator_time_series", TS_ARGS],
     ["gangtise_indicator_screener", SCREENER_ARGS],
-  ] as Array<[string, Record<string, unknown>]>)("%s surfaces the inner error as isError", async (name, args) => {
+  ] as Array<[string, Record<string, unknown>]>)("%s surfaces the API error as isError", async (name, args) => {
     const client = failingClient()
     const mcp = await connect(client)
     const result = await mcp.callTool({ name, arguments: args })
@@ -904,11 +901,10 @@ describe("indicator 999999 hint (fetch endpoints)", () => {
     expect(text).not.toContain("多为查询无数据")
   })
 
-  // EDE 双层信封：外层成功、内层失败的 999999 在解内层时才抛出；hintOverride 与
-  // 外层 traceId 都必须在这条路径上生效。
-  it.each(FETCH_CASES)("%s keeps the hint when 999999 is raised peeling the inner envelope (with traceId)", async (name, args) => {
+  // 换上提示时不能丢掉报错带的 traceId。
+  it.each(FETCH_CASES)("%s keeps the traceId when it adds the 999999 hint", async (name, args) => {
     const client = {
-      call: vi.fn().mockImplementation(async () => unwrapEnvelope({ code: "0", data: { code: "999999", status: false, msg: "system error" }, traceId: "77" })),
+      call: vi.fn().mockRejectedValue(new ApiError("system error", "999999", 500, { code: "999999", msg: "system error", traceId: "77" })),
       download: vi.fn(),
     } as unknown as GangtiseClient
     const mcp = await connect(client)

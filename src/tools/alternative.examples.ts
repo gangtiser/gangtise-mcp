@@ -2,7 +2,7 @@ import type { ToolExamples } from "../mcp/contract.examples.js"
 
 export const alternativeExamples: ToolExamples = {
   gangtise_edb_search: [
-    { title: "关键词 + limit", args: { keyword: "PMI", limit: 10 }, expect: { requests: [{ method: "POST", path: "/application/open-alternative/EDB/search", body: { keyword: "PMI", limit: 10 } }] } },
+    { title: "关键词 + limit", args: { keyword: "PMI", limit: 10 }, upstream: () => ({ data: [] }), expect: { requests: [{ method: "POST", path: "/application/open-alternative/EDB/search", body: { keyword: "PMI", limit: 10 } }] } },
   ],
   gangtise_concept_info: [
     { title: "缺省走低价端点", args: { conceptId: "121000130" }, expect: { requests: [{ method: "POST", path: "/application/open-alternative/concept/v2/info", body: { conceptId: "121000130" } }] } },

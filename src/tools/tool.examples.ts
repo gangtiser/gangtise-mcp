@@ -14,6 +14,7 @@ export const toolExamples: ToolExamples = {
       ] } },
     { title: "waitSeconds=0 只提交", args: { filePath: "tests/fixtures/upload/sample.pdf", waitSeconds: 0 }, upstream: bigTaskId, expect: { requests: [{ method: "POST", path: `${PARSE}/submit`, body: SAMPLE }] } },
     { title: "非 PDF 本地拒绝", args: { filePath: "tests/fixtures/upload/sample.txt" }, expect: { rejects: /只支持 PDF/ } },
+    { title: "改了后缀的非 PDF 本地拒绝", args: { filePath: "tests/fixtures/upload/renamed.pdf" }, expect: { rejects: /不是 PDF（前 1KB 内没有 %PDF- 文件头）/, requests: [] } },
     { title: "文件不存在本地拒绝", args: { filePath: "tests/fixtures/upload/missing.pdf" }, expect: { rejects: /找不到文件/ } },
   ],
   gangtise_file_parse_check: [

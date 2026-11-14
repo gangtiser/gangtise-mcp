@@ -78,6 +78,11 @@ export const insightExamples: ToolExamples = {
     { title: "from 越过偏移窗口本地拒绝", args: { from: 10_000 }, expect: { rejects: /只能按偏移取到第 10000 行为止/ } },
     { title: "本端点没有 keyword", args: { keyword: "AI" }, expect: { rejects: /Unrecognized key.*keyword/ } },
   ],
+  gangtise_overseas_opinion_list: [
+    { title: "筛选项原样进 body，按条计费默认 size=20", args: { accountIdList: ["34713362"], securityList: ["NVDA.O"], categoryList: ["opinion", "news"], industryList: ["107700008"], regionList: ["us", "jp"], originalFlag: 0, startTime: "2026-11-10", endTime: "2026-11-11 18:00:00", keyword: "Fed", rankType: 2 }, expect: { requests: [{ method: "POST", path: "/application/open-insight/overseasOpinion/getList", body: { accountIdList: ["34713362"], securityList: ["NVDA.O"], categoryList: ["opinion", "news"], industryList: ["107700008"], regionList: ["us", "jp"], originalFlag: 0, startTime: "2026-11-10", endTime: "2026-11-11 18:00:00", keyword: "Fed", rankType: 2, size: 20, from: 0 } }] } },
+    { title: "地区闭集：hk 本地拒绝", args: { regionList: ["hk"] }, expect: { rejects: /regionList/, requests: [] } },
+    { title: "from 越过偏移窗口本地拒绝", args: { from: 10_000 }, expect: { rejects: /只能按偏移取到第 10000 行为止/ } },
+  ],
   gangtise_announcement_list: [
     { title: "港股代码走港股端点", args: { securityList: ["00700.HK"], keyword: "业绩" }, expect: { requests: [{ method: "POST", path: "/application/open-insight/announcement-hk/getList", body: { keyword: "业绩", securityList: ["00700.HK"], size: 20, from: 0 } }] } },
     { title: "无证券按 market，开关不进 body", args: { market: "usStocks", startTime: "2026-09-01 00:00:00" }, expect: { requests: [{ method: "POST", path: "/application/open-insight/announcement-us/getList", body: { startTime: "2026-09-01 00:00:00", size: 20, from: 0 } }] } },
@@ -106,7 +111,7 @@ export const insightExamples: ToolExamples = {
     { title: "日期与日期时间都原样直传", args: { securityCode: "601012.SH", startTime: "2026-01-01", endTime: "2026-06-30 23:59:59", source: ["interactive"], answerImportant: [1] }, expect: { requests: [{ method: "POST", path: "/application/open-insight/Q&A-data/getList", body: { securityCode: "601012.SH", startTime: "2026-01-01", endTime: "2026-06-30 23:59:59", source: ["interactive"], answerImportant: [1], size: 20, from: 0 } }] } },
   ],
   gangtise_report_image_list: [
-    { title: "非分页，不注入 size", args: { keyword: "AI", top: 5, startTime: "2026-01-01 00:00:00" }, expect: { requests: [{ method: "POST", path: "/application/open-insight/report-image/getList", body: { keyword: "AI", top: 5, startTime: "2026-01-01 00:00:00" } }] } },
+    { title: "非分页，不注入 size", args: { keyword: "AI", top: 5, startTime: "2026-01-01 00:00:00" }, upstream: () => ({ data: [] }), expect: { requests: [{ method: "POST", path: "/application/open-insight/report-image/getList", body: { keyword: "AI", top: 5, startTime: "2026-01-01 00:00:00" } }] } },
   ],
   gangtise_summary_download: [
     { title: "summaryId + fileType", args: { summaryId: "sum-1", fileType: 2 }, expect: { requests: [{ method: "GET", path: "/application/open-insight/summary/v2/download/file", query: { summaryId: "sum-1", fileType: "2" } }] } },
@@ -149,6 +154,8 @@ export const insightExamples: ToolExamples = {
         { method: "POST", path: "/application/open-insight/chief-opinion/getDetail", body: { chiefOpinionIdList: ["co-20"] } },
       ] } },
     { title: "外资：ID 列表键是 foreignOpinionIdList", args: { kind: "foreign", ids: ["fo-1"] }, upstream: (req) => (req.endpoint === "insight.foreign-opinion.detail" ? { data: [] } : undefined), expect: { requests: [{ method: "POST", path: "/application/open-insight/foreign-opinion/getDetail", body: { foreignOpinionIdList: ["fo-1"] } }] } },
+    { title: "海外：ID 列表键是 overseasOpinionIdList", args: { kind: "overseas", ids: ["oo-1"] }, upstream: (req) => (req.endpoint === "insight.overseas-opinion.detail" ? { data: [] } : undefined), expect: { requests: [{ method: "POST", path: "/application/open-insight/overseasOpinion/getDetail", body: { overseasOpinionIdList: ["oo-1"] } }] } },
+    { title: "海外按 10 积分/条估算：101 个超阈值零请求拒绝", args: { kind: "overseas", ids: Array.from({ length: 101 }, (_, i) => `oo-${i}`) }, expect: { rejects: /预计取 101 条（10 积分\/条），约 1010 积分/, requests: [] } },
     { title: "第一批就有不是对象的元素时整次报错", args: { kind: "domestic", ids: ["co-1"] }, upstream: (req) => (req.endpoint === "insight.opinion.detail" ? { data: ["<p>正文</p>"] } : undefined), expect: { rejects: /不是预期的对象数组结构（收到含非对象元素的数组）/, requests: [{ method: "POST", path: "/application/open-insight/chief-opinion/getDetail", body: { chiefOpinionIdList: ["co-1"] } }] } },
     { title: "去重后 34 个 × 30 积分超过阈值：零请求拒绝", args: { kind: "domestic", ids: Array.from({ length: 34 }, (_, i) => `co-${i}`).concat(["co-0"]) }, expect: { rejects: /预计取 34 条（30 积分\/条），约 1020 积分，超过积分预估保护.*尚未发出请求.*confirmCost: true/ } },
     { title: "confirmCost 放行、不进 body", args: { kind: "domestic", ids: Array.from({ length: 34 }, (_, i) => `co-${i}`), confirmCost: true }, upstream: (req) => (req.endpoint === "insight.opinion.detail" ? { data: [] } : undefined), expect: { requests: [

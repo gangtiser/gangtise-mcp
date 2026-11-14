@@ -2,7 +2,7 @@ import type { ToolExamples } from "../mcp/contract.examples.js"
 
 export const indicatorExamples: ToolExamples = {
   gangtise_indicator_search: [
-    { title: "关键词 + limit", args: { keyword: "收盘价", limit: 5 }, expect: { requests: [{ method: "POST", path: "/application/open-indicator/EDE/search", body: { keyword: "收盘价", limit: 5 } }] } },
+    { title: "关键词 + limit", args: { keyword: "收盘价", limit: 5 }, upstream: () => ({ data: [] }), expect: { requests: [{ method: "POST", path: "/application/open-indicator/EDE/search", body: { keyword: "收盘价", limit: 5 } }] } },
   ],
   gangtise_indicator_cross_section: [
     { title: "证券键名是 universe；去重；按指标注入 tradeDate", args: { indicatorCodeList: ["qte_close", "qte_mkt_cptl", "qte_close"], securityCodeList: ["600519.SH", "600519.SH", "00700.HK"], date: "2026-09-25", scale: "8", indicatorParamList: [{ indicatorCode: "qte_close", parameters: [{ paramKey: "adjustType", paramValue: "2" }] }] }, expect: { requests: [{ method: "POST", path: "/application/open-indicator/EDE/cross-section", body: { indicatorCodeList: ["qte_close", "qte_mkt_cptl"], universe: ["600519.SH", "00700.HK"], scale: "8", indicatorParamList: [{ indicatorCode: "qte_close", parameters: [{ paramKey: "adjustType", paramValue: "2" }, { paramKey: "tradeDate", paramValue: "2026-09-25" }] }, { indicatorCode: "qte_mkt_cptl", parameters: [{ paramKey: "tradeDate", paramValue: "2026-09-25" }] }] } }] } },

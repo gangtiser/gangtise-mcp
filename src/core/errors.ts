@@ -16,12 +16,10 @@ export class AsyncTimeoutError extends CliError {
   }
 }
 
-/** Outer-envelope traceId, stashed on the unwrapped payload so it survives
- * `unwrapEnvelope` discarding the envelope. Needed by the EDE endpoints alone:
- * they double-wrap, and the traceId lives only on the OUTER envelope — the inner
- * failure envelope (`{code, status: false, msg}`) has none. Without this the one
- * correlation id Gangtise support can trace is gone exactly where the inner
- * failure is raised. Non-enumerable so it never reaches tool output. */
+/** Envelope traceId, stashed on the unwrapped payload so it survives `unwrapEnvelope`
+ * discarding the envelope: an error raised later from the payload alone (passed as
+ * `details`) can still name the one correlation id Gangtise support can trace.
+ * Non-enumerable so it never reaches tool output. */
 export const ENVELOPE_TRACE_ID = Symbol("gangtise.envelopeTraceId")
 
 export function attachEnvelopeTraceId<T>(payload: T, traceId: unknown): T {
@@ -359,8 +357,7 @@ export class ApiError extends CliError {
    * Worth surfacing: it is the only handle Gangtise support can trace a failure by. */
   get traceId(): string | undefined {
     if (!this.details || typeof this.details !== "object") return undefined
-    // Fall back to the outer envelope's id for double-wrapped (EDE) responses,
-    // whose inner failure envelope carries no traceId of its own.
+    // Fall back to the envelope's id parked on a payload passed as details.
     const details = this.details as { traceId?: unknown } & Record<symbol, unknown>
     const value = details.traceId ?? details[ENVELOPE_TRACE_ID]
     return typeof value === "string" || typeof value === "number" ? String(value) : undefined

@@ -5,6 +5,7 @@ import { z } from "zod"
 import { ValidationError } from "../core/errors.js"
 import { defineDownloadTool, defineJsonTool, defineTool, defineWriteTool, type DownloadToolSpec, type FamilyModule, type JsonToolSpec } from "../mcp/define.js"
 import { buildToolContent } from "../core/present.js"
+import { assertNotStatePath } from "../core/statePaths.js"
 import { contentResult } from "../mcp/handler.js"
 import { normalizeRows } from "../core/normalize.js"
 import { ENDPOINTS } from "../core/endpoints.js"
@@ -397,14 +398,18 @@ export const vaultFamily: FamilyModule = {
       },
       run: async ({ client }, args) => {
         const { filePath, spaceType: space, folderId, title } = args as { filePath: string; spaceType?: number; folderId?: string; title?: string }
-        const resolved = path.resolve(filePath)
+        // 检查与读取用同一个路径：系统实际到达的文件（软链、`..`），也就是状态目录守卫比对的那个。显示与上送的
+        // 文件名仍按传入的写法。
+        const shownAs = path.resolve(filePath)
         // 拒绝的理由都在发请求之前查完：一个注定失败的大文件不该先传一遍。
-        const stat = await fs.stat(resolved).catch(() => undefined)
-        if (!stat) throw new ValidationError(`找不到文件：${filePath}`)
+        const resolved = await fs.realpath(filePath).catch(() => undefined)
+        const stat = resolved === undefined ? undefined : await fs.stat(resolved).catch(() => undefined)
+        if (!resolved || !stat) throw new ValidationError(`找不到文件：${filePath}`)
         if (!stat.isFile()) throw new ValidationError(`不是文件：${filePath}`)
+        await assertNotStatePath(resolved, "filePath")
         if (stat.size === 0) throw new ValidationError(`文件是空的：${filePath}`)
         if (stat.size > DRIVE_UPLOAD_MAX_BYTES) throw new ValidationError(`文件 ${(stat.size / 1024 / 1024).toFixed(1)}MB，云盘单个文件最多 100MB。`)
-        const filename = path.basename(resolved)
+        const filename = path.basename(shownAs)
         if (title === undefined && filename.length > 200) throw new ValidationError(`本地文件名有 ${filename.length} 个字符，云盘最多 200 个：请传一个更短的 title。`)
         // 按需读磁盘的 Blob：发送时流式读出，不把整个文件先读进内存。
         const blob = await openAsBlob(resolved)

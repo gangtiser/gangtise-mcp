@@ -65,11 +65,10 @@ export interface EndpointDefinition {
   /** 返回形状声明，在 `requestJson` 仍握有信封（traceId）时校验，不符抛 `ResponseShapeError`。
    *  "list"：成功响应必是 `{…, list: [...]}`；`{total: 0, list: null}` 是合法的零行写法，照常放行。
    *  "array"：成功响应必是裸数组，元素是对象或 `null`。形状不符不能读成「零行」——那会把一次异常当成正常的
-   *  空结果；载荷留在 `ResponseShapeError.payload`，调用方可以从中取回能认出的行。 */
-  expects?: "list" | "array"
-  /** "double"：`data` 里还包着一层 `{code, status, data}`（EDE），由 shape.ts 的 unwrapPayload 剥掉，
-   *  内层失败码照常抛出。缺省为单层信封。 */
-  envelope?: "single" | "double"
+   *  空结果；载荷留在 `ResponseShapeError.payload`，调用方可以从中取回能认出的行。
+   *  "object"：成功响应必是对象（顶层键固定，有没有匹配都一样，如云盘目录、常量列表），`null` 与数组都算形状变了。
+   *  只在见过「空结果」的写法后才声明：用 `data: null` 表示「没匹配到」的端点一旦声明，每次空查询都会报错。 */
+  expects?: "list" | "array" | "object"
   /** 以错误码表示「零行」的端点：这些码收成 `{total: 0, list: []}`，不当错误抛出。 */
   emptyCodes?: string[]
   /** "no-replay": never resend a request the server may have executed — set

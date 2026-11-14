@@ -1596,6 +1596,19 @@ describe("expects 形状守卫", () => {
     await expect(tokenClient().requestJson(arrayEndpoint, {})).rejects.toBeInstanceOf(ResponseShapeError)
   })
 
+  // 顶层键固定的对象（云盘目录、常量列表）：null 与数组都是形状变了。
+  it("requires an object on an object endpoint, refusing null and arrays with the traceId", async () => {
+    const objectEndpoint = ENDPOINTS["vault.drive.folder-list"]
+    requestMock.mockResolvedValue(withTrace({ folderTotal: 0, folderList: [], fileTotal: 0, fileList: [] }))
+    await expect(tokenClient().requestJson(objectEndpoint, {})).resolves.toEqual({ folderTotal: 0, folderList: [], fileTotal: 0, fileList: [] })
+    for (const [payload, got] of [[null, "null"], [[], "数组"]] as const) {
+      requestMock.mockResolvedValue(withTrace(payload))
+      const err = await tokenClient().requestJson(objectEndpoint, {}).catch((e: unknown) => e)
+      expect(err).toBeInstanceOf(ResponseShapeError)
+      expect(errorMessage(err)).toMatch(new RegExp(`预期的对象结构（收到${got}）.*trace trace-9`))
+    }
+  })
+
   // 元素也要是对象或 null：别的元素在这里报，才带得上 traceId；载荷留在 payload，调用方能取回可认出的行。
   it("checks the elements of an array endpoint, keeping the payload and the traceId", async () => {
     requestMock.mockResolvedValue(withTrace([{ id: 1 }, null]))
@@ -1609,7 +1622,7 @@ describe("expects 形状守卫", () => {
 
   it("leaves endpoints without a declaration alone", async () => {
     requestMock.mockResolvedValue(withTrace(null))
-    await expect(tokenClient().requestJson(ENDPOINTS["reference.constant-list"], {})).resolves.toBeNull()
+    await expect(tokenClient().requestJson(ENDPOINTS["insight.research.list"], {})).resolves.toBeNull()
   })
 })
 

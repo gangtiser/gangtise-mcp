@@ -143,11 +143,11 @@ describe("ApiError.traceId", () => {
     expect(new ApiError("boom", "999999", 500, { traceId: 12345 }).traceId).toBe("12345")
   })
 
-  it("falls back to the outer envelope id for EDE inner-envelope failures", () => {
-    // The EDE inner envelope carries no traceId of its own — unwrapEnvelope parks
-    // the outer one on the payload, which is what the inner failure passes as details.
-    const inner = attachEnvelopeTraceId({ code: "130001", status: false, msg: "无数据" }, "77")
-    expect(new ApiError("无数据", "130001", 500, inner).traceId).toBe("77")
+  it("falls back to the envelope id parked on a payload passed as details", () => {
+    // A payload carries no traceId of its own — unwrapEnvelope parks the envelope's on it,
+    // so an error raised later from the payload alone (a shape check) can still name it.
+    const payload = attachEnvelopeTraceId({ indicatorList: null }, "77")
+    expect(new ApiError("返回形状异常", undefined, 200, payload).traceId).toBe("77")
   })
 
   it("stays undefined when the server sent none, leaving the message unchanged", () => {

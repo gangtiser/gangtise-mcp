@@ -8,6 +8,7 @@ export const fundamentalEndpoints: EndpointTable = {
     kind: "json",
     description: "Query income statement (accumulated)",
     billing: { kind: "free" },
+    expects: "list",
   },
   "fundamental.income-statement-quarterly": {
     method: "POST",
@@ -15,6 +16,7 @@ export const fundamentalEndpoints: EndpointTable = {
     kind: "json",
     description: "Query income statement (quarterly)",
     billing: { kind: "free" },
+    expects: "list",
   },
   "fundamental.balance-sheet": {
     method: "POST",
@@ -22,6 +24,7 @@ export const fundamentalEndpoints: EndpointTable = {
     kind: "json",
     description: "Query balance sheet (accumulated)",
     billing: { kind: "free" },
+    expects: "list",
   },
   "fundamental.cash-flow": {
     method: "POST",
@@ -29,6 +32,7 @@ export const fundamentalEndpoints: EndpointTable = {
     kind: "json",
     description: "Query cash flow statement (accumulated)",
     billing: { kind: "free" },
+    expects: "list",
   },
   "fundamental.cash-flow-quarterly": {
     method: "POST",
@@ -36,6 +40,7 @@ export const fundamentalEndpoints: EndpointTable = {
     kind: "json",
     description: "Query cash flow statement (quarterly)",
     billing: { kind: "free" },
+    expects: "list",
   },
   "fundamental.main-business": {
     method: "POST",
@@ -43,6 +48,7 @@ export const fundamentalEndpoints: EndpointTable = {
     kind: "json",
     description: "Query main business composition",
     billing: { kind: "free" },
+    expects: "list",
   },
   "fundamental.valuation-analysis": {
     method: "POST",
@@ -59,6 +65,7 @@ export const fundamentalEndpoints: EndpointTable = {
     kind: "json",
     description: "Query top holders (top10 / top10 float)",
     billing: { kind: "free" },
+    expects: "list",
   },
   "fundamental.earning-forecast": {
     method: "POST",
@@ -76,6 +83,7 @@ export const fundamentalEndpoints: EndpointTable = {
     kind: "json",
     description: "Query HK income statement (China GAAP)",
     billing: { kind: "free" },
+    expects: "list",
   },
   "fundamental.balance-sheet-hk": {
     method: "POST",
@@ -83,6 +91,7 @@ export const fundamentalEndpoints: EndpointTable = {
     kind: "json",
     description: "Query HK balance sheet (China GAAP)",
     billing: { kind: "free" },
+    expects: "list",
   },
   "fundamental.cash-flow-hk": {
     method: "POST",
@@ -90,6 +99,7 @@ export const fundamentalEndpoints: EndpointTable = {
     kind: "json",
     description: "Query HK cash flow statement (China GAAP)",
     billing: { kind: "free" },
+    expects: "list",
   },
   "fundamental.income-statement-us": {
     method: "POST",
@@ -97,6 +107,7 @@ export const fundamentalEndpoints: EndpointTable = {
     kind: "json",
     description: "Query US income statement",
     billing: { kind: "free" },
+    expects: "list",
   },
   "fundamental.balance-sheet-us": {
     method: "POST",
@@ -104,6 +115,7 @@ export const fundamentalEndpoints: EndpointTable = {
     kind: "json",
     description: "Query US balance sheet",
     billing: { kind: "free" },
+    expects: "list",
   },
   "fundamental.cash-flow-us": {
     method: "POST",
@@ -111,5 +123,6 @@ export const fundamentalEndpoints: EndpointTable = {
     kind: "json",
     description: "Query US cash flow statement",
     billing: { kind: "free" },
+    expects: "list",
   },
 }

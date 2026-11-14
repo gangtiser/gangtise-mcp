@@ -2,6 +2,40 @@
 
 > README 顶部只放最近 5 个版本的一行摘要 + 历史里程碑；本文件是完整历史明细（中文），回溯至 0.1.3。
 
+### 0.3.10 (2026-11-14)
+
+新增海外观点列表与海外观点账号搜索，`gangtise_opinion_detail` 可取海外观点全文；三大报表与十大股东按年份或日期查时须同时传 `period`；ETF 成分补代码排除同名候选要有日 K 证据。默认列出 127 个工具，`core` 仍为 96 个。
+
+**⚠️ 要改调用的**
+
+- **三大报表（`gangtise_income_statement` / `gangtise_balance_sheet` / `gangtise_cash_flow`，以及 legacy 档按市场与单季拆开的 8 个旧报表工具）与 `gangtise_top_holders`**：传了 `fiscalYear` 或 `startDate` / `endDate` 时须同时传 `period`（`latest` 以外的取值），否则本地拒绝、不发请求。`period` 缺省或只给 `latest` 时本接口返回最新一期，年份与日期区间都不起作用。要某年年报写 `fiscalYear: [2019], period: ['annual']`，要全年各期就列出各期；只要最新一期就去掉年份与日期。
+
+**新增**
+
+- **`gangtise_overseas_opinion_list`**（extended，**0.1 积分/条**）：海外媒体、投资人、分析师等账号发布的帖子，每条附中文翻译；列表只回原文前 200 字 `brief` 与译文 `briefTranslate`。
+  - 筛选：`accountIdList`（账号 ID）、`securityList`（须带市场后缀，如 `NVDA.O`；后缀存在但市场不对返回空结果、不报错）、`categoryList`（`opinion` / `news` / `dataAnalysis` / `promotion`）、`industryList`（GICS 一级行业 `107700001`–`107700011`，用 `gangtise_constant_list category=gicsIndustry` 查；申万码、中信码报 `100005`）、`regionList`（`cn` / `cnHk` / `cnTw` / `us` / `jp` / `kr` / `uk` / `gl`）、`originalFlag`（`1` 原创 / `0` 转发）、`keyword`、`startTime` / `endTime`（发布时间）、`rankType`
+  - 一条可同属多个类别，按类别分批拉再合并要按 `overseasOpinionId` 去重；`categoryList` 为空的帖子只在不传 `categoryList` 时返回。转发帖的 `brief` 是转发者的评论，原帖在 `forwardPost`
+  - 单页 50 条；按偏移最多取到前 10000 条，超出时结果标 `_partial`（`window_cut`），按时间分段取。`startTime` 早于账号可查范围的下界时整段报 `110003`，不会从下界起截断返回。多页拉取受积分预估保护
+- **`gangtise_overseas_account_search`**（extended，免费）：按英文账号名片段查海外观点账号 ID（子串匹配、不区分大小写，中文名查不到），供 `accountIdList` 使用；支持 `from` / `size` 与 `fetchAll`。
+- **`gangtise_opinion_detail` 的 `kind=overseas`**（**10 积分/条**）：按 `overseasOpinionId` 取海外观点全文 `content` 与译文 `contentTranslate`，20 个一批；缺正文的 ID 同样列在 `missingIds`，超时或 5xx 不自动重发。工具的积分标签改为「按观点类型」，`kind` 说明里写明各类单价（内资 / 外资 30/条，海外 10/条）。
+
+**变更**
+
+- **`gangtise_fund_etf_pcf_components` 补代码**：同名证券在两个市场都有时，排除另一市场那只要有它的日 K 收盘价对不上作依据；只有实时行情对得上、日 K 缺失或从更晚的日子才开始的，不作为排除依据，定不下的行留 `null` 并列在 `_note`。
+- **`gangtise_file_parse`**：前 1KB 内没有 `%PDF-` 文件头的文件在上传前拒绝，改了后缀的非 PDF 不再按页计费。
+- **`gangtise_file_parse` / `gangtise_drive_upload`**：`filePath` 指向本服务存放访问令牌的位置（`~/.config/gangtise/`，或 `GANGTISE_TOKEN_CACHE_PATH` 指向的文件）时在发请求前拒绝；按系统实际到达的路径判断，软链与 `..` 绕不过去。
+- **成功响应却没有数据体时报错**：三大报表、主营、十大股东、各参考类搜索与常量、EDB / 指标 / 研报图表搜索、股票池成分与云盘目录，成功响应的数据体是 `null` 或形状不对时报错并带 traceId，不再当作空结果。查不到时这些接口返回空列表或空对象，照常按空结果处理。
+- 依赖：`undici` 升到 7.30.2。
+
+**说明更正**
+
+- `gangtise_securities_search`：带 `category` 只返回该类别；不带时按公司简称查，同名可转债可能排在正股前面，查股票请带 `category=['stock']`。
+- `gangtise_official_account_search`：`keyword` 匹配的是公众号名称，名称用简称的公众号按机构全称查不到（`东吴证券` 0 行，`东吴` 能查到），0 行时换简称再查。
+- `gangtise_pamirs_summary_list`：返回行的 `categoryList` / `marketList` 只在按这两个字段筛选时完整，其余查法下 `categoryList` 为空、`marketList` 不含 `aShares` / `usChinaConcept`；要按类别或市场分组就逐个值各查一遍。
+- `gangtise_fund_top10_holders`：2026 年中报起，除另有披露规则的产品（如 REITs）外，基金中报不再披露前十大持有人，这一期查不到属正常。
+- `gangtise_indicator_search`：所属行业 `scr_indu_citic` / `scr_indu_sw` / `scr_indu_gics` 须传 `industryLevel`（`0` 全路径、`1`–`4` 各级）。
+- `gangtise_report_image_list`：`startTime` / `endTime` 目前不生效，带不带返回同样的结果；要限定时间，按返回的 `publishTime` 自行过滤。
+
 ### 0.3.9 (2026-11-07)
 
 新增 AI 专家情报与指数成分股权重两个工具，`gangtise_download` 可下载群消息里的文件；群消息列表的类别新增音频 / 视频；ETF 成分补代码按涨跌幅区分同名的 A / H 股。默认列出 125 个工具，`core` 仍为 96 个。

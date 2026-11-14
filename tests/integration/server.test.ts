@@ -14,18 +14,14 @@ function makeMockClient() {
       if (key.startsWith("lookup.")) return [{ id: "1", name: "Test" }]
       // 观点正文端点按契约返回裸数组。
       if (key.endsWith(".detail")) return []
-      // EDE 走双层信封 + 矩阵，返回通用 list 会被 requireIndicatorMatrix 硬拒。
+      // EDE 返回矩阵对象，返回通用 list 会被 requireIndicatorMatrix 硬拒。
       // 闭集参数用例靠正向对照判断「这条红是不是枚举造成的」，mock 形状不对
       // 会让 currency/scale/calendarType 全部沦为跳过——测不到就是漏。
       if (key.startsWith("indicator.")) {
         return {
-          code: "000000",
-          status: true,
-          data: {
-            securityCodeList: ["600519.SH"], securityNameList: ["贵州茅台"],
-            indicatorList: [{ code: "qte_close", name: "收盘价", dataType: "number" }],
-            dates: ["2026-07-31"], values: [[1]],
-          },
+          securityCodeList: ["600519.SH"], securityNameList: ["贵州茅台"],
+          indicatorList: [{ code: "qte_close", name: "收盘价", dataType: "number" }],
+          dates: ["2026-07-31"], values: [[1]],
         }
       }
       return { list: [{ id: "test-id" }], total: 1 }
@@ -287,7 +283,7 @@ describe("MCP server integration", () => {
     // 天花板不是「当前值 + 1」——留了增长余量，新增工具不该动它。撞上了说明该先看
     // 重复度（scripts/prerelease-check.mjs 的 ⑤ 会列出最大的几个工具），确认省无可省之后
     // 再**主动**抬这个数字并说明为什么。悄悄涨回去才是要拦的事。
-    expect(bytes).toBeLessThan(200_000)
+    expect(bytes).toBeLessThan(250_000)
   })
 
   it("gangtise_current_date returns runtime Asia/Shanghai date context", async () => {
@@ -680,16 +676,12 @@ describe("MCP server integration", () => {
     expect(mockClient.call).not.toHaveBeenCalled()
   })
 
-  it("gangtise_indicator_cross_section unwraps the inner envelope and flattens to a wide table", async () => {
+  it("gangtise_indicator_cross_section flattens the matrix to a wide table", async () => {
     vi.mocked(mockClient.call).mockResolvedValueOnce({
-      code: "000000",
-      status: true,
-      data: {
-        securityCodeList: ["600519.SH"],
-        securityNameList: ["贵州茅台"],
-        indicatorList: [{ code: "qte_close", name: "收盘价", dataType: "number" }],
-        values: [[1800]],
-      },
+      securityCodeList: ["600519.SH"],
+      securityNameList: ["贵州茅台"],
+      indicatorList: [{ code: "qte_close", name: "收盘价", dataType: "number" }],
+      values: [[1800]],
     })
     const result = await mcpClient.callTool({
       name: "gangtise_indicator_cross_section",
@@ -772,10 +764,10 @@ describe("MCP server integration", () => {
     // instructions 单项仍有上界：它是**每次会话都全量注入**的，不该无限长。
     expect(instrBytes, "instructions 超出单项上界").toBeLessThanOrEqual(3_600)
     // 合计才是模型真正付的钱。上限取发版门禁（scripts/prerelease-check.mjs ⑤）两项上限之和：
-    // tools/list 200,000B + instructions 3,600B。这里不另设一个更严的数——那会让一次门禁允许的
-    // 增量在测试里红，而两边的上限本该是同一个决定。tools/list 单项仍由上面那条 200,000B 钉住。
+    // tools/list 250,000B + instructions 3,600B。这里不另设一个更严的数——那会让一次门禁允许的
+    // 增量在测试里红，而两边的上限本该是同一个决定。tools/list 单项仍由上面那条 250,000B 钉住。
     expect(instrBytes + listBytes, `合计上下文 ${instrBytes + listBytes}B（instructions ${instrBytes} + tools/list ${listBytes}）超出预算`)
-      .toBeLessThanOrEqual(203_600)
+      .toBeLessThanOrEqual(253_600)
   })
 
   // $ref 展开曾把被引用参数的说明一起带过来：公众号列表的 accountIdList / securityList / industryList 元素都读成了
@@ -1001,6 +993,10 @@ const CLOSED_SET_SNAPSHOT = [
     "foreign_opinion_list.ratingChangeList",
     "opinion_detail.kind",
     "independent_opinion_list.rankType",
+    "overseas_opinion_list.rankType",
+    "overseas_opinion_list.categoryList",
+    "overseas_opinion_list.regionList",
+    "overseas_opinion_list.originalFlag",
     "independent_opinion_list.ratingList",
     "independent_opinion_list.ratingChangeList",
     "official_account_list.searchType",

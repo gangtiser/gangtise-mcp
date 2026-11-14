@@ -4,6 +4,8 @@ export const fundamentalExamples: ToolExamples = {
   gangtise_income_statement: [
     { title: "A 股累计", args: { securityCode: "600519.SH", fiscalYear: [2024, 2025], period: ["annual"], reportType: ["consolidated"], fieldList: ["announcementDate", "opRevenue"] }, expect: { requests: [{ method: "POST", path: "/application/open-fundamental/financial-report/income-statement/accumulated", body: { securityCode: "600519.SH", fiscalYear: [2024, 2025], period: ["annual"], reportType: ["consolidated"], fieldList: ["announcementDate", "opRevenue"] } }] } },
     { title: "A 股配港股的 period 本地拒绝", args: { securityCode: "600519.SH", period: ["h1"] }, expect: { rejects: /A股报表的 period 只收/ } },
+    { title: "只给 fiscalYear、不给 period：零请求拒绝（否则返回最新一期）", args: { securityCode: "600519.SH", fiscalYear: [2019] }, expect: { rejects: /须同时传 period/, requests: [] } },
+    { title: "日期区间配 period=latest 同样拒绝", args: { securityCode: "00700.HK", startDate: "2019-01-01", endDate: "2019-12-31", period: ["latest"] }, expect: { rejects: /须同时传 period/, requests: [] } },
     { title: "A 股单季口径", args: { securityCode: "600519.SH", quarterly: true, period: ["q2"] }, expect: { requests: [{ method: "POST", path: "/application/open-fundamental/financial-report/income-statement/quarterly", body: { securityCode: "600519.SH", period: ["q2"] } }] } },
     { title: "港股按后缀路由，reportType 照常下发", args: { securityCode: "00700.HK", period: ["h1"], reportType: ["consolidated"] }, expect: { requests: [{ method: "POST", path: "/application/open-fundamental/financial-report/income-statement/hk", body: { securityCode: "00700.HK", period: ["h1"], reportType: ["consolidated"] } }] } },
     { title: "美股按后缀路由", args: { securityCode: "TSLA.O", period: ["nsd"] }, expect: { requests: [{ method: "POST", path: "/application/open-fundamental/financial-report/income-statement/us", body: { securityCode: "TSLA.O", period: ["nsd"] } }] } },
@@ -25,12 +27,15 @@ export const fundamentalExamples: ToolExamples = {
   ],
   gangtise_cash_flow_quarterly: [
     { title: "A 股单季", args: { securityCode: "600519.SH", period: ["q4", "latest"] }, expect: { requests: [{ method: "POST", path: "/application/open-fundamental/financial-report/cash-flow-statement/quarterly", body: { securityCode: "600519.SH", period: ["q4", "latest"] } }] } },
+    { title: "legacy 单季：日期区间配 period latest 同样零请求拒绝", args: { securityCode: "600519.SH", startDate: "2020-01-01", endDate: "2020-12-31", period: ["latest"] }, expect: { rejects: /须同时传 period/, requests: [] } },
   ],
   gangtise_main_business: [
     { title: "按产品", args: { securityCode: "600519.SH", breakdown: "product", periodList: ["annual"], fieldList: ["periodName", "opRevenue"] }, expect: { requests: [{ method: "POST", path: "/application/open-fundamental/main-business", body: { securityCode: "600519.SH", breakdown: "product", periodList: ["annual"], fieldList: ["periodName", "opRevenue"] } }] } },
   ],
   gangtise_top_holders: [
     { title: "前十大股东", args: { securityCode: "600519.SH", holderType: "top10", fiscalYear: [2025], period: ["interim"] }, expect: { requests: [{ method: "POST", path: "/application/open-fundamental/capital-structure/top-holders", body: { securityCode: "600519.SH", holderType: "top10", fiscalYear: [2025], period: ["interim"] } }] } },
+    { title: "不传日期与 period：最新一期", args: { securityCode: "600519.SH", holderType: "top10Float" }, expect: { requests: [{ method: "POST", path: "/application/open-fundamental/capital-structure/top-holders", body: { securityCode: "600519.SH", holderType: "top10Float" } }] } },
+    { title: "只给日期区间、不给 period：零请求拒绝", args: { securityCode: "600519.SH", holderType: "top10", startDate: "2020-01-01", endDate: "2020-12-31" }, expect: { rejects: /须同时传 period/, requests: [] } },
   ],
   gangtise_earning_forecast: [
     { title: "一致预期", args: { securityCode: "600519.SH", consensusList: ["eps", "pe"], startDate: "2026-01-01", endDate: "2026-09-01" }, expect: { requests: [{ method: "POST", path: "/application/open-fundamental/earning-forecast", body: { securityCode: "600519.SH", startDate: "2026-01-01", endDate: "2026-09-01", consensusList: ["eps", "pe"] } }] } },
@@ -40,6 +45,7 @@ export const fundamentalExamples: ToolExamples = {
   ],
   gangtise_income_statement_hk: [
     { title: "港股：reportType 照常下发", args: { securityCode: "00700.HK", period: ["h1"], reportType: ["consolidatedRestated"] }, expect: { requests: [{ method: "POST", path: "/application/open-fundamental/financial-report/income-statement/hk", body: { securityCode: "00700.HK", period: ["h1"], reportType: ["consolidatedRestated"] } }] } },
+    { title: "legacy 变体同样拦：只给 fiscalYear、不给 period 时零请求拒绝", args: { securityCode: "00700.HK", fiscalYear: [2019] }, expect: { rejects: /须同时传 period/, requests: [] } },
   ],
   gangtise_balance_sheet_hk: [
     { title: "港股", args: { securityCode: "00700.HK", period: ["annual"], reportType: ["consolidated"] }, expect: { requests: [{ method: "POST", path: "/application/open-fundamental/financial-report/balance-sheet/hk", body: { securityCode: "00700.HK", period: ["annual"], reportType: ["consolidated"] } }] } },

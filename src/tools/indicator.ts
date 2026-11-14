@@ -4,7 +4,6 @@ import { assertDateOrder, defineTool, type FamilyModule } from "../mcp/define.js
 import { buildToolContent } from "../core/present.js"
 import { contentResult } from "../mcp/handler.js"
 import { normalizeRows } from "../core/normalize.js"
-import { unwrapPayload } from "../core/shape.js"
 import { markPartial, type PartialReason } from "../core/partial.js"
 import { estimateTradingDays } from "../core/batch.js"
 import {
@@ -47,10 +46,6 @@ import { indicatorEndpoints } from "./indicator.endpoints.js"
 // row and column or failed hard with 110003 / 140002. The only shape that empties
 // the table is an indicator code the server cannot resolve, which EDE_EMPTY_HINT
 // already covers. Do not add "empty table" back to this list without a probe.
-//
-// The inner envelope is peeled INSIDE this try on purpose: EDE double-wraps, and a
-// 999999 raised while peeling the inner envelope (success outer / failure inner)
-// would otherwise bypass the override.
 const FETCH_KEYS = new Set(["indicator.cross-section", "indicator.time-series", "indicator.screener"])
 
 /** EDE 取不到数时的**唯一**占位形态。这句话逐字进每一个客户可见面（三个工具描述、
@@ -75,7 +70,7 @@ export const PARAM_VALUE_SILENT =
 
 /** 999999 的补充提示，只挂在取数端点（`callMatrix`）上。
  *
- * 此前它是两份逐字重复的字面量，另一份在 `callIndicator` 里、且**按构造不可达**
+ * 此前它是两份逐字重复的字面量，另一份在 search 的取数路径里、且**按构造不可达**
  * （那里唯一的调用方是 indicator.search，而 search 不在 FETCH_KEYS 里）——没有测试
  * 覆盖，可以单独漂走。那个分支已删；search 走通用提示，由
  * `indicator.search keeps the generic 999999 hint` 反向钉住。
@@ -106,18 +101,8 @@ export const EDE_EMPTY_HINT =
 export const TS_EMPTY_HINT =
   "0 行结果：时序整表为空，多半是区间里没有这条日期轴上的日期——不传 calendarType 时报告期类指标只取区间内的报告期末（03-31 / 06-30 / 09-30 / 12-31），交易日类只取交易日（只查长假会空）。放宽区间，或传 calendarType='ND' 拿逐日行；区间确实含这些日期时，再核对证券后缀（美股 .O/.N/.A 而非 .US）与指标权限，指标代码以 gangtise_indicator_search 返回的为准。"
 
-/** 非矩阵端点（当前只有 indicator.search）的取数：剥内层信封，错误原样上抛。
- *
- * ⚠️ **这里有意不套 EDE_999999_HINT**。取数端点的 999999 提示挂在 callMatrix 上；
- * search 的 999999 是真系统错误（零命中返回的是 `[]`，不是错误码），套上那份提示会把
- * 调用方引去查指标参数与日期语义，而那和 search 无关。
- * `indicator.search keeps the generic 999999 hint` 反向钉住这一点。 */
-async function callIndicator(client: GangtiseClient, endpointKey: string, body: Record<string, unknown>): Promise<unknown> {
-  return unwrapPayload(endpointKey, await client.call(endpointKey, body))
-}
-
-/** Raw matrix call: keep the envelope until requireIndicatorMatrix has validated
- * the shape, because a `data: null` cannot carry the non-enumerable traceId. */
+/** Matrix call: the shape is checked in the HTTP layer (`expects: "object"`), so a
+ * `data: null` fails there with its traceId; requireIndicatorMatrix narrows the type. */
 async function callMatrix(client: GangtiseClient, endpointKey: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
   try {
     return requireIndicatorMatrix(await client.call(endpointKey, body))
@@ -482,7 +467,7 @@ export const indicatorFamily: FamilyModule = {
       tier: "core",
       access: "read",
       endpoint: "indicator.search",
-      description: "按名称搜索证券级数据指标（EDE），返回 indicatorCode、scopeList（覆盖市场，附 usageRestriction）及 parameterList（含 required 必填标记与枚举）。取数前必先用本工具拿 code，并核对 indicatorName/description 语义、scopeList 是否覆盖目标市场、parameterList 取值——任一不符即回退专用工具。scopeList 是声明不是保证，usageRestriction（如「不支持指标时间序列接口」）也不是硬约束、按「口径可能不对」理解，均以实际抽查为准。基础行情（开高低收/成交量额/换手/涨跌幅）虽可搜到仍优先 realtime/day_kline，但**总市值 qte_mkt_cptl 这两个专用工具都没有、单票也走 EDE**（A/港/美股均已有数，默认「元」，用 scale 缩放）；同样只有 EDE 才有的还包括融资融券 mgn_*（两融余额/融资/融券及其区间变体，仅 A 股；区间变体的 changePeriod 是可选的）与所属行业 scr_indu_citic / scr_indu_sw / scr_indu_gics（体系写进编码，industryLevel 可选；scr_indu 预计下线、已搜不到，恒生行业暂只能用 scr_indu 的 industryType=3）；⚠️ **个股资金流向 flow_*（仅 A 股）与 gangtise_fund_flow 返回的是同一套数（逐位相同）**，而后者还多给各档占比字段、并支持全市场——除非要与其他 EDE 指标同批取，否则一律用 gangtise_fund_flow（两边的计价档见各自标签）；单票完整报表、盈利预测(一致预期)仍用专用工具；A 股估值历史分位用 gangtise_valuation_analysis，港 / 美股用 EDE 的 finc_*_quantile（sDate 必填，覆盖市场逐个核 scopeList）；EDE 批量优先仅针对多证券取一批已实现财务/估值指标。基金代码（005827.OF / 510300.SH）也能查：基金分类 fund_cls*、复权净值 fund_adj_nav 与区间收益 / 风险指标（finc_* 收益率、波动率、最大回撤、夏普、Alpha，fund_* 卡玛、同类排名）适合多只基金横向比，单只基金的净值序列、持仓、规模用 gangtise_fund_*；同类排名 fund_ret_rank / fund_ret_rank_pct 的同类按 industryLevel 那一级的 fund_cls1_typ / fund_cls2_typ 分。宏观/行业数据（产量、价格、PMI 等）请改用 gangtise_edb_search，不要猜编码。",
+      description: "按名称搜索证券级数据指标（EDE），返回 indicatorCode、scopeList（覆盖市场，附 usageRestriction）及 parameterList（含 required 必填标记与枚举）。取数前必先用本工具拿 code，并核对 indicatorName/description 语义、scopeList 是否覆盖目标市场、parameterList 取值——任一不符即回退专用工具。scopeList 是声明不是保证，usageRestriction（如「不支持指标时间序列接口」）也不是硬约束、按「口径可能不对」理解，均以实际抽查为准。基础行情（开高低收/成交量额/换手/涨跌幅）虽可搜到仍优先 realtime/day_kline，但**总市值 qte_mkt_cptl 这两个专用工具都没有、单票也走 EDE**（A/港/美股均已有数，默认「元」，用 scale 缩放）；同样只有 EDE 才有的还包括融资融券 mgn_*（两融余额/融资/融券及其区间变体，仅 A 股；区间变体的 changePeriod 是可选的）与所属行业 scr_indu_citic / scr_indu_sw / scr_indu_gics（体系写进编码，须传 industryLevel：0 全路径、1–4 各级；scr_indu 预计下线、已搜不到，恒生行业暂只能用 scr_indu 的 industryType=3）；⚠️ **个股资金流向 flow_*（仅 A 股）与 gangtise_fund_flow 返回的是同一套数（逐位相同）**，而后者还多给各档占比字段、并支持全市场——除非要与其他 EDE 指标同批取，否则一律用 gangtise_fund_flow（两边的计价档见各自标签）；单票完整报表、盈利预测(一致预期)仍用专用工具；A 股估值历史分位用 gangtise_valuation_analysis，港 / 美股用 EDE 的 finc_*_quantile（sDate 必填，覆盖市场逐个核 scopeList）；EDE 批量优先仅针对多证券取一批已实现财务/估值指标。基金代码（005827.OF / 510300.SH）也能查：基金分类 fund_cls*、复权净值 fund_adj_nav 与区间收益 / 风险指标（finc_* 收益率、波动率、最大回撤、夏普、Alpha，fund_* 卡玛、同类排名）适合多只基金横向比，单只基金的净值序列、持仓、规模用 gangtise_fund_*；同类排名 fund_ret_rank / fund_ret_rank_pct 的同类按 industryLevel 那一级的 fund_cls1_typ / fund_cls2_typ 分。宏观/行业数据（产量、价格、PMI 等）请改用 gangtise_edb_search，不要猜编码。",
       input: {
         keyword: z
           .string()
@@ -492,7 +477,9 @@ export const indicatorFamily: FamilyModule = {
         limit: z.number().int().min(1).max(100).optional().describe("最大返回条数（默认 50，上限 100）"),
       },
       run: async ({ client }, args) => {
-        const data = await callIndicator(client, "indicator.search", args)
+        // ⚠️ 有意不套 EDE_999999_HINT（那份挂在 callMatrix 上）：search 的 999999 是真系统错误（零命中返回 `[]`），
+        // 套上会把调用方引去查指标参数与日期语义。`indicator.search keeps the generic 999999 hint` 反向钉住。
+        const data = await client.call("indicator.search", args)
         return contentResult(await buildToolContent(normalizeRows(data)))
       },
     }),

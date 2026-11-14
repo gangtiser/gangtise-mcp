@@ -48,6 +48,8 @@ const NO_REPLAY_KEYS = [
   "insight.opinion.detail",
   "insight.foreign-opinion.list-with-content",
   "insight.foreign-opinion.detail",
+  // 海外观点按 ID 取正文：10 积分/条，一批最多 20 条。
+  "insight.overseas-opinion.detail",
   "alternative.concept-info-full",
   "alternative.concept-securities-full",
   // 债券整族按次（或按条 / 债券 / 发行人）计费。

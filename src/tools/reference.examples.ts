@@ -28,6 +28,10 @@ export const referenceExamples: ToolExamples = {
   gangtise_sector_constituents: [
     { title: "申万一级行业指数板块", args: { sectorId: "2000000014" }, expect: { requests: [{ method: "POST", path: "/application/open-reference/sectors/constituents", body: { sectorId: "2000000014" } }] } },
   ],
+  gangtise_overseas_account_search: [
+    { title: "账号名片段按 accountName 发，默认 size=20", args: { accountName: "bloomberg" }, expect: { requests: [{ method: "POST", path: "/application/open-reference/overseasAccount/search", body: { accountName: "bloomberg", size: 20, from: 0 } }] } },
+    { title: "显式 from / size", args: { accountName: "elo", from: 10, size: 5 }, expect: { requests: [{ method: "POST", path: "/application/open-reference/overseasAccount/search", body: { accountName: "elo", from: 10, size: 5 } }] } },
+  ],
   gangtise_index_weight: [
     { title: "多个指数 + 月末交易日", args: { indexCodeList: ["000300.SH", "000905.SH"], tradeDate: "2026-10-30" }, expect: { requests: [{ method: "POST", path: "/application/open-quote/index/constituent-weight", body: { indexCodeList: ["000300.SH", "000905.SH"], tradeDate: "2026-10-30" } }] } },
     { title: "tradeDate 必填", args: { indexCodeList: ["000300.SH"] }, expect: { rejects: /at tradeDate/ } },

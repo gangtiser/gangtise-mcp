@@ -26,7 +26,8 @@ const dateRange = {
   startDate: dateString.optional(),
   endDate: dateString.optional(),
 }
-const fiscalYear = enumList(z.number().int()).optional().describe("财年列表，如 [2023, 2024]")
+// 后半句随 A39 撤：服务端在 period 缺省时也按 fiscalYear 取数后删（撤除清单见 bug/server-open.md）。
+const fiscalYear = enumList(z.number().int()).optional().describe("财年列表，如 [2023, 2024]；须同时传 period（latest 以外）")
 const fieldList = uniqueFieldList("指定返回字段")
 // valuation-analysis 全表就 7 列，且**没有 securityCode**；tradeDate 总是自动前置到每一行。
 // 2026-10-17 复核：不存在的字段名（含 securityCode）整条报 100005 并点名，显式 tradeDate 与重复字段
@@ -90,6 +91,17 @@ function flagValuationRange(normalized: unknown, limit: number, startDate: unkno
 // 什么也测不出来。
 const PIT_NOTE = "做 point-in-time / 时点对齐时，announcementDate 是当前返回报表版本的公告日，earliestAnncDate 是接口记录的首次公告日。consolidated 也可能返回后来重述的数值，不能把它配上 earliestAnncDate 就当成首次披露值；category 仍可能是一季报/半年报告/三季报，不能靠它排除重述。应按返回版本的公告日控制数值可见时间；需要首次披露的原始数值时，请核对当时公告。"
 
+/** 三表（含 legacy 各变体）与十大股东：period 缺省按 latest 取数，这时 fiscalYear 与日期区间都不起作用、照样返回最新一期，
+ *  显式只传 latest 也一样。按年份或区间查却拿到最新一期，看起来像正常结果，所以在本地拒。 */
+function requirePeriodWithRange(body: Record<string, unknown>): Record<string, unknown> {
+  const ranged = (Array.isArray(body.fiscalYear) && body.fiscalYear.length > 0) || body.startDate !== undefined || body.endDate !== undefined
+  const periods = Array.isArray(body.period) ? body.period.map(String) : []
+  if (ranged && periods.every((p) => p === "latest")) {
+    throw new ValidationError("传了 fiscalYear 或 startDate / endDate 时须同时传 period（latest 以外的取值，如 ['annual']，单季口径用 q1–q4；要全年各期就列出各期）：period 缺省或只给 latest 时本接口返回最新一期，年份与日期区间都不起作用。只要最新一期就去掉 fiscalYear / startDate / endDate。")
+  }
+  return body
+}
+
 /** 三表按代码后缀选市场。period 的取值闭集按「市场 × 累计 / 单季」各一套，与原来按市场拆开的
  *  工具一致；对外 schema 是并集，resolve 定了市场再按那一套校验。单季口径只有 A 股利润表与现金流量表有。 */
 const STATEMENT_PERIODS = {
@@ -123,6 +135,7 @@ function statementSpec(config: {
       fieldList,
     },
     resolve: ({ quarterly, ...body }) => {
+      requirePeriodWithRange(body)
       const code = String(body.securityCode)
       const market = parseSecurityCode(code).market
       if (!market) throw new ValidationError(`无法从 '${code}' 的后缀判断市场：A股 .SH/.SZ/.BJ、港股 .HK、美股 .O/.N/.A。`)
@@ -172,6 +185,7 @@ export const specs: JsonToolSpec[] = [
       reportType: reportTypeEnum,
       fieldList,
     },
+    transformBody: requirePeriodWithRange,
   },
   statementSpec({
     name: "gangtise_balance_sheet",
@@ -197,6 +211,7 @@ export const specs: JsonToolSpec[] = [
       reportType: reportTypeEnum,
       fieldList,
     },
+    transformBody: requirePeriodWithRange,
   },
   {
     name: "gangtise_main_business",
@@ -225,6 +240,7 @@ export const specs: JsonToolSpec[] = [
       fiscalYear,
       period: periodEnum,
     },
+    transformBody: requirePeriodWithRange,
   },
   {
     name: "gangtise_earning_forecast",
@@ -259,6 +275,7 @@ export const specs: JsonToolSpec[] = [
       reportType: reportTypeEnum,
       fieldList,
     },
+    transformBody: requirePeriodWithRange,
   },
   {
     name: "gangtise_balance_sheet_hk",
@@ -274,6 +291,7 @@ export const specs: JsonToolSpec[] = [
       reportType: reportTypeEnum,
       fieldList,
     },
+    transformBody: requirePeriodWithRange,
   },
   {
     name: "gangtise_cash_flow_hk",
@@ -289,6 +307,7 @@ export const specs: JsonToolSpec[] = [
       reportType: reportTypeEnum,
       fieldList,
     },
+    transformBody: requirePeriodWithRange,
   },
   {
     name: "gangtise_income_statement_us",
@@ -304,6 +323,7 @@ export const specs: JsonToolSpec[] = [
       reportType: reportTypeEnum,
       fieldList,
     },
+    transformBody: requirePeriodWithRange,
   },
   {
     name: "gangtise_balance_sheet_us",
@@ -319,6 +339,7 @@ export const specs: JsonToolSpec[] = [
       reportType: reportTypeEnum,
       fieldList,
     },
+    transformBody: requirePeriodWithRange,
   },
   {
     name: "gangtise_cash_flow_us",
@@ -334,6 +355,7 @@ export const specs: JsonToolSpec[] = [
       reportType: reportTypeEnum,
       fieldList,
     },
+    transformBody: requirePeriodWithRange,
   },
 ]
 

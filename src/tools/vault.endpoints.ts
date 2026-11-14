@@ -37,6 +37,7 @@ export const vaultEndpoints: EndpointTable = {
     kind: "json",
     description: "List the direct subfolders and files of a drive folder",
     billing: { kind: "free" },
+    expects: "object",
   },
   "vault.drive.create-folder": {
     method: "POST",
@@ -169,6 +170,7 @@ export const vaultEndpoints: EndpointTable = {
     kind: "json",
     description: "List securities in stock pool(s)",
     billing: { kind: "free" },
+    expects: "array",
   },
 
   // ─── vault stock-pool writes ───

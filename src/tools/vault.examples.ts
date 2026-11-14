@@ -77,8 +77,8 @@ export const vaultExamples: ToolExamples = {
     { title: "roomName 逗号拼接；省略 size 拉全部", args: { roomName: ["医药", "消费"] }, expect: { requests: [{ method: "POST", path: "/application/open-vault/wechatgroupmsg/chatroomId", body: { roomName: "医药,消费", from: 0, size: 50 } }] } },
   ],
   gangtise_stock_pool_stocks: [
-    { title: "缺省为 ['all']", args: {}, expect: { requests: [{ method: "POST", path: "/application/open-vault/stock-pool/getStockList", body: { poolIdList: ["all"] } }] } },
-    { title: "租户股票池全部", args: { spaceType: 2 }, expect: { requests: [{ method: "POST", path: "/application/open-vault/stock-pool/getStockList", body: { spaceType: 2, poolIdList: ["all"] } }] } },
+    { title: "缺省为 ['all']", args: {}, upstream: () => ({ data: [] }), expect: { requests: [{ method: "POST", path: "/application/open-vault/stock-pool/getStockList", body: { poolIdList: ["all"] } }] } },
+    { title: "租户股票池全部", args: { spaceType: 2 }, upstream: () => ({ data: [] }), expect: { requests: [{ method: "POST", path: "/application/open-vault/stock-pool/getStockList", body: { spaceType: 2, poolIdList: ["all"] } }] } },
     { title: "空数组本地拒绝", args: { poolIdList: [] }, expect: { rejects: /不能为空数组/ } },
   ],
   gangtise_stock_pool_create: [

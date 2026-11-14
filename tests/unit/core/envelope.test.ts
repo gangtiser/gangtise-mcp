@@ -71,11 +71,11 @@ describe("unwrapEnvelope 2026-07-17 envelope fields", () => {
     }
   })
 
-  it("stashes the traceId on a successful payload so the EDE inner envelope can still reach it", () => {
-    const inner = { code: "130001", status: false, msg: "无数据" }
-    const data = unwrapEnvelope({ code: "0", data: inner, traceId: "77" })
+  it("stashes the traceId on a successful payload so an error raised from it later can still name it", () => {
+    const payload = { indicatorList: null }
+    const data = unwrapEnvelope({ code: "0", data: payload, traceId: "77" })
     // 非枚举：绝不进 JSON/工具输出。
-    expect(JSON.stringify(data)).toBe(JSON.stringify(inner))
-    expect(new ApiError("无数据", "130001", 500, data).traceId).toBe("77")
+    expect(JSON.stringify(data)).toBe(JSON.stringify(payload))
+    expect(new ApiError("返回形状异常", undefined, 200, data).traceId).toBe("77")
   })
 })

@@ -60,10 +60,10 @@ export const referenceSpecs: JsonToolSpec[] = [
     name: "gangtise_official_account_search",
     tier: "core",
     description:
-      "搜索公众号 ID：输入公众号名称/所属机构/关键字，返回 accountId（供 gangtise_official_account_list 的 accountIdList 使用）及 matchScore。注意：部分公众号不属任何分类（category 为 null），传 category 过滤会漏掉这些账号，要全量就不传 category。",
+      "按公众号名称片段搜索公众号 ID，返回 accountId（供 gangtise_official_account_list 的 accountIdList 使用）及 matchScore。注意：部分公众号不属任何分类（category 为 null），传 category 过滤会漏掉这些账号，要全量就不传 category。",
     endpointKey: "reference.official-account-search",
     inputSchema: {
-      keyword: z.string().trim().min(1, "搜索词不能为空").describe("公众号名称/所属机构/关键字，如 '中信证券' '人民日报'"),
+      keyword: z.string().trim().min(1, "搜索词不能为空").describe("公众号名称片段，如 '中信证券'（查到「中信证券研究」）。匹配的是名称：名称用简称的公众号按机构全称查不到（东吴证券 0 行，东吴 查到「东吴策略陈刚团队」），0 行时换简称再查"),
       category: enumList(z.enum(["listedCompany", "broker", "government", "media"]))
         .optional()
         .describe("分类过滤（可多选）：listedCompany=上市公司 | broker=券商团队 | government=政府官方 | media=媒体；不传=全部（含未分类）"),
@@ -132,6 +132,17 @@ export const referenceSpecs: JsonToolSpec[] = [
     },
   },
   {
+    name: "gangtise_overseas_account_search",
+    tier: "extended",
+    description: "按账号名片段查海外观点账号 ID，返回 accountId（供 gangtise_overseas_opinion_list 的 accountIdList 使用）、accountName、中文简介 accountIntroduction 与 matchScore，按 matchScore 降序。在英文账号名任意位置做子串匹配、不区分大小写（elo 同时命中 Elon Musk 与 Financelot），中文名查不到。",
+    endpointKey: "reference.overseas-account-search",
+    paginated: true,
+    inputSchema: {
+      accountName: nonEmptyString.describe("英文账号名片段，一次一个，如 bloomberg"),
+      from: z.number().int().min(0).optional(),
+    },
+  },
+  {
     name: "gangtise_index_weight",
     tier: "extended",
     description:
@@ -158,7 +169,7 @@ export const referenceFamily: FamilyModule = {
       tier: "core",
       access: "read",
       endpoint: "reference.securities-search",
-      description: "按关键词搜索证券，支持股票名称、代码（如 600519）、拼音或英文名。返回匹配证券及其 GTS 代码。⚠️ 可转债可能出现在任何 category 的结果里：按公司简称查 stock 时同名转债常排第一（「甬金」→ 113636.SH 甬金转债排在 603995.SH 甬金股份之前），只取返回 category 等于所查类别的行，别直接取第一条。基金同时返回场内（.SH / .SZ）与场外（.OF）代码，同一基金的不同份额一起返回，按 gtsName 区分。",
+      description: "按关键词搜索证券，支持股票名称、代码（如 600519）、拼音或英文名。返回匹配证券及其 GTS 代码。带 category 只返回该类别；不带时按公司简称查，同名可转债可能排在正股前面（「甬金」→ 113636.SH 甬金转债排在 603995.SH 甬金股份之前），查股票请带 category=['stock']。基金同时返回场内（.SH / .SZ）与场外（.OF）代码，同一基金的不同份额一起返回，按 gtsName 区分。",
       input: {
         keyword: z.string().trim().min(1, "搜索词不能为空").describe("搜索词：股票名称、代码（如 600519）、拼音或英文名"),
         category: enumList(z.enum(["stock", "dr", "index", "fund", "bond"])).optional().describe("按类别筛选（不传查所有）：stock=股票 | dr=存托凭证 | index=指数 | fund=基金 | bond=债券（交易所可转债、国债、地方债、金融债与银行间债券，代码供 bond_* 工具用）"),

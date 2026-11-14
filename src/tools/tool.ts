@@ -7,6 +7,7 @@ import { downloadToResult } from "../core/download.js"
 import { ENDPOINTS } from "../core/endpoints.js"
 import { ApiError, AsyncTimeoutError, ValidationError } from "../core/errors.js"
 import { buildDownloadContent } from "../core/present.js"
+import { assertNotStatePath } from "../core/statePaths.js"
 import type { GangtiseClient } from "../core/client.js"
 import { defineJsonTool, defineTool, type FamilyModule } from "../mcp/define.js"
 import { textResult } from "../mcp/handler.js"
@@ -18,6 +19,17 @@ import { toolEndpoints } from "./tool.endpoints.js"
 const CONTENT_MAX_SIZE = 5
 /** 解析接口单文件上限。 */
 const FILE_PARSE_MAX_BYTES = 100 * 1024 * 1024
+
+/** 文件开头最多 `bytes` 字节。 */
+async function readHead(file: string, bytes: number): Promise<Buffer> {
+  const handle = await fs.open(file, "r")
+  try {
+    const { buffer, bytesRead } = await handle.read(Buffer.alloc(bytes), 0, bytes, 0)
+    return buffer.subarray(0, bytesRead)
+  } finally {
+    await handle.close()
+  }
+}
 
 /** 取一次解析结果。未就绪（140001）返回 undefined，就绪返回 ZIP 的下载结果。免费，只有提交计费。 */
 async function fetchParseResult(client: GangtiseClient, taskId: string) {
@@ -85,16 +97,22 @@ export const toolFamily = (opts: AiToolOptions): FamilyModule => ({
       run: async ({ client }, args) => {
         const startedAt = Date.now()
         const { filePath, waitSeconds } = args as { filePath: string; waitSeconds?: number }
-        const resolved = path.resolve(filePath)
+        // 检查与读取用同一个路径：系统实际到达的文件（软链、`..`），也就是状态目录守卫比对的那个。显示与上送的
+        // 文件名仍按传入的写法。
+        const shownAs = path.resolve(filePath)
         // 拒绝的理由都在上传之前查完：提交就计费，注定失败的文件不该先传一遍。
-        const stat = await fs.stat(resolved).catch(() => undefined)
-        if (!stat) throw new ValidationError(`找不到文件：${filePath}`)
+        const resolved = await fs.realpath(filePath).catch(() => undefined)
+        const stat = resolved === undefined ? undefined : await fs.stat(resolved).catch(() => undefined)
+        if (!resolved || !stat) throw new ValidationError(`找不到文件：${filePath}`)
         if (!stat.isFile()) throw new ValidationError(`不是文件：${filePath}`)
+        await assertNotStatePath(resolved, "filePath")
         if (stat.size === 0) throw new ValidationError(`文件是空的：${filePath}`)
         if (stat.size > FILE_PARSE_MAX_BYTES) throw new ValidationError(`文件 ${(stat.size / 1024 / 1024).toFixed(1)}MB，解析接口单文件最多 100MB。`)
-        if (path.extname(resolved).toLowerCase() !== ".pdf") throw new ValidationError(`只支持 PDF：${filePath}`)
+        if (path.extname(shownAs).toLowerCase() !== ".pdf") throw new ValidationError(`只支持 PDF：${filePath}`)
+        // 后缀不等于内容：改了后缀的文件会被当 PDF 上传、按页计费。阅读器认文件头在前 1KB 内的任何位置。
+        if (!(await readHead(resolved, 1024)).toString("latin1").includes("%PDF-")) throw new ValidationError(`不是 PDF（前 1KB 内没有 %PDF- 文件头）：${filePath}`)
         const blob = await openAsBlob(resolved, { type: "application/pdf" })
-        const submitted = await client.uploadFile("tool.file-parse.submit", { filename: path.basename(resolved), blob }) as { taskId?: unknown } | null
+        const submitted = await client.uploadFile("tool.file-parse.submit", { filename: path.basename(shownAs), blob }) as { taskId?: unknown } | null
         const taskId = submitted?.taskId
         if (taskId === undefined || taskId === null || taskId === "") {
           throw new ApiError("解析任务已提交，但响应里没有 taskId（返回结构可能已变更）。请带上工具名与文件报障，不要直接重新提交。", undefined, undefined, submitted)

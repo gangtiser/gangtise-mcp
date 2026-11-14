@@ -5,7 +5,10 @@ import { addComponentCodes, clientLookup, fillComponentCodes, loadSecurityTable,
 // Names, codes and prices are taken from the live answers of 2026-10-27 (14 ETFs).
 type Listing = [code: string, name: string, category?: string]
 
-function lookup(search: Record<string, Listing[]>, prices: Record<string, number[]>, fail: { search?: string; quote?: string } = {}) {
+// Quotes are of the trading day after the fixtures' last daily bars (10-27): [previous close, latest].
+const QUOTE_DATE = "2026-10-28"
+
+function lookup(search: Record<string, Listing[]>, prices: Record<string, number[]>, fail: { search?: string; quote?: string } = {}, quoteDate: string | null = QUOTE_DATE) {
   const searched: string[] = []
   const quoted: string[][] = []
   const api: CodeLookup = {
@@ -18,7 +21,7 @@ function lookup(search: Record<string, Listing[]>, prices: Record<string, number
       quoted.push(codes)
       // The quote answers 120001 for the whole batch when one code is unknown.
       if (fail.quote && codes.includes(fail.quote)) throw Object.assign(new Error("证券代码无效"), { code: "120001" })
-      return new Map(codes.filter((c) => prices[c]).map((c) => [c, prices[c]]))
+      return new Map(codes.filter((c) => prices[c]).map((c) => [c, { previous: prices[c][0], latest: prices[c][1], date: quoteDate ?? undefined }]))
     },
   }
   return { api, searched, quoted }
@@ -213,7 +216,7 @@ describe("fillComponentCodes", () => {
         await new Promise((resolve) => setTimeout(resolve, 2))
         inflight--
         if (codes.includes("600003.SH")) throw Object.assign(new Error("证券代码无效"), { code: "120001" })
-        return new Map(codes.map((c) => [c, [1]]))
+        return new Map(codes.map((c) => [c, { previous: 1 }]))
       },
     }
     const { rows } = await fillComponentCodes(rows16, splitting)
@@ -238,7 +241,7 @@ describe("fillComponentCodes", () => {
     const search: Record<string, Listing[]> = { 中国移动: AH_MOBILE, 中国石油: [["601857.SH", "中国石油"]], 中国神华: [["601088.SH", "中国神华"]], 华润啤酒: [["00291.HK", "华润啤酒"]], 中国铁建: [["601186.SH", "中国铁建"], ["01186.HK", "中国铁建"]] }
     const history = new Map<string, Array<[string, number]>>([
       ["601186.SH", [["2026-10-23", 6.11]]],
-      ["01186.HK", [["2026-10-26", 4.5], ["2026-10-27", 4.6]]],
+      ["01186.HK", [["2026-10-23", 4.4], ["2026-10-26", 4.5], ["2026-10-27", 4.6]]],
       ["600941.SH", [["2026-10-23", 99.14], ["2026-10-26", 101.3], ["2026-10-27", 100.7]]],
       ["00941.HK", [["2026-10-23", 77.1], ["2026-10-26", 77.3], ["2026-10-27", 78.1]]],
       ["601857.SH", [["2026-10-23", 12.75], ["2026-10-26", 13.38], ["2026-10-27", 13.2]]],
@@ -252,6 +255,18 @@ describe("fillComponentCodes", () => {
     const { rows: out } = await fillComponentCodes(rows, api)
     expect(codesOf(out)).toEqual(["601857.SH", "601088.SH", "600941.SH", "00941.HK", "00291.HK", "601186.SH"])
     expect(asked).toHaveLength(1)
+    // The H share's bars must reach 10-23 to rule it out: the rows show no Hong Kong list day
+    // (one vote), and the A share's day says nothing of the H share's.
+    const shortH = new Map([...history, ["01186.HK", [["2026-10-26", 4.5], ["2026-10-27", 4.6]] as Array<[string, number]>]])
+    const { rows: unsure } = await fillComponentCodes(rows, { ...base, async closes(codes) { return new Map(codes.filter((c) => shortH.has(c)).map((c) => [c, shortH.get(c)!])) } })
+    expect(codesOf(unsure)[5]).toBeNull()
+    // Once two Hong Kong rows show that list day (10-27), bars from 10-26 cover it: the H share
+    // is ruled out, whatever day the A share's close is from.
+    const withTencent = { ...search, 腾讯控股: [["00700.HK", "腾讯控股"]] as Listing[] }
+    const hkDay = new Map([...shortH, ["00700.HK", [["2026-10-26", 388], ["2026-10-27", 390]] as Array<[string, number]>]])
+    const quoted = lookup(withTencent, { "600941.SH": [100.7, 100.7], "00941.HK": [78.1, 78.1], "601857.SH": [13.2, 13.2], "601088.SH": [38.4, 38.4], "00291.HK": [19.48, 19.48], "00700.HK": [390, 391] }).api
+    const { rows: known } = await fillComponentCodes([...rows, row("517180.SH", 7, "腾讯控股", 390)], { ...quoted, async closes(codes) { return new Map(codes.filter((c) => hkDay.has(c)).map((c) => [c, hkDay.get(c)!])) } })
+    expect(codesOf(known)[5]).toBe("601186.SH")
     // Without the daily closes the lagging rows are left to the name: an A+H ETF places none.
     const { rows: unaided } = await fillComponentCodes(rows, base)
     expect(codesOf(unaided)).toEqual([null, null, null, "00941.HK", "00291.HK", null])
@@ -367,7 +382,7 @@ describe("fillComponentCodes", () => {
     // the A row's price.
     const api = splitDates()
     const now: Record<string, number[]> = { "00941.HK": [78.1, 78.1], "600941.SH": [100.7, 100.9] }
-    const quoted: CodeLookup = { ...api, quotes: async (codes) => new Map(codes.filter((c) => now[c]).map((c) => [c, now[c]])) }
+    const quoted: CodeLookup = { ...api, quotes: async (codes) => new Map(codes.filter((c) => now[c]).map((c) => [c, { previous: now[c][0], latest: now[c][1], date: QUOTE_DATE }])) }
     const history = new Map([...SPLIT_DATES, ["00941.HK", [["2026-10-20", 101.3], ["2026-10-22", 77.3]] as Array<[string, number]>]])
     const { rows } = await fillComponentCodes(etf517(["中国石油", 13.38], ["中国神华", 38.6], ["中国移动", 78.1], ["中国移动", 101.3]), { ...quoted, async closes(codes) { return new Map(codes.filter((c) => history.has(c)).map((c) => [c, history.get(c)!])) } })
     expect(codesOf(rows)).toEqual(["601857.SH", "601088.SH", "00941.HK", "600941.SH"])
@@ -469,6 +484,97 @@ describe("fillComponentCodes", () => {
       const elsewhere = withCloses(lookup(search, prices).api, { "600036.SH": bars["600036.SH"], "03968.HK": [["2026-10-24", 41.9], ["2026-10-27", 42.5, -0.2347]] })
       expect(codesOf((await fillComponentCodes([withChange("510300.SH", 1, "贵州茅台", 1349.98, 1.12), withChange("510300.SH", 5, "招商银行", 42.5, 0.4728)], elsewhere)).rows)).toEqual(["600519.SH", "600036.SH"])
     })
+
+    it("does not rule out a listing whose bars do not reach the day in question", async () => {
+      const others = [withChange("517180.SH", 1, "贵州茅台", 1349.98, 1.12), withChange("517180.SH", 2, "华润啤酒", 19.48, -0.61)]
+      // The quote runs a day ahead of the daily bars: the A share closed at 42.5 today (+0.4728%),
+      // its bars reach back but end the day before, and the H share happened to close at 42.5 on that change earlier.
+      const ahead = withCloses(lookup(search, { ...prices, "600036.SH": [42.3, 42.5], "03968.HK": [42.6, 42.9] }).api, { "600036.SH": [["2026-10-24", 42.43, 0.2], ["2026-10-27", 42.3, -0.3064]], "03968.HK": [["2026-10-24", 42.5, 0.4728], ["2026-10-27", 42.6, 0.2353]] })
+      expect(codesOf((await fillComponentCodes([...others, withChange("517180.SH", 3, "招商银行", 42.5, 0.4728)], ahead)).rows)).toEqual(["600519.SH", "00291.HK", null])
+      // The A share's bars begin after the day the H share fits: what it closed at then is not known.
+      const late = withCloses(lookup(search, { ...prices, "600036.SH": [43.1, 43.4], "03968.HK": [42.6, 42.9] }).api, { "600036.SH": [["2026-10-28", 43.1, 0.6]], "03968.HK": [["2026-10-24", 42.5, 0.4728], ["2026-10-27", 42.6, 0.2353]] })
+      expect(codesOf((await fillComponentCodes([...others, withChange("517180.SH", 3, "招商银行", 42.5, 0.4728)], late)).rows)).toEqual(["600519.SH", "00291.HK", null])
+      // Bars that reach back to that day and show another close do rule it out.
+      const covered = withCloses(lookup(search, { ...prices, "600036.SH": [43.1, 43.4], "03968.HK": [42.6, 42.9] }).api, { "600036.SH": [["2026-10-24", 42.9, 0.1], ["2026-10-27", 43.1, 0.4662]], "03968.HK": [["2026-10-24", 42.5, 0.4728], ["2026-10-27", 42.6, 0.2353]] })
+      expect(codesOf((await fillComponentCodes([...others, withChange("517180.SH", 3, "招商银行", 42.5, 0.4728)], covered)).rows)).toEqual(["600519.SH", "00291.HK", "03968.HK"])
+    })
+
+    it("keeps a listing whose bars do not reach its quote's day out of the ETF's market too, when both listings quote the row's close", async () => {
+      // A Hong Kong ETF: 招商银行's A and H shares both closed at 42.5 on 10-27, the day before the quote.
+      const hk: Record<string, Listing[]> = { 腾讯控股: [["00700.HK", "腾讯控股"]], 华润啤酒: [["00291.HK", "华润啤酒"]], 招商银行: [["600036.SH", "招商银行"], ["03968.HK", "招商银行"]] }
+      const quoted = { "00700.HK": [390, 392], "00291.HK": [19.48, 19.6], "600036.SH": [42.5, 42.7], "03968.HK": [42.5, 42.6] }
+      const hShare: Array<[string, number, number?]> = [["2026-10-24", 42.3, 0.2], ["2026-10-27", 42.5, 0.4728]]
+      const fill = async (aShare: Array<[string, number, number?]>, change?: number) => codesOf((await fillComponentCodes([
+        withChange("513180.SH", 1, "腾讯控股", 390, 0.5), withChange("513180.SH", 2, "华润啤酒", 19.48, -0.61),
+        change === undefined ? row("513180.SH", 3, "招商银行", 42.5) : withChange("513180.SH", 3, "招商银行", 42.5, change),
+      ], withCloses(lookup(hk, quoted).api, { "600036.SH": aShare, "03968.HK": hShare }))).rows)
+      // The A share's bars stop at 10-23, none at 42.5: its 10-27 close is not in them, so the
+      // other rows' market (Hong Kong) does not settle the row — with its change or without.
+      const short: Array<[string, number, number?]> = [["2026-10-22", 42.43, 0.2], ["2026-10-23", 42.0, -1.0141]]
+      expect(await fill(short, 0.4728)).toEqual(["00700.HK", "00291.HK", null])
+      expect(await fill(short)).toEqual(["00700.HK", "00291.HK", null])
+      // Bars that reach 10-27 show the A share's change there, and it is another.
+      expect(await fill([["2026-10-23", 42.0, -1.0141], ["2026-10-27", 42.5, 1.1905]], 0.4728)).toEqual(["00700.HK", "00291.HK", "03968.HK"])
+    })
+
+    it("does not rule out a listing whose bars begin after the day the other listing shows at the row's close, at any later step", async () => {
+      // A Hong Kong ETF; its other rows show no list day. The H share closed at 42.5 (+0.4728%) on 10-26.
+      const hk: Record<string, Listing[]> = { 腾讯控股: [["00700.HK", "腾讯控股"]], 华润啤酒: [["00291.HK", "华润啤酒"]], 招商银行: [["600036.SH", "招商银行"], ["03968.HK", "招商银行"]] }
+      const fill = async (hQuote: number[], aShare: Array<[string, number, number?]>, hkListDay = false) => {
+        const hShare: Array<[string, number, number?]> = [["2026-10-23", 42.3, 0.24], ["2026-10-26", 42.5, 0.4728], ["2026-10-27", hQuote[0], 0]]
+        // With these the rows show the Hong Kong list day (10-27) — and nothing of the A shares'.
+        const hkRows: Record<string, Array<[string, number, number?]>> = hkListDay ? { "00700.HK": [["2026-10-27", 390, 0.26]], "00291.HK": [["2026-10-27", 19.48, -0.1]] } : {}
+        const api = withCloses(lookup(hk, { "00700.HK": [390, 392], "00291.HK": [19.48, 19.6], "600036.SH": [43.0, 43.2], "03968.HK": hQuote }).api, { "600036.SH": aShare, "03968.HK": hShare, ...hkRows })
+        return codesOf((await fillComponentCodes([withChange("513180.SH", 1, "腾讯控股", 390, 0.5), withChange("513180.SH", 2, "华润啤酒", 19.48, -0.61), withChange("513180.SH", 3, "招商银行", 42.5, 0.4728)], api)).rows)
+      }
+      // The A share's bars begin on 10-27: what it closed at on 10-26 is not known — neither the
+      // change, nor the other rows' market (Hong Kong) by name, nor the H share's quote settles the row.
+      const late: Array<[string, number, number?]> = [["2026-10-27", 43.0, 0.7026]]
+      expect(await fill([42.8, 42.9], late)).toEqual(["00700.HK", "00291.HK", null])
+      expect(await fill([42.5, 42.8], late)).toEqual(["00700.HK", "00291.HK", null])
+      expect(await fill([42.8, 42.9], [])).toEqual(["00700.HK", "00291.HK", null])
+      // The Hong Kong list day says nothing of the A share's: still unsettled.
+      expect(await fill([42.8, 42.9], late, true)).toEqual(["00700.HK", "00291.HK", null])
+      expect(await fill([42.5, 42.8], late, true)).toEqual(["00700.HK", "00291.HK", null])
+      // Bars that reach back to 10-26 and show another close do rule it out.
+      const early: Array<[string, number, number?]> = [["2026-10-23", 42.9, 0.1], ["2026-10-26", 42.7, -0.4662], ["2026-10-27", 43.0, 0.7026]]
+      expect(await fill([42.8, 42.9], early)).toEqual(["00700.HK", "00291.HK", "03968.HK"])
+      expect(await fill([42.5, 42.8], early)).toEqual(["00700.HK", "00291.HK", "03968.HK"])
+    })
+
+    it("does not rule out a listing whose bars begin after its own market's list day, whatever the other listing shows", async () => {
+      // 中国石油 and 中国神华 show the A-share list day (10-26). The H share's quote puts it at 42.5;
+      // the A share's bars begin on 10-27, after that day — so the quote does not settle the row.
+      const search: Record<string, Listing[]> = { 中国石油: [["601857.SH", "中国石油"]], 中国神华: [["601088.SH", "中国神华"]], 招商银行: [["600036.SH", "招商银行"], ["03968.HK", "招商银行"]] }
+      const quoted = { "601857.SH": [13.38, 13.5], "601088.SH": [38.6, 38.7], "600036.SH": [43.0, 43.2], "03968.HK": [42.5, 42.8] }
+      const fill = async (aShare: Array<[string, number, number?]>) => codesOf((await fillComponentCodes([row("517180.SH", 1, "中国石油", 13.38), row("517180.SH", 2, "中国神华", 38.6), row("517180.SH", 3, "招商银行", 42.5)],
+        withCloses(lookup(search, quoted).api, { "601857.SH": [["2026-10-26", 13.38]], "601088.SH": [["2026-10-26", 38.6]], "600036.SH": aShare, "03968.HK": [["2026-10-27", 42.5]] }))).rows)
+      expect(await fill([["2026-10-27", 43.0, 0.7026]])).toEqual(["601857.SH", "601088.SH", null])
+      // Bars that reach 10-26 and show another close rule it out: the H share's quote stands.
+      expect(await fill([["2026-10-26", 42.7], ["2026-10-27", 43.0, 0.7026]])).toEqual(["601857.SH", "601088.SH", "03968.HK"])
+    })
+
+    it("does not rule out a listing its quote puts at the row's close on a day its bars do not reach, judged by the quote's date", async () => {
+      const others = [withChange("517180.SH", 1, "贵州茅台", 1349.98, 1.12), withChange("517180.SH", 2, "华润啤酒", 19.48, -0.61)]
+      const hShare: Array<[string, number, number?]> = [["2026-10-24", 42.5, 0.4728], ["2026-10-27", 42.6, 0.2353]]
+      const fill = async (quote: number[], aShare: Array<[string, number, number?]>, quoteDate: string | null = QUOTE_DATE) => codesOf((await fillComponentCodes([...others, withChange("517180.SH", 3, "招商银行", 42.5, 0.4728)], withCloses(lookup(search, { ...prices, "600036.SH": quote, "03968.HK": [42.6, 42.9] }, {}, quoteDate).api, { "600036.SH": aShare, "03968.HK": hShare }))).rows)
+      // The A share's latest price (10-28) is 42.5, a day its bars do not reach; 10-22 at 42.5 on another change says nothing about it.
+      expect(await fill([42.3, 42.5], [["2026-10-22", 42.5, 1.2], ["2026-10-24", 42.43, 0.2], ["2026-10-27", 42.3, -0.3064]])).toEqual(["600519.SH", "00291.HK", null])
+      // Its previous close (10-27) is 42.5, and its bars end days before, on a close that happens to equal it.
+      expect(await fill([42.5, 42.7], [["2026-10-22", 42.43, 0.2], ["2026-10-23", 42.5, 1.2]])).toEqual(["600519.SH", "00291.HK", null])
+      // A quote that did not move: the latest price's day is not reached.
+      expect(await fill([42.5, 42.5], [["2026-10-24", 42.5, 0.9], ["2026-10-27", 42.5, 0]])).toEqual(["600519.SH", "00291.HK", null])
+      // A quote without its date shows no day, whatever the bars reach.
+      expect(await fill([42.5, 42.7], [["2026-10-24", 42.43, 0.2], ["2026-10-27", 42.5, 1.2]], null)).toEqual(["600519.SH", "00291.HK", null])
+      // The bars reach the previous close's day (the weekday before the quote's) and show another change there.
+      expect(await fill([42.5, 42.7], [["2026-10-24", 42.43, 0.2], ["2026-10-27", 42.5, 1.2]])).toEqual(["600519.SH", "00291.HK", "03968.HK"])
+      // A Monday quote: the weekday before is the Friday.
+      expect(await fill([42.5, 42.7], [["2026-10-24", 42.43, 0.2], ["2026-10-30", 42.5, 1.2]], "2026-11-02")).toEqual(["600519.SH", "00291.HK", "03968.HK"])
+      // Bars that reach the quote's day reach the previous close's too, even past a weekday without a bar (a holiday).
+      expect(await fill([42.5, 42.7], [["2026-10-23", 42.43, 0.2], ["2026-10-26", 42.5, 1.2], ["2026-10-28", 42.7, 0.4706]])).toEqual(["600519.SH", "00291.HK", "03968.HK"])
+      // Bars that reach the quote's day show that day's change, and it is another.
+      expect(await fill([42.0, 42.5], [["2026-10-24", 42.43, 0.2], ["2026-10-27", 42.0, -1.0141], ["2026-10-28", 42.5, 1.1905]])).toEqual(["600519.SH", "00291.HK", "03968.HK"])
+    })
   })
 
   it("leaves only the name whose search failed null", async () => {
@@ -530,6 +636,23 @@ describe("securities table", () => {
       ["600941.SH", [["2026-10-26", 101.3, 1.3]]],
     ])
     expect(calls).toEqual([["quote.day-kline", { securityList: ["00941.HK", "600941.SH"], startDate: "2026-10-18", endDate: "2026-10-28", fieldList: ["securityCode", "tradeDate", "close", "preClose"], limit: 10_000 }]])
+  })
+
+  it("reads a realtime answer's previous close, latest price and trading day per code", async () => {
+    const client = {
+      async call() {
+        return { list: [
+          { securityCode: "600036.SH", tradeDate: "2026-11-13", preClose: 42.63, latestPrice: 42.93 },
+          { securityCode: "03968.HK", tradeDate: "20261113", preClose: 54, latestPrice: null },
+          { securityCode: "00941.HK", tradeDate: "2026-11-13", preClose: null, latestPrice: null },
+        ] }
+      },
+    }
+    expect([...await clientLookup(client).quotes(["600036.SH", "03968.HK", "00941.HK"])]).toEqual([
+      ["600036.SH", { previous: 42.63, latest: 42.93, date: "2026-11-13" }],
+      // A date in another form is not compared with the daily bars' days.
+      ["03968.HK", { previous: 54, latest: undefined, date: undefined }],
+    ])
   })
 
   it("is fetched once per lookup, and only the names it does not carry are searched", async () => {

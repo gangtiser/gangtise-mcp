@@ -8,6 +8,7 @@ export const alternativeEndpoints: EndpointTable = {
     kind: "json",
     description: "Search industry indicator list by keyword",
     billing: { kind: "free" },
+    expects: "array",
   },
   "alternative.edb-data": {
     method: "POST",

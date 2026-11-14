@@ -254,6 +254,27 @@ export const insightEndpoints: EndpointTable = {
     description: "Download foreign independent opinion file",
     billing: { kind: "fixed", per: "document", price: 30 },
   },
+  // 与外资观点同一种拆分：列表只回 brief / briefTranslate，正文走 getDetail。from + size 超过 10000 报 100006，
+  // 页只在窗口内规划；单页上限 50（51 报 100004），也不收 size: 0，探 total 要按 1 条计费。
+  "insight.overseas-opinion.list": {
+    method: "POST",
+    path: "/application/open-insight/overseasOpinion/getList",
+    kind: "json",
+    description: "List overseas opinions (brief only; body via detail)",
+    billing: { kind: "fixed", per: "row", price: 0.1 },
+    pagination: { mode: "offset", maxPageSize: 50, maxWindow: 10000 },
+    rowId: "overseasOpinionId",
+    expects: "list",
+  },
+  "insight.overseas-opinion.detail": {
+    method: "POST",
+    path: "/application/open-insight/overseasOpinion/getDetail",
+    kind: "json",
+    description: "Full content of overseas opinions by ID (at most 20 per call)",
+    billing: { kind: "fixed", per: "row", price: 10, maxUnits: 20 },
+    retry: "no-replay",
+    expects: "array",
+  },
   "insight.official-account.list": {
     method: "POST",
     path: "/application/open-insight/officialAccount/getList",
@@ -297,6 +318,7 @@ export const insightEndpoints: EndpointTable = {
     kind: "json",
     description: "Search research report images by keyword (returns chunkId + metadata)",
     billing: { kind: "free" },
+    expects: "array",
   },
   "insight.report-image.download": {
     method: "GET",

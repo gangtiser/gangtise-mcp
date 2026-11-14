@@ -199,10 +199,9 @@ export const listSpecs: JsonToolSpec[] = [
     },
   },
   {
-    // ⚠️ 标签字段的结论一度写成「conceptList 恒为空」，那是个**取样太薄**的绝对断言
-    // （只看了不带筛选时的头几条）。更大样本的全量扫描显示相当一部分记录的
-    // conceptList / marketList 是有值的。本账号 2026-08-09 起返回 999004、无法再复核，
-    // 所以现在只陈述「稀疏、不保证完整」这个两种观测都成立的说法。
+    // ⚠️ 标签字段：同一 summaryId 换查法，categoryList / marketList 的取值不同——只有按 categoryList 或
+    // marketList 筛选时才是完整的，其余查法下 categoryList 为空、marketList 缺 aShares / usChinaConcept
+    // （2026-11-14 复核，见 bug/server-open.md B2）。conceptList 在各查法的样本里都为空，没下结论，描述不提。
     // 帕米尔是一家牵头机构的专家纪要库，走独立路径而不是 summary 的一个筛选项，
     // 筛选项也是 summary 的**真子集**（没有 sourceList / institutionList /
     // participantRoleList）。有意不复用 summary 的 inputSchema —— 照搬那三个字段
@@ -216,7 +215,7 @@ export const listSpecs: JsonToolSpec[] = [
     name: "gangtise_pamirs_summary_list",
     tier: "core",
     description:
-      "查询帕米尔专家纪要列表（独立的专家纪要库，需单独购买该数据库）。与 gangtise_summary_list 是两个库、不是它的子集：只有明确点名「帕米尔 / Pamirs」时才用本工具，泛指的会议纪要/专家访谈仍用 gangtise_summary_list。筛选项比 summary 少：没有 sourceList / institutionList / participantRoleList。⚠️ 标签字段（categoryList / marketList / conceptList）**稀疏且不保证完整**：是否回填随记录与筛选条件而变，不带筛选时经常整条为空。所以不要拉全量再按这些字段本地分组——要按类别或市场分组就直接传对应筛选；也不要因为某条记录标签为空就断定它没有该属性。本接口没有概念筛选参数，conceptList 只能按返回值使用。",
+      "查询帕米尔专家纪要列表（独立的专家纪要库，需单独购买该数据库）。与 gangtise_summary_list 是两个库、不是它的子集：只有明确点名「帕米尔 / Pamirs」时才用本工具，泛指的会议纪要/专家访谈仍用 gangtise_summary_list。筛选项比 summary 少：没有 sourceList / institutionList / participantRoleList。⚠️ 返回行的 categoryList / marketList 只在按 categoryList 或 marketList 筛选时完整：其余查法下 categoryList 为空、marketList 不含 aShares / usChinaConcept。所以不要拉全量再按这两个字段本地分组（A 股、中概股的归属会整批缺失）——要分组就按每个类别、每个市场各查一遍；也不要因为某条记录标签为空就断定它没有该属性。本接口没有概念筛选参数，conceptList 只能按返回值使用。",
     endpointKey: "insight.pamirs-summary.list",
     paginated: true,
     inputSchema: {
@@ -407,6 +406,26 @@ export const listSpecs: JsonToolSpec[] = [
     },
   },
   {
+    name: "gangtise_overseas_opinion_list",
+    tier: "extended",
+    description: "查询海外观点：海外媒体、投资人、分析师等账号发布的帖子（新闻、观点、数据分析等），每条附中文翻译。列表只回原文前 200 字 brief 与译文 briefTranslate，全文用 gangtise_opinion_detail kind=overseas。一条可同属多个类别（categoryList），按类别分批拉再合并要按 overseasOpinionId 去重，categoryList 为空的帖子只在不传 categoryList 时返回。转发帖的 brief 是转发者的评论（纯转发为空串），原帖在 forwardPost（个别为 null）。startTime 早于账号可查范围的下界时整段报 110003，不会从下界起截断返回。",
+    endpointKey: "insight.overseas-opinion.list",
+    paginated: true,
+    inputSchema: {
+      from: z.number().int().min(0).optional(),
+      startTime: qaTimeString.optional().describe("发布时间（北京时间）起：YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss"),
+      endTime: qaTimeString.optional().describe("发布时间止：YYYY-MM-DD（含当天整天）或 YYYY-MM-DD HH:mm:ss"),
+      keyword: nonEmptyString.optional(),
+      rankType: RANK_TYPE,
+      accountIdList: nonEmptyList().optional().describe("账号 ID，用 gangtise_overseas_account_search 按英文账号名查"),
+      securityList: nonEmptyList().optional().describe("证券代码，须带市场后缀，如 NVDA.O；缺后缀报 120001，后缀存在但市场不对（NVDA.N）返回空结果、不报错"),
+      categoryList: enumList(z.enum(["opinion", "news", "dataAnalysis", "promotion"])).optional().describe("opinion=观点分析 | news=新闻资讯 | dataAnalysis=数据分析 | promotion=品牌宣传；多个取并集"),
+      industryList: nonEmptyList().optional().describe("GICS 一级行业 ID 107700001–107700011（gangtise_constant_list category=gicsIndustry）；申万码、中信码报 100005"),
+      regionList: enumList(z.enum(["cn", "cnHk", "cnTw", "us", "jp", "kr", "uk", "gl"])).optional().describe("cn=中国 | cnHk=中国香港 | cnTw=中国台湾 | us=美国 | jp=日本 | kr=韩国 | uk=英国 | gl=全球"),
+      originalFlag: intLiteralEnum([0, 1]).optional().describe("1=只要原创 | 0=只要转发；不传两者都返回"),
+    },
+  },
+  {
     name: "gangtise_official_account_list",
     tier: "core",
     description: "查询产业公众号资讯列表，支持按公众号、证券、文章类型、行业、时间范围、关键词筛选；返回含模型摘要及关联行业/题材/证券列表。",
@@ -468,13 +487,15 @@ export const listSpecs: JsonToolSpec[] = [
     name: "gangtise_report_image_list",
     tier: "core",
     description:
-      "按关键词搜索研报图表，返回 chunkId 及元数据（标题/券商/页码/图注/该页 OCR 文本）；原图用 gangtise_download（kind=report_image）按 chunkId 下载。",
+      "按关键词搜索研报图表，返回 chunkId 及元数据（标题/券商/页码/图注/该页 OCR 文本，发布时间 publishTime）；原图用 gangtise_download（kind=report_image）按 chunkId 下载。⚠️ startTime / endTime 目前不生效，带不带返回同样的结果，要限定时间就按返回的 publishTime 自行过滤。",
     endpointKey: "insight.report-image.list",
     paginated: false,
     inputSchema: {
       keyword: nonEmptyString.describe("搜索关键词（必填），如 'AI' '新能源汽车'"),
       top: z.number().int().min(1).max(20).optional().describe("最大返回条数（默认 10，上限 20）"),
       sourceId: nonEmptyString.optional().describe("研报 ID，限定到某篇研报（来自研报列表或知识库结果）"),
+      // 本接口目前不按 startTime / endTime 筛选（2099 年的区间照样返回 2025–2026 年的图表），描述里写明；
+      // 服务端生效后删描述那句（bug/server-open.md A40）。
       startTime: dateTimeString.optional(),
       endTime: dateTimeString.optional(),
     },
@@ -614,6 +635,13 @@ const DEFAULT_ROWS = 20
 // 不逼调用方为一个按天的日程接口补 00:00:00。
 const calendarTimeString = z.union([dateString, dateTimeString])
 
+/** gangtise_opinion_detail 的 kind → [端点, 请求体里的 ID 列表键, 行里的 ID 字段]。 */
+const OPINION_DETAIL = {
+  domestic: ["insight.opinion.detail", "chiefOpinionIdList", "chiefOpinionId"],
+  foreign: ["insight.foreign-opinion.detail", "foreignOpinionIdList", "foreignOpinionId"],
+  overseas: ["insight.overseas-opinion.detail", "overseasOpinionIdList", "overseasOpinionId"],
+} as const
+
 export const insightFamily: FamilyModule = {
   name: "insight",
   endpoints: insightEndpoints,
@@ -626,20 +654,19 @@ export const insightFamily: FamilyModule = {
       tier: "core",
       access: "read",
       endpoint: "insight.opinion.detail",
+      billingLabel: { kind: "variable", note: "按 kind 选端点，单价见 kind 说明", basis: "按观点类型" },
       description: "按 ID 取观点全文。⚠️ 没有正文的 ID 被跳过而不报错（ID 错、超出取数窗口、刚发布都可能），结果标 _partial 并列在 missingIds；某批失败时已取到的正文照常返回，未取的列在 unfetchedIds，只重跑这几个。",
       input: {
-        kind: z.enum(["domestic", "foreign"]).describe("domestic=内资 chiefOpinionId | foreign=外资 foreignOpinionId（另有 contentTranslate）"),
+        kind: z.enum(["domestic", "foreign", "overseas"]).describe("domestic=内资 chiefOpinionId | foreign=外资 foreignOpinionId | overseas=海外观点 overseasOpinionId；后两种另有 contentTranslate。积分：domestic / foreign 30/条，overseas 10/条"),
         ids: nonEmptyList().describe("观点 ID，20 个一批串行请求"),
         confirmCost: z.boolean().optional(),
       },
       run: async ({ client }, { kind, ids }) => {
         // 按条计费、ID 个数不设上限：成本在发请求前就完全已知（去重后的 ID 数 × 单价），超阈值零请求拒绝。
-        const endpointKey = kind === "foreign" ? "insight.foreign-opinion.detail" : "insight.opinion.detail"
+        const [endpointKey, idListKey, idKey] = OPINION_DETAIL[kind as keyof typeof OPINION_DETAIL]
         const billing = perRowBilling(ENDPOINTS[endpointKey])
         if (billing) assertWithinCostLimit({ rows: new Set(ids as string[]).size }, billing, "请减少 ID 个数分批取")
-        const result = kind === "foreign"
-          ? await fetchOpinionDetails(client, endpointKey, "foreignOpinionIdList", "foreignOpinionId", ids as string[])
-          : await fetchOpinionDetails(client, endpointKey, "chiefOpinionIdList", "chiefOpinionId", ids as string[])
+        const result = await fetchOpinionDetails(client, endpointKey, idListKey, idKey, ids as string[])
         return contentResult(await buildToolContent(result))
       },
     }),

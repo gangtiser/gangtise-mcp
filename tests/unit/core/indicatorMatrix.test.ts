@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest"
 import {
-  unwrapIndicatorData,
   requireIndicatorMatrix,
   isEmptyMatrix,
   droppedFromMatrix,
@@ -10,28 +9,12 @@ import {
 } from "../../../src/core/indicatorMatrix.js"
 import { ApiError } from "../../../src/core/errors.js"
 import { unwrapEnvelope } from "../../../src/core/envelope.js"
+import { ENDPOINTS } from "../../../src/core/endpoints.js"
 
 // Shapes below are the EDE response as of the 2026-08-01 revision: structured
 // `indicatorList: [{code, name}]` replaced the parallel code/name arrays, and the
 // cross-section `values` matrix was TRANSPOSED to [security][indicator].
 const meta = (code: string, name: string) => ({ code, name, dataType: "number" })
-
-describe("unwrapIndicatorData", () => {
-  it("peels the inner { code, status, data } envelope on success", () => {
-    const raw = { code: "000000", status: true, data: { list: [{ a: 1 }] } }
-    expect(unwrapIndicatorData(raw)).toEqual({ list: [{ a: 1 }] })
-  })
-
-  it("throws ApiError when the inner envelope carries a failure code", () => {
-    const raw = { code: "999999", status: false, msg: "boom", data: null }
-    expect(() => unwrapIndicatorData(raw)).toThrowError(ApiError)
-  })
-
-  it("returns a non-enveloped payload unchanged", () => {
-    const raw = { list: [{ a: 1 }] }
-    expect(unwrapIndicatorData(raw)).toBe(raw)
-  })
-})
 
 describe("flattenCrossSection", () => {
   it("reads the [security][indicator] matrix as one row per security", () => {
@@ -260,20 +243,17 @@ describe("malformed payloads fail loudly", () => {
     expect(() => flattenCrossSection(data)).toThrowError(/no `values` array/)
   })
 
-  it("requireIndicatorMatrix rejects a null / array payload before the envelope is discarded", () => {
-    expect(() => requireIndicatorMatrix({ code: "000000", status: true, data: null })).toThrowError(/no matrix object/)
-    expect(() => requireIndicatorMatrix({ code: "000000", status: true, data: [] })).toThrowError(/no matrix object/)
+  it("requireIndicatorMatrix rejects a null / array payload", () => {
+    expect(() => requireIndicatorMatrix(null)).toThrowError(/no matrix object \(got null\)/)
+    expect(() => requireIndicatorMatrix([])).toThrowError(/no matrix object \(got an array\)/)
+    expect(requireIndicatorMatrix({ values: [] })).toEqual({ values: [] })
   })
 
-  // `data: null` 承载不了那个不可枚举的 traceId，所以校验必须发生在**丢弃信封之前**：
-  // 拿内层信封当 details 是让这类失败仍可追踪的唯一办法。
-  it("requireIndicatorMatrix keeps the outer traceId on a null payload", () => {
-    const raw = unwrapEnvelope({ code: "0", data: { code: "000000", status: true, data: null }, traceId: "5150" })
-    try {
-      requireIndicatorMatrix(raw)
-      throw new Error("should have thrown")
-    } catch (err) {
-      expect((err as ApiError).traceId).toBe("5150")
+  // `data: null` 承载不了那个不可枚举的 traceId，所以形状要在 HTTP 层、还握着信封时校验：
+  // 三个取数端点都声明 expects: "object"（HTTP 层的校验由 client.test 钉住）。
+  it("is backed by an HTTP-level object check on every matrix endpoint", () => {
+    for (const key of ["indicator.cross-section", "indicator.time-series", "indicator.screener"]) {
+      expect(ENDPOINTS[key].expects, key).toBe("object")
     }
   })
 })
@@ -473,39 +453,25 @@ describe("screener column headers disambiguate by variable", () => {
   })
 })
 
-// EDE 是双层信封，traceId 只挂在外层。外层被 unwrapEnvelope 解掉后，内层报错要能
-// 拿到它 —— 这类错误恰恰最需要报障（130001 无权限 / 999999 无数据都出在这一层）。
-describe("EDE inner-envelope failures carry the outer traceId", () => {
+// 矩阵里的形状报错也要能报障：unwrapEnvelope 把信封的 traceId 挂在载荷上，拍平函数报错时带出来。
+describe("matrix shape failures carry the envelope traceId", () => {
   it("surfaces the traceId parked on the payload by unwrapEnvelope", () => {
-    const raw = unwrapEnvelope({ code: "0", data: { code: "130001", status: false, msg: "无数据" }, traceId: "830965" })
-    try {
-      unwrapIndicatorData(raw)
-      throw new Error("should have thrown")
-    } catch (err) {
-      expect((err as ApiError).code).toBe("130001")
-      expect((err as ApiError).traceId).toBe("830965")
-    }
-  })
-
-  it("stays undefined when the outer envelope sent no traceId", () => {
-    const raw = unwrapEnvelope({ code: "0", data: { code: "130001", status: false, msg: "无数据" } })
-    expect(() => unwrapIndicatorData(raw)).toThrowError(ApiError)
-    try {
-      unwrapIndicatorData(raw)
-    } catch (err) {
-      expect((err as ApiError).traceId).toBeUndefined()
-    }
-  })
-
-  // 形状报错也要能报障：unwrapIndicatorData 把外层 traceId 转交给内层载荷，
-  // 否则下游拍平函数看到的内层根本没有它。
-  it("hands the traceId to the inner payload so shape failures stay traceable", () => {
     const raw = unwrapEnvelope({ code: "0", data: { securityCodeList: [null], indicatorList: [], values: [] }, traceId: "424242" })
     try {
-      flattenCrossSection(unwrapIndicatorData(raw))
+      flattenCrossSection(raw)
       throw new Error("should have thrown")
     } catch (err) {
       expect((err as ApiError).traceId).toBe("424242")
+    }
+  })
+
+  it("stays undefined when the envelope sent no traceId", () => {
+    const raw = unwrapEnvelope({ code: "0", data: { securityCodeList: [null], indicatorList: [], values: [] } })
+    try {
+      flattenCrossSection(raw)
+      throw new Error("should have thrown")
+    } catch (err) {
+      expect((err as ApiError).traceId).toBeUndefined()
     }
   })
 })

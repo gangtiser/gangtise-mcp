@@ -20,6 +20,21 @@
     "reason": "同为 0.4 按有数据的债券只数计；本仓用 per: row + unit「只」表达（标签渲染为 0.4/只），不另设 per 取值"
   },
   {
+    "key": "indicator.cross-section",
+    "field": "expects",
+    "reason": "EDE 取数端点成功时 data 就是矩阵对象（查不到时各轴为空数组），本仓在 HTTP 层按对象校验：data 为 null 或数组时带 traceId 报错，不读成空表"
+  },
+  {
+    "key": "indicator.screener",
+    "field": "expects",
+    "reason": "EDE 取数端点成功时 data 就是矩阵对象（查不到时各轴为空数组），本仓在 HTTP 层按对象校验：data 为 null 或数组时带 traceId 报错，不读成空表"
+  },
+  {
+    "key": "indicator.time-series",
+    "field": "expects",
+    "reason": "EDE 取数端点成功时 data 就是矩阵对象（查不到时各轴为空数组），本仓在 HTTP 层按对象校验：data 为 null 或数组时带 traceId 报错，不读成空表"
+  },
+  {
     "key": "insight.performance-calendar.download",
     "field": "billing",
     "reason": "A 股 1/条、港美股 2/条两档：标签取 A 股档，港美股档写在标签前的尾注里"

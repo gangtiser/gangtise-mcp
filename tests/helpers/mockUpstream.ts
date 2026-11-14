@@ -51,11 +51,6 @@ export function envelope(data: unknown): { code: string; msg: string; data: unkn
   return { code: "000000", msg: "ok", data }
 }
 
-/** EDE 内层信封。取数端点在它外面还有一层通用信封，由 `data` 字段自动补上。 */
-export function edeInner(data: unknown): { code: string; status: boolean; data: unknown } {
-  return { code: "000000", status: true, data }
-}
-
 const EMPTY_MATRIX = { securityCodeList: [], securityNameList: [], indicatorList: [], values: [] }
 
 /** 各端点的默认应答：让每个工具都能以「零行 / 空内容」正常走完，不触发额外的探针请求。
@@ -65,12 +60,12 @@ export function defaultReply(req: RecordedRequest): UpstreamReply {
   if (def?.kind === "download") return { text: "mock download body", headers: { "content-type": "text/plain; charset=utf-8" } }
   switch (req.endpoint) {
     case "indicator.search":
-      return { data: edeInner([]) }
+      return { data: [] }
     case "indicator.cross-section":
     case "indicator.screener":
-      return { data: edeInner(EMPTY_MATRIX) }
+      return { data: EMPTY_MATRIX }
     case "indicator.time-series":
-      return { data: edeInner({ ...EMPTY_MATRIX, dates: [] }) }
+      return { data: { ...EMPTY_MATRIX, dates: [] } }
     case "ai.earnings-review.get-id":
     case "ai.viewpoint-debate.get-id":
       return { data: { dataId: "mock-data-id" } }
