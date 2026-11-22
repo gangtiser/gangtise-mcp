@@ -6,11 +6,11 @@
 
 README 仅列最近 5 个版本的一行摘要，完整明细见 [CHANGELOG.md](CHANGELOG.md)：
 
+- **0.3.12 — 2026-11-22**：⚠️ 三大报表与 `gangtise_top_holders` 不带 `period` / `fiscalYear` / 日期时返回全部历史报告期，只要最新一期传 `period: ['latest']`；年份、日期与 `period` 可单独传，只在 `period` 只给 `latest` 又带年份或日期时本地拒绝。⚠️ 美股报表须给 `fiscalYear` 或 `startDate`（或只取 `latest`），跨多个财年时逐年 / 分段请求后合并。港股 `fiscalYear` 按期末所在自然年筛，非 12 月财年公司的 `period` 标签按公司财年。多期结果按 `endDate` 降序；研报图表的 `startTime` / `endTime` 按发布时间筛选。工具数不变。
 - **0.3.11 — 2026-11-14**：⚠️ `gangtise_main_business` 的报告期筛选参数由 `periodList` 改名为 `period`（取值不变），用 `periodList` 取到的是全部报告期，按年报或中报汇总过的请重取。⚠️ A 股单季报表的第二、第四季度写 `interim` / `annual`，`q2` / `q4` 不再接受；返回行的 `period` 仍是报告名，「2025年报」那行是第四季度单季值、不是全年累计。⚠️ 三大报表与 `gangtise_top_holders` 只传 `latest` 以外的 `period`、不带 `fiscalYear` 或日期时本地拒绝（本接口这时返回最新一期）。工具数不变。
 - **0.3.10 — 2026-11-14**：新增海外观点 `gangtise_overseas_opinion_list`（0.1 积分/条）与海外观点账号搜索 `gangtise_overseas_account_search`（免费），`gangtise_opinion_detail` 新增 `kind=overseas`（10 积分/条），默认列出 127 个。⚠️ 三大报表与 `gangtise_top_holders` 传 `fiscalYear` / 日期时须同时传 `period`（否则本地拒绝）。ETF 成分补代码排除同名候选要有日 K 证据；文件解析拒收没有 `%PDF-` 文件头的文件，上传类工具拒收指向令牌缓存的路径。
 - **0.3.9 — 2026-11-07**：新增 AI 专家情报 `gangtise_expert_intel`（20 积分/条）与指数成分股权重 `gangtise_index_weight`（免费，权重按每月最后一个交易日提供），`gangtise_download` 新增 `kind=wechat_message` 下载群消息里的文档 / 图片 / 音频 / 视频，默认列出 125 个。⚠️ `gangtise_wechat_message_list` 的文档类取值改为 `document`（`documents` 不再接受），新增 `audio` / `video`。ETF 成分补代码：同名 A / H 股价格都对得上时再比该行涨跌幅，定不了的留 `null`。
 - **0.3.8 — 2026-11-02**：新增个股笔记四个工具（`gangtise_stock_note_list` / `_add` / `_update` / `_delete`，免费，删除须显式确认）与板块日资金流向 `gangtise_sector_fund_flow`（免费），默认列出 123 个。股票池加 `spaceType` 可查所属租户的池；日程四个列表加 `publishStartTime` / `publishEndTime` 按收录时间筛。⚠️ `gangtise_indicator_time_series` 不传 `calendarType` 时由服务端按指标定日期轴（报告期类只返回报告期末，`frcst_*` 走交易日、要逐日传 `ND`），新增 `RD`。ETF 成分补代码：两个市场价格都对得上时按其余行所在的单一市场取。
-- **0.3.7 — 2026-10-28**：⚠️ `gangtise_fund_etf_pcf_components` 的接口只返回成分名称，`componentCode` 现由本工具按名称匹配、用 `close` 核对行情价补上，带市场后缀（此前不带）；定不了的为 `null` 并列在 `_note`。⚠️ 管理层情绪的 `publishTime` 现为北京时间（0.3.6 说明的「先加 8 小时」要去掉）；基金持有人 `holderCount` 现为整数。日程四个列表的翻页去重改按各自的 ID，跨页重复行现在会被去掉；证券级指标的美股代码也收 `.A`。
 
 ### 历史里程碑
 

@@ -1,0 +1,23 @@
+{
+  "isError": false,
+  "result": {
+    "total": 2,
+    "_note": "period 为空的行（20260701～20260930）区间比同一 endDate 的有标签行短（通常是最近一个季度单季），不是该报告期的累计值，别与有标签那行混用。",
+    "list": [
+      {
+        "securityCode": "00700.HK",
+        "startDate": "20260701",
+        "endDate": "20260930",
+        "period": "",
+        "netProfit": 65139000000
+      },
+      {
+        "securityCode": "00700.HK",
+        "startDate": "20260101",
+        "endDate": "20260930",
+        "period": "2026三季报",
+        "netProfit": 182508000000
+      }
+    ]
+  }
+}

@@ -1171,8 +1171,8 @@ describe("closed-set params reject illegal values before calling upstream", () =
       for (const [key, spec] of Object.entries(props)) {
         const vals = enumValuesOf(spec)
         if (!vals || vals.length === 0) continue
-        // 三表与十大股东：latest 以外的 period 须配 fiscalYear 或日期区间，否则本地拒。
-        const withYear = key === "period" && props.fiscalYear ? { fiscalYear: [2025] } : {}
+        // 三表与十大股东一律带年份：美股报表不给年份或日期时本地拒（A41）。
+        const withYear = props.fiscalYear ? { fiscalYear: [2025] } : {}
         const base = { ...fillRequired(schema, key), ...COMPANIONS[tool.name]?.(key), ...withYear }
         const wrap = (v: unknown) => (isArrayParam(spec) ? [v] : v)
 
@@ -1212,10 +1212,11 @@ describe("closed-set params reject illegal values before calling upstream", () =
 
 
 // 🔴 按声明钉：schema 同时带 fiscalYear 与 period 的工具（三表统一入口、legacy 变体、十大股东），
-// 只传 period、只传 fiscalYear 都必须零请求拒绝——本接口两者缺一都返回最新一期（A39）。
+// period 只给 latest 配年份或日期区间必须零请求拒绝——本接口此时返回全部报告里的最新一期（A39）；
+// 只给年份、只给 period 照常放行（美股只给 period 另有 A41 的拒绝，单独钉）。
 // 从 tools/list 枚举，新增报表工具自动纳入；只在少数工具上写示例，挡不住某个 legacy 变体漏了守卫。
-describe("period and fiscalYear only go out together (enumerated from tools/list)", () => {
-  it("rejects period alone and fiscalYear alone before calling upstream", async () => {
+describe("period latest alone beside fiscalYear / dates is rejected (enumerated from tools/list)", () => {
+  it("rejects latest-only with a year or a range before calling upstream, and lets a year alone go out", async () => {
     const client = makeMockClient()
     const probe = await makeTestClient(client)
     const call = client.call as ReturnType<typeof vi.fn>
@@ -1232,14 +1233,13 @@ describe("period and fiscalYear only go out together (enumerated from tools/list
         const r = await probe.callTool({ name: tool.name, arguments: { ...base, ...args } })
         return { isError: Boolean(r.isError), called: call.mock.calls.length, text: String((r.content as Array<{ text?: string }>)[0]?.text ?? "") }
       }
-      // 正向对照：两者都给必须打通，否则下面的拒绝可能另有原因。
+      expect((await run({ fiscalYear: [2025] })).isError, `${tool.name}：只给 fiscalYear 应放行`).toBe(false)
       expect((await run({ fiscalYear: [2025], period: [period] })).isError, `${tool.name}：fiscalYear + period 应放行`).toBe(false)
-      const onlyPeriod = await run({ period: [period] })
-      expect(onlyPeriod, `${tool.name}：只传 period 应零请求拒绝`).toMatchObject({ isError: true, called: 0 })
-      expect(onlyPeriod.text).toMatch(/须同时传 fiscalYear 或 startDate/)
-      const onlyYear = await run({ fiscalYear: [2025] })
-      expect(onlyYear, `${tool.name}：只传 fiscalYear 应零请求拒绝`).toMatchObject({ isError: true, called: 0 })
-      expect(onlyYear.text).toMatch(/须同时传 period/)
+      for (const ranged of [{ fiscalYear: [2025] }, { startDate: "2020-01-01", endDate: "2020-12-31" }]) {
+        const latest = await run({ ...ranged, period: ["latest"] })
+        expect(latest, `${tool.name}：${JSON.stringify(ranged)} + latest 应零请求拒绝`).toMatchObject({ isError: true, called: 0 })
+        expect(latest.text).toMatch(/只给 latest 时本接口返回全部报告里的最新一期/)
+      }
       covered.push(tool.name)
     }
     // 钉名单而不只是个数：一个工具掉出枚举（如十大股东去掉 fiscalYear、只留日期）的同时新增一个报表工具，个数不变。

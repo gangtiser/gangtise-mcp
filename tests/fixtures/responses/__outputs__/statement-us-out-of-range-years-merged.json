@@ -1,0 +1,21 @@
+{
+  "isError": false,
+  "result": {
+    "total": 2,
+    "_note": "美股报表按财年 / 区间分段请求，其中 财年 2012–2014 超出账号可取的时间范围（110003），没有返回。",
+    "list": [
+      {
+        "securityCode": "AAPL.O",
+        "endDate": "20250927",
+        "fiscalYear": "2025",
+        "period": "年度报告"
+      },
+      {
+        "securityCode": "AAPL.O",
+        "endDate": "20160927",
+        "fiscalYear": "2016",
+        "period": "年度报告"
+      }
+    ]
+  }
+}

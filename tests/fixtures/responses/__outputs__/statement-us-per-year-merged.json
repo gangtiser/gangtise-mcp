@@ -1,0 +1,22 @@
+{
+  "isError": false,
+  "result": {
+    "total": 2,
+    "list": [
+      {
+        "securityCode": "AAPL.O",
+        "endDate": "20250927",
+        "fiscalYear": "2025",
+        "period": "年度报告",
+        "netProfit": 2025
+      },
+      {
+        "securityCode": "AAPL.O",
+        "endDate": "20240928",
+        "fiscalYear": "2024",
+        "period": "年度报告",
+        "netProfit": 2024
+      }
+    ]
+  }
+}

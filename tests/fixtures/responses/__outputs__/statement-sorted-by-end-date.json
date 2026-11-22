@@ -1,0 +1,26 @@
+{
+  "isError": false,
+  "result": {
+    "total": 3,
+    "list": [
+      {
+        "securityCode": "600519.SH",
+        "endDate": "20251231",
+        "period": "2025年年报",
+        "netProfit": 3
+      },
+      {
+        "securityCode": "600519.SH",
+        "endDate": "20241231",
+        "period": "2024年年报",
+        "netProfit": 2
+      },
+      {
+        "securityCode": "600519.SH",
+        "endDate": "20231231",
+        "period": "2023年年报",
+        "netProfit": 1
+      }
+    ]
+  }
+}

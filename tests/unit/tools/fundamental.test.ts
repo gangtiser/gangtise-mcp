@@ -233,6 +233,20 @@ describe("single-quarter period label note", () => {
   })
 })
 
+// 港股 fiscalYear 按期末所在自然年、period 标签按公司财年：非 12 月财年的公司按标签年份取会混进别的财年。
+// 声明住在 fiscalYear 参数说明上：三个统一入口与三个 legacy 港股工具各自一份，逐个钉。
+describe("HK fiscal-year note", () => {
+  const NOTE = /港股按 endDate 所在自然年.{0,40}period 标签按公司财年/
+  it("is on the fiscalYear param of the unified statements and the legacy HK tools", async () => {
+    const mcp = await connect(makeClient())
+    const tools = new Map((await mcp.listTools()).tools.map((t) => [t.name, t]))
+    for (const n of ["gangtise_income_statement", "gangtise_balance_sheet", "gangtise_cash_flow", "gangtise_income_statement_hk", "gangtise_balance_sheet_hk", "gangtise_cash_flow_hk"]) {
+      const fy = (tools.get(n)?.inputSchema.properties as Record<string, { description?: string }>).fiscalYear
+      expect(fy?.description, `${n} 的 fiscalYear 说明应写明港股的年份口径`).toMatch(NOTE)
+    }
+  })
+})
+
 // roe 的单位是百分比：再做一次 ÷100 得到的数字看着仍像个 ROE，不会报错。
 describe("gangtise_earning_forecast unit note", () => {
   it("states the roe percentage unit in the description", async () => {

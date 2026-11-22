@@ -2138,7 +2138,7 @@
   },
   {
     "name": "gangtise_report_image_list",
-    "description": "按关键词搜索研报图表，返回 chunkId 及元数据（标题/券商/页码/图注/该页 OCR 文本，发布时间 publishTime）；原图用 gangtise_download（kind=report_image）按 chunkId 下载。⚠️ startTime / endTime 目前不生效，带不带返回同样的结果，要限定时间就按返回的 publishTime 自行过滤。",
+    "description": "按关键词搜索研报图表，返回 chunkId 及元数据（标题/券商/页码/图注/该页 OCR 文本，发布时间 publishTime）；原图用 gangtise_download（kind=report_image）按 chunkId 下载。",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2616,7 +2616,7 @@
             "type": "integer"
           },
           "minItems": 1,
-          "description": "财年列表，如 [2023, 2024]；period（latest 以外）须与 fiscalYear 或日期区间同时传"
+          "description": "财年列表，如 [2023, 2024]；美股按公司财年，港股按 endDate 所在自然年筛（返回行的 fiscalYear 同此），非 12 月财年的公司 period 标签按公司财年：3 月财年的「2027一季报」期末 2026-06-30，要用 fiscalYear 2026 取。period、fiscalYear 与日期区间都不传时返回全部历史报告期（美股须给 fiscalYear 或 startDate），只要最新一期传 period: ['latest']"
         },
         "period": {
           "type": "array",
@@ -2701,7 +2701,7 @@
             "type": "integer"
           },
           "minItems": 1,
-          "description": "财年列表，如 [2023, 2024]；period（latest 以外）须与 fiscalYear 或日期区间同时传"
+          "description": "财年列表，如 [2023, 2024]；美股按公司财年，港股按 endDate 所在自然年筛（返回行的 fiscalYear 同此），非 12 月财年的公司 period 标签按公司财年：3 月财年的「2027一季报」期末 2026-06-30，要用 fiscalYear 2026 取。period、fiscalYear 与日期区间都不传时返回全部历史报告期（美股须给 fiscalYear 或 startDate），只要最新一期传 period: ['latest']"
         },
         "period": {
           "type": "array",
@@ -2782,7 +2782,7 @@
             "type": "integer"
           },
           "minItems": 1,
-          "description": "财年列表，如 [2023, 2024]；period（latest 以外）须与 fiscalYear 或日期区间同时传"
+          "description": "财年列表，如 [2023, 2024]；美股按公司财年，港股按 endDate 所在自然年筛（返回行的 fiscalYear 同此），非 12 月财年的公司 period 标签按公司财年：3 月财年的「2027一季报」期末 2026-06-30，要用 fiscalYear 2026 取。period、fiscalYear 与日期区间都不传时返回全部历史报告期（美股须给 fiscalYear 或 startDate），只要最新一期传 period: ['latest']"
         },
         "period": {
           "type": "array",
@@ -2955,7 +2955,7 @@
             "type": "integer"
           },
           "minItems": 1,
-          "description": "财年列表，如 [2023, 2024]；period（latest 以外）须与 fiscalYear 或日期区间同时传"
+          "description": "财年列表，如 [2023, 2024]。period、fiscalYear 与日期区间都不传时返回全部历史报告期，只要最新一期传 period: ['latest']"
         },
         "period": {
           "type": "array",

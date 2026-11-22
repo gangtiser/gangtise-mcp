@@ -487,15 +487,13 @@ export const listSpecs: JsonToolSpec[] = [
     name: "gangtise_report_image_list",
     tier: "core",
     description:
-      "按关键词搜索研报图表，返回 chunkId 及元数据（标题/券商/页码/图注/该页 OCR 文本，发布时间 publishTime）；原图用 gangtise_download（kind=report_image）按 chunkId 下载。⚠️ startTime / endTime 目前不生效，带不带返回同样的结果，要限定时间就按返回的 publishTime 自行过滤。",
+      "按关键词搜索研报图表，返回 chunkId 及元数据（标题/券商/页码/图注/该页 OCR 文本，发布时间 publishTime）；原图用 gangtise_download（kind=report_image）按 chunkId 下载。",
     endpointKey: "insight.report-image.list",
     paginated: false,
     inputSchema: {
       keyword: nonEmptyString.describe("搜索关键词（必填），如 'AI' '新能源汽车'"),
       top: z.number().int().min(1).max(20).optional().describe("最大返回条数（默认 10，上限 20）"),
       sourceId: nonEmptyString.optional().describe("研报 ID，限定到某篇研报（来自研报列表或知识库结果）"),
-      // 本接口目前不按 startTime / endTime 筛选（2099 年的区间照样返回 2025–2026 年的图表），描述里写明；
-      // 服务端生效后删描述那句（bug/server-open.md A40）。
       startTime: dateTimeString.optional(),
       endTime: dateTimeString.optional(),
     },

@@ -230,6 +230,24 @@ const SCENARIOS: Scenario[] = [
   { name: "present-valuation-exact-range", tool: "gangtise_valuation_analysis", args: { securityCode: "600519.SH", indicator: "peTtm", startDate: "2026-09-01", endDate: "2026-09-03", limit: 3 }, upstream: on("fundamental.valuation-analysis", () => ({ data: { total: 3, fieldList: ["tradeDate", "value", "percentileRank"], list: [["2026-09-01", 25.1, 0.31], ["2026-09-02", 25.0, 0.3], ["2026-09-03", 24.8, 0.29]] } })) },
   { name: "present-valuation-late-start", tool: "gangtise_valuation_analysis", args: { securityCode: "600519.SH", indicator: "peTtm", startDate: "2016-01-01", endDate: "2026-09-03" }, upstream: on("fundamental.valuation-analysis", () => ({ data: { total: 2, fieldList: ["tradeDate", "value", "percentileRank"], list: [["2021-04-04", 25.1, 0.31], ["2021-04-05", 25.0, 0.3]] } })) },
 
+  // 三表：本接口多期不按报告期排序，输出按 endDate 降序；美股按年拆开的请求合并成一张表（A41）。
+  { name: "statement-sorted-by-end-date", tool: "gangtise_income_statement", args: { securityCode: "600519.SH", period: ["annual"] }, upstream: on("fundamental.income-statement", () => ({ data: { total: 3, fieldList: ["securityCode", "endDate", "period", "netProfit"], list: [["600519.SH", "20231231", "2023年年报", 1], ["600519.SH", "20251231", "2025年年报", 3], ["600519.SH", "20241231", "2024年年报", 2]] } })) },
+  { name: "statement-us-per-year-merged", tool: "gangtise_income_statement", args: { securityCode: "AAPL.O", fiscalYear: [2024, 2025], period: ["annual"] }, upstream: on("fundamental.income-statement-us", (req) => {
+    const fy = (bodyOf(req).fiscalYear as number[])[0]
+    return { data: { total: 1, fieldList: ["securityCode", "endDate", "fiscalYear", "period", "netProfit"], list: [["AAPL.O", fy === 2024 ? "20240928" : "20250927", String(fy), "年度报告", fy]] } }
+  }) },
+  { name: "statement-latest-unlabeled-quarter-row", tool: "gangtise_income_statement", args: { securityCode: "00700.HK", period: ["latest"] }, upstream: on("fundamental.income-statement-hk", () => ({ data: { total: 2, fieldList: ["securityCode", "startDate", "endDate", "period", "netProfit"], list: [["00700.HK", "20260701", "20260930", "", 65139000000], ["00700.HK", "20260101", "20260930", "2026三季报", 182508000000]] } })) },
+  { name: "statement-us-out-of-range-part-skipped", tool: "gangtise_income_statement", args: { securityCode: "AAPL.O", fiscalYear: [2015, 2025], period: ["annual"] }, upstream: on("fundamental.income-statement-us", (req) => ((bodyOf(req).fiscalYear as number[])[0] === 2015
+    ? errorEnvelope("110003", "超出时间范围限制")
+    : { data: { total: 1, fieldList: ["securityCode", "endDate", "fiscalYear", "period"], list: [["AAPL.O", "20250927", "2025", "年度报告"]] } })) },
+  { name: "statement-us-out-of-range-windows-merged", tool: "gangtise_income_statement", args: { securityCode: "AAPL.O", startDate: "2014-01-01", endDate: "2016-12-31", period: ["annual"] }, upstream: on("fundamental.income-statement-us", (req) => (String(bodyOf(req).startDate) < "2015-12-30"
+    ? errorEnvelope("110003", "超出时间范围限制")
+    : { data: { total: 1, fieldList: ["securityCode", "endDate", "fiscalYear", "period"], list: String(bodyOf(req).startDate) === "2015-12-30" ? [["AAPL.O", "20160924", "2016", "年度报告"]] : [] } })) },
+  { name: "statement-us-out-of-range-years-merged", tool: "gangtise_income_statement", args: { securityCode: "AAPL.O", fiscalYear: [2014, 2025, 2012, 2016, 2013], period: ["annual"] }, upstream: on("fundamental.income-statement-us", (req) => ((bodyOf(req).fiscalYear as number[])[0] < 2016
+    ? errorEnvelope("110003", "超出时间范围限制")
+    : { data: { total: 1, fieldList: ["securityCode", "endDate", "fiscalYear", "period"], list: [["AAPL.O", `${(bodyOf(req).fiscalYear as number[])[0]}0927`, String((bodyOf(req).fiscalYear as number[])[0]), "年度报告"]] } })) },
+  { name: "statement-us-out-of-range-all", tool: "gangtise_income_statement", args: { securityCode: "AAPL.O", fiscalYear: [2012, 2015], period: ["annual"] }, upstream: on("fundamental.income-statement-us", () => errorEnvelope("110003", "超出时间范围限制")) },
+
   // ─── 0.3.0 会被合并的旧工具：legacy 档必须原样保留的返回 ───
   { name: "legacy-income-statement-hk", tool: "gangtise_income_statement_hk", args: { securityCode: "00700.HK", fiscalYear: [2025], period: ["h1"] }, upstream: on("fundamental.income-statement-hk", () => ({ data: fixture("income-statement-hk") })) },
   { name: "legacy-announcement-hk-list", tool: "gangtise_announcement_hk_list", args: { securityList: ["00700.HK"] }, upstream: on("insight.announcement-hk.list", (req) => ({ data: bodyOf(req).from === 0 ? fixture("announcement-hk-list") : { total: 1, list: [] } })) },
