@@ -13,6 +13,7 @@ import {
 import { registerFamilies } from "../../../src/mcp/register.js"
 import type { GangtiseClient } from "../../../src/core/client.js"
 import { ApiError } from "../../../src/core/errors.js"
+import { markRetriesSpent } from "../../../src/core/transport.js"
 
 const meta = (code: string, name: string) => ({ code, name, dataType: "number" })
 
@@ -913,6 +914,20 @@ describe("indicator 999999 hint (fetch endpoints)", () => {
     const text = (result.content as Array<{ text: string }>)[0].text
     expect(text).toContain("parameterList")
     expect(text).toContain("trace 77")
+  })
+
+  // 等 token 时登录以 999999 失败（http.ts 给它打上 retriesSpent）：那不是 EDE 的故障，回落通用提示。
+  it.each(FETCH_CASES)("%s keeps the generic hint when it is the login that failed with 999999", async (name, args) => {
+    const client = {
+      call: vi.fn().mockRejectedValue(markRetriesSpent(new ApiError("system error", "999999", 500))),
+      download: vi.fn(),
+    } as unknown as GangtiseClient
+    const mcp = await connect(client)
+    const result = await mcp.callTool({ name, arguments: args })
+    expect(result.isError).toBe(true)
+    const text = (result.content as Array<{ text: string }>)[0].text
+    expect(text).not.toContain("parameterList")
+    expect(text).toContain("稍后重试")
   })
 })
 

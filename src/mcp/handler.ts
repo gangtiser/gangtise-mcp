@@ -1,5 +1,6 @@
 import { errorMessage } from "../core/errors.js"
 import { runWithRequestContext } from "../core/requestContext.js"
+import { connectionHint } from "../core/transport.js"
 
 export interface ToolTextResult {
   content: Array<{ type: "text"; text: string }>
@@ -24,9 +25,11 @@ export function contentResult(content: Array<{ type: "text"; text: string }>): T
   return { content }
 }
 
-/** Standard error result: surfaces a user-facing message and sets isError. */
+/** Standard error result: surfaces a user-facing message and sets isError. 请求根本没送达时（连不上接口或代理）
+ *  在末尾附上该查什么。 */
 export function errorResult(err: unknown): ToolTextResult {
-  return { content: [{ type: "text", text: errorMessage(err) }], isError: true }
+  const hint = connectionHint(err)
+  return { content: [{ type: "text", text: hint ? `${errorMessage(err)} — ${hint}` : errorMessage(err) }], isError: true }
 }
 
 /**

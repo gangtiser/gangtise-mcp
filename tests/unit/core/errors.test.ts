@@ -17,6 +17,16 @@ describe("errorMessage", () => {
     expect(errorMessage(new Error("plain"))).toBe("plain")
     expect(errorMessage("raw")).toBe("raw")
   })
+
+  // 主机有多个地址（如 localhost）都连不上时，Node 报的 AggregateError 自身 message 为空。
+  it("lists the attempts of an AggregateError whose own message is empty", () => {
+    const error = new AggregateError([
+      new Error("connect ECONNREFUSED ::1:443"),
+      new Error("connect ECONNREFUSED 127.0.0.1:443"),
+      new Error("connect ECONNREFUSED 127.0.0.1:443"),
+    ], "")
+    expect(errorMessage(error)).toBe("connect ECONNREFUSED ::1:443; connect ECONNREFUSED 127.0.0.1:443")
+  })
 })
 
 describe("error hints", () => {

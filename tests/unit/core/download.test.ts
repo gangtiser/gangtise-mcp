@@ -10,9 +10,11 @@ import { describe, expect, it } from "vitest"
 import { GangtiseClient } from "../../../src/core/client.js"
 
 import { downloadToResult } from "../../../src/core/download.js"
+import { errorMessage } from "../../../src/core/errors.js"
+import { errorResult } from "../../../src/mcp/handler.js"
 import { isOwnedTempPath, ownedTempDirCount, resetOwnedTempDirs } from "../../../src/core/tempCleanup.js"
 import type { GangtiseClient } from "../../../src/core/client.js"
-import type { EndpointDefinition } from "../../../src/core/endpoints.js"
+import { ENDPOINTS, type EndpointDefinition } from "../../../src/core/endpoints.js"
 
 /** 等待 HTTP server 真正关完。`server.close()` 只发起关闭并立即返回。 */
 const closed = (server: http.Server) => new Promise<void>((resolve) => server.close(() => resolve()))
@@ -157,6 +159,198 @@ describe("download follows 30x redirects", () => {
       // 而这条用例起的是真实 HTTP server —— 留一个确定的不稳定因素在那里没有意义。
       await Promise.all([closed(target), closed(redirector)])
     }
+  })
+})
+
+// 接口应答了 302、去它给的地址取文件那一步失败：此时接口已经执行（计过费），不重放的下载不再重发下载请求；
+// 其余下载照旧重试。
+describe("a download that fails at the file step, after the API answered with a redirect", () => {
+  const startApi = async (location: string) => {
+    let hits = 0
+    const server = http.createServer((_req, res) => {
+      hits += 1
+      res.writeHead(302, { location })
+      res.end()
+    })
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
+    const client = new GangtiseClient({
+      baseUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+      timeoutMs: 5_000,
+      token: "secret-token",
+      tokenCachePath: "/dev/null",
+      asyncTimeoutMs: 5_000,
+    })
+    return { server, client, hits: () => hits }
+  }
+  const noReplay: EndpointDefinition = { key: "t.billed", method: "GET", path: "/dl", kind: "download", description: "t", retry: "no-replay" }
+  const plain: EndpointDefinition = { key: "t.free", method: "GET", path: "/dl", kind: "download", description: "t" }
+
+  // 127.0.0.1:1 上没有服务：取文件那一步连接被拒。
+  it.each([
+    ["is not sent again by a no-replay download", noReplay, 1],
+    ["is retried as before by a download that may be replayed", plain, 3],
+  ] as const)("a refused connection to the file's address %s", async (_label, endpoint, apiHits) => {
+    const api = await startApi("http://127.0.0.1:1/file")
+    try {
+      const error = await api.client.download(endpoint, {}).catch((e: unknown) => e)
+      expect(errorMessage(error)).toContain("ECONNREFUSED")
+      expect(api.hits()).toBe(apiHits)
+      // 报错指向取文件那一步，而不是接口地址
+      expect(errorResult(error).content[0].text).toContain("连不上文件的下载地址")
+    } finally {
+      await closed(api.server)
+    }
+  })
+
+  it("does not send a no-replay download again when the file's host answers 429", async () => {
+    const fileHost = http.createServer((_req, res) => {
+      res.writeHead(429, { "content-type": "text/plain" })
+      res.end("slow down")
+    })
+    await new Promise<void>((r) => fileHost.listen(0, "127.0.0.1", r))
+    const api = await startApi(`http://127.0.0.1:${(fileHost.address() as AddressInfo).port}/file`)
+    try {
+      await expect(api.client.download(noReplay, {})).rejects.toThrow("HTTP 429")
+      expect(api.hits()).toBe(1)
+    } finally {
+      await Promise.all([closed(api.server), closed(fileHost)])
+    }
+  })
+
+  // 文件地址回 401：接口已经接受了 token 并给出地址，这不是 token 的问题——不为它重新登录、再发一次下载请求。
+  it("does not log in again and resend the download when the file's host answers 401", async () => {
+    const fileHost = http.createServer((_req, res) => {
+      res.writeHead(401, { "content-type": "text/html" })
+      res.end("<html>expired</html>")
+    })
+    await new Promise<void>((r) => fileHost.listen(0, "127.0.0.1", r))
+    const location = `http://127.0.0.1:${(fileHost.address() as AddressInfo).port}/file`
+    const seen: string[] = []
+    const api = http.createServer((req, res) => {
+      seen.push(req.url ?? "")
+      if (req.url === ENDPOINTS["auth.login"].path) {
+        res.writeHead(200, { "content-type": "application/json" })
+        res.end(JSON.stringify({ code: "000000", msg: "ok", data: { accessToken: `t${seen.length}`, expiresIn: 7200, time: 1 } }))
+        return
+      }
+      res.writeHead(302, { location })
+      res.end()
+    })
+    await new Promise<void>((r) => api.listen(0, "127.0.0.1", r))
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "gangtise-dl401-"))
+    try {
+      const client = new GangtiseClient({
+        baseUrl: `http://127.0.0.1:${(api.address() as AddressInfo).port}`,
+        timeoutMs: 5_000,
+        accessKey: "ak",
+        secretKey: "sk",
+        tokenCachePath: path.join(dir, "token.json"),
+        asyncTimeoutMs: 5_000,
+      })
+      await expect(client.download(noReplay, {})).rejects.toThrow("HTTP 401")
+      expect(seen).toEqual([ENDPOINTS["auth.login"].path, "/dl"])
+    } finally {
+      await Promise.all([closed(api), closed(fileHost)])
+      await fs.rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  // 同源跳转仍带着这枚 token：那一跳明确回 token 失效（999002）时，可重放的下载照常刷新 token 后重下；
+  // 不重放的下载接口已经应答过一次，不为它重发。
+  it.each([
+    ["recovers a replayable download", plain, ["login", "/dl", "/file", "login", "/dl", "/file"]],
+    ["does not resend a no-replay download", noReplay, ["login", "/dl", "/file"]],
+  ] as const)("on a token rejection after a same-origin redirect, %s", async (_label, endpoint, expected) => {
+    const seen: string[] = []
+    let logins = 0
+    const api = http.createServer((req, res) => {
+      if (req.url === ENDPOINTS["auth.login"].path) {
+        seen.push("login")
+        logins += 1
+        res.writeHead(200, { "content-type": "application/json" })
+        res.end(JSON.stringify({ code: "000000", msg: "ok", data: { accessToken: `t${logins}`, expiresIn: 7200, time: 1 } }))
+        return
+      }
+      seen.push(req.url ?? "")
+      if (req.url === "/dl") {
+        res.writeHead(302, { location: "/file" })
+        res.end()
+        return
+      }
+      if (req.headers.authorization === "Bearer t1") {
+        res.writeHead(401, { "content-type": "application/json" })
+        res.end(JSON.stringify({ code: 999002, msg: "token is invalid" }))
+        return
+      }
+      res.writeHead(200, { "content-type": "application/octet-stream" })
+      res.end("PDFBYTES")
+    })
+    await new Promise<void>((r) => api.listen(0, "127.0.0.1", r))
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "gangtise-dl-same-"))
+    try {
+      const client = new GangtiseClient({
+        baseUrl: `http://127.0.0.1:${(api.address() as AddressInfo).port}`,
+        timeoutMs: 5_000,
+        accessKey: "ak",
+        secretKey: "sk",
+        tokenCachePath: path.join(dir, "token.json"),
+        asyncTimeoutMs: 5_000,
+      })
+      const outcome = await client.download(endpoint, {}).then((r) => Buffer.from(r.data!).toString(), (e: unknown) => errorMessage(e))
+      expect(outcome).toEqual(endpoint === plain ? "PDFBYTES" : expect.stringContaining("999002"))
+      expect(seen).toEqual(expected)
+    } finally {
+      await closed(api)
+      await fs.rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  // A → B → A：第一次跨源时 Authorization 被剥掉，跳回原站也不再带上，终点虽与起点同源，那里的 401 仍与 token 无关——
+  // 可重放的下载也不为它重新登录、重发下载请求。
+  it("does not heal a token rejection on a chain that left the origin and came back", async () => {
+    const seen: string[] = []
+    let bounceUrl = ""
+    const api = http.createServer((req, res) => {
+      if (req.url === ENDPOINTS["auth.login"].path) {
+        seen.push("login")
+        res.writeHead(200, { "content-type": "application/json" })
+        res.end(JSON.stringify({ code: "000000", msg: "ok", data: { accessToken: `t${seen.length}`, expiresIn: 7200, time: 1 } }))
+        return
+      }
+      seen.push(`${req.url} auth=${req.headers.authorization ? "yes" : "no"}`)
+      if (req.url === "/dl") {
+        res.writeHead(302, { location: bounceUrl })
+        res.end()
+        return
+      }
+      res.writeHead(401, { "content-type": "application/json" })
+      res.end(JSON.stringify({ code: 999002, msg: "token is invalid" }))
+    })
+    await new Promise<void>((r) => api.listen(0, "127.0.0.1", r))
+    const apiBase = `http://127.0.0.1:${(api.address() as AddressInfo).port}`
+    const bounce = http.createServer((_req, res) => {
+      res.writeHead(302, { location: `${apiBase}/file` })
+      res.end()
+    })
+    await new Promise<void>((r) => bounce.listen(0, "127.0.0.1", r))
+    bounceUrl = `http://127.0.0.1:${(bounce.address() as AddressInfo).port}/x`
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "gangtise-dl-aba-"))
+    try {
+      const client = new GangtiseClient({ baseUrl: apiBase, timeoutMs: 5_000, accessKey: "ak", secretKey: "sk", tokenCachePath: path.join(dir, "token.json"), asyncTimeoutMs: 5_000 })
+      await expect(client.download(plain, {})).rejects.toThrow("token is invalid")
+      expect(seen).toEqual(["login", "/dl auth=yes", "/file auth=no"])
+    } finally {
+      await Promise.all([closed(api), closed(bounce)])
+      await fs.rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  // 对照：接口自己就连不上时（还没有任何应答），报错指向接口地址。
+  it("points at the API address when the download request never reached it", async () => {
+    const client = new GangtiseClient({ baseUrl: "http://127.0.0.1:1", timeoutMs: 5_000, token: "t", tokenCachePath: "/dev/null", asyncTimeoutMs: 5_000 })
+    const error = await client.download(noReplay, {}).catch((e: unknown) => e)
+    expect(errorMessage(error)).toContain("ECONNREFUSED")
+    expect(errorResult(error).content[0].text).toContain("连不上接口地址")
   })
 })
 

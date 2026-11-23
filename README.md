@@ -6,14 +6,15 @@
 
 README 仅列最近 5 个版本的一行摘要，完整明细见 [CHANGELOG.md](CHANGELOG.md)：
 
+- **0.3.13 — 2026-11-23**：新增环境变量 `GANGTISE_PROXY`，查询、下载与上传经 HTTP(S) 代理转发（只读这一个变量，不读 `HTTPS_PROXY` / `HTTP_PROXY`）；连不上接口或代理时报错末尾说明该查什么；登录失败最多试 3 次即报错。⚠️ 按篇计费、不自动重放的下载在取文件那一步失败时直接报错、不重发下载请求，稍后重试即可。工具与参数不变。
 - **0.3.12 — 2026-11-22**：⚠️ 三大报表与 `gangtise_top_holders` 不带 `period` / `fiscalYear` / 日期时返回全部历史报告期，只要最新一期传 `period: ['latest']`；年份、日期与 `period` 可单独传，只在 `period` 只给 `latest` 又带年份或日期时本地拒绝。⚠️ 美股报表须给 `fiscalYear` 或 `startDate`（或只取 `latest`），跨多个财年时逐年 / 分段请求后合并。港股 `fiscalYear` 按期末所在自然年筛，非 12 月财年公司的 `period` 标签按公司财年。多期结果按 `endDate` 降序；研报图表的 `startTime` / `endTime` 按发布时间筛选。工具数不变。
 - **0.3.11 — 2026-11-14**：⚠️ `gangtise_main_business` 的报告期筛选参数由 `periodList` 改名为 `period`（取值不变），用 `periodList` 取到的是全部报告期，按年报或中报汇总过的请重取。⚠️ A 股单季报表的第二、第四季度写 `interim` / `annual`，`q2` / `q4` 不再接受；返回行的 `period` 仍是报告名，「2025年报」那行是第四季度单季值、不是全年累计。⚠️ 三大报表与 `gangtise_top_holders` 只传 `latest` 以外的 `period`、不带 `fiscalYear` 或日期时本地拒绝（本接口这时返回最新一期）。工具数不变。
 - **0.3.10 — 2026-11-14**：新增海外观点 `gangtise_overseas_opinion_list`（0.1 积分/条）与海外观点账号搜索 `gangtise_overseas_account_search`（免费），`gangtise_opinion_detail` 新增 `kind=overseas`（10 积分/条），默认列出 127 个。⚠️ 三大报表与 `gangtise_top_holders` 传 `fiscalYear` / 日期时须同时传 `period`（否则本地拒绝）。ETF 成分补代码排除同名候选要有日 K 证据；文件解析拒收没有 `%PDF-` 文件头的文件，上传类工具拒收指向令牌缓存的路径。
 - **0.3.9 — 2026-11-07**：新增 AI 专家情报 `gangtise_expert_intel`（20 积分/条）与指数成分股权重 `gangtise_index_weight`（免费，权重按每月最后一个交易日提供），`gangtise_download` 新增 `kind=wechat_message` 下载群消息里的文档 / 图片 / 音频 / 视频，默认列出 125 个。⚠️ `gangtise_wechat_message_list` 的文档类取值改为 `document`（`documents` 不再接受），新增 `audio` / `video`。ETF 成分补代码：同名 A / H 股价格都对得上时再比该行涨跌幅，定不了的留 `null`。
-- **0.3.8 — 2026-11-02**：新增个股笔记四个工具（`gangtise_stock_note_list` / `_add` / `_update` / `_delete`，免费，删除须显式确认）与板块日资金流向 `gangtise_sector_fund_flow`（免费），默认列出 123 个。股票池加 `spaceType` 可查所属租户的池；日程四个列表加 `publishStartTime` / `publishEndTime` 按收录时间筛。⚠️ `gangtise_indicator_time_series` 不传 `calendarType` 时由服务端按指标定日期轴（报告期类只返回报告期末，`frcst_*` 走交易日、要逐日传 `ND`），新增 `RD`。ETF 成分补代码：两个市场价格都对得上时按其余行所在的单一市场取。
 
 ### 历史里程碑
 
+- **0.3.8**：新增个股笔记四个工具（删除须显式确认）与板块资金流向 `gangtise_sector_fund_flow`；股票池可查所属租户的池。⚠️ `gangtise_indicator_time_series` 不传 `calendarType` 时由服务端按指标定日期轴。
 - **0.3.5**：⚠️ `gangtise_opinion_list` 默认档的 `llmTagList` 换为投研标签，「业绩点评」「头部券商」「新财富团队」改用 `categoryList` / `brokerTagList`；`gangtise_securities_search` 新增 `bond` 类别。
 - **0.3.3**：新增公募基金 18 个工具（组名 `fund`，0.4 积分/次）；资金流多只长区间自动按只分组。
 - **0.3.2**：默认档改为列出全部工具（core + extended，`GANGTISE_MCP_TOOLS=core` 为精简档）；债券评级超过 10 只自动分批，债券公告支持 `fetchAll`。
@@ -240,6 +241,7 @@ Get-ChildItem "$env:LOCALAPPDATA\npm-cache\_npx" -Recurse -Filter package.json |
 | `GANGTISE_SECRET_KEY` | — | 开放平台 Secret Key |
 | `GANGTISE_TOKEN` | — | 直接传 Bearer Token（优先于 Key/Secret，适合临时使用） |
 | `GANGTISE_BASE_URL` | `https://openapi.gangtise.com` | API 基础地址（旧域名 `https://open.gangtise.com` 仍可用）；用 `http://` 指向非本机地址时在 stderr 提示一次（AK / SK / token 会明文传输） |
+| `GANGTISE_PROXY` | — | 所在网络须经 HTTP 代理出网时设置：查询、下载与上传都经这个代理转发，写成 `http://代理主机:端口`，带账号写成 `http://用户名:密码@代理主机:端口`（特殊字符按 URL 编码）。只读这一个变量，不读 `HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY`；只写协议、主机与端口（PAC 文件地址不是代理地址）；写法不对或账号里的特殊字符没编码时启动即报错（不回显取值）。代理对隧道请求的应答限时 10 秒，端口不按 HTTP 代理应答时三次尝试后报错；代理临时回 429、500、502、503、504 时按退避重试。只有用户名或只有密码时同样发出认证 |
 | `GANGTISE_TIMEOUT_MS` | `30000` | 单次请求超时，十进制整数毫秒（1000–3600000）；无效值回退默认、超上限夹到上限，未按原值生效时在 stderr 提示一次 |
 | `GANGTISE_MCP_ASYNC_TIMEOUT_MS` | `55000` | 异步 AI 任务默认等待超时（毫秒）；保持在 MCP 客户端请求超时（约 60s）以下，超时返回 dataId 供 `*_check` 续查。需更长等待可调高本值或按调用传 `waitSeconds`（最大 180） |
 | `GANGTISE_TOKEN_CACHE_PATH` | `~/.config/gangtise/token.json` | Token 缓存文件路径 |

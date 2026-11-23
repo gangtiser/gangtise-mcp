@@ -714,6 +714,139 @@ describe("GangtiseClient concurrent token refresh", () => {
   })
 })
 
+describe("GangtiseClient failed login", () => {
+  // 登录自己重试三次；等 token 的请求不再把它整轮重跑（此前每次尝试各三次，网络不通时共九次）。
+  it("tries the login three times in all, not three times per attempt of the request waiting for it", async () => {
+    let loginCalls = 0
+    let apiCalls = 0
+    requestMock.mockImplementation((url: unknown) => {
+      if (String(url).includes("/loginV2")) {
+        loginCalls += 1
+        return Promise.reject(Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:443"), { code: "ECONNREFUSED", syscall: "connect" }))
+      }
+      apiCalls += 1
+      return Promise.resolve(jsonResponse({ ok: 1 }))
+    })
+    await expect(keyClient().call("ai.one-pager", { securityCode: "600519.SH" })).rejects.toThrow("ECONNREFUSED")
+    expect(loginCalls).toBe(3)
+    expect(apiCalls).toBe(0)
+  })
+
+  // 登录失败后再读一次缓存：同时运行的另一个进程在这期间登录成功了，就沿用它写下的 token。
+  it("uses a token another process cached while its own login was failing", async () => {
+    requestMock.mockImplementation(async (url: unknown, options?: { headers?: Record<string, string> }) => {
+      if (String(url).includes("/loginV2")) {
+        await fs.writeFile(tokenCachePath, JSON.stringify({
+          accessToken: "sibling", expiresIn: 7200, time: 1, expiresAt: Math.floor(Date.now() / 1000) + 7200,
+          issuedFor: credentialFingerprint("ak", "https://open.gangtise.com"),
+        }), "utf8")
+        return rawJsonResponse({ code: "999011", msg: "credential invalid" })
+      }
+      return jsonResponse({ auth: options?.headers?.Authorization })
+    })
+    expect(await keyClient().call("ai.one-pager", { securityCode: "600519.SH" })).toEqual({ auth: "Bearer sibling" })
+  })
+
+  // 回退挂在共享的那次登录上：后来加入等待的请求（分页扇出的其余各页）同样沿用它，不是只有发起登录的那个成功。
+  it("gives the cached token to every request waiting on that login, not only the one that started it", async () => {
+    let loginCalls = 0
+    requestMock.mockImplementation(async (url: unknown, options?: { headers?: Record<string, string> }) => {
+      if (String(url).includes("/loginV2")) {
+        loginCalls += 1
+        await new Promise((r) => setTimeout(r, 30))
+        await fs.writeFile(tokenCachePath, JSON.stringify({
+          accessToken: "sibling", expiresIn: 7200, time: 1, expiresAt: Math.floor(Date.now() / 1000) + 7200,
+          issuedFor: credentialFingerprint("ak", "https://open.gangtise.com"),
+        }), "utf8")
+        return rawJsonResponse({ code: "999011", msg: "credential invalid" })
+      }
+      return jsonResponse({ auth: options?.headers?.Authorization })
+    })
+    const client = keyClient()
+    const results = await Promise.all(["600519.SH", "000858.SZ", "300750.SZ"].map((securityCode) => client.call("ai.one-pager", { securityCode })))
+    expect(loginCalls).toBe(1)
+    expect(results).toEqual([{ auth: "Bearer sibling" }, { auth: "Bearer sibling" }, { auth: "Bearer sibling" }])
+  })
+
+  // 自愈的强制刷新失败（登录连续 503），而另一个进程在刷新期间写下了同账号的新 token：发起自愈的请求与加入等待的
+  // 请求都沿用它。被拒的旧 token 与刷新开始前写下的缓存不算。
+  // 缓存按「先写临时文件、再 rename」发布：刷新前写好、刷新期间才换上的文件，mtime 早于刷新起点，仍要认出来。
+  it.each(["written in place", "renamed over the cache from a temp file written before the refresh"])("gives a token cached during a failed forced refresh to the request healing and to those waiting on it (%s)", async (how) => {
+    let loginStarted!: () => void
+    const loginSeen = new Promise<void>((r) => { loginStarted = r })
+    let releaseLogin!: () => void
+    const loginHeld = new Promise<void>((r) => { releaseLogin = r })
+    let loginCalls = 0
+    requestMock.mockImplementation(async (url: unknown, options?: { headers?: Record<string, string> }) => {
+      if (String(url).includes("/loginV2")) {
+        loginCalls += 1
+        if (loginCalls === 1) {
+          loginStarted()
+          await loginHeld
+          const entry = JSON.stringify({
+            accessToken: "sibling", expiresIn: 7200, time: 1, expiresAt: Math.floor(Date.now() / 1000) + 7200,
+            issuedFor: credentialFingerprint("ak", "https://open.gangtise.com"),
+          })
+          if (how === "written in place") {
+            await fs.writeFile(tokenCachePath, entry, "utf8")
+          } else {
+            const tmp = `${tokenCachePath}.tmp-test`
+            await fs.writeFile(tmp, entry, "utf8")
+            const before = new Date(Date.now() - 60_000)
+            await fs.utimes(tmp, before, before)
+            await fs.rename(tmp, tokenCachePath)
+          }
+        }
+        return rawJsonResponse({ code: "503", msg: "unavailable" }, 503)
+      }
+      const auth = options?.headers?.Authorization
+      return auth === "Bearer old" ? rawJsonResponse({ code: "0000001008", msg: "token is invalid" }, 401) : jsonResponse({ auth })
+    })
+    const client = new GangtiseClient({
+      baseUrl: "https://open.gangtise.com", timeoutMs: 30_000, token: "old", accessKey: "ak", secretKey: "sk",
+      tokenCachePath, asyncTimeoutMs: 60_000, maxDownloadBytes: 1024 * 1024 * 1024,
+    })
+    const healing = client.call("ai.one-pager", { securityCode: "600519.SH" })
+    await loginSeen
+    const waiting = ["000858.SZ", "300750.SZ"].map((securityCode) => client.call("ai.one-pager", { securityCode }))
+    await new Promise((r) => setTimeout(r, 20))
+    releaseLogin()
+    expect(await Promise.all([healing, ...waiting])).toEqual([{ auth: "Bearer sibling" }, { auth: "Bearer sibling" }, { auth: "Bearer sibling" }])
+    expect(loginCalls).toBe(3)
+  })
+
+  // 反向：刷新开始之前就在盘上的 token（按本地时钟没过期、服务端已失效的那类），以及刷新期间写回来的被拒那枚，都不采纳——
+  // 拿它们重放只是带着死 token 再失败一次。
+  it.each([
+    ["a token cached before the refresh began", "stale", false],
+    ["the rejected token written back during the refresh", "old", true],
+  ] as const)("does not take %s after a failed forced refresh", async (_label, cached, writtenDuringLogin) => {
+    const cacheEntry = JSON.stringify({
+      accessToken: cached, expiresIn: 7200, time: 1, expiresAt: Math.floor(Date.now() / 1000) + 7200,
+      issuedFor: credentialFingerprint("ak", "https://open.gangtise.com"),
+    })
+    if (!writtenDuringLogin) {
+      await fs.writeFile(tokenCachePath, cacheEntry, "utf8")
+      await new Promise((r) => setTimeout(r, 5))
+    }
+    const sent: string[] = []
+    requestMock.mockImplementation(async (url: unknown, options?: { headers?: Record<string, string> }) => {
+      if (String(url).includes("/loginV2")) {
+        if (writtenDuringLogin) await fs.writeFile(tokenCachePath, cacheEntry, "utf8")
+        return rawJsonResponse({ code: "503", msg: "unavailable" }, 503)
+      }
+      sent.push(options?.headers?.Authorization ?? "")
+      return rawJsonResponse({ code: "0000001008", msg: "token is invalid" }, 401)
+    })
+    const client = new GangtiseClient({
+      baseUrl: "https://open.gangtise.com", timeoutMs: 30_000, token: "old", accessKey: "ak", secretKey: "sk",
+      tokenCachePath, asyncTimeoutMs: 60_000, maxDownloadBytes: 1024 * 1024 * 1024,
+    })
+    await expect(client.call("ai.one-pager", { securityCode: "600519.SH" })).rejects.toThrow("token is invalid")
+    expect(sent).toEqual(["Bearer old"])
+  })
+})
+
 describe("GangtiseClient short-page detection", () => {
   // A first page shorter than the requested page size normally means "no more
   // data" — but when total says the range has much more, the silent hole must

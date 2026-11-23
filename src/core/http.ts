@@ -16,7 +16,7 @@ import { Envelope, isEnvelope, unwrapEnvelope } from "./envelope.js"
 import { getLookupData } from "./lookupData/index.js"
 import { currentSignal } from "./requestContext.js"
 import { withDownloadSlot, withGlobalSlot } from "./scheduler.js"
-import { getDispatcher, getDownloadDispatcher, getTransferAgent, isVerbose, logTiming, markRetryable, withRetry } from "./transport.js"
+import { getDispatcher, getDownloadDispatcher, getTransferAgent, isVerbose, logTiming, markFileStep, markRetriesSpent, markRetryable, parseRetryAfterMs, trackHops, withRetry, type HopCounter } from "./transport.js"
 
 /** 端点声明的 `bigIntFields` 在解析前加上引号，大整数按字符串读出，不被舍入。 */
 export function quoteBigIntFields(text: string, fields?: readonly string[]): string {
@@ -43,9 +43,9 @@ const AUTH_RETRY_CODES = new Set(["8000014", "8000015", "0000001008", "999002"])
 
 /** 一次「凭据被拒」的判据：带码的按 AUTH_RETRY_CODES，**没有码的裸 HTTP 401 也算**。
  *
- * 🔴 只认码会漏掉下载链路。信封形态的错误才有 `code`，而下载响应可能根本不是信封：
- * 跟随 30x 之后落到对象存储域名，它拒绝过期凭据时返回的是自家的 HTML / XML；网关直接
- * 挡下时返回的可能是空体。这些路径构造出的 `ApiError` 的 `code` 是 `undefined`，于是
+ * 🔴 只认码会漏掉下载链路。信封形态的错误才有 `code`，而下载响应可能根本不是信封：网关直接
+ * 挡下时返回的可能是空体或 HTML（跟随过重定向之后、文件地址回的 401 不走自愈，见 download 的
+ * recoverAuth）。这些路径构造出的 `ApiError` 的 `code` 是 `undefined`，于是
  * 自愈整个不发生 —— 缓存里那个已失效的 token 会一直用到本地时钟判定它过期为止，期间
  * 每一次下载都失败，而 JSON 接口因为走信封反而是好的，现象上像「只有下载坏了」。
  *
@@ -134,7 +134,9 @@ export class HttpClient {
     return this.config.accessKey ? credentialFingerprint(this.config.accessKey, this.config.baseUrl) : undefined
   }
 
-  private async getAuthorizationHeader(forceRefresh = false): Promise<string> {
+  /** `heal`：强制刷新（自愈）时，被服务端拒掉的那枚与刷新前盘上那枚（都是 `Bearer …`）。登录失败后的缓存回退
+   *  两者都不采纳——只有刷新期间换上来的新 token 才算别的进程登录成功了。 */
+  private async getAuthorizationHeader(forceRefresh = false, heal?: { rejected?: string; before?: string }): Promise<string> {
     if (!forceRefresh) {
       const expected = this.expectedFingerprint()
       if (isTokenCacheValid(this.memoCache, undefined, expected)) {
@@ -160,7 +162,22 @@ export class HttpClient {
     }
 
     if (!this.refreshPromise) {
-      this.refreshPromise = this.doTokenRefresh().finally(() => { this.refreshPromise = null })
+      // 登录有自己的重试循环，又是在等 token 的那个请求的重试循环里被等待的。失败打上标记，外层循环见到即结束，
+      // 不再重跑登录——否则请求的每次尝试各登录三次，网络不通时最多九次。
+      const login = this.doTokenRefresh().catch((error: unknown) => { throw markRetriesSpent(error) })
+      // 登录失败后再读一次缓存：有可用的新 token，就是别的进程在这期间登录成功了——等这次登录的请求都沿用它（回退
+      // 挂在共享的那个 Promise 上，后来加入等待的请求同样拿得到）。普通登录开始时缓存里没有可用的 token，有效即可；
+      // 强制刷新（自愈）时盘上多半正是刚被判失效的那枚，所以只认与刷新前快照不同、且不是被拒那枚的。按内容比、不按
+      // 写入时间：缓存先写临时文件再 rename 发布，刷新前写好、刷新期间才换上的文件 mtime 早于刷新起点。
+      this.refreshPromise = login.catch(async (error: unknown) => {
+        const cache = await readTokenCache(this.config.tokenCachePath)
+        const token = cache?.accessToken ? normalizeToken(cache.accessToken) : undefined
+        const usable = isTokenCacheValid(cache, undefined, this.expectedFingerprint())
+          && (!forceRefresh || (token !== heal?.rejected && token !== heal?.before))
+        if (!usable) throw error
+        this.memoCache = cache
+        return normalizeToken(cache!.accessToken)
+      }).finally(() => { this.refreshPromise = null })
     }
     return this.refreshPromise
   }
@@ -249,7 +266,7 @@ export class HttpClient {
         this.memoCache = fileCache
       } else {
         try {
-          await this.getAuthorizationHeader(true)
+          await this.getAuthorizationHeader(true, { rejected: usedAuthorization, before: fileCache?.accessToken ? normalizeToken(fileCache.accessToken) : undefined })
         } catch {
           // Refresh itself failed (bad keys / network) — surface the ORIGINAL api
           // error to the caller (which re-throws it), not the secondary refresh error.
@@ -258,16 +275,6 @@ export class HttpClient {
       }
       throw markRetryable(new ApiError(error.message, error.code, error.statusCode, error.details))
     }
-  }
-
-  /** Parse a Retry-After header (delta-seconds or HTTP-date) into ms, or undefined. */
-  private parseRetryAfterMs(raw: string | string[] | undefined): number | undefined {
-    const value = Array.isArray(raw) ? raw[0] : raw
-    if (!value) return undefined
-    const seconds = Number(value)
-    if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000)
-    const date = Date.parse(value)
-    return Number.isFinite(date) ? Math.max(0, date - Date.now()) : undefined
   }
 
   private throwHttpError(parsed: unknown, statusCode: number, retryAfterMs?: number): never {
@@ -364,7 +371,7 @@ export class HttpClient {
       // Parsed regardless of status: Gangtise also returns errors (including rate
       // limits) inside HTTP 200 envelopes, and gating this on >= 400 dropped the
       // server's backoff window on exactly those.
-      const retryAfterMs = this.parseRetryAfterMs(response.headers['retry-after'])
+      const retryAfterMs = parseRetryAfterMs(response.headers['retry-after'])
 
       let parsed: Envelope<T>
       try {
@@ -434,11 +441,11 @@ export class HttpClient {
     const signal = currentSignal()
     const maxBytes = this.config.maxDownloadBytes ?? DEFAULT_MAX_DOWNLOAD_BYTES
 
-    return withRetry(() => withDownloadSlot(async () => {
+    const attempt = async (hops: HopCounter): Promise<DownloadResponse> => {
       const authorization = await this.getAuthorizationHeader()
       const startedAt = Date.now()
       const post = endpoint.method === 'POST'
-      const response = await request(url, {
+      const response = await request(url, trackHops({
         method: endpoint.method,
         headers: post ? { Authorization: authorization, 'content-type': 'application/json' } : { Authorization: authorization },
         body: post ? JSON.stringify(options?.body ?? {}) : undefined,
@@ -446,19 +453,27 @@ export class HttpClient {
         bodyTimeout: timeoutMs,
         dispatcher,
         signal,
-      })
+      }, hops))
 
       const contentType = Array.isArray(response.headers['content-type']) ? response.headers['content-type'][0] : response.headers['content-type']
       const contentDisposition = Array.isArray(response.headers['content-disposition'])
         ? response.headers['content-disposition'][0]
         : response.headers['content-disposition']
-      const retryAfterMs = this.parseRetryAfterMs(response.headers['retry-after'])
+      const retryAfterMs = parseRetryAfterMs(response.headers['retry-after'])
+
+      /** 跟随过重定向之后（`hops.count > 1`）的鉴权失败：跳转链离开过原站时 Authorization 已被剥掉（跳回原站也不再
+       *  带上），那里的 401 与这枚 token 无关；不重放的端点接口已经应答过一次，为它重新登录、再发下载请求会多扣一次——
+       *  这两种不自愈。始终在同源内跳转的仍带着这枚 token，可重放的端点照常自愈。 */
+      const recoverAuth = (error: unknown): Promise<void> =>
+        hops.count > 1 && (endpoint.retry === 'no-replay' || hops.crossed)
+          ? Promise.resolve()
+          : this.refreshAuthIfRecoverable(error, true, authState, authorization)
 
       /** 非信封形态的下载失败：构造错误 → **先过一次鉴权自愈** → 再抛。
        *
        * 🔴 自愈这一步不能只挂在信封分支上。下载响应有四种形态（JSON 信封、JSON 但解析
        * 失败、text/html、二进制），只有第一种能解出 `code`；其余三种此前直接 throw，
-       * 401 就此穿过自愈逻辑。跟随 30x 落到对象存储域名之后，恰恰是后三种最常见。 */
+       * 401 就此穿过自愈逻辑（网关直接挡下时可能是空体或 HTML）。 */
       const failDownload = async (text: string): Promise<never> => {
         const error = new ApiError(
           `Download failed (HTTP ${response.statusCode}): ${text.trim().slice(0, 200)}`,
@@ -467,7 +482,7 @@ export class HttpClient {
           text,
           retryAfterMs,
         )
-        await this.refreshAuthIfRecoverable(error, true, authState, authorization)
+        await recoverAuth(error)
         throw error
       }
 
@@ -495,7 +510,7 @@ export class HttpClient {
           }
           data = unwrapEnvelope(parsed as Envelope<unknown>, response.statusCode, retryAfterMs)
         } catch (error) {
-          await this.refreshAuthIfRecoverable(error, true, authState, authorization)
+          await recoverAuth(error)
           throw error
         }
         if (data && typeof data === 'object' && 'url' in (data as Record<string, unknown>) && typeof (data as Record<string, unknown>).url === 'string') {
@@ -558,6 +573,16 @@ export class HttpClient {
         data: new Uint8Array(buffer),
         contentType,
         filename,
+      }
+    }
+
+    return withRetry(() => withDownloadSlot(async () => {
+      // 跳数大于 1 即跟随过重定向：从那以后接口已经应答，出的错都在文件地址上，不重放的端点不再重发（见 markFileStep）。
+      const hops: HopCounter = { count: 0 }
+      try {
+        return await attempt(hops)
+      } catch (error) {
+        throw hops.count > 1 ? markFileStep(error) : error
       }
     }, signal), {
       policy: endpoint.retry,

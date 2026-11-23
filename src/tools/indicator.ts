@@ -18,6 +18,7 @@ import { screenerExpressionFields, SCREENER_FIELD } from "../core/screenerExpres
 import { nonEmptyString } from "../mcp/schemas.js"
 import { dateDesc, dateString } from "../core/dateContext.js"
 import { ApiError, ValidationError } from "../core/errors.js"
+import { retriesSpent } from "../core/transport.js"
 import { indicatorEndpoints } from "./indicator.endpoints.js"
 
 // The EDE FETCH endpoints (cross-section/time-series/screener) used to answer a
@@ -107,7 +108,8 @@ async function callMatrix(client: GangtiseClient, endpointKey: string, body: Rec
   try {
     return requireIndicatorMatrix(await client.call(endpointKey, body))
   } catch (error) {
-    if (FETCH_KEYS.has(endpointKey) && error instanceof ApiError && error.code === "999999") {
+    // 登录以这个码失败时不是 EDE 的故障，不挂这条提示。
+    if (FETCH_KEYS.has(endpointKey) && error instanceof ApiError && error.code === "999999" && !retriesSpent(error)) {
       throw new ApiError(
         error.message,
         error.code,

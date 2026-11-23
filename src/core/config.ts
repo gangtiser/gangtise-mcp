@@ -2,6 +2,8 @@ import { isIPv4 } from "node:net"
 import os from "node:os"
 import path from "node:path"
 
+import { ConfigError } from "./errors.js"
+
 export const DEFAULT_BASE_URL = "https://openapi.gangtise.com"
 export const DEFAULT_TIMEOUT_MS = 30_000
 /** GANGTISE_TIMEOUT_MS 的取值范围：低于 1 秒时服务端来不及应答，每个请求都会超时；超过 1 小时，
@@ -138,6 +140,34 @@ function envValue(name: string): string | undefined {
   return process.env[name]?.trim() || undefined
 }
 
+/** GANGTISE_PROXY：查询、下载与上传都经这个 HTTP(S) 代理转发（与 gangtise CLI 同名同口径）。只读这一个变量、
+ *  不读 HTTPS_PROXY / HTTP_PROXY：那几个常是为别的流量设的，跟随它们会悄悄改掉请求的出口地址。
+ *  取值可能带密码（`http://user:pass@host:port`），报错不回显。 */
+export function resolveProxyUrl(): URL | undefined {
+  const raw = envValue("GANGTISE_PROXY")
+  if (!raw) return undefined
+  let url: URL | undefined
+  try {
+    url = new URL(raw)
+  } catch {
+    url = undefined
+  }
+  if (!url || (url.protocol !== "http:" && url.protocol !== "https:") || !url.hostname) {
+    throw new ConfigError("GANGTISE_PROXY is not an http(s) proxy URL: expected http://host:port (with credentials: http://user:password@host:port). Its value is not shown, as it may hold a password.")
+  }
+  // 连接池只收「协议 + 主机 + 端口」，带路径（如 PAC 文件地址）、查询串或片段的到第一次调用才报 invalid url。
+  if (url.pathname !== "/" || url.search || url.hash) {
+    throw new ConfigError("GANGTISE_PROXY must hold only the scheme, host and port of an HTTP proxy (http://host:port), with no path, query or fragment; a PAC file address is not a proxy. Its value is not shown, as it may hold a password.")
+  }
+  try {
+    decodeURIComponent(url.username)
+    decodeURIComponent(url.password)
+  } catch {
+    throw new ConfigError("The user name or password in GANGTISE_PROXY is not valid URL encoding: write a literal % as %25, @ as %40, : as %3A and / as %2F. Its value is not shown, as it may hold a password.")
+  }
+  return url
+}
+
 export function loadConfig(): CliConfig {
   const timeoutValue = process.env.GANGTISE_TIMEOUT_MS
   const timeoutMs = resolveTimeoutMs(timeoutValue)
@@ -153,6 +183,8 @@ export function loadConfig(): CliConfig {
 
   const baseUrl = envValue("GANGTISE_BASE_URL") ?? DEFAULT_BASE_URL
   warnIfPlainHttp(baseUrl)
+  // 启动时就校验：写错的代理地址在发出任何请求之前报错。
+  resolveProxyUrl()
 
   return {
     baseUrl,

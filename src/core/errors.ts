@@ -379,6 +379,11 @@ export function errorMessage(err: unknown): string {
     const base = meta.length ? `${err.message}（${meta.join("，")}）` : err.message
     return err.hint ? `${base} — ${err.hint}` : base
   }
-  if (err instanceof Error) return err.message
+  if (err instanceof Error) {
+    if (err.message) return err.message
+    // 主机有多个地址、全都连不上时，Node 报一个自身 message 为空的 AggregateError：用各次尝试的原因代替。
+    const attempts = (err as { errors?: unknown }).errors
+    return Array.isArray(attempts) ? [...new Set(attempts.map(errorMessage))].join("; ") : ""
+  }
   return String(err)
 }
