@@ -317,7 +317,7 @@ export const specs: JsonToolSpec[] = [
   {
     name: "gangtise_main_business",
     tier: "core",
-    description: "查询主营业务构成（按产品、行业或地区拆分）。",
+    description: "查询 A 股主营业务构成（按产品、行业或地区拆分）。同一报告期可能同时有汇总项（总计、上级分类）与其下级分类的行，整列求和会重复计算；该期未披露的分类各列为 null。",
     endpointKey: "fundamental.main-business",
     paginated: false,
     inputSchema: {
@@ -331,7 +331,7 @@ export const specs: JsonToolSpec[] = [
   {
     name: "gangtise_top_holders",
     tier: "core",
-    description: "查询前十大股东或前十大流通股东。",
+    description: "查询 A 股前十大股东或前十大流通股东。",
     endpointKey: "fundamental.top-holders",
     paginated: false,
     inputSchema: {
@@ -346,7 +346,7 @@ export const specs: JsonToolSpec[] = [
   {
     name: "gangtise_earning_forecast",
     tier: "core",
-    description: "查询盈利预测一致预期（EPS、PE、净利润、ROE 等）。roe 的单位是百分比（35.6 即 35.6%），不要再做 ÷100 换算——换算后的数字看着仍像个 ROE，不会报错。日期省略时取截至 endDate（缺省今天）的近一年；每个日期约 3 行（每个预测年度一行），行数随区间增长，发请求前按「工作日数 × 3 条」预估。",
+    description: "查询 A 股盈利预测一致预期（EPS、PE、净利润、ROE 等）。roe 的单位是百分比（35.6 即 35.6%），不要再做 ÷100 换算——换算后的数字看着仍像个 ROE，不会报错。日期省略时取截至 endDate（缺省今天）的近一年；每个日期约 3 行（每个预测年度一行），行数随区间增长，发请求前按「工作日数 × 3 条」预估。",
     endpointKey: "fundamental.earning-forecast",
     paginated: false,
     inputSchema: {
@@ -476,7 +476,7 @@ export const fundamentalFamily: FamilyModule = {
       tier: "core",
       access: "read",
       endpoint: "fundamental.valuation-analysis",
-      description: "查询估值指标及历史分位数，支持 PE、PB、PEG、PS、PCF、EM。",
+      description: "查询 A 股单只股票的估值指标逐日序列及其在所查区间内的分位，支持 PE、PB、PEG、PS、PCF、EM（只收 A 股股票，其余代码报 120001；港 / 美股分位用 EDE 的 finc_*_quantile）。🔴 percentileRank / average / median / upper1Std / lower1Std 都按 startDate..endDate 这段区间统计，区间就是分位的回看窗口：要「近 5 年分位」把 startDate 设到 5 年前，只查几天得到的是这几天内的分位（只查一天恒为 100），不是历史分位。不传 startDate 按近一年；limit 只截返回的行，不改变统计区间。",
       input: {
         securityCode,
         indicator: z.enum(["peTtm", "pbMrq", "peg", "psTtm", "pcfTtm", "em"]).describe("peTtm | pbMrq | peg | psTtm | pcfTtm | em（必填）"),

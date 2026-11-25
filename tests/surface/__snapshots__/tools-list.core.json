@@ -2319,7 +2319,7 @@
   },
   {
     "name": "gangtise_day_kline",
-    "description": "查询历史日 K 线数据，单接口覆盖 A股/港股/美股个股 + 沪深 ETF + 交易所指数（沪深京）+ 概念指数（.GT）+ 申万行业指数（.SWI）+ 中信行业指数（.CI）+ 20 个全球指数，可在一次请求里混着传（仅历史；盘中实时请用 gangtise_realtime）。security 传市场关键字 'aShares' / 'hkStocks' / 'usStocks' 配合 startDate/endDate 可拉取该市场全部个股（自动分片）；关键字只覆盖个股——**aShares 不含 ETF**，ETF 与各类指数都要逐个传代码。⚠️ **港股部分标的有人民币柜台**：代码首位换成 8、名字带 -R 或 -WR（中国移动港币 00941.HK / 人民币 80941.HK；阿里 09988.HK / 89988.HK）。两者**后缀相同、exchange 字段也相同、返回里没有币种字段**，价差约等于汇率、看着完全正常——要港币报价就别用 8 开头的那只（不是每只港股都有柜台）。⚠️ **本接口查指数只返代码、不返 securityName**；指数名称用 gangtise_securities_search（category=['index']）查 gtsName。返回字段含 adjustFactor 复权因子（个股与 ETF 有，指数为 null）。⚠️ **volume 的单位是「股」**（ETF 为「份」），不是「手」——按手换算会差 100 倍，而数字看着仍像个成交量、不会报错。全球指数：amount 为 null、volume 正常，tradeDate 是交易所当地日期。⚠️ **确认拿到的是你要的那只票**：后缀合法但标的不存在时返空列表而不报错（空 ≠ 没数据）；核对请用 gangtise_securities_search **按公司名查**，再核对返回的 gtsName 与 gtsCode 后缀。三类会拿到「合理但错误」的数：① A+H 两地上市名字**逐字相同**（中国移动 600941.SH / 00941.HK，招商银行 600036.SH / 03968.HK），返回里没有市场字段、只有后缀能区分，拿错一边就是错币种错价格（招行两地价差方向还相反）；② 美股写错代码可能命中另一只**真实**证券（BRK.N 实为 RBRK.N，另一家公司）；多股份类别写法不统一、别自己拼（FOXA.O / FOX.O，BRK_A.N / BRK_B.N，Bio-Rad A 类就是 BIO.N 不带标记），拼错可能命中同公司另一类别（HVT.N 与 HVT_A.N 都存在、价格不同）；③ 搜得到 ≠ 查得到（B 股 900938.SH 搜索有、行情报「证券代码无效」），判据是行情接口返不返数据。",
+    "description": "查询历史日 K 线数据，单接口覆盖 A股/港股/美股个股 + 沪深 ETF + 交易所指数（沪深京）+ 概念指数（.GT）+ 申万行业指数（.SWI）+ 中信行业指数（.CI）+ 20 个全球指数，可在一次请求里混着传（仅历史；盘中实时请用 gangtise_realtime）。security 传市场关键字 'aShares' / 'hkStocks' / 'usStocks' 配合 startDate/endDate 可拉取该市场全部个股（自动分片）；关键字只覆盖个股——**aShares 不含 ETF**，ETF 与各类指数都要逐个传代码。⚠️ **港股部分标的有人民币柜台**：代码首位换成 8、名字带 -R 或 -WR（中国移动港币 00941.HK / 人民币 80941.HK；阿里 09988.HK / 89988.HK）。两者**后缀相同、exchange 字段也相同、返回里没有币种字段**，价差约等于汇率、看着完全正常——要港币报价就别用 8 开头的那只（不是每只港股都有柜台）。⚠️ **本接口查指数只返代码、不返 securityName**；指数名称用 gangtise_securities_search（category=['index']）查 gtsName。返回字段含 adjustFactor 复权因子（个股与 ETF 有，指数为 null）。⚠️ **volume 的单位是「股」**（ETF 为「份」），不是「手」——按手换算会差 100 倍，而数字看着仍像个成交量、不会报错。停牌的个股每个交易日照常有一行：close 沿用停牌前的收盘价、pctChange / volume / amount 为 0，判断停牌看 volume，不看有没有这一行。全球指数：amount 为 null、volume 正常，tradeDate 是交易所当地日期。⚠️ **确认拿到的是你要的那只票**：后缀合法但标的不存在时返空列表而不报错（空 ≠ 没数据）；核对请用 gangtise_securities_search **按公司名查**，再核对返回的 gtsName 与 gtsCode 后缀。三类会拿到「合理但错误」的数：① A+H 两地上市名字**逐字相同**（中国移动 600941.SH / 00941.HK，招商银行 600036.SH / 03968.HK），返回里没有市场字段、只有后缀能区分，拿错一边就是错币种错价格（招行两地价差方向还相反）；② 美股写错代码可能命中另一只**真实**证券（BRK.N 实为 RBRK.N，另一家公司）；多股份类别写法不统一、别自己拼（FOXA.O / FOX.O，BRK_A.N / BRK_B.N，Bio-Rad A 类就是 BIO.N 不带标记），拼错可能命中同公司另一类别（HVT.N 与 HVT_A.N 都存在、价格不同）；③ 搜得到 ≠ 查得到（B 股 900938.SH 搜索有、行情报「证券代码无效」），判据是行情接口返不返数据。",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2493,7 +2493,7 @@
   },
   {
     "name": "gangtise_realtime",
-    "description": "查询实时行情快照，单接口覆盖 A 股 / 港股 / 美股个股 + 沪深 ETF + 各类指数（含 20 个全球指数），可代码混合传入。非交易时间返回最近一个交易日的收盘快照；停牌证券返回停牌前最后一个有效快照。日 K 线接口（day-kline*）不含盘中数据，问\"现在/此刻\"请走本工具。⚠️ **volume 的单位是「股」**（ETF 为「份」），不是「手」——按手换算会差 100 倍且不报错。**全部字段仅这 15 个：securityCode/exchange/tradeDate/tradeTime/tradeStatus/open/high/low/latestPrice(最新价)/preClose(昨收)/change/pctChange/volume/amount/amplitude——没有 close、没有市值，也没有 turnoverRate / volumeRatio**（传了会连字段名一起被静默丢掉；换手率走 gangtise_indicator_cross_section 的 qte_turn，A 股）；总市值请用 gangtise_indicator_cross_section 的 qte_mkt_cptl（A/港/美股均有数，默认返「元」，用 scale 缩放）。tradeStatus（未开市/连续竞价/收盘/停牌…）仅 A 股 / 港股个股有值，其余为 null。为 null 的字段：美股 amount（要美股成交额用 gangtise_day_kline 或 EDE qte_amt）；全球指数 volume / amount / amplitude。tradeDate / tradeTime：A 股 / 港股 / ETF / 沪深各类指数为北京时间，**美股与全球指数是交易所当地时间**（美股收盘快照的 tradeTime 是 16:00）。⚠️ **确认拿到的是你要的那只票**：后缀合法但标的不存在时返空列表而不报错（空 ≠ 没数据）；核对请用 gangtise_securities_search **按公司名查**，再核对返回的 gtsName 与 gtsCode 后缀。三类会拿到「合理但错误」的数：① A+H 两地上市名字**逐字相同**（中国移动 600941.SH / 00941.HK，招商银行 600036.SH / 03968.HK），返回里没有市场字段、只有后缀能区分，拿错一边就是错币种错价格（招行两地价差方向还相反）；② 美股写错代码可能命中另一只**真实**证券（BRK.N 实为 RBRK.N，另一家公司）；多股份类别写法不统一、别自己拼（FOXA.O / FOX.O，BRK_A.N / BRK_B.N，Bio-Rad A 类就是 BIO.N 不带标记），拼错可能命中同公司另一类别（HVT.N 与 HVT_A.N 都存在、价格不同）；③ 搜得到 ≠ 查得到（B 股 900938.SH 搜索有、行情报「证券代码无效」），判据是行情接口返不返数据。",
+    "description": "查询实时行情快照，单接口覆盖 A 股 / 港股 / 美股个股 + 沪深 ETF + 各类指数（含 20 个全球指数），可代码混合传入。非交易时间返回最近一个交易日的收盘快照。停牌证券多数返回停牌前的价格（latestPrice 等于 preClose）；⚠️ 也有 latestPrice 与 preClose 都为 0 的（tradeStatus 为「停牌暂停交易」的 A 股），按 0 算涨跌或市值是错数，停牌前的价格用 gangtise_day_kline 的 close。日 K 线接口（day-kline*）不含盘中数据，问\"现在/此刻\"请走本工具。⚠️ **volume 的单位是「股」**（ETF 为「份」），不是「手」——按手换算会差 100 倍且不报错。**全部字段仅这 15 个：securityCode/exchange/tradeDate/tradeTime/tradeStatus/open/high/low/latestPrice(最新价)/preClose(昨收)/change/pctChange/volume/amount/amplitude——没有 close、没有市值，也没有 turnoverRate / volumeRatio**（传了会连字段名一起被静默丢掉；换手率走 gangtise_indicator_cross_section 的 qte_turn，A 股）；总市值请用 gangtise_indicator_cross_section 的 qte_mkt_cptl（A/港/美股均有数，默认返「元」，用 scale 缩放）。tradeStatus（未开市/连续竞价/收盘/停牌…）仅 A 股 / 港股个股有值，其余为 null。为 null 的字段：美股 amount（要美股成交额用 gangtise_day_kline 或 EDE qte_amt）；全球指数 volume / amount / amplitude。tradeDate / tradeTime：A 股 / 港股 / ETF / 沪深各类指数为北京时间，**美股与全球指数是交易所当地时间**（美股收盘快照的 tradeTime 是 16:00）。⚠️ **确认拿到的是你要的那只票**：后缀合法但标的不存在时返空列表而不报错（空 ≠ 没数据）；核对请用 gangtise_securities_search **按公司名查**，再核对返回的 gtsName 与 gtsCode 后缀。三类会拿到「合理但错误」的数：① A+H 两地上市名字**逐字相同**（中国移动 600941.SH / 00941.HK，招商银行 600036.SH / 03968.HK），返回里没有市场字段、只有后缀能区分，拿错一边就是错币种错价格（招行两地价差方向还相反）；② 美股写错代码可能命中另一只**真实**证券（BRK.N 实为 RBRK.N，另一家公司）；多股份类别写法不统一、别自己拼（FOXA.O / FOX.O，BRK_A.N / BRK_B.N，Bio-Rad A 类就是 BIO.N 不带标记），拼错可能命中同公司另一类别（HVT.N 与 HVT_A.N 都存在、价格不同）；③ 搜得到 ≠ 查得到（B 股 900938.SH 搜索有、行情报「证券代码无效」），判据是行情接口返不返数据。",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2844,7 +2844,7 @@
   },
   {
     "name": "gangtise_main_business",
-    "description": "查询主营业务构成（按产品、行业或地区拆分）。",
+    "description": "查询 A 股主营业务构成（按产品、行业或地区拆分）。同一报告期可能同时有汇总项（总计、上级分类）与其下级分类的行，整列求和会重复计算；该期未披露的分类各列为 null。",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2924,7 +2924,7 @@
   },
   {
     "name": "gangtise_top_holders",
-    "description": "查询前十大股东或前十大流通股东。",
+    "description": "查询 A 股前十大股东或前十大流通股东。",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2989,7 +2989,7 @@
   },
   {
     "name": "gangtise_earning_forecast",
-    "description": "查询盈利预测一致预期（EPS、PE、净利润、ROE 等）。roe 的单位是百分比（35.6 即 35.6%），不要再做 ÷100 换算——换算后的数字看着仍像个 ROE，不会报错。日期省略时取截至 endDate（缺省今天）的近一年；每个日期约 3 行（每个预测年度一行），行数随区间增长，发请求前按「工作日数 × 3 条」预估。【积分：0.5/条】",
+    "description": "查询 A 股盈利预测一致预期（EPS、PE、净利润、ROE 等）。roe 的单位是百分比（35.6 即 35.6%），不要再做 ÷100 换算——换算后的数字看着仍像个 ROE，不会报错。日期省略时取截至 endDate（缺省今天）的近一年；每个日期约 3 行（每个预测年度一行），行数随区间增长，发请求前按「工作日数 × 3 条」预估。【积分：0.5/条】",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -3044,7 +3044,7 @@
   },
   {
     "name": "gangtise_valuation_analysis",
-    "description": "查询估值指标及历史分位数，支持 PE、PB、PEG、PS、PCF、EM。",
+    "description": "查询 A 股单只股票的估值指标逐日序列及其在所查区间内的分位，支持 PE、PB、PEG、PS、PCF、EM（只收 A 股股票，其余代码报 120001；港 / 美股分位用 EDE 的 finc_*_quantile）。🔴 percentileRank / average / median / upper1Std / lower1Std 都按 startDate..endDate 这段区间统计，区间就是分位的回看窗口：要「近 5 年分位」把 startDate 设到 5 年前，只查几天得到的是这几天内的分位（只查一天恒为 100），不是历史分位。不传 startDate 按近一年；limit 只截返回的行，不改变统计区间。",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -5411,7 +5411,7 @@
             ],
             "additionalProperties": false
           },
-          "description": "分指标专属参数。parameterList 标 required 的日期参数由本工具的 date 自动下发为 tradeDate。⚠️ **吃 reportDate 的指标必须在这里显式传 reportDate**（一条 { indicatorCode, parameters: [{ paramKey: 'reportDate', paramValue: 'YYYY-MM-DD' }] }，date 参数仍要保留）：这类指标直接拒收 tradeDate 并报错，无论 date 取什么值都取不到数，所以这是个必须照做的改法、不是可选优化。少数指标两个日期都必填——补完 reportDate 若再报「缺少必填参数 tradeDate」，把 tradeDate 也写进同一条即可。**哪个指标吃哪个日期不按 code 前缀分**（同一前缀下两种都有），以 parameterList 为准。其他 required：N期统计→periodNum(如4)+reportDate、分红/预测→fiscalYear(年份)。区间类指标的区间终点就是注入的 tradeDate，sDate 只是起点。可选参数：行情复权 adjustType(1=不复权|2=前复权|3=后复权)；财务报表口径 reportType（1=合并(默认) | 2=合并(调整) | 3=母公司 | 4=母公司(调整)；取值以 parameterList 的 enumList 为准）。区间类指标（qte_*_intvl / 区间均值 / 区间收益与风险等）的起始日是 sDate(yyyy-MM-dd)——**没有 startDate 这个参数**。parameterList 标 required 的键列了默认值也要显式传（如 finc_sharpe 的 changePeriod / yieldType / riskFreeRate），漏传报 100001 并指名。参数名写错或臆造会被接口拒绝并指名该键（报 100003「指标 X 不支持参数 Y」），照 msg 改即可；键名一律以 gangtise_indicator_search 返回的 parameterList 为准，不要照抄任何文档示例。同一指标的多个参数请放进同一条的 parameters 数组"
+          "description": "分指标专属参数。parameterList 标 required 的日期参数由本工具的 date 自动下发为 tradeDate。⚠️ **吃 reportDate 的指标必须在这里显式传 reportDate**（一条 { indicatorCode, parameters: [{ paramKey: 'reportDate', paramValue: 'YYYY-MM-DD' }] }，date 参数仍要保留）：这类指标直接拒收 tradeDate 并报错，无论 date 取什么值都取不到数，所以这是个必须照做的改法、不是可选优化。少数指标两个日期都必填（如 finc_pe、div_cash_yld）：给 reportDate 即可，本工具把 date 作为它的 tradeDate 补上重发（结果带 _note）；要用别的交易日就把 tradeDate 也写进同一条。**哪个指标吃哪个日期不按 code 前缀分**（同一前缀下两种都有），以 parameterList 为准。其他 required：N期统计→periodNum(如4)+reportDate、分红/预测→fiscalYear(年份)。区间类指标的区间终点就是注入的 tradeDate，sDate 只是起点。可选参数：行情复权 adjustType(1=不复权|2=前复权|3=后复权)；财务报表口径 reportType（1=合并(默认) | 2=合并(调整) | 3=母公司 | 4=母公司(调整)；取值以 parameterList 的 enumList 为准）。区间类指标（qte_*_intvl / 区间均值 / 区间收益与风险等）的起始日是 sDate(yyyy-MM-dd)——**没有 startDate 这个参数**。parameterList 标 required 的键列了默认值也要显式传（如 finc_sharpe 的 changePeriod / yieldType / riskFreeRate），漏传报 100001 并指名。参数名写错或臆造会被接口拒绝并指名该键（报 100003「指标 X 不支持参数 Y」），照 msg 改即可；键名一律以 gangtise_indicator_search 返回的 parameterList 为准，不要照抄任何文档示例。同一指标的多个参数请放进同一条的 parameters 数组"
         }
       },
       "required": [
@@ -5601,7 +5601,7 @@
                   ],
                   "additionalProperties": false
                 },
-                "description": "该变量专属参数（按变量索引，不是按指标）。⚠️ **本端点没有根级 currency/scale——量纲与币种只能在这里按变量传**：根级写法在本端点不生效，而表达式是拿指标原始值去比的，于是「市值≥500亿」若指望根级 scale 就会变成「≥500 元」——恒真、筛不掉任何股票且不报错。按变量传 scale=8，qte_mkt_cptl 才从 1688360210310.6 变成 16883.6021（亿）。parameterList 标 required 的日期参数由本工具的 date 自动下发为 tradeDate。⚠️ **吃 reportDate 的指标必须在这里显式传 reportDate**（一条 { indicatorCode, parameters: [{ paramKey: 'reportDate', paramValue: 'YYYY-MM-DD' }] }，date 参数仍要保留）：这类指标直接拒收 tradeDate 并报错，无论 date 取什么值都取不到数，所以这是个必须照做的改法、不是可选优化。少数指标两个日期都必填——补完 reportDate 若再报「缺少必填参数 tradeDate」，把 tradeDate 也写进同一条即可。**哪个指标吃哪个日期不按 code 前缀分**（同一前缀下两种都有），以 parameterList 为准。其他 required：N期统计→periodNum(如4)+reportDate、分红/预测→fiscalYear(年份)。区间类指标的区间终点就是注入的 tradeDate，sDate 只是起点。可选参数：行情复权 adjustType(1=不复权|2=前复权|3=后复权)；财务报表口径 reportType（1=合并(默认) | 2=合并(调整) | 3=母公司 | 4=母公司(调整)；取值以 parameterList 的 enumList 为准）。区间类指标（qte_*_intvl / 区间均值 / 区间收益与风险等）的起始日是 sDate(yyyy-MM-dd)——**没有 startDate 这个参数**。parameterList 标 required 的键列了默认值也要显式传（如 finc_sharpe 的 changePeriod / yieldType / riskFreeRate），漏传报 100001 并指名。参数名写错或臆造会被接口拒绝并指名该键（报 100003「指标 X 不支持参数 Y」），照 msg 改即可；键名一律以 gangtise_indicator_search 返回的 parameterList 为准，不要照抄任何文档示例。同一指标的多个参数请放进同一条的 parameters 数组"
+                "description": "该变量专属参数（按变量索引，不是按指标）。⚠️ **本端点没有根级 currency/scale——量纲与币种只能在这里按变量传**：根级写法在本端点不生效，而表达式是拿指标原始值去比的，于是「市值≥500亿」若指望根级 scale 就会变成「≥500 元」——恒真、筛不掉任何股票且不报错。按变量传 scale=8，qte_mkt_cptl 才从 1688360210310.6 变成 16883.6021（亿）。parameterList 标 required 的日期参数由本工具的 date 自动下发为 tradeDate。⚠️ **吃 reportDate 的指标必须在这里显式传 reportDate**（一条 { indicatorCode, parameters: [{ paramKey: 'reportDate', paramValue: 'YYYY-MM-DD' }] }，date 参数仍要保留）：这类指标直接拒收 tradeDate 并报错，无论 date 取什么值都取不到数，所以这是个必须照做的改法、不是可选优化。少数指标两个日期都必填（如 finc_pe、div_cash_yld）：给 reportDate 即可，本工具把 date 作为它的 tradeDate 补上重发（结果带 _note）；要用别的交易日就把 tradeDate 也写进同一条。**哪个指标吃哪个日期不按 code 前缀分**（同一前缀下两种都有），以 parameterList 为准。其他 required：N期统计→periodNum(如4)+reportDate、分红/预测→fiscalYear(年份)。区间类指标的区间终点就是注入的 tradeDate，sDate 只是起点。可选参数：行情复权 adjustType(1=不复权|2=前复权|3=后复权)；财务报表口径 reportType（1=合并(默认) | 2=合并(调整) | 3=母公司 | 4=母公司(调整)；取值以 parameterList 的 enumList 为准）。区间类指标（qte_*_intvl / 区间均值 / 区间收益与风险等）的起始日是 sDate(yyyy-MM-dd)——**没有 startDate 这个参数**。parameterList 标 required 的键列了默认值也要显式传（如 finc_sharpe 的 changePeriod / yieldType / riskFreeRate），漏传报 100001 并指名。参数名写错或臆造会被接口拒绝并指名该键（报 100003「指标 X 不支持参数 Y」），照 msg 改即可；键名一律以 gangtise_indicator_search 返回的 parameterList 为准，不要照抄任何文档示例。同一指标的多个参数请放进同一条的 parameters 数组"
               },
               "noQueryDate": {
                 "type": "boolean",

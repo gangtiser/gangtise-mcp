@@ -436,6 +436,19 @@ describe("current EDE error layout", () => {
     // 半句只拒 tradeDate、没说缺什么：一个日期都不要。
     expect(new ApiError("pty_main_bus: 不支持参数 tradeDate", "100003").hint).toContain("noQueryDate")
   })
+
+  // 重发成功就看不到这条报错，所以提示出现时恰恰没重发（时序、重发不认的写法）或重发没用上。
+  it.each([
+    ["finc_pe: 必填参数 tradeDate 不能为空", "100001"],
+    ["finc_pe: 必填参数 tradeDate 不能为空", "100003"],
+    ["指标 finc_pe 缺少必填参数 tradeDate", "100001"],
+    ["finc_pe：必填参数 tradeDate 不能为空", "100001"],
+    ["finc_pe: 必填参数 tradeDate 不能为空；div_cash_yld: 必填参数 tradeDate 不能为空", "100001"],
+  ])("says how to pass the missing tradeDate, not that the tool already resent it: %s (%s)", (message, code) => {
+    const hint = new ApiError(message, code).hint ?? ""
+    expect(hint).toContain("paramKey: 'tradeDate'")
+    expect(hint).not.toMatch(/已.{0,6}重发/)
+  })
 })
 
 // 「只拒 tradeDate」那条覆盖的指标（静态属性 / 只要 fiscalYear）的 parameterList 里一个日期键都没有。
@@ -462,5 +475,23 @@ describe("the bare-不支持-tradeDate rule routes no-date indicators to the esc
   it("no longer tells screener callers the opt-out is unavailable", () => {
     expect(hint()).not.toContain("条件选股上没有这个开关")
     expect(hint()).not.toContain("本地按条件筛")
+  })
+})
+
+// 只收 A 股股票的接口对港股、美股、基金、指数代码回「非有效A股」；按码的通用提示举的例子含港美股代码，不适用。
+describe("120001 from an A-share-only endpoint", () => {
+  it("says the tool takes A-share stocks only, instead of the generic suffix check", () => {
+    const hint = new ApiError("证券代码无效：非有效A股", "120001", 400).hint
+    expect(hint).toMatch(/只收 A 股股票代码/)
+    expect(hint).not.toContain("00700.HK")
+  })
+
+  // 资金流向对拼错的全市场关键字（aSharez）也回这句，提示不能只把人支去换工具。
+  it("also points at the market keyword spelling", () => {
+    expect(new ApiError("证券代码无效：非有效A股", "120001", 400).hint).toContain("核对拼写（aShares）")
+  })
+
+  it("keeps the generic hint for any other 120001", () => {
+    expect(new ApiError("证券代码无效", "120001", 400).hint).toContain("00700.HK")
   })
 })

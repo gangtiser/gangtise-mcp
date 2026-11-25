@@ -206,29 +206,45 @@ const MULTI_NOTE = " ⚠️ 一条报错可能同时点名多个指标，且各�
  * 该退回旧行为，不该整张表一起哑掉。 */
 export function distinctFailureShapes(message: string): number {
   const byIndicator = new Map<string, Set<string>>()
-  let current: string | undefined
-  for (const clause of message.split(/[;；]/)) {
-    let indicator: string, kind: string, key: string
-    const old = /指标\s+(\S+)\s+(不支持参数|缺少必填参数)[:：]?\s*(\S+)/.exec(clause)
-    if (old) {
-      [, indicator, kind, key] = old
-    } else {
-      // 现行写法：分句开头的「X:」/「F1 (指标代码 X):」换当前指标，后面不带名字的分句沿用它。
-      const head = /^\s*([^\s:：]+)(?:\s*\(指标代码\s*[^)]*\))?\s*[:：]/.exec(clause)
-      if (head) current = head[1]
-      const body = /不支持参数\s*(\S+)|必填参数\s*(\S+)\s*不能为空/.exec(clause)
-      if (!body || !current) continue
-      indicator = current
-      kind = body[1] ? "不支持参数" : "缺少必填参数"
-      key = body[1] ?? body[2]
-    }
-    const shape = byIndicator.get(indicator) ?? new Set<string>()
-    shape.add(`${kind}:${key}`)
-    byIndicator.set(indicator, shape)
+  for (const { subject, missing, key } of parameterComplaints(message).complaints) {
+    const shape = byIndicator.get(subject) ?? new Set<string>()
+    shape.add(`${missing ? "缺少必填参数" : "不支持参数"}:${key}`)
+    byIndicator.set(subject, shape)
   }
   if (byIndicator.size === 0) return 1
   return new Set([...byIndicator.values()].map((shape) => [...shape].sort().join("|"))).size
 }
+
+/** 服务端说参数有问题时用的码：现行的与它的后继。 */
+export const PARAMETER_COMPLAINT_CODES = ["100001", "100003"]
+
+/** 参数报错的一个分句：哪个指标（条件选股是变量名）、说的是哪个键缺了还是不支持。`plain`：这个分句别的什么都没说。 */
+export interface ParameterComplaint { subject: string; missing: boolean; key: string; plain: boolean }
+
+/** 把服务端的参数报错逐句读出来，并数出说了别的事的分句（`unread`）。提示与 tradeDate 重发都按这一种读法。
+ *  现行写法：分句开头的「X:」/「F1 (指标代码 X):」换当前指标，后面不带名字的分句沿用它；旧写法每个分句都写
+ *  「指标 X …」。 */
+export function parameterComplaints(message: string): { complaints: ParameterComplaint[]; unread: number } {
+  const complaints: ParameterComplaint[] = []
+  let unread = 0
+  let current: string | undefined
+  for (const clause of message.split(/[;；]/)) {
+    const old = /指标\s+(\S+?)\s+(不支持参数|缺少必填参数)[:：]?\s*(\w+)/.exec(clause)
+    if (old) {
+      complaints.push({ subject: old[1], missing: old[2] === "缺少必填参数", key: old[3], plain: PLAIN_OLDER.test(clause) })
+      continue
+    }
+    const head = /^\s*([^\s:：]+)(?:\s*\(指标代码\s*[^)]*\))?\s*[:：]/.exec(clause)
+    if (head) current = head[1]
+    const body = /不支持参数\s*(\w+)|必填参数\s*(\w+)\s*不能为空/.exec(clause)
+    if (body && current) complaints.push({ subject: current, missing: !body[1], key: body[1] ?? body[2], plain: PLAIN_CURRENT.test(clause) })
+    else if (clause.trim()) unread++
+  }
+  return { complaints, unread }
+}
+/** 只说了一件事的分句，新旧两种写法。 */
+const PLAIN_OLDER = /^\s*指标\s+\S+?\s+(?:不支持参数|缺少必填参数)[:：]?\s*\w+\s*[。.]?\s*$/
+const PLAIN_CURRENT = /^\s*(?:[^\s:：]+(?:\s*\(指标代码\s*[^)]*\))?\s*[:：])?\s*(?:不支持参数\s*\w+|必填参数\s*\w+\s*不能为空)\s*[。.]?\s*$/
 
 // `when` 把「形态是否唯一」这个判别式**写进每条规则**，而不是靠数组顺序兜住。少了它，
 // 谁往表头插一条新规则都会把批量形态重新漏给断言式提示，而测试全绿。
@@ -254,6 +270,13 @@ export const MESSAGE_HINTS: Array<{
   when?: (message: string) => boolean
   hint: string
 }> = [
+  {
+    // 只收 A 股股票的接口（估值分析、十大股东、主营构成、盈利预测、资金流向）对港股、美股、基金、指数代码回这句；
+    // 按码的通用提示举的例子里有港股与美股代码，对这类接口是错的方向。
+    codes: ["120001"],
+    all: [/非有效A股/],
+    hint: "本工具只收 A 股股票代码（如 600519.SH / 000858.SZ）：港股、美股、基金与指数代码不在它的范围内，换支持该品种的工具；确是 A 股时用 gangtise_securities_search 核对代码与后缀；传的是全市场关键字时核对拼写（aShares）。",
+  },
   {
     // 多个指标、失败形态互不相同：任何一条断言式提示都会对其中一部分说错话。
     codes: ["100001", "100003"],

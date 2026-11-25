@@ -17,8 +17,9 @@ import {
 import { screenerExpressionFields, SCREENER_FIELD } from "../core/screenerExpression.js"
 import { nonEmptyString } from "../mcp/schemas.js"
 import { dateDesc, dateString } from "../core/dateContext.js"
-import { ApiError, ValidationError } from "../core/errors.js"
+import { ApiError, PARAMETER_COMPLAINT_CODES, parameterComplaints, ValidationError } from "../core/errors.js"
 import { retriesSpent } from "../core/transport.js"
+import { withNote } from "../core/lateStart.js"
 import { indicatorEndpoints } from "./indicator.endpoints.js"
 
 // The EDE FETCH endpoints (cross-section/time-series/screener) used to answer a
@@ -282,17 +283,67 @@ function assertParamCodesBound(groups: ParamGroup[] | undefined, codes: string[]
   }
 }
 
-function withQueryDate(groups: ParamGroup[] | undefined, codes: string[], date: string): ParamGroup[] {
+type ParamPairs = { paramKey: string; paramValue: string }[]
+
+const hasTradeDate = (parameters: ParamPairs | undefined) => parameters?.some((param) => param.paramKey === "tradeDate") ?? false
+
+/** date 是否作为这个指标的 tradeDate 下发：自带日期键或声明了 noQueryDate 的不发——`also` 点名的除外，
+ *  那是 reportDate 之外还必填 tradeDate 的少数指标（见 callWithTradeDate）。 */
+function takesQueryDate(item: { parameters: ParamPairs; noQueryDate?: boolean }, also: boolean): boolean {
+  if (item.noQueryDate || hasTradeDate(item.parameters)) return false
+  return also || !item.parameters.some((param) => DATE_PARAM_KEYS.has(param.paramKey))
+}
+
+function withQueryDate(groups: ParamGroup[] | undefined, codes: string[], date: string, also: string[] = []): ParamGroup[] {
   const merged = new Map(mergeParamGroups(groups).map((group) => [group.indicatorCode, group]))
   for (const code of codes) {
     const group = merged.get(code)
     if (!group) {
       merged.set(code, { indicatorCode: code, parameters: [{ paramKey: "tradeDate", paramValue: date }] })
-    } else if (!group.noQueryDate && !group.parameters.some((param) => DATE_PARAM_KEYS.has(param.paramKey))) {
+    } else if (takesQueryDate(group, also.includes(code))) {
       group.parameters.push({ paramKey: "tradeDate", paramValue: date })
     }
   }
   return [...merged.values()]
+}
+
+/** 报错说缺 tradeDate 的那些指标（选股是变量名）——仅当报错只说这一件事：每个分句都只说缺 tradeDate、说的是
+ *  `subjects` 里的，按提示读报文的同一种读法（`parameterComplaints`）。别的情形（还有别的原因、不认识的对象、读不懂
+ *  的分句）返回 undefined，报错原样抛出。 */
+export function missingTradeDateOnly(message: string, subjects: string[]): string[] | undefined {
+  const { complaints, unread } = parameterComplaints(message)
+  if (unread || !complaints.length) return undefined
+  if (complaints.some((c) => !c.plain || !c.missing || c.key !== "tradeDate" || !subjects.includes(c.subject))) return undefined
+  return [...new Set(complaints.map((c) => c.subject))]
+}
+
+/** 少数指标 reportDate 与 tradeDate 都必填（div_cash_yld、finc_pe 等）。带 reportDate 的指标不注入 tradeDate——
+ *  多数报告期类指标拒收它——接口于是以 100001 拒绝并点名缺它的指标。报错只说这一件事、且点名的都是本工具没给
+ *  tradeDate 的指标（不是显式 tradeDate，也不是 noQueryDate）时，把 date 作为它们的 tradeDate 补上重发一次，
+ *  结果记 `_note`。`subjects`：报错可能点名的代码（选股是变量名）；`dated`：某个请求体有没有
+ *  给它 tradeDate。 */
+async function callWithTradeDate<B extends Record<string, unknown>>(
+  client: GangtiseClient,
+  endpointKey: string,
+  date: string,
+  build: (also: string[]) => B,
+  subjects: string[],
+  dated: (body: B, subject: string) => boolean,
+): Promise<{ data: Record<string, unknown>; note?: string }> {
+  const body = build([])
+  try {
+    return { data: await callMatrix(client, endpointKey, body) }
+  } catch (error) {
+    if (!(error instanceof ApiError) || !PARAMETER_COMPLAINT_CODES.includes(error.code ?? "")) throw error
+    const named = missingTradeDateOnly(error.message, subjects)
+    if (!named) throw error
+    const again = build(named)
+    if (named.some((subject) => dated(body, subject) || !dated(again, subject))) throw error
+    return {
+      data: await callMatrix(client, endpointKey, again),
+      note: `${named.join("、")} 的 reportDate 与 tradeDate 都必填：已把 date（${date}）作为 tradeDate 补上重发；要用别的交易日，在该指标的 parameters 里显式传 tradeDate`,
+    }
+  }
 }
 
 /** 截面 / 时序单次请求的单元格上限 —— 这一条是**服务端事实**，不是本仓的成本策略：
@@ -425,7 +476,7 @@ const PARAM_GUIDANCE_COMMON =
 
 /** 截面 / 选股（单日快照，工具有 `date`）。 */
 const PARAM_GUIDANCE_DATED =
-  "parameterList 标 required 的日期参数由本工具的 date 自动下发为 tradeDate。⚠️ **吃 reportDate 的指标必须在这里显式传 reportDate**（一条 { indicatorCode, parameters: [{ paramKey: 'reportDate', paramValue: 'YYYY-MM-DD' }] }，date 参数仍要保留）：这类指标直接拒收 tradeDate 并报错，无论 date 取什么值都取不到数，所以这是个必须照做的改法、不是可选优化。少数指标两个日期都必填——补完 reportDate 若再报「缺少必填参数 tradeDate」，把 tradeDate 也写进同一条即可。**哪个指标吃哪个日期不按 code 前缀分**（同一前缀下两种都有），以 parameterList 为准。其他 required：N期统计→periodNum(如4)+reportDate、分红/预测→fiscalYear(年份)。区间类指标的区间终点就是注入的 tradeDate，sDate 只是起点。" +
+  "parameterList 标 required 的日期参数由本工具的 date 自动下发为 tradeDate。⚠️ **吃 reportDate 的指标必须在这里显式传 reportDate**（一条 { indicatorCode, parameters: [{ paramKey: 'reportDate', paramValue: 'YYYY-MM-DD' }] }，date 参数仍要保留）：这类指标直接拒收 tradeDate 并报错，无论 date 取什么值都取不到数，所以这是个必须照做的改法、不是可选优化。少数指标两个日期都必填（如 finc_pe、div_cash_yld）：给 reportDate 即可，本工具把 date 作为它的 tradeDate 补上重发（结果带 _note）；要用别的交易日就把 tradeDate 也写进同一条。**哪个指标吃哪个日期不按 code 前缀分**（同一前缀下两种都有），以 parameterList 为准。其他 required：N期统计→periodNum(如4)+reportDate、分红/预测→fiscalYear(年份)。区间类指标的区间终点就是注入的 tradeDate，sDate 只是起点。" +
   PARAM_GUIDANCE_COMMON
 
 /** 时序（区间，工具有 startDate/endDate）。 */
@@ -507,7 +558,7 @@ export const indicatorFamily: FamilyModule = {
         const securities = dedupeCodes(args.securityCodeList as string[])
         assertParamCodesBound(args.indicatorParamList as ParamGroup[] | undefined, indicators)
         assertCellBudget(indicators, securities, "gangtise_indicator_cross_section")
-        const body = {
+        const build = (also: string[]) => ({
           indicatorCodeList: indicators,
           // The 2026-08-01 revision renamed this field; the old securityCodeList is
           // a hard 100001 now.
@@ -515,12 +566,13 @@ export const indicatorFamily: FamilyModule = {
           currency: args.currency,
           scale: args.scale,
           // stripNoQueryDate：noQueryDate 是本地开关，不能进 body。
-          indicatorParamList: stripNoQueryDate(withQueryDate(args.indicatorParamList as ParamGroup[] | undefined, indicators, args.date as string)),
-        }
-        const data = await callMatrix(client, "indicator.cross-section", body)
-        if (isEmptyMatrix(data)) return contentResult(await buildToolContent({ list: [], total: 0 }, { emptyHint: EDE_EMPTY_HINT }))
+          indicatorParamList: stripNoQueryDate(withQueryDate(args.indicatorParamList as ParamGroup[] | undefined, indicators, args.date as string, also)),
+        })
+        const { data, note } = await callWithTradeDate(client, "indicator.cross-section", args.date as string, build, indicators,
+          (body, code) => hasTradeDate(body.indicatorParamList.find((group) => group.indicatorCode === code)?.parameters))
+        if (isEmptyMatrix(data)) return contentResult(await buildToolContent(withNote({ list: [], total: 0 }, note), { emptyHint: EDE_EMPTY_HINT }))
         const flattened = flattenCrossSection(data)
-        return contentResult(await buildToolContent(flagOmitted(flattened, droppedFromMatrix(data, securities, indicators))))
+        return contentResult(await buildToolContent(withNote(flagOmitted(flattened, droppedFromMatrix(data, securities, indicators)), note)))
       },
     }),
     defineTool({
@@ -666,7 +718,7 @@ export const indicatorFamily: FamilyModule = {
         // 1309.22 / 1308.55, each on its own date, stable across repeat runs. The
         // local block is gone; keeping it would refuse a working query.
         assertCellBudget(bindings.map((b) => b.indicatorCode), securities, "gangtise_indicator_screener", 1, MAX_SCREENER_CELLS)
-        const body = {
+        const build = (also: string[]) => ({
           universe: securities,
           expression,
           // Every variable gets a date unless it opts out with `noQueryDate` — the
@@ -685,16 +737,17 @@ export const indicatorFamily: FamilyModule = {
           indicatorList: bindings.map((binding) => {
             // 变量绑定不走 mergeParamGroups，同名 paramKey 的口径歧义要在这里各自拦一次。
             const parameters = dedupeParameters(binding.indicatorCode, binding.parameters ?? [])
-            return binding.noQueryDate || parameters.some((param) => DATE_PARAM_KEYS.has(param.paramKey))
-              ? { field: binding.field, indicatorCode: binding.indicatorCode, parameters }
-              : {
+            return takesQueryDate({ parameters, noQueryDate: binding.noQueryDate }, also.includes(binding.field))
+              ? {
                   field: binding.field,
                   indicatorCode: binding.indicatorCode,
                   parameters: [...parameters, { paramKey: "tradeDate", paramValue: args.date as string }],
                 }
+              : { field: binding.field, indicatorCode: binding.indicatorCode, parameters }
           }),
-        }
-        const data = await callMatrix(client, "indicator.screener", body)
+        })
+        const { data, note } = await callWithTradeDate(client, "indicator.screener", args.date as string, build, bindings.map((binding) => binding.field),
+          (body, field) => hasTradeDate(body.indicatorList.find((item) => item.field === field)?.parameters))
         // Gate on the STRUCTURAL emptiness, not on `securityCodeList.length`: the
         // latter counts a missing or non-array axis as "zero matched", which would
         // hand back a clean empty table for a malformed payload and bypass every
@@ -707,7 +760,7 @@ export const indicatorFamily: FamilyModule = {
         // is the ordinary "nothing matched the filter" outcome, so telling the caller
         // their codes were unrecognised would be wrong most of the time. The generic
         // registry hint (check suffixes / date range) fits this endpoint.
-        if (isEmptyMatrix(data)) return contentResult(await buildToolContent({ list: [], total: 0 }))
+        if (isEmptyMatrix(data)) return contentResult(await buildToolContent(withNote({ list: [], total: 0 }, note)))
         // Validate the bindings BEFORE flattening: the `field` each column came
         // back under is the only thing tying it to the filter it came from, and a
         // swapped one renders as a perfectly ordinary table.
@@ -715,7 +768,7 @@ export const indicatorFamily: FamilyModule = {
         const flattened = flattenCrossSection(data)
         return contentResult(
           await buildToolContent(
-            flagOmitted(flattened, {
+            withNote(flagOmitted(flattened, {
               // A security missing from a SCREENER result is one the filter
               // excluded — that is the point of screening, not a data gap. Only a
               // missing indicator COLUMN is a real omission here.
@@ -723,7 +776,7 @@ export const indicatorFamily: FamilyModule = {
               // Report the missing bindings by their indicator code, matching what
               // the caller asked for.
               indicators: missing.map((field) => bindings.find((binding) => binding.field === field)?.indicatorCode ?? field),
-            }),
+            }), note),
           ),
         )
       },

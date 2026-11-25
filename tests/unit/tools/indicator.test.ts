@@ -9,6 +9,7 @@ import {
   EDE_EMPTY_HINT,
   PARAM_NAME_HARD_FAIL,
   PARAM_VALUE_SILENT,
+  missingTradeDateOnly,
 } from "../../../src/tools/indicator.js"
 import { registerFamilies } from "../../../src/mcp/register.js"
 import type { GangtiseClient } from "../../../src/core/client.js"
@@ -1704,5 +1705,93 @@ describe("indicator descriptions point at the right parameters", () => {
     const date = ((await describedTools()).get("gangtise_indicator_screener")!.inputSchema.properties as Record<string, { description?: string }>).date
     expect(date.description).not.toContain("无条件下发")
     expect(date.description).toMatch(/noQueryDate 的变量不下发/)
+  })
+})
+
+// 少数指标 reportDate 与 tradeDate 都必填：只给 reportDate 时接口点名缺 tradeDate，本工具补上 date 重发一次。
+describe("indicators that need a tradeDate beside their reportDate", () => {
+  it("reads a refusal that says only that, by indicator or by screener variable", () => {
+    expect(missingTradeDateOnly("finc_pe: 必填参数 tradeDate 不能为空; div_cash_yld: 必填参数 tradeDate 不能为空", ["finc_pe", "div_cash_yld", "qte_close"])).toEqual(["finc_pe", "div_cash_yld"])
+    expect(missingTradeDateOnly("F1 (指标代码 finc_pe): 必填参数 tradeDate 不能为空; F2 (指标代码 finc_pe): 必填参数 tradeDate 不能为空", ["F1", "F2"])).toEqual(["F1", "F2"])
+  })
+
+  // 与错误提示同一种读法：新旧两种写法、全角标点、句末句号都认。
+  it("reads the refusal as the error hints do: either layout, full-width punctuation, a closing stop", () => {
+    for (const message of [
+      "指标 finc_pe 缺少必填参数 tradeDate",
+      "finc_pe：必填参数 tradeDate 不能为空",
+      "finc_pe: 必填参数 tradeDate 不能为空。",
+    ]) expect(missingTradeDateOnly(message, ["finc_pe"]), message).toEqual(["finc_pe"])
+    expect(missingTradeDateOnly("finc_pe: 必填参数 tradeDate 不能为空；div_cash_yld: 必填参数 tradeDate 不能为空", ["finc_pe", "div_cash_yld"])).toEqual(["finc_pe", "div_cash_yld"])
+  })
+
+  it("reads nothing into a refusal that says anything else", () => {
+    expect(missingTradeDateOnly("finc_pe: 必填参数 tradeDate 不能为空; is_op_rev: 不支持参数 tradeDate; 必填参数 reportDate 不能为空", ["finc_pe", "is_op_rev"])).toBeUndefined()
+    expect(missingTradeDateOnly("is_op_rev: 必填参数 reportDate 不能为空", ["is_op_rev"])).toBeUndefined()
+    expect(missingTradeDateOnly("finc_ps: 必填参数 tradeDate 不能为空", ["finc_pe"])).toBeUndefined()
+    expect(missingTradeDateOnly("finc_pe: 必填参数 tradeDate 不能为空，且 reportDate 超出范围", ["finc_pe"])).toBeUndefined()
+    expect(missingTradeDateOnly("finc_pe: 必填参数 tradeDate 不能为空; 服务繁忙", ["finc_pe"])).toBeUndefined()
+    expect(missingTradeDateOnly("指标 finc_pe 缺少必填参数 tradeDate 与 reportDate", ["finc_pe"])).toBeUndefined()
+    expect(missingTradeDateOnly("缺少必填参数", ["finc_pe"])).toBeUndefined()
+  })
+
+  const REPORT = { paramKey: "reportDate", paramValue: "2025-12-31" }
+  const refusal = (msg: string) => new ApiError(msg, "100001", 400)
+  const answer = matrix({ securityCodeList: ["600519.SH"], securityNameList: ["贵州茅台"], indicatorList: [meta("finc_pe", "市盈率")], values: [[21.5]] })
+
+  it("resends with date as the named indicator's tradeDate and says so in _note", async () => {
+    const client = makeMockClient()
+    ;(client.call as ReturnType<typeof vi.fn>).mockRejectedValueOnce(refusal("finc_pe: 必填参数 tradeDate 不能为空")).mockResolvedValueOnce(answer)
+    const mcp = await connect(client)
+    const result = await mcp.callTool({ name: "gangtise_indicator_cross_section", arguments: { indicatorCodeList: ["finc_pe"], securityCodeList: ["600519.SH"], date: "2026-11-24", indicatorParamList: [{ indicatorCode: "finc_pe", parameters: [REPORT] }] } })
+    expect(result.isError).toBeFalsy()
+    expect(fetchCalls(client)).toBe(2)
+    expect(bodyOf(client).indicatorParamList).toEqual([{ indicatorCode: "finc_pe", parameters: [REPORT, { paramKey: "tradeDate", paramValue: "2026-11-24" }] }])
+    const payload = payloadOf(result as { content: unknown })
+    expect(payload.list).toEqual([{ security: "600519.SH", name: "贵州茅台", 市盈率: 21.5 }])
+    expect(payload._note).toMatch(/finc_pe.*已把 date（2026-11-24）作为 tradeDate 补上重发/)
+  })
+
+  it("keeps the note on a screener that then matches nothing", async () => {
+    const client = makeMockClient()
+    ;(client.call as ReturnType<typeof vi.fn>).mockRejectedValueOnce(refusal("F1 (指标代码 finc_pe): 必填参数 tradeDate 不能为空")).mockResolvedValueOnce(emptyMatrix(false))
+    const mcp = await connect(client)
+    const result = await mcp.callTool({ name: "gangtise_indicator_screener", arguments: { indicatorList: [{ field: "F1", indicatorCode: "finc_pe", parameters: [REPORT] }], expression: "F1 > 1000", securityCodeList: ["600519.SH"], date: "2026-11-24" } })
+    expect(fetchCalls(client)).toBe(2)
+    const payload = payloadOf(result as { content: unknown })
+    expect(payload.list).toEqual([])
+    expect(payload._note).toMatch(/^F1 的 reportDate 与 tradeDate 都必填/)
+  })
+
+  it("resends a 100003 refusal that says the same", async () => {
+    const client = makeMockClient()
+    ;(client.call as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new ApiError("finc_pe: 必填参数 tradeDate 不能为空", "100003", 400)).mockResolvedValueOnce(answer)
+    const mcp = await connect(client)
+    const result = await mcp.callTool({ name: "gangtise_indicator_cross_section", arguments: { indicatorCodeList: ["finc_pe"], securityCodeList: ["600519.SH"], date: "2026-11-24", indicatorParamList: [{ indicatorCode: "finc_pe", parameters: [REPORT] }] } })
+    expect(result.isError).toBeFalsy()
+    expect(fetchCalls(client)).toBe(2)
+  })
+
+  it("does not resend a refusal with a code that is not a parameter complaint, nor one that already carried a tradeDate", async () => {
+    for (const [error, parameters] of [
+      [new ApiError("finc_pe: 必填参数 tradeDate 不能为空", "999999", 500), [REPORT]],
+      [refusal("finc_pe: 必填参数 tradeDate 不能为空"), [REPORT, { paramKey: "tradeDate", paramValue: "2026-11-20" }]],
+    ] as const) {
+      const client = makeMockClient()
+      ;(client.call as ReturnType<typeof vi.fn>).mockRejectedValueOnce(error)
+      const mcp = await connect(client)
+      const result = await mcp.callTool({ name: "gangtise_indicator_cross_section", arguments: { indicatorCodeList: ["finc_pe"], securityCodeList: ["600519.SH"], date: "2026-11-24", indicatorParamList: [{ indicatorCode: "finc_pe", parameters }] } })
+      expect(result.isError).toBe(true)
+      expect(fetchCalls(client)).toBe(1)
+    }
+  })
+
+  it("says in the parameter guidance that a reportDate alone is enough", async () => {
+    const mcp = await connect(makeMockClient())
+    const tools = new Map((await mcp.listTools()).tools.map((t) => [t.name, JSON.stringify(t.inputSchema)]))
+    for (const name of ["gangtise_indicator_cross_section", "gangtise_indicator_screener"]) {
+      expect(tools.get(name), name).toMatch(/两个日期都必填[^。]*给 reportDate 即可，本工具把 date 作为它的 tradeDate 补上重发/)
+    }
+    expect(tools.get("gangtise_indicator_time_series")).not.toContain("补上重发")
   })
 })

@@ -695,7 +695,7 @@ export const brokerOrgs: LookupItem[] = [
   },
   {
     "id": "C800103710",
-    "name": "National Bank of Canada"
+    "name": "加拿大国民银行"
   },
   {
     "id": "C800041170",

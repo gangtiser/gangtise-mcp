@@ -8,17 +8,20 @@ import { runWithConcurrency } from "./transport.js"
 /** `gangtise_fund_etf_pcf_components`：接口只返回成分名称、不返回代码，这里按名称补上 `componentCode`。
  *  接口自带代码的行原样保留，所以接口恢复返回代码后本模块即为空操作——届时连同调用点一起删掉。
  *
- *  名称先在全市场证券列表里找（每次调用取一次），找不到再走证券搜索；候选再用该行的 `close` 核对：
- *  这个价格就是该成分所在市场的某个近期收盘价（14 只 ETF 实测：A 股、港股、美股、A+H、债券、黄金）。
- *  先比实时行情的最新价与昨收，比不上的再按清单价格所属的那天（`listDates`，A 股与港股各自定日）比日 K
- *  收盘价。同一公司的 A 股与 H 股在 A+H ETF 里是同名两行，只能靠价格分开；候选跨市场时，实时价相符还要
- *  另一市场那只的近期收盘价都对不上才算数（清单价格落后于行情时，它的实时价可能碰巧等于该行）。价格把一行留在
- *  两个上市之间的（两个市场的价格都对得上、或另一市场那只排除不了），再用该行自己的 `pctChange` 定：哪只有一天的
- *  收盘价与涨跌幅都和该行相同就是哪只。排除另一只要有证据：它的日 K 要覆盖到相应那天、且收盘价对不上——实时行情
- *  在日 K 还没到的那天（按行情 tradeDate 判）印证了该行的价、或日 K 从更晚的日子才开始的，都不算排除，每一步都按这条。
- *  价格定不了时（除权除息当天、停牌、没有行情的债券），只有确知成分都在一个
- *  市场的 ETF 才按完全同名取该市场的那只（同市场多只取 ETF 自己的交易所）；成分跨市场、有一行可能在两个市场又没
- *  定下来、或有名称查询失败时，这些行都留 null。 */
+ *  名称先在全市场证券列表里找（每次调用取一次），找不到再走证券搜索；它可能对应的每只上市都拿该行的 `close`
+ *  核对：这个价格就是该成分自己那只上市的某个近期日收盘价（14 只 ETF 实测：A 股、港股、美股、A+H、债券、黄金）。
+ *  一条规则（`view`）说清一只上市在该行价格可能所属的那些天里已知什么：它的日 K 收盘价（按日期），日 K 之后是
+ *  实时行情的最新价与昨收。排除一只要有证据：近期每个交易日都看得到、且没有一天收在该行的 close；有一天看不到，
+ *  它就仍算可能。一处（`decide`）定一行，只定给一只上市：按价格——仍可能的上市只剩一只、且它在确定的某天收在
+ *  该行 close（A+H ETF 里同名的 A 股与 H 股两行据此分开）；否则按该行自己的 `pctChange`——只有一只上市在某天
+ *  同时对上收盘价与涨跌幅，其余仍可能的上市在该收盘价的日子涨跌幅都不同。证据分不开的两只上市是两只证券，该行
+ *  留 null。一行定下后它的上市不再是别的行的候选，其余行重新核对，直到没有变化；两行同时选中的那只谁也不给，
+ *  所以结果与行的顺序无关。
+ *  没有价格可选时（债券、行情不认识的上市），在确知成分都在一个市场的 ETF 里才按完全同名取：取仍可能的那一只
+ *  能核价的上市，或在不能核价的里取（同一只债券两个交易所都挂时取 ETF 自己的交易所）；能核价的上市仍可能的不止
+ *  一只时，名称谁也不选。还有一行可能在两个市场（同名 A / H 股，或港股名称以该行名称开头）没定下来、或有名称
+ *  查询失败时，ETF 的市场就不算确知；这时与成分跨市场的 ETF 一样，价格没定下的行都留 null。行情或日 K 请求
+ *  失败什么都看不到：它要查的那些上市仍算可能。 */
 
 interface Candidate { code: string; name: string; category: string; prefix: boolean }
 
@@ -28,8 +31,8 @@ export interface CodeLookup {
   search(keyword: string): Promise<unknown[]>
   /** 实时行情知道的代码 → 昨收、最新价与最新价所属交易日。 */
   quotes(codes: string[]): Promise<Map<string, Quote>>
-  /** 两个日期之间每只的日收盘价，旧在前，昨收已知时附当天涨跌幅（%）：给价格落后行情一天以上的清单、以及价格
-   *  留在两个上市之间的行用。没有它时这类行交给名称判。 */
+  /** 两个日期之间每只的日收盘价，旧在前，昨收已知时附当天涨跌幅（%）：给价格落后行情一天以上的清单、以及名称
+   *  对应不止一只上市的行用。没有它就没有日 K：哪只上市都不排除，名称对应几只上市的行留 null。 */
   closes?(codes: string[], startDate: string, endDate: string): Promise<Map<string, Bar[]>>
 }
 
@@ -58,14 +61,14 @@ const CHANGE_TOLERANCE = 0.005
 const QUOTABLE = /^(\d{6}\.(SH|SZ|BJ)|\d{5}\.HK|[A-Z][A-Z0-9.]*\.(O|N|A))$/
 const QUOTE_BATCH = 500
 /** 日 K 往回取这么多个自然日：清单价格落后于它的交易日（10-28 盘前发布的清单，A 股是 10-26 的收盘、
- *  港股是 10-27 的；当天晚些时候各前移一天），还要跨过长周末。 */
-const CLOSES_WINDOW_DAYS = 10
+ *  港股是 10-27 的；当天晚些时候各前移一天），长假之后窗口里也要有 `SESSIONS` 个交易日。 */
+const CLOSES_WINDOW_DAYS = 20
 /** 日 K 的取数区间（北京时间日期）。 */
 export function closesWindow(now = new Date()): { startDate: string; endDate: string } {
   return { startDate: today(new Date(now.getTime() - CLOSES_WINDOW_DAYS * 86_400_000)), endDate: today(now) }
 }
 /** 每次日 K 请求的代码数：窗口内交易日数 × 它不超过单次 10000 行。 */
-const CLOSES_BATCH = 1000
+const CLOSES_BATCH = 600
 
 const squash = (name: string) => name.replace(/\s+/g, "")
 /** 交易所简称不带搜索结果里的份额后缀（「小米集团-W」）。 */
@@ -87,8 +90,8 @@ function toCandidates(rows: unknown[]): Candidate[] {
 }
 
 /** 一个成分名称可能对应的上市：名称（或 ticker）完全一致的，以及只是以它开头的——交易所会截断长名称
- *  （「比亚迪电」），港股的名称也可能比 A 股长（「中国石油」/「中国石油股份」）。前缀匹配必须有价格印证
- *  （见 `byPrice` / `byName`）。模糊搜索漏掉的美股 ticker 带交易所后缀再搜一次。 */
+ *  （「比亚迪电」），港股的名称也可能比 A 股长（「中国石油」/「中国石油股份」）。前缀匹配从不单凭名称成立。
+ *  模糊搜索漏掉的美股 ticker 带交易所后缀再搜一次。 */
 async function candidatesFor(name: string, lookup: CodeLookup): Promise<Candidate[]> {
   const key = squash(name)
   const found = toCandidates(await lookup.search(key))
@@ -105,46 +108,16 @@ async function candidatesFor(name: string, lookup: CodeLookup): Promise<Candidat
   return [...exact, ...prefix.map((c) => ({ ...c, prefix: true }))]
 }
 
-/** 几个候选同样符合时。跨市场的并列（同名的 A 股与 H 股）只在成分都在一个市场的 ETF 里才裁：跨市场的
- *  ETF 里名称说明不了是哪个上市，该行留 null。同市场内的并列（两个交易所都挂的债券）取 ETF 自己的交易所。 */
+/** 在 ETF 那一个市场的完全同名上市里取：只有一只就是它；两个交易所都挂的同一只债券取 ETF 自己的交易所。 */
 function narrow(candidates: Candidate[], etf: EtfContext): string | null {
-  let left = candidates
-  if (new Set(left.map((c) => market(c.code))).size > 1) {
-    if (!etf.market) return null
-    left = left.filter((c) => market(c.code) === etf.market)
-  }
-  if (left.length > 1) {
-    const same = left.filter((c) => exchange(c.code) === etf.exchange)
-    if (same.length) left = same
-  }
+  const same = candidates.filter((c) => exchange(c.code) === etf.exchange)
+  const left = candidates.length > 1 && same.length ? same : candidates
   return left.length === 1 ? left[0].code : null
 }
 
-/** `market`：已知的一切都指向成分只在一个市场时才设；成分跨市场（A+H ETF）或尚不知道时为 undefined。 */
-interface EtfContext { market?: string; exchange: string; used: Set<string> }
-
-/** 价格与该行 close 相符的那些上市：先完全同名的，再前缀匹配的。没有相符的返回 undefined；同一层里有上市
- *  没价格可核（没有，或停牌报 0）而 `unchecked` 说它仍可能是这一行时也返回 undefined——旁边的相符说明不了什么。 */
-function byPrice(row: Row, candidates: Candidate[], prices: Map<string, number[]>, etf: EtfContext, unchecked: (c: Candidate) => boolean): Candidate[] | undefined {
-  const close = typeof row.close === "number" ? row.close : undefined
-  if (close === undefined) return undefined
-  const open = candidates.filter((c) => !etf.used.has(c.code))
-  for (const tier of [open.filter((c) => !c.prefix), open.filter((c) => c.prefix)]) {
-    if (tier.some((c) => !prices.get(c.code)?.some((p) => p > 0) && unchecked(c))) return undefined
-    const matched = tier.filter((c) => prices.get(c.code)?.some((p) => agrees(close, p)))
-    if (matched.length) return matched
-  }
-  return undefined
-}
-
-/** 没有价格相符：除权除息日的昨收偏离清单价、停牌报 0、债券没有行情、行情请求失败。成分都在一个市场的
- *  ETF 里，该市场完全同名的那只成立；跨市场的 ETF 里都不成立——行情对不上排除不了一个上市（除权、停牌），
- *  没有行情也认定不了，名称说明不了这一行是哪个上市。前缀匹配从不单凭名称成立。 */
-function byName(candidates: Candidate[], etf: EtfContext): string | null {
-  if (!etf.market) return null
-  const pool = candidates.filter((c) => !c.prefix && !etf.used.has(c.code) && market(c.code) === etf.market)
-  return pool.length ? narrow(pool, etf) : null
-}
+/** `market`：已知的一切都指向成分只在一个市场时才设；成分跨市场（A+H ETF）或尚不知道时为 undefined。
+ *  `contested`：最近一轮里被两行同时选中的上市（见 `placeAlone`）。 */
+interface EtfContext { market?: string; exchange: string; used: Set<string>; contested: Set<string> }
 
 /** 一批里有一个行情不认识的代码，整批报 120001：对半拆、一半一半地发，直到出错的代码单独成批，不给它
  *  价格。其他失败（限流、鉴权、故障）整批不给价格：拆开只会成倍地发请求。 */
@@ -161,40 +134,6 @@ async function splitting<T>(codes: string[], fetch: (codes: string[]) => Promise
 
 const inBatches = (codes: string[], size: number) => Array.from({ length: Math.ceil(codes.length / size) }, (_, i) => codes.slice(i * size, (i + 1) * size))
 
-/** 本 ETF 清单价格按市场各属哪个交易日——同一份清单的 A 股可以是一天的收盘、H 股是另一天的：在该市场里
- *  只有一个完全同名上市的行中，与那只收盘价相符最多的那天。至少两行同指一天、且没有别的日子并列，才定得下。 */
-function listDates(rows: Row[], candidates: Map<string, Candidate[]>, history: Map<string, Bar[]>): Map<string, string> {
-  const votes = new Map<string, Map<string, number>>()
-  for (const row of rows) {
-    if (typeof row.close !== "number") continue
-    const exact = (candidates.get(row.componentName as string) ?? []).filter((c) => !c.prefix)
-    if (exact.length !== 1) continue
-    const tally = votes.get(market(exact[0].code)) ?? new Map<string, number>()
-    for (const [date, close] of history.get(exact[0].code) ?? []) {
-      if (agrees(row.close, close)) tally.set(date, (tally.get(date) ?? 0) + 1)
-    }
-    votes.set(market(exact[0].code), tally)
-  }
-  const dates = new Map<string, string>()
-  for (const [where, tally] of votes) {
-    const ranked = [...tally].sort((a, b) => b[1] - a[1])
-    if (ranked.length && ranked[0][1] >= 2 && ranked[1]?.[1] !== ranked[0][1]) dates.set(where, ranked[0][0])
-  }
-  return dates
-}
-
-/** 每只在其市场那天的收盘价，那天没有（市场休市、停牌）就取之前最近的一个。 */
-function closesOn(dates: Map<string, string>, history: Map<string, Bar[]>): Map<string, number[]> {
-  const out = new Map<string, number[]>()
-  for (const [code, series] of history) {
-    const date = dates.get(market(code))
-    if (!date) continue
-    const last = series.filter(([d]) => d <= date).at(-1)
-    if (last) out.set(code, [last[1]])
-  }
-  return out
-}
-
 export interface FilledComponents {
   rows: Row[]
   /** 没补上代码的行：现金行、商品、没有把握的名称。 */
@@ -204,6 +143,16 @@ export interface FilledComponents {
 /** 接口自己带了代码的行；`null` 或空串不算。 */
 const carriesCode = (row: Row) => typeof row.componentCode === "string" && row.componentCode !== ""
 const needsCode = (row: Row) => !carriesCode(row) && typeof row.componentName === "string"
+
+/** 清单价格最多落后几个交易日：见过清单带着交易日前两个交易日的收盘价（2026-10-28 盘前）。排除一只上市要它的
+ *  日 K 至少有这么多个交易日、没有一天收在该行 close，且行情看得到其后的日子。 */
+const SESSIONS = 4
+
+/** 这只上市收在该行 close 的一天，知道的话附当天涨跌幅。`sure`：确定的某一天——清单日，或行情的两个交易日
+ *  之一——而不是它近期的任意一天。 */
+interface Fit { change?: number; sure: boolean }
+/** 一只上市对一行已知什么：它收在该行 close 的那些天，以及 `open`——该行价格可能所属、却什么都没覆盖到的一天。 */
+interface View { fits: Fit[]; open: boolean }
 
 export async function fillComponentCodes(rows: Row[], lookup: CodeLookup): Promise<FilledComponents> {
   const signal = currentSignal()
@@ -224,156 +173,180 @@ export async function fillComponentCodes(rows: Row[], lookup: CodeLookup): Promi
   const isQuotable = (c: Candidate) => ["stock", "dr"].includes(c.category) && QUOTABLE.test(c.code)
   const quotable = [...new Set([...candidates.values()].flat().filter(isQuotable).map((c) => c.code))]
   const quotes = new Map((await runWithConcurrency(inBatches(quotable, QUOTE_BATCH), PAGE_CONCURRENCY, (batch) => splitting(batch, (codes) => lookup.quotes(codes)), signal)).flatMap((quoted) => [...quoted]))
-  const prices = new Map([...quotes].map(([code, q]) => [code, [q.previous, q.latest].filter((p): p is number => typeof p === "number")]))
+  const candidatesOf = (row: Row) => candidates.get(row.componentName as string) ?? []
+  const marketsOf = (listed: Candidate[]) => new Set(listed.map((c) => market(c.code)))
 
   const codes = new Map<Row, string | null>()
-  // 价格把范围缩到不止一个市场的上市（两个市场的价格都对得上），或缩到一只、但另一市场那只排除不了的行：
-  // 先按该行的涨跌幅定，定不了的等知道本 ETF 只在一个市场时取该市场那只，否则留 null。
-  const tentative = new Map<Row, Candidate[]>()
   const etfs = new Map<unknown, { own: Row[]; etf: EtfContext }>()
   const place = (row: Row, code: string | null, etf: EtfContext) => {
     codes.set(row, code)
-    tentative.delete(row)
     if (code) etf.used.add(code)
   }
-  const candidatesOf = (row: Row) => candidates.get(row.componentName as string) ?? []
-  const marketsOf = (listed: Candidate[]) => new Set(listed.map((c) => market(c.code)))
-  const settle = (row: Row, matched: Candidate[], etf: EtfContext) => {
-    if (marketsOf(matched).size > 1) tentative.set(row, matched)
-    else place(row, narrow(matched, etf), etf)
+  /** 把各行选中的上市填上，但两行同时选中的那只谁也不给：它归谁不能取决于谁排在前面。返回有没有填上哪一行，
+   *  并把两行同时选中的上市记进 `etf.contested`。 */
+  const placeAlone = (picks: Map<Row, string>, etf: EtfContext) => {
+    const taken = [...picks.values()]
+    etf.contested = new Set(taken.filter((code) => taken.indexOf(code) !== taken.lastIndexOf(code)))
+    let placed = false
+    for (const [row, code] of picks) if (!etf.contested.has(code)) { place(row, code, etf); placed = true }
+    return placed
   }
-  // 实时价相符、但另一市场还有可报价的候选：清单价格落后于行情时，该行自己那只的实时价对不上，另一市场那只的
-  // 实时价却可能碰巧等于它。这类行先不定，取到日 K 再看另一市场的候选有没有近期收盘价也与它相符。
-  const unverified = new Map<Row, Candidate[]>()
-  // 先用价格过一遍全部行：价格印证了的上市先给它的行，同名的另一行（A+H 的另一类股份）不能凭名称抢走。
+  const quoteFits = (close: number, c: Candidate) => {
+    const q = quotes.get(c.code)
+    return [q?.previous, q?.latest].some((p) => typeof p === "number" && agrees(close, p))
+  }
+  // 名称只对应一只上市的行，实时行情对得上就定：没有别的要排除。指总共只有一只——另一只被别的行占用后才剩
+  // 一只的名称，和其余行一样核对（`decide`），否则结果取决于两行谁在前。
   for (const fundCode of new Set(pending.map((r) => r.fundCode))) {
     const own = pending.filter((r) => r.fundCode === fundCode)
-    const etf: EtfContext = { exchange: exchange(String(fundCode)), used: new Set() }
+    const etf: EtfContext = { exchange: exchange(String(fundCode)), used: new Set(), contested: new Set() }
     etfs.set(fundCode, { own, etf })
+    const picks = new Map<Row, string>()
     for (const row of own) {
-      // 行情没覆盖到的上市在下面按日 K 核对。
-      const matched = byPrice(row, candidatesOf(row), prices, etf, isQuotable)
-      if (!matched) continue
-      const held = marketsOf(matched)
-      if (held.size === 1 && candidatesOf(row).some((c) => isQuotable(c) && !held.has(market(c.code)))) unverified.set(row, matched)
-      else settle(row, matched, etf)
+      if (typeof row.close !== "number") continue
+      const listed = candidatesOf(row).filter(isQuotable)
+      if (listed.length === 1 && quoteFits(row.close, listed[0])) picks.set(row, listed[0].code)
     }
+    placeAlone(picks, etf)
   }
-  // 清单价格落后行情一天以上时这些行没定下来，停牌与除权除息日也是：按清单价格在各市场所属那天的日 K 核对。
-  const open = (own: Row[]) => own.filter((r) => !codes.has(r) && typeof r.close === "number" && candidatesOf(r).some(isQuotable))
-  const lagging = [...etfs.values()].filter(({ own }) => open(own).length)
+  const unsettled = (own: Row[]) => own.filter((r) => !codes.has(r) && typeof r.close === "number" && candidatesOf(r).some(isQuotable))
+  const waiting = [...etfs.values()].filter(({ own }) => unsettled(own).length)
   const history = new Map<string, Bar[]>()
-  if (lagging.length && lookup.closes) {
-    const wanted = [...new Set(lagging.flatMap(({ own }) => own.flatMap((r) => candidatesOf(r).filter(isQuotable).map((c) => c.code))))]
+  if (waiting.length && lookup.closes) {
+    const wanted = [...new Set(waiting.flatMap(({ own }) => own.flatMap((r) => candidatesOf(r).filter(isQuotable).map((c) => c.code))))]
     const { startDate, endDate } = closesWindow()
     for (const part of await runWithConcurrency(inBatches(wanted, CLOSES_BATCH), PAGE_CONCURRENCY, (batch) => splitting(batch, (codes) => lookup.closes!(codes, startDate, endDate)), signal)) {
       for (const [code, series] of part) history.set(code, series)
     }
   }
-  /** 行情说这只在某天收于 `close`，而日 K 可能还没覆盖那天：实时行情可能比日 K 快一天。按日期判、不按价格（收盘价会重复）。
-   *  日 K 到了行情那天才算覆盖了最新价；覆盖昨收要到行情那天、或它前一个工作日——两天之间没有工作日，那里的 K 线
-   *  就是上一交易日的（那个工作日若是假日则仍算没覆盖）。不带日期的行情两者都不算覆盖。 */
-  const unshown = (close: number, c: Candidate) => {
+
+  /** 唯一的一条规则：上市 `c` 在该行价格可能所属的那些天里已知什么；填一行、排除一只的每一步都问它。交易日按
+   *  日期分、不按价格（收盘价会重复）。日 K 覆盖它的第一天到最后一天的每个交易日：停牌的上市也每天有一根，收盘价
+   *  不变。日 K 之后，行情给出它自己那天（`latest`）与前一个交易日（`previous`）；日 K 到了行情那天且之前还有一根，
+   *  或日 K 止于行情那天的前一个工作日，才算日 K 看得到那个交易日。那个工作日若是假日就看不到：这只仍算可能。
+   *  `fits` 是它收在该行 close 的每个交易日；近期交易日都看得到（`covered`）且没有一天收在 close，才排除它。清单日
+   *  已知时只用来定哪一天是 `sure`：在近期别的交易日收在 close 的上市不因此排除——同一市场的各行不一定同一天，
+   *  从少数几行推出的日子也可能错。 */
+  const view = (row: Row, c: Candidate): View => {
+    const close = row.close as number
+    const bars = history.get(c.code) ?? []
     const { previous, latest, date } = quotes.get(c.code) ?? {}
     const onLatest = latest !== undefined && agrees(close, latest)
     const onPrevious = previous !== undefined && agrees(close, previous)
-    if (!onLatest && !onPrevious) return false
-    if (date === undefined) return true
-    const days = (history.get(c.code) ?? []).map(([day]) => day)
-    const reachesQuote = days.some((day) => day >= date)
-    const reachesPrevious = reachesQuote || days.includes(weekdayBefore(date))
-    return (onLatest && !reachesQuote) || (onPrevious && !reachesPrevious)
-  }
-  /** 各 ETF 在各市场的清单价格所属日（`listDates`，由其行能定出的）。 */
-  const marketDays = new Map([...etfs].map(([fundCode, { own }]) => [fundCode, listDates(own, candidates, history)]))
-  /** 这只的日 K 开始得太晚（或没有），说不出它在该行那天收于多少。该行那天取本 ETF 在这只所在市场定出的日子——
-   *  绝不用别的市场的：一份清单里各市场的价格属于不同的日子。那个市场没定出日子时，看该行的其他候选有没有
-   *  早于这只日 K 起点、收于该行 close 的一天。 */
-  const startsLate = (row: Row, c: Candidate) => {
-    const first = history.get(c.code)?.[0]?.[0]
-    if (first === undefined) return true
+    const last = bars.at(-1)?.[0]
+    const showsQuoteDay = date !== undefined && last !== undefined && last >= date
+    const previousBar = date === undefined ? undefined : bars.filter(([d]) => d < date).at(-1)
+    const showsPrevious = previousBar !== undefined && (showsQuoteDay || previousBar[0] >= weekdayBefore(date!))
+    // 收在 close 的那天只有行情看得到：行情自己那天，或它的前一个交易日。
+    const onQuoteDay = onLatest && !showsQuoteDay
+    const onDayBefore = onPrevious && !showsPrevious
+    // 近期交易日都看得到：日 K 够数，且行情接在日 K 之后。
+    const covered = date !== undefined && (showsQuoteDay || showsPrevious) && bars.length >= SESSIONS
     const day = marketDays.get(row.fundCode)?.get(market(c.code))
-    if (day !== undefined) return first > day
-    return candidatesOf(row).some((o) => o.code !== c.code && (history.get(o.code) ?? []).some(([d, price]) => d < first && agrees(row.close as number, price)))
-  }
-  /** 按「清单价格是某个近期收盘价」这一前提，该上市仍可能是这一行：近期收盘价有一个相符，或日 K 没覆盖到相应那天
-   *  （行情在日 K 还没到的那天印证了这个价、或日 K 起点晚于那天），或取不到它的日 K。排除一只的每一步（实时价
-   *  有争议、清单落后时按日核对、涨跌幅、ETF 的市场与随之的名称兜底）都问它，所以共用同一条「日 K 覆盖到哪天」的规则。 */
-  const mayBe = (row: Row, c: Candidate) => !history.has(c.code) || history.get(c.code)!.some(([, close]) => agrees(row.close as number, close)) || unshown(row.close as number, c) || startsLate(row, c)
-  for (const { own, etf } of etfs.values()) {
-    for (const row of own) {
-      const matched = unverified.get(row)
-      if (!matched) continue
-      // 另一市场的候选（未被别的行占用）仍可能就是这一行时，实时价的相符不作数，留给下面按清单所属那天核对，再不行
-      // 按本 ETF 的市场定。没有日 K 可查时（lookup 不带 closes）按实时价定。这只已被别的行占用时同样不定。
-      const held = marketsOf(matched)
-      const contested = lookup.closes !== undefined && candidatesOf(row).some((c) => isQuotable(c) && !etf.used.has(c.code) && !held.has(market(c.code)) && mayBe(row, c))
-      if (!contested && matched.every((c) => !etf.used.has(c.code))) settle(row, matched, etf)
-      else tentative.set(row, matched)
+    if (day === undefined) {
+      const quoted = new Set<string>()
+      if (onPrevious && showsPrevious) quoted.add(previousBar![0])
+      if (onLatest && showsQuoteDay) quoted.add(date!)
+      const fits: Fit[] = bars.filter(([, price]) => agrees(close, price)).map(([d, , change]) => ({ change, sure: quoted.has(d) }))
+      if (onQuoteDay || onDayBefore) fits.push({ sure: true })
+      return { fits, open: !covered }
     }
+    // 清单日的收盘价：那天的日 K（那天没有就取之前最后一根），日 K 没跨到那天时取行情看得到的——行情自己那天或
+    // 前一个交易日。清单日在第一根日 K 之前，就是一个看不到的交易日。
+    const bar = last !== undefined && bars[0][0] <= day && day <= last ? bars.filter(([d]) => d <= day).at(-1) : undefined
+    const fits: Fit[] = bars.filter(([, price]) => agrees(close, price)).map(([d, , change]) => (d === bar?.[0] ? { change: d === day ? change : undefined, sure: true } : { change, sure: false }))
+    if (onQuoteDay) fits.push({ sure: bar === undefined && date === day })
+    if (onDayBefore) fits.push({ sure: bar === undefined && date! > day && day >= weekdayBefore(date!) })
+    return { fits, open: !covered || day < bars[0][0] }
   }
-  if (lagging.length && lookup.closes) {
-    for (const { own, etf } of lagging) {
-      const dates = listDates(own, candidates, history)
-      const onDate = closesOn(dates, history)
-      for (const row of open(own)) {
-        // 在其市场那天没有收盘价的上市（那个市场没定下日子，或这只没有日 K），只有近期收盘价没一个相符才排除。
-        const unchecked = (c: Candidate) => isQuotable(c) && mayBe(row, c)
-        const matched = byPrice(row, candidatesOf(row), onDate, etf, unchecked)
-        if (matched) settle(row, matched, etf)
+  /** 各 ETF 在各市场的清单日——同一份清单的 A 股可以是一天的收盘、H 股是另一天的：名称只对应一只上市的行里，
+   *  收在那只收盘价上最多的那天——要超过这些行（对得上任何一天的）的一半、至少两行、没有并列。行情在日 K 看不到
+   *  的交易日印证了该行价格的，也给那个交易日投一票；得票最多的是这样一个交易日时，该市场定不出日子。 */
+  const marketDays = new Map<unknown, Map<string, string>>()
+  for (const [fundCode, { own }] of etfs) {
+    const tally = new Map<string, { voters: number; days: Map<string, number> }>()
+    for (const row of own) {
+      if (typeof row.close !== "number") continue
+      const all = candidatesOf(row)
+      if (all.length !== 1 || !isQuotable(all[0]) || !history.get(all[0].code)?.length) continue
+      const days = new Set(history.get(all[0].code)!.filter(([, price]) => agrees(row.close as number, price)).map(([d]) => d))
+      if (view(row, all[0]).fits.length > days.size) days.add("unseen")
+      if (!days.size) continue
+      const t = tally.get(market(all[0].code)) ?? { voters: 0, days: new Map<string, number>() }
+      t.voters++
+      for (const d of days) t.days.set(d, (t.days.get(d) ?? 0) + 1)
+      tally.set(market(all[0].code), t)
+    }
+    const out = new Map<string, string>()
+    for (const [where, { voters, days }] of tally) {
+      const ranked = [...days].sort((x, y) => y[1] - x[1])
+      if (ranked[0][0] !== "unseen" && ranked[0][1] >= 2 && ranked[0][1] * 2 > voters && ranked[1]?.[1] !== ranked[0][1]) out.set(where, ranked[0][0])
+    }
+    marketDays.set(fundCode, out)
+  }
+
+  /** 证据留给这一行的那只上市——留下一只时：分不开的两只是两只证券，该行留 null。 */
+  const decide = (row: Row, etf: EtfContext): string | undefined => {
+    const listed = candidatesOf(row).filter((c) => isQuotable(c) && !etf.used.has(c.code))
+    const views = new Map(listed.map((c) => [c, view(row, c)]))
+    const alive = listed.filter((c) => views.get(c)!.fits.length || views.get(c)!.open)
+    // 仍可能的上市只剩一只，且它在确定的某天收在该行 close。
+    if (alive.length === 1 && views.get(alive[0])!.fits.some((f) => f.sure)) return alive[0].code
+    // 否则看该行自己的涨跌幅：只有一只上市在某天同时对上收盘价与涨跌幅，其余仍可能的上市只在涨跌幅不同的日子
+    // 收在该 close。
+    if (typeof row.pctChange !== "number") return undefined
+    const change = row.pctChange
+    const strong = alive.filter((c) => views.get(c)!.fits.some((f) => f.change !== undefined && Math.abs(f.change - change) <= CHANGE_TOLERANCE))
+    const unknown = alive.some((c) => !strong.includes(c) && (views.get(c)!.open || views.get(c)!.fits.some((f) => f.change === undefined)))
+    return strong.length === 1 && !unknown ? strong[0].code : undefined
+  }
+  for (const { own, etf } of etfs.values()) {
+    // 有行被填上就再来一轮：一行占用的上市不再是别的行的候选。
+    for (let moved = true; moved;) {
+      const picks = new Map<Row, string>()
+      for (const row of own) {
+        const code = !codes.has(row) && typeof row.close === "number" && decide(row, etf)
+        if (code) picks.set(row, code)
       }
-    }
-  }
-  // 价格留在几个上市之间（跨市场并列、另一市场的收盘价排除不了）或还没定下的行：哪个市场的上市有一天的收盘价与
-  // 涨跌幅都和该行相同，且只有这一个市场，就是它。可能是它的上市都要有日 K 才排除得了，还要在该行收盘价那天
-  // 算得出涨跌幅；涨跌幅和哪只都对不上的（除权除息会挪动昨收），交给下面的规则。
-  for (const { own, etf } of etfs.values()) {
-    for (const row of own) {
-      const change = row.pctChange
-      if (codes.has(row) || typeof change !== "number" || typeof row.close !== "number") continue
-      const close = row.close
-      const pool = candidatesOf(row).filter((c) => !etf.used.has(c.code))
-      if (!pool.length || !pool.every((c) => isQuotable(c) && history.has(c.code))) continue
-      const atClose = (c: Candidate) => history.get(c.code)!.filter(([, price]) => agrees(close, price))
-      const hit = pool.filter((c) => atClose(c).some(([, , moved]) => moved !== undefined && Math.abs(moved - change) <= CHANGE_TOLERANCE))
-      if (!hit.length) continue
-      // 排除另一只靠它的日 K 显示了什么，不靠缺了什么：在该行收盘价那天算不出涨跌幅（没有昨收）、行情在日 K
-      // 可能还没覆盖的那天印证了该行收盘价（`unshown`）、或日 K 起点晚于另一只收于该行 close 的那天（`startsLate`），
-      // 这只都排除不了。
-      const unknown = pool.some((c) => !hit.includes(c) && (
-        atClose(c).some(([, , moved]) => moved === undefined)
-        || unshown(close, c)
-        || startsLate(row, c)
-      ))
-      if (unknown || marketsOf(hit).size > 1) continue
-      const code = narrow(hit, etf)
-      if (code) place(row, code, etf)
+      moved = placeAlone(picks, etf)
     }
   }
   for (const { own, etf } of etfs.values()) {
-    // 本 ETF 持有哪些市场，就已知的而言：价格印证过的上市，以及没定下的行里、剩下的候选都在一个市场的名称——价格
-    // 缩小了范围却没定下的行也算没定下，否则其余各行的市场正好替它做了跨市场核对拒绝的那个猜测。
-    // 没定下的行里有一个名称的候选跨市场（同名的 A 股与 H 股，或港股名称更长的同一公司：「中国石油」/「中国石油股份」），
-    // 或有名称查询失败，那一行在哪个市场就不知道，本 ETF 是否只在一个市场也就判断不了——不凭其余几行定整只 ETF 的市场，
-    // 按市场兜底一行都不做。已被别的行占用的、近期收盘价都对不上的候选不再算「可能是它」。前缀候选只在这里算，
-    // 填代码仍只认完全同名（byName）。
+    const priced = (r: Row, c: Candidate) => typeof r.close === "number" && isQuotable(c)
+    /** 还没代码的一行仍可能是哪些上市：没被占用、也没被排除的。 */
+    const could = (r: Row) => candidatesOf(r).filter((c) => {
+      if (etf.used.has(c.code)) return false
+      if (!priced(r, c)) return true
+      const v = view(r, c)
+      return v.fits.length > 0 || v.open
+    })
+    // 本 ETF 持有哪些市场，就已知的而言：已填上的上市，以及没代码的行里、剩下的上市都在一个市场的。有一行可能
+    // 在两个市场（同名的 A 股与 H 股，或港股名称以该行名称开头：「中国石油」/「中国石油股份」），或有名称查询
+    // 失败，本 ETF 的市场就不知道。前缀候选在这里算数；填代码仍只认完全同名。
     const markets = new Set([...etf.used].map(market))
     let undecided = own.some((r) => failed.has(r.componentName as string))
     for (const r of own) {
       if (codes.get(r)) continue
-      const held = marketsOf(candidatesOf(r).filter((c) => !etf.used.has(c.code) && (typeof r.close !== "number" || mayBe(r, c))))
+      const held = marketsOf(could(r))
       if (held.size > 1) undecided = true
       else if (held.size === 1) markets.add([...held][0])
     }
     if (!undecided && markets.size === 1) etf.market = [...markets][0]
-    // 先于名称：价格缩小到的上市先给它的行。
+    const picks = new Map<Row, string>()
+    // 价格留给两行同时选中的上市，不由第三行凭名称拿走。
+    const contested = etf.contested
     for (const row of own) {
-      const matched = tentative.get(row)
-      if (!matched) continue
-      const pool = matched.filter((c) => !etf.used.has(c.code) && market(c.code) === etf.market)
-      place(row, pool.length ? narrow(pool, etf) : null, etf)
+      if (codes.has(row)) continue
+      // 名称只在没有价格可选时做主：完全同名、在本 ETF 唯一的市场、没被排除。能核价的上市仍可能的只有一只时
+      // 只替它做主；不止一只——价格分不开它们——时谁也不选。
+      const open = could(row)
+      const pricedOpen = open.filter((c) => priced(row, c))
+      const pool = (pricedOpen.length === 1 ? pricedOpen : pricedOpen.length ? [] : open).filter((c) => !c.prefix && market(c.code) === etf.market)
+      const code = etf.market && pool.length && narrow(pool, etf)
+      if (code && !contested.has(code)) picks.set(row, code)
     }
-    for (const row of own) if (!codes.has(row)) place(row, byName(candidatesOf(row), etf), etf)
+    placeAlone(picks, etf)
+    for (const row of own) if (!codes.has(row)) place(row, null, etf)
   }
 
   const unresolved: FilledComponents["unresolved"] = []

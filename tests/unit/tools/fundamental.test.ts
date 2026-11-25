@@ -23,6 +23,28 @@ async function connect(client: GangtiseClient) {
 
 const base = { securityCode: "600519.SH", indicator: "peTtm" }
 
+// 分位、均值、中位数与 ±1 标准差都按所查区间统计（同一天换区间：8 天 50、1 年 98.6、5 年 34.2、只查当天 100）。
+// 描述不写明，短区间的结果会被当成历史分位。
+describe("gangtise_valuation_analysis description", () => {
+  it("says the percentile and band statistics are over the queried range, and that the tool is A-share only", async () => {
+    const mcp = await connect(makeClient())
+    const tool = (await mcp.listTools()).tools.find((t) => t.name === "gangtise_valuation_analysis")!
+    expect(tool.description).toMatch(/percentileRank \/ average \/ median \/ upper1Std \/ lower1Std 都按 startDate\.\.endDate 这段区间统计/)
+    expect(tool.description).toMatch(/只查一天恒为 100/)
+    expect(tool.description).toMatch(/只收 A 股股票/)
+    expect(tool.description).toMatch(/limit 只截返回的行，不改变统计区间/)
+  })
+})
+
+// 主营构成同一期里上级分类与下级分类并列（五粮液 2024 年报：酒类 = 五粮液产品 + 其他酒产品），整列求和会重复计算。
+describe("gangtise_main_business description", () => {
+  it("warns that totals and parent categories sit beside their children", async () => {
+    const mcp = await connect(makeClient())
+    const tool = (await mcp.listTools()).tools.find((t) => t.name === "gangtise_main_business")!
+    expect(tool.description).toMatch(/汇总项（总计、上级分类）与其下级分类的行，整列求和会重复计算/)
+  })
+})
+
 describe("gangtise_valuation_analysis schema", () => {
   it("rejects a non-positive limit without calling the API", async () => {
     const client = makeClient()
