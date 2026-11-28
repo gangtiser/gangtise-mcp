@@ -65,8 +65,9 @@ export function lateStartNote(result: unknown, start: unknown, field: string, se
     : undefined
 }
 
-/** 结果上的 `_note`：多条都有时用分号连起来。 */
+/** 结果上的 `_note`：多条都有时用分号连起来，前几条句末的句号先去掉（免得连成「。；」）。 */
 export function withNote(result: unknown, ...notes: Array<string | undefined>): unknown {
-  const note = notes.filter(Boolean).join("；")
+  const present = notes.filter((text): text is string => !!text)
+  const note = present.map((text, i) => (i < present.length - 1 ? text.replace(/。$/, "") : text)).join("；")
   return note && result && typeof result === "object" && !Array.isArray(result) ? { ...result, _note: note } : result
 }

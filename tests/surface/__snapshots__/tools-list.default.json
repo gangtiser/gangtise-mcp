@@ -2850,7 +2850,7 @@
   },
   {
     "name": "gangtise_income_statement",
-    "description": "查询利润表，按代码后缀自动选市场：A股（累计口径，quarterly=true 为单季）、港股（中国会计准则）、美股；支持期间、财年、报告类型筛选。做 point-in-time / 时点对齐时，announcementDate 是当前返回报表版本的公告日，earliestAnncDate 是接口记录的首次公告日。consolidated 也可能返回后来重述的数值，不能把它配上 earliestAnncDate 就当成首次披露值；category 仍可能是一季报/半年报告/三季报，不能靠它排除重述。应按返回版本的公告日控制数值可见时间；需要首次披露的原始数值时，请核对当时公告。单季口径的 companyType 返回的是未映射的数字码，要读公司类型请取累计口径报表的同名字段。",
+    "description": "查询利润表，按代码后缀自动选市场：A股（累计口径，quarterly=true 为单季）、港股（中国会计准则）、美股；支持期间、财年、报告类型筛选。做 point-in-time / 时点对齐时，announcementDate 是当前返回报表版本的公告日，earliestAnncDate 是接口记录的首次公告日（只有 A 股报表返回）。consolidated 也可能返回后来重述的数值，不能把它配上 earliestAnncDate 就当成首次披露值；category 仍可能是一季报/半年报告/三季报，不能靠它排除重述。应按返回版本的公告日控制数值可见时间；需要首次披露的原始数值时，请核对当时公告。单季口径的 companyType 返回的是未映射的数字码，要读公司类型请取累计口径报表的同名字段。",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2873,7 +2873,7 @@
             "type": "integer"
           },
           "minItems": 1,
-          "description": "财年列表，如 [2023, 2024]；美股按公司财年，港股按 endDate 所在自然年筛（返回行的 fiscalYear 同此），非 12 月财年的公司 period 标签按公司财年：3 月财年的「2027一季报」期末 2026-06-30，要用 fiscalYear 2026 取。period、fiscalYear 与日期区间都不传时返回全部历史报告期（美股须给 fiscalYear 或 startDate），只要最新一期传 period: ['latest']"
+          "description": "财年列表，如 [2023, 2024]；港股、美股按公司财年（即返回行的 fiscalYear），按期末所在自然年取改用日期区间。period、fiscalYear 与日期区间都不传时返回全部历史报告期，只要最新一期传 period: ['latest']"
         },
         "period": {
           "type": "array",
@@ -2935,7 +2935,7 @@
   },
   {
     "name": "gangtise_balance_sheet",
-    "description": "查询资产负债表，按代码后缀自动选市场：A股、港股（中国会计准则）、美股；支持期间、财年、报告类型筛选。做 point-in-time / 时点对齐时，announcementDate 是当前返回报表版本的公告日，earliestAnncDate 是接口记录的首次公告日。consolidated 也可能返回后来重述的数值，不能把它配上 earliestAnncDate 就当成首次披露值；category 仍可能是一季报/半年报告/三季报，不能靠它排除重述。应按返回版本的公告日控制数值可见时间；需要首次披露的原始数值时，请核对当时公告。",
+    "description": "查询资产负债表，按代码后缀自动选市场：A股、港股（中国会计准则）、美股；支持期间、财年、报告类型筛选。做 point-in-time / 时点对齐时，announcementDate 是当前返回报表版本的公告日，earliestAnncDate 是接口记录的首次公告日（只有 A 股报表返回）。consolidated 也可能返回后来重述的数值，不能把它配上 earliestAnncDate 就当成首次披露值；category 仍可能是一季报/半年报告/三季报，不能靠它排除重述。应按返回版本的公告日控制数值可见时间；需要首次披露的原始数值时，请核对当时公告。",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2958,7 +2958,7 @@
             "type": "integer"
           },
           "minItems": 1,
-          "description": "财年列表，如 [2023, 2024]；美股按公司财年，港股按 endDate 所在自然年筛（返回行的 fiscalYear 同此），非 12 月财年的公司 period 标签按公司财年：3 月财年的「2027一季报」期末 2026-06-30，要用 fiscalYear 2026 取。period、fiscalYear 与日期区间都不传时返回全部历史报告期（美股须给 fiscalYear 或 startDate），只要最新一期传 period: ['latest']"
+          "description": "财年列表，如 [2023, 2024]；港股、美股按公司财年（即返回行的 fiscalYear），按期末所在自然年取改用日期区间。period、fiscalYear 与日期区间都不传时返回全部历史报告期，只要最新一期传 period: ['latest']"
         },
         "period": {
           "type": "array",
@@ -3016,7 +3016,7 @@
   },
   {
     "name": "gangtise_cash_flow",
-    "description": "查询现金流量表，按代码后缀自动选市场：A股（累计口径，quarterly=true 为单季）、港股（中国会计准则）、美股；支持期间、财年、报告类型筛选。做 point-in-time / 时点对齐时，announcementDate 是当前返回报表版本的公告日，earliestAnncDate 是接口记录的首次公告日。consolidated 也可能返回后来重述的数值，不能把它配上 earliestAnncDate 就当成首次披露值；category 仍可能是一季报/半年报告/三季报，不能靠它排除重述。应按返回版本的公告日控制数值可见时间；需要首次披露的原始数值时，请核对当时公告。单季口径的 companyType 返回的是未映射的数字码，要读公司类型请取累计口径报表的同名字段。",
+    "description": "查询现金流量表，按代码后缀自动选市场：A股（累计口径，quarterly=true 为单季）、港股（中国会计准则）、美股；支持期间、财年、报告类型筛选。做 point-in-time / 时点对齐时，announcementDate 是当前返回报表版本的公告日，earliestAnncDate 是接口记录的首次公告日（只有 A 股报表返回）。consolidated 也可能返回后来重述的数值，不能把它配上 earliestAnncDate 就当成首次披露值；category 仍可能是一季报/半年报告/三季报，不能靠它排除重述。应按返回版本的公告日控制数值可见时间；需要首次披露的原始数值时，请核对当时公告。单季口径的 companyType 返回的是未映射的数字码，要读公司类型请取累计口径报表的同名字段。",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -3039,7 +3039,7 @@
             "type": "integer"
           },
           "minItems": 1,
-          "description": "财年列表，如 [2023, 2024]；美股按公司财年，港股按 endDate 所在自然年筛（返回行的 fiscalYear 同此），非 12 月财年的公司 period 标签按公司财年：3 月财年的「2027一季报」期末 2026-06-30，要用 fiscalYear 2026 取。period、fiscalYear 与日期区间都不传时返回全部历史报告期（美股须给 fiscalYear 或 startDate），只要最新一期传 period: ['latest']"
+          "description": "财年列表，如 [2023, 2024]；港股、美股按公司财年（即返回行的 fiscalYear），按期末所在自然年取改用日期区间。period、fiscalYear 与日期区间都不传时返回全部历史报告期，只要最新一期传 period: ['latest']"
         },
         "period": {
           "type": "array",
@@ -6679,7 +6679,7 @@
   },
   {
     "name": "gangtise_indicator_search",
-    "description": "按名称搜索证券级数据指标（EDE），返回 indicatorCode、scopeList（覆盖市场，附 usageRestriction）及 parameterList（含 required 必填标记与枚举）。取数前必先用本工具拿 code，并核对 indicatorName/description 语义、scopeList 是否覆盖目标市场、parameterList 取值——任一不符即回退专用工具。scopeList 是声明不是保证，usageRestriction（如「不支持指标时间序列接口」）也不是硬约束、按「口径可能不对」理解，均以实际抽查为准。基础行情（开高低收/成交量额/换手/涨跌幅）虽可搜到仍优先 realtime/day_kline，但**总市值 qte_mkt_cptl 这两个专用工具都没有、单票也走 EDE**（A/港/美股均已有数，默认「元」，用 scale 缩放）；同样只有 EDE 才有的还包括融资融券 mgn_*（两融余额/融资/融券及其区间变体，仅 A 股；区间变体的 changePeriod 是可选的）与所属行业 scr_indu_citic / scr_indu_sw / scr_indu_gics（体系写进编码，须传 industryLevel：0 全路径、1–4 各级；scr_indu 预计下线、已搜不到，恒生行业暂只能用 scr_indu 的 industryType=3）；⚠️ **个股资金流向 flow_*（仅 A 股）与 gangtise_fund_flow 返回的是同一套数（逐位相同）**，而后者还多给各档占比字段、并支持全市场——除非要与其他 EDE 指标同批取，否则一律用 gangtise_fund_flow（两边的计价档见各自标签）；单票完整报表、盈利预测(一致预期)仍用专用工具；A 股估值历史分位用 gangtise_valuation_analysis，港 / 美股用 EDE 的 finc_*_quantile（sDate 必填，覆盖市场逐个核 scopeList）；EDE 批量优先仅针对多证券取一批已实现财务/估值指标。基金代码（005827.OF / 510300.SH）也能查：基金分类 fund_cls*、复权净值 fund_adj_nav 与区间收益 / 风险指标（finc_* 收益率、波动率、最大回撤、夏普、Alpha，fund_* 卡玛、同类排名）适合多只基金横向比，单只基金的净值序列、持仓、规模用 gangtise_fund_*；同类排名 fund_ret_rank / fund_ret_rank_pct 的同类按 industryLevel 那一级的 fund_cls1_typ / fund_cls2_typ 分。宏观/行业数据（产量、价格、PMI 等）请改用 gangtise_edb_search，不要猜编码。",
+    "description": "按名称搜索证券级数据指标（EDE），返回 indicatorCode、scopeList（覆盖市场，附 usageRestriction）及 parameterList（含 required 必填标记与枚举）。取数前必先用本工具拿 code，并核对 indicatorName/description 语义、scopeList 是否覆盖目标市场、parameterList 取值——任一不符即回退专用工具。scopeList 是声明不是保证，usageRestriction（如「不支持指标时间序列接口」）也不是硬约束、按「口径可能不对」理解，均以实际抽查为准。基础行情（开高低收/成交量额/换手/涨跌幅）虽可搜到仍优先 realtime/day_kline，但**总市值 qte_mkt_cptl 这两个专用工具都没有、单票也走 EDE**（A/港/美股均已有数，默认「元」，用 scale 缩放）；同样只有 EDE 才有的还包括融资融券 mgn_*（两融余额/融资/融券及其区间变体，仅 A 股；区间变体的 changePeriod 是可选的）与所属行业 scr_indu_citic / scr_indu_sw / scr_indu_gics（体系写进编码，须传 industryLevel：0 全路径、1–4 各级；scr_indu 预计下线、已搜不到，恒生行业暂只能用 scr_indu 的 industryType=3）；⚠️ **个股资金流向 flow_*（仅 A 股）与 gangtise_fund_flow 返回的是同一套数（逐位相同）**，而后者还多给各档占比字段、并支持全市场——除非要与其他 EDE 指标同批取，否则一律用 gangtise_fund_flow（两边的计价档见各自标签）；单票完整报表、盈利预测(一致预期)仍用专用工具；A 股估值历史分位用 gangtise_valuation_analysis，港 / 美股用 EDE 的 finc_*_quantile（sDate 必填，覆盖市场逐个核 scopeList）；EDE 批量优先仅针对多证券取一批已实现财务/估值指标。基金代码（005827.OF / 510300.SH）也能查：基金分类 fund_cls*、复权净值 fund_adj_nav 与区间收益 / 风险指标（finc_* 收益率、波动率、最大回撤、夏普、Alpha，fund_* 卡玛、同类排名）适合多只基金横向比，单只基金的净值序列、持仓、规模用 gangtise_fund_*；同类排名 fund_ret_rank / fund_ret_rank_pct 的同类按 industryLevel 那一级的 fund_cls1_typ / fund_cls2_typ 分；fund_track_idx_code 对非指数基金也有值（取业绩比较基准里的第一个指数），判断是否指数基金用 gangtise_fund_basic_info 的 isIndexFund。⚠️ 财务附注 *_note：商誉减值准备 gdwl_imp_note 的正负号不统一（同一公司跨年也会翻号），加总、筛选前先取绝对值，个别公司的商誉账面价值 gdwl_bv_note 与「原值 − 减值」对不上；金融类公司管理费用附注的分项与合计不是同一口径，分项可能大于合计。宏观/行业数据（产量、价格、PMI 等）请改用 gangtise_edb_search，不要猜编码。",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -6801,7 +6801,7 @@
               },
               "noQueryDate": {
                 "type": "boolean",
-                "description": "声明**这个指标不接受查询日期**，本工具就不给它注入 date 下发的 tradeDate。用于 parameterList 里既没有 tradeDate 也没有 reportDate 的指标——公司属性 pty_*（主营业务/经营范围/注册地/法定代表人…）与证券属性 scr_*（上市市场/上市板块/上市日期/ISIN…）两族，以及 div_cash_paid_ratio（股利支付率）/ div_cash_yr（年度现金分红总额）/ pty_shr_reg（注册资本）、基金的 fund_main_code（主代码）/ fund_estb_dt（成立日期）。不加这个开关，它们一律报 100003「不支持参数 tradeDate」而取不到数。可与真实参数共存（如 { indicatorCode: 'div_cash_yr', parameters: [{ paramKey: 'fiscalYear', paramValue: '2025' }], noQueryDate: true }）。加了这个开关仍要补齐该指标 parameterList 里其余 required 键（如上例的 fiscalYear），缺了报 100001 并指名。⚠️ 只对**确实不要日期**的指标加：给要日期的指标加上会变成「缺少必填参数 tradeDate」——注意 scr_ 里的 scr_concept 反而**必填 tradeDate**，别给它加。哪些指标属于这一类以 gangtise_indicator_search 返回的 parameterList 为准，别按 code 前缀推断（同一前缀下两类都有）。"
+                "description": "声明**这个指标不接受查询日期**，本工具就不给它注入 date 下发的 tradeDate。用于 parameterList 里既没有 tradeDate 也没有 reportDate 的指标——公司属性 pty_*（主营业务/经营范围/注册地/法定代表人…）与证券属性 scr_*（上市市场/上市板块/上市日期/ISIN…）两族，以及 div_cash_paid_ratio（股利支付率）/ div_cash_yr（年度现金分红总额）/ pty_shr_reg（注册资本）、基金资料类的 fund_*（主代码 fund_main_code、成立日期 fund_estb_dt、是否 ETF fund_is_etf、业绩比较基准 fund_bmk、上市日期 fund_lst_dt 等；同族其余的净值、规模、分类、收益排名、定开与跟踪标的等要 tradeDate）。不加这个开关，它们一律报 100003「不支持参数 tradeDate」而取不到数。可与真实参数共存（如 { indicatorCode: 'div_cash_yr', parameters: [{ paramKey: 'fiscalYear', paramValue: '2025' }], noQueryDate: true }）。加了这个开关仍要补齐该指标 parameterList 里其余 required 键（如上例的 fiscalYear），缺了报 100001 并指名。⚠️ 只对**确实不要日期**的指标加：给要日期的指标加上会变成「缺少必填参数 tradeDate」——注意 scr_ 里的 scr_concept 反而**必填 tradeDate**，别给它加。哪些指标属于这一类以 gangtise_indicator_search 返回的 parameterList 为准，别按 code 前缀推断（同一前缀下两类都有）。"
               }
             },
             "required": [
@@ -7003,7 +7003,7 @@
               },
               "noQueryDate": {
                 "type": "boolean",
-                "description": "声明**这个指标不接受查询日期**，本工具就不给它注入 date 下发的 tradeDate。用于 parameterList 里既没有 tradeDate 也没有 reportDate 的指标——公司属性 pty_*（主营业务/经营范围/注册地/法定代表人…）与证券属性 scr_*（上市市场/上市板块/上市日期/ISIN…）两族，以及 div_cash_paid_ratio（股利支付率）/ div_cash_yr（年度现金分红总额）/ pty_shr_reg（注册资本）、基金的 fund_main_code（主代码）/ fund_estb_dt（成立日期）。不加这个开关，它们一律报 100003「不支持参数 tradeDate」而取不到数。可与真实参数共存（如 { indicatorCode: 'div_cash_yr', parameters: [{ paramKey: 'fiscalYear', paramValue: '2025' }], noQueryDate: true }）。加了这个开关仍要补齐该指标 parameterList 里其余 required 键（如上例的 fiscalYear），缺了报 100001 并指名。⚠️ 只对**确实不要日期**的指标加：给要日期的指标加上会变成「缺少必填参数 tradeDate」——注意 scr_ 里的 scr_concept 反而**必填 tradeDate**，别给它加。哪些指标属于这一类以 gangtise_indicator_search 返回的 parameterList 为准，别按 code 前缀推断（同一前缀下两类都有）。 📌 本端点上这个开关**同时解锁了按静态属性筛股**——`contains` / `notcontains` 正是 pty_*/scr_* 这类字符串指标最自然的用法（筛上市板块、筛经营范围、筛注册地）。"
+                "description": "声明**这个指标不接受查询日期**，本工具就不给它注入 date 下发的 tradeDate。用于 parameterList 里既没有 tradeDate 也没有 reportDate 的指标——公司属性 pty_*（主营业务/经营范围/注册地/法定代表人…）与证券属性 scr_*（上市市场/上市板块/上市日期/ISIN…）两族，以及 div_cash_paid_ratio（股利支付率）/ div_cash_yr（年度现金分红总额）/ pty_shr_reg（注册资本）、基金资料类的 fund_*（主代码 fund_main_code、成立日期 fund_estb_dt、是否 ETF fund_is_etf、业绩比较基准 fund_bmk、上市日期 fund_lst_dt 等；同族其余的净值、规模、分类、收益排名、定开与跟踪标的等要 tradeDate）。不加这个开关，它们一律报 100003「不支持参数 tradeDate」而取不到数。可与真实参数共存（如 { indicatorCode: 'div_cash_yr', parameters: [{ paramKey: 'fiscalYear', paramValue: '2025' }], noQueryDate: true }）。加了这个开关仍要补齐该指标 parameterList 里其余 required 键（如上例的 fiscalYear），缺了报 100001 并指名。⚠️ 只对**确实不要日期**的指标加：给要日期的指标加上会变成「缺少必填参数 tradeDate」——注意 scr_ 里的 scr_concept 反而**必填 tradeDate**，别给它加。哪些指标属于这一类以 gangtise_indicator_search 返回的 parameterList 为准，别按 code 前缀推断（同一前缀下两类都有）。 📌 本端点上这个开关**同时解锁了按静态属性筛股**——`contains` / `notcontains` 正是 pty_*/scr_* 这类字符串指标最自然的用法（筛上市板块、筛经营范围、筛注册地）。"
               }
             },
             "required": [

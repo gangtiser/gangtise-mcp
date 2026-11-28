@@ -6,14 +6,15 @@
 
 README 仅列最近 5 个版本的一行摘要，完整明细见 [CHANGELOG.md](CHANGELOG.md)：
 
+- **0.3.15 — 2026-11-28**：⚠️ 港股报表的 `fiscalYear` 按公司财年（与 `period` 标签的年份一致），此前用 `fiscalYear` N−1 取标签为 N 年季报的按标签年份重取。美股报表跨多个财年一次请求、各年都返回，不再要求给 `fiscalYear` 或 `startDate`。三大报表与 `gangtise_top_holders` 在 `latest` 取到所问年份或日期之外的报告期时带 `_note`（范围内一期都没有时另说明）；三大报表区间开头被账号可查范围截断时，经接口确认后带 `_note`；十大股东按日期查的空结果提示写明范围外返回空结果。指标搜索写明商誉减值准备正负号不统一等三条指标口径。工具数不变。
 - **0.3.14 — 2026-11-26**：⚠️ `gangtise_valuation_analysis` 的分位、均值、中位数与 ±1 标准差按所查区间统计（描述已写明）：要「近 5 年分位」把 `startDate` 设到 5 年前，短区间取到的不是历史分位。⚠️ ETF 申赎清单的 `componentCode` 只在唯一一只候选证券对得上时才填，分不开的行为 `null`（此前个别行可能补成同名或名称相近的另一只证券）。⚠️ `gangtise_realtime` 的停牌证券可能 `latestPrice` 与 `preClose` 都为 `0`，停牌前的价格用日 K 的 `close`。截面与条件选股里 `reportDate` 与 `tradeDate` 都必填的指标（`finc_pe`、`div_cash_yld` 等）只给 `reportDate` 即可，本工具把 `date` 作为 `tradeDate` 补上重发。工具数不变。
 - **0.3.13 — 2026-11-23**：新增环境变量 `GANGTISE_PROXY`，查询、下载与上传经 HTTP(S) 代理转发（只读这一个变量，不读 `HTTPS_PROXY` / `HTTP_PROXY`）；连不上接口或代理时报错末尾说明该查什么；登录失败最多试 3 次即报错。⚠️ 按篇计费、不自动重放的下载在取文件那一步失败时直接报错、不重发下载请求，稍后重试即可。工具与参数不变。
 - **0.3.12 — 2026-11-22**：⚠️ 三大报表与 `gangtise_top_holders` 不带 `period` / `fiscalYear` / 日期时返回全部历史报告期，只要最新一期传 `period: ['latest']`；年份、日期与 `period` 可单独传，只在 `period` 只给 `latest` 又带年份或日期时本地拒绝。⚠️ 美股报表须给 `fiscalYear` 或 `startDate`（或只取 `latest`），跨多个财年时逐年 / 分段请求后合并。港股 `fiscalYear` 按期末所在自然年筛，非 12 月财年公司的 `period` 标签按公司财年。多期结果按 `endDate` 降序；研报图表的 `startTime` / `endTime` 按发布时间筛选。工具数不变。
 - **0.3.11 — 2026-11-14**：⚠️ `gangtise_main_business` 的报告期筛选参数由 `periodList` 改名为 `period`（取值不变），用 `periodList` 取到的是全部报告期，按年报或中报汇总过的请重取。⚠️ A 股单季报表的第二、第四季度写 `interim` / `annual`，`q2` / `q4` 不再接受；返回行的 `period` 仍是报告名，「2025年报」那行是第四季度单季值、不是全年累计。⚠️ 三大报表与 `gangtise_top_holders` 只传 `latest` 以外的 `period`、不带 `fiscalYear` 或日期时本地拒绝（本接口这时返回最新一期）。工具数不变。
-- **0.3.10 — 2026-11-14**：新增海外观点 `gangtise_overseas_opinion_list`（0.1 积分/条）与海外观点账号搜索 `gangtise_overseas_account_search`（免费），`gangtise_opinion_detail` 新增 `kind=overseas`（10 积分/条），默认列出 127 个。⚠️ 三大报表与 `gangtise_top_holders` 传 `fiscalYear` / 日期时须同时传 `period`（否则本地拒绝）。ETF 成分补代码排除同名候选要有日 K 证据；文件解析拒收没有 `%PDF-` 文件头的文件，上传类工具拒收指向令牌缓存的路径。
 
 ### 历史里程碑
 
+- **0.3.10**：新增海外观点 `gangtise_overseas_opinion_list`（0.1 积分/条）与海外观点账号搜索 `gangtise_overseas_account_search`（免费），`gangtise_opinion_detail` 新增 `kind=overseas`（10 积分/条）。
 - **0.3.9**：新增 AI 专家情报 `gangtise_expert_intel`（20 积分/条）与指数成分股权重 `gangtise_index_weight`（免费）；`gangtise_download` 新增 `kind=wechat_message` 下载群消息文件。⚠️ `gangtise_wechat_message_list` 的文档类取值为 `document`。
 - **0.3.8**：新增个股笔记四个工具（删除须显式确认）与板块资金流向 `gangtise_sector_fund_flow`；股票池可查所属租户的池。⚠️ `gangtise_indicator_time_series` 不传 `calendarType` 时由服务端按指标定日期轴。
 - **0.3.5**：⚠️ `gangtise_opinion_list` 默认档的 `llmTagList` 换为投研标签，「业绩点评」「头部券商」「新财富团队」改用 `categoryList` / `brokerTagList`；`gangtise_securities_search` 新增 `bond` 类别。
@@ -281,7 +282,7 @@ Get-ChildItem "$env:LOCALAPPDATA\npm-cache\_npx" -Recurse -Filter package.json |
 
 拿到 `_partial` 后的常规处置：按标记指出的那几天 / 那几只 / 那几列缩小范围重拉，而不是把结果当完整集继续算。
 
-另有两个说明字段，不属于不完整标记：`_note`（如行情与债券行情 / 估值的最早一行晚于请求起点、没有返回任何行的代码、`fieldList` 自动补了哪几列）与 `_cost_probe`（为估算积分先取的那 1 条在正式拉取时又计了一次）。
+另有两个说明字段，不属于不完整标记：`_note`（如行情与债券行情 / 估值的最早一行晚于请求起点、没有返回任何行的代码、`fieldList` 自动补了哪几列，三大报表与十大股东的 `period` 含 `latest` 时取到所问范围之外的报告期、三大报表区间开头被账号可查范围截断）与 `_cost_probe`（为估算积分先取的那 1 条在正式拉取时又计了一次）。
 
 ## 大响应处理
 

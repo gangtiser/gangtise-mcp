@@ -1,0 +1,18 @@
+{
+  "isError": false,
+  "result": {
+    "total": 2,
+    "list": [
+      {
+        "reportPeriod": "2016-12-31",
+        "rank": 1,
+        "shareholderName": "中国贵州茅台酒厂(集团)有限责任公司"
+      },
+      {
+        "reportPeriod": "2017-12-31",
+        "rank": 1,
+        "shareholderName": "中国贵州茅台酒厂(集团)有限责任公司"
+      }
+    ]
+  }
+}

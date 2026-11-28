@@ -1171,9 +1171,7 @@ describe("closed-set params reject illegal values before calling upstream", () =
       for (const [key, spec] of Object.entries(props)) {
         const vals = enumValuesOf(spec)
         if (!vals || vals.length === 0) continue
-        // 三表与十大股东一律带年份：美股报表不给年份或日期时本地拒（A41）。
-        const withYear = props.fiscalYear ? { fiscalYear: [2025] } : {}
-        const base = { ...fillRequired(schema, key), ...COMPANIONS[tool.name]?.(key), ...withYear }
+        const base = { ...fillRequired(schema, key), ...COMPANIONS[tool.name]?.(key) }
         const wrap = (v: unknown) => (isArrayParam(spec) ? [v] : v)
 
         // ② 正向对照先跑：换成合法值必须打通。打不通说明这条用例的「红」另有原因
@@ -1213,7 +1211,7 @@ describe("closed-set params reject illegal values before calling upstream", () =
 
 // 🔴 按声明钉：schema 同时带 fiscalYear 与 period 的工具（三表统一入口、legacy 变体、十大股东），
 // period 只给 latest 配年份或日期区间必须零请求拒绝——本接口此时返回全部报告里的最新一期（A39）；
-// 只给年份、只给 period 照常放行（美股只给 period 另有 A41 的拒绝，单独钉）。
+// 只给年份、只给 period 照常放行。
 // 从 tools/list 枚举，新增报表工具自动纳入；只在少数工具上写示例，挡不住某个 legacy 变体漏了守卫。
 describe("period latest alone beside fiscalYear / dates is rejected (enumerated from tools/list)", () => {
   it("rejects latest-only with a year or a range before calling upstream, and lets a year alone go out", async () => {

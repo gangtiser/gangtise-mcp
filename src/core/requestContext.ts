@@ -7,8 +7,10 @@ import { AsyncLocalStorage } from "node:async_hooks"
  *  （直接调用 client 的测试、脚本）时返回 undefined，行为与不带信号时完全一致。 */
 const store = new AsyncLocalStorage<{ signal?: AbortSignal; costConfirmed?: boolean }>()
 
+/** 换掉取消信号、保留上下文里的其他字段（如 costConfirmed）：入口处外层没有上下文，嵌套使用（异步轮询的截止、报表单查的时限）
+ *  只是在原信号上叠一个截止时间。 */
 export function runWithRequestContext<T>(signal: AbortSignal | undefined, fn: () => Promise<T>): Promise<T> {
-  return store.run({ signal }, fn)
+  return store.run({ ...store.getStore(), signal }, fn)
 }
 
 export function currentSignal(): AbortSignal | undefined {

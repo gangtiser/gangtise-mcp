@@ -1,0 +1,33 @@
+{
+  "isError": false,
+  "result": {
+    "total": 4,
+    "_note": "startDate 2014-01-01 早于账号可查的历史范围：范围之前的报告期本接口不返回、不报错，返回的只是可查范围内的部分（最早一期 2016-03-26）。",
+    "list": [
+      {
+        "securityCode": "AAPL.O",
+        "endDate": "20161231",
+        "fiscalYear": "2017",
+        "period": "一季报"
+      },
+      {
+        "securityCode": "AAPL.O",
+        "endDate": "20160924",
+        "fiscalYear": "2016",
+        "period": "年度报告"
+      },
+      {
+        "securityCode": "AAPL.O",
+        "endDate": "20160625",
+        "fiscalYear": "2016",
+        "period": "三季报"
+      },
+      {
+        "securityCode": "AAPL.O",
+        "endDate": "20160326",
+        "fiscalYear": "2016",
+        "period": "半年报告"
+      }
+    ]
+  }
+}

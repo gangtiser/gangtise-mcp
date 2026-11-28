@@ -4,11 +4,12 @@ import { buildToolContent } from "../core/present.js"
 import { contentResult } from "../mcp/handler.js"
 import { normalizeRows } from "../core/normalize.js"
 import { markPartial } from "../core/partial.js"
+import { withNote } from "../core/lateStart.js"
+import { currentSignal, runWithRequestContext } from "../core/requestContext.js"
 import { dateString, today } from "../core/dateContext.js"
 import { estimateTradingDays } from "../core/batch.js"
 import { ENDPOINTS, perRowBilling } from "../core/endpoints.js"
 import { assertWithinCostLimit } from "../core/paginate.js"
-import { CALL_LIMITS } from "../core/scheduler.js"
 import { nonEmptyString, uniqueFieldList, enumList } from "../mcp/schemas.js"
 import { parseSecurityCode } from "../core/securityCode.js"
 import { ApiError, ValidationError } from "../core/errors.js"
@@ -31,13 +32,10 @@ const dateRange = {
 const fiscalYearList = (desc: string) => enumList(z.number().int()).optional().describe(desc)
 const ALL_HISTORY = "period、fiscalYear 与日期区间都不传时返回全部历史报告期"
 const LATEST_ONLY = "只要最新一期传 period: ['latest']"
-// 港股的 fiscalYear 按期末所在自然年（返回行的 fiscalYear 同此），period 标签却按公司财年：非 12 月财年的公司按标签年份取会错期。
-const HK_FISCAL_YEAR = "港股按 endDate 所在自然年筛（返回行的 fiscalYear 同此），非 12 月财年的公司 period 标签按公司财年：3 月财年的「2027一季报」期末 2026-06-30，要用 fiscalYear 2026 取"
 const fiscalYear = fiscalYearList(`财年列表，如 [2023, 2024]。${ALL_HISTORY}，${LATEST_ONLY}`)
-const fiscalYearHk = fiscalYearList(`财年列表，如 [2023, 2024]；${HK_FISCAL_YEAR}。${ALL_HISTORY}，${LATEST_ONLY}`)
-// 美股不给年份与日期时本地拒（A41）。
-const fiscalYearWithUs = fiscalYearList(`财年列表，如 [2023, 2024]。${ALL_HISTORY}（美股须给 fiscalYear 或 startDate），${LATEST_ONLY}`)
-const fiscalYearStatement = fiscalYearList(`财年列表，如 [2023, 2024]；美股按公司财年，${HK_FISCAL_YEAR}。${ALL_HISTORY}（美股须给 fiscalYear 或 startDate），${LATEST_ONLY}`)
+const COMPANY_FISCAL_YEAR = "按公司财年（即返回行的 fiscalYear），按期末所在自然年取改用日期区间"
+const fiscalYearStatement = fiscalYearList(`财年列表，如 [2023, 2024]；港股、美股${COMPANY_FISCAL_YEAR}。${ALL_HISTORY}，${LATEST_ONLY}`)
+const fiscalYearOverseas = fiscalYearList(`财年列表，如 [2023, 2024]，${COMPANY_FISCAL_YEAR}。${ALL_HISTORY}，${LATEST_ONLY}`)
 const fieldList = uniqueFieldList("指定返回字段")
 // valuation-analysis 全表就 7 列，且**没有 securityCode**；tradeDate 总是自动前置到每一行。
 // 2026-10-17 复核：不存在的字段名（含 securityCode）整条报 100005 并点名，显式 tradeDate 与重复字段
@@ -99,7 +97,7 @@ function flagValuationRange(normalized: unknown, limit: number, startDate: unkno
 // （拿一个晚得多的日期去回溯，等于把未来信息当成当时可见）。这不是普遍现象、是个股级的，
 // 所以只能靠字段选择规避，没法靠「换只票验一下」发现——茅台两个字段一致，用它当探针
 // 什么也测不出来。
-const PIT_NOTE = "做 point-in-time / 时点对齐时，announcementDate 是当前返回报表版本的公告日，earliestAnncDate 是接口记录的首次公告日。consolidated 也可能返回后来重述的数值，不能把它配上 earliestAnncDate 就当成首次披露值；category 仍可能是一季报/半年报告/三季报，不能靠它排除重述。应按返回版本的公告日控制数值可见时间；需要首次披露的原始数值时，请核对当时公告。"
+const PIT_NOTE = "做 point-in-time / 时点对齐时，announcementDate 是当前返回报表版本的公告日，earliestAnncDate 是接口记录的首次公告日（只有 A 股报表返回）。consolidated 也可能返回后来重述的数值，不能把它配上 earliestAnncDate 就当成首次披露值；category 仍可能是一季报/半年报告/三季报，不能靠它排除重述。应按返回版本的公告日控制数值可见时间；需要首次披露的原始数值时，请核对当时公告。"
 
 /** 三表（含 legacy 各变体）与十大股东：period 只给 latest 时返回全部报告里的最新一期，fiscalYear 与日期区间都不起作用。
  *  按年份或区间查却拿到最新一期，看起来像正常结果，所以在本地拒（A39，撤除条件见 bug/server-open.md）。 */
@@ -112,84 +110,157 @@ function periodRangeProblem(body: Record<string, unknown>): string | undefined {
   return undefined
 }
 
-const US_STATEMENTS = new Set(["fundamental.income-statement-us", "fundamental.balance-sheet-us", "fundamental.cash-flow-us"])
-/** 同一种报告期的两个期末至少隔 364 天（52 周财年），不超过 363 天的窗口里每种至多一期。 */
-const US_WINDOW_DAYS = 363
-const addDays = (date: string, days: number) => new Date(Date.parse(`${date}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10)
+type Row = Record<string, unknown>
+type DateOf = (row: Row) => string | undefined
+type YearOf = (row: Row) => string | undefined
+const isRow = (row: unknown): row is Row => !!row && typeof row === "object"
+/** 归一后的行：响应只有 fieldList / list、没有 total 等元数据时 normalizeRows 交出的是裸数组；HTTP 层按合法空结果放行的
+ *  `{total: 0}`（list 缺失或为 null）当作零行。 */
+const listOf = (data: unknown): unknown[] | undefined => {
+  if (Array.isArray(data)) return data
+  const rec = data as { list?: unknown; total?: unknown } | null
+  if (Array.isArray(rec?.list)) return rec.list
+  return rec?.total === 0 && (rec.list === undefined || rec.list === null) ? [] : undefined
+}
+/** `yyyyMMdd`（三表的 endDate）或 `yyyy-MM-dd`（十大股东的 reportPeriod）统一成 `yyyy-MM-dd`。 */
+function isoDay(value: unknown): string | undefined {
+  const text = String(value ?? "")
+  return /^\d{8}$/.test(text) ? `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6, 8)}` : /^\d{4}-\d{2}-\d{2}/.test(text) ? text.slice(0, 10) : undefined
+}
 
-/** 美股三表跨多个财年时，本接口每种报告期 × 报表类型只返回其中一年（不一定是最新那年）、不报错（A41）。
- *  所以按 fiscalYear 逐年、按日期区间分窗口各发一次；无从分段的（不给年份与日期、只给 endDate）本地拒。 */
-function usStatementBodies(body: Record<string, unknown>): Record<string, unknown>[] {
-  const periods = Array.isArray(body.period) ? body.period.map(String) : []
-  if (periods.length > 0 && periods.every((p) => p === "latest")) return [body]
+/** period 含 latest 时那一期不受 fiscalYear 与日期约束：与其他取值同传时 A 股报表与十大股东另加上最新一期，所问年份整段早于
+ *  账号可查范围时三表各市场都只回最新一期（A39 余下的形态；只给 latest 的已由 periodRangeProblem 拒掉）。结果里有所问范围之外的
+ *  报告期就写 `_note`；每一行都判得出、又都在范围外时说明范围内一期也没有、去掉 latest 也取不到。latest 守住年份与日期后
+ *  自然不再出现。没有日期 / 年份的行不判（不拿期末的自然年推非 12 月财年），有这种行时也不说范围内一期都没有。十大股东按年份取
+ *  不受账号可查下界约束（A43），`yearsWindowed: false` 时不把范围内没有归到账号范围上。 */
+function latestOutsideNote(rows: Row[], body: Row, dateOf: DateOf, yearOf: YearOf, yearsWindowed = true): string | undefined {
+  if (!(Array.isArray(body.period) && body.period.includes("latest"))) return undefined
   const start = body.startDate as string | undefined
-  if (start !== undefined || body.endDate !== undefined) {
-    if (start === undefined) throw new ValidationError("美股报表按日期取须给 startDate（endDate 缺省到今天），或改给 fiscalYear（可多个）：跨多个财年时本接口每种报告期只返回其中一年，本工具按区间分段请求，只给 endDate 无从分段。")
-    const last = (body.endDate as string | undefined) ?? today()
-    if (start > last || addDays(start, US_WINDOW_DAYS) >= last) return [body]
-    const bodies: Record<string, unknown>[] = []
-    for (let from = start; from <= last; from = addDays(from, US_WINDOW_DAYS + 1)) {
-      const to = addDays(from, US_WINDOW_DAYS)
-      bodies.push({ ...body, startDate: from, endDate: to < last ? to : last })
+  const end = body.endDate as string | undefined
+  const years = Array.isArray(body.fiscalYear) ? body.fiscalYear.map(String) : []
+  const dated = Boolean(start || end)
+  if (!dated && years.length === 0) return undefined
+  const outsideRows = rows.filter((row) => {
+    const day = dateOf(row)
+    const year = yearOf(row)
+    return day !== undefined && (dated ? (!!start && day < start) || (!!end && day > end) : year !== undefined && !years.includes(year))
+  })
+  if (outsideRows.length === 0) return undefined
+  const outside = [...new Set(outsideRows.map(dateOf))].sort()
+  const asked = dated ? "日期区间" : " fiscalYear "
+  const head = `期末 ${outside.join("、")} 的报告期不在所问的${asked}内：period 里的 latest 不受年份与日期约束，取的是全部报告里的最新一期`
+  return outsideRows.length === rows.length
+    ? `${head}；所问${asked}内一期也没有返回，可能是公司那时还没有报告${dated || yearsWindowed ? "，也可能是整段早于账号可查的历史范围" : ""}，去掉 latest 也取不到。`
+    : `${head}。只要所问范围就去掉 latest。`
+}
+
+/** 这一天（或这个财年）是否早于账号可查的下界：报表起止同为那一天、或只给那个 fiscalYear 单查，早于下界时本接口报 110003，
+ *  界内不报错，与证券、period、口径无关。别的错误、超时都不下结论。 */
+async function beforeWindow(client: GangtiseClient, endpointKey: string, body: Row, probe: Row): Promise<boolean> {
+  try {
+    await client.call(endpointKey, { securityCode: body.securityCode, ...probe })
+    return false
+  } catch (error) {
+    return error instanceof ApiError && error.code === "110003"
+  }
+}
+
+/** 单查的截止时间，从工具调用开始算：主请求本身可能连重试拖到客户端的等待上限（约 60 s）附近，从单查开始算会超。 */
+const PROBE_BUDGET_MS = 5_000
+
+/** 一轮单查：到 `deadline`、或 `stop` 中止（主请求失败）时不再等，返回 `fallback`（不下结论），主结果照常交回。到点直接交回、
+ *  不靠中止——单查碰上 token 失效时等的是共享登录，中止信号停不下那段等待，登录照常留给别的请求；同时中止在飞的单查请求与退避。 */
+function probeUntil<T>(deadline: number, stop: AbortSignal, fallback: T, fn: () => Promise<T>): Promise<T> {
+  const ms = deadline - Date.now()
+  const parent = currentSignal()
+  if (ms <= 0 || stop.aborted || parent?.aborted) return Promise.resolve(fallback)
+  const signal = AbortSignal.any([AbortSignal.timeout(ms), stop, ...(parent ? [parent] : [])])
+  const work = runWithRequestContext(signal, fn).catch(() => fallback)
+  const expired = new Promise<T>((resolve) => signal.addEventListener("abort", () => resolve(fallback), { once: true }))
+  return Promise.race([work, expired])
+}
+
+/** 按日期或年份取时，早于账号可查下界的报告期不返回、不报错（三表整段在外才报 110003），看着像那几年没有报告（A43）。从返回行
+ *  判不出是被截断还是公司那几期本来没有，所以问服务端，报 110003 才写 `_note`，且只说接口确认了的：起点早于可查范围、返回的只是
+ *  范围内的部分。范围内仍没有的是公司那时没有报告，提示不把它算成截断；有判不了日期 / 年份的行时，从行里推的那半句不说。
+ *  单查都在工具调用开始后 5 s 内（`probeUntil`），过了就不下结论；主请求失败时中止单查。
+ *  - 按日期：与主请求同时单查 startDate 那一天（`startCut`）。起止同一天时主请求成功就说明那天可查（日期整段在外时带 latest 也报
+ *    110003，A39），不用问；只给 endDate 不判。
+ *  - 按年份：比最早返回年份更早的那几年（一年都没返回时是全部）按从早到晚二分单查——下界是日期，早于它的年份排在前面。不带 latest
+ *    时主请求成功就说明所问最晚的那年可查，不用问；带 latest 时整段在外也只回最新一期、不报错（A39），照样要问。
+ *  十大股东单日查询界内界外都是 0 行，问不出下界，不判。与 CLI 的 noteCutAtWindow 同一思路。 */
+function startCutNote(rows: Row[], body: Row, cut: boolean): string | undefined {
+  if (!cut) return undefined
+  const start = body.startDate as string
+  const end = body.endDate as string | undefined
+  const days = rows.map(statementDate)
+  const first = days.filter((day): day is string => day !== undefined && day >= start && (!end || day <= end)).sort()[0]
+  const tail = days.includes(undefined) ? "" : first ? `（最早一期 ${first}）` : "，区间内一期也没有返回"
+  return `startDate ${start} 早于账号可查的历史范围：范围之前的报告期本接口不返回、不报错，返回的只是可查范围内的部分${tail}。`
+}
+
+async function yearsCutNote(client: GangtiseClient, endpointKey: string, body: Row, rows: Row[], deadline: number, stop: AbortSignal): Promise<string | undefined> {
+  if (body.startDate !== undefined || body.endDate !== undefined) return undefined
+  const requested = Array.isArray(body.period) ? body.period.map(String) : []
+  if (requested.length > 0 && requested.every((p) => p === "latest")) return undefined
+  const years = [...new Set(Array.isArray(body.fiscalYear) ? body.fiscalYear.map(Number) : [])].sort((a, b) => a - b)
+  if (years.length === 0) return undefined
+  const rowYears = rows.map(statementYear)
+  const returned = rowYears.filter((year) => year !== undefined && years.includes(Number(year))).map(Number)
+  const earliest = returned.length > 0 ? Math.min(...returned) : undefined
+  const below = earliest ?? (requested.includes("latest") ? Infinity : years[years.length - 1])
+  const missing = years.filter((year) => year < below)
+  if (missing.length === 0) return undefined
+  const cut = await probeUntil(deadline, stop, 0, async () => {
+    let lo = 0
+    for (let hi = missing.length; lo < hi; ) {
+      const mid = (lo + hi) >> 1
+      if (await beforeWindow(client, endpointKey, body, { fiscalYear: [missing[mid]] })) lo = mid + 1
+      else hi = mid
     }
-    return capped(bodies)
-  }
-  // 去重：每个年份各发一次，重复的年份会让同一期在合并结果里出现两次；升序让跳过段在 _note 里并得完整。
-  const years = Array.isArray(body.fiscalYear) ? [...new Set(body.fiscalYear.map(Number))].sort((a, b) => a - b) : []
-  if (years.length === 0) throw new ValidationError("美股报表须给 fiscalYear（可多个）或 startDate / endDate，只要最新一期用 period: ['latest']：不给年份与日期时本接口每种报告期只返回其中某一年（不一定是最新那年），本工具无从逐年请求。")
-  return capped(years.map((y) => ({ ...body, fiscalYear: [y] })))
+    return lo
+  })
+  if (cut === 0) return undefined
+  const tail = earliest !== undefined && !rowYears.includes(undefined) ? `；返回的最早是 ${earliest}` : ""
+  return `fiscalYear ${missing.slice(0, cut).join("、")} 早于账号可查的历史范围，本接口对范围外的年份不返回、不报错${tail}。`
 }
 
-function capped(bodies: Record<string, unknown>[]): Record<string, unknown>[] {
-  if (bodies.length > CALL_LIMITS.maxShards) throw new ValidationError(`美股报表本次要分 ${bodies.length} 段请求（逐个财年、或按日期每段约一年），超过 ${CALL_LIMITS.maxShards} 段：请缩短日期区间或少给几个 fiscalYear。`)
-  return bodies
-}
-
-const endDateOf = (row: unknown) => String((row as Record<string, unknown> | null)?.endDate ?? "")
-const rowsOf = (data: unknown): unknown[] => {
-  const list = (normalizeRows(data) as { list?: unknown } | null)?.list
-  return Array.isArray(list) ? list : []
-}
+const endDateOf = (row: unknown) => String((row as Row | null)?.endDate ?? "")
 const byEndDateDesc = (a: unknown, b: unknown) => (endDateOf(a) < endDateOf(b) ? 1 : endDateOf(a) > endDateOf(b) ? -1 : 0)
-/** period=latest 时港股、美股的利润表与现金流量表可能多回一行 period 为空的：与同一 endDate 的有标签行区间不同（最近一个季度单季，A42）。 */
-function withUnlabeledNote(result: Record<string, unknown>): Record<string, unknown> {
-  const list = result.list as Array<Record<string, unknown> | null>
-  const bare = list.filter((r) => r && !r.period && list.some((o) => o !== r && o?.period && o.endDate === r.endDate))
-  if (bare.length === 0) return result
-  const spans = bare.map((r) => `${r!.startDate !== undefined ? `${r!.startDate}～` : ""}${r!.endDate}`).join("、")
-  return { ...result, _note: `period 为空的行（${spans}）区间比同一 endDate 的有标签行短（通常是最近一个季度单季），不是该报告期的累计值，别与有标签那行混用。` }
-}
-/** 整段在账号可取范围之外。一次请求跨过边界时本接口只返回范围内的部分、不报错，分段后整段在外的那几段就会报这个码。 */
-const OUT_OF_RANGE = "110003"
+const statementDate = (row: Row) => isoDay(row.endDate)
+const statementYear = (row: Row) => (row.fiscalYear === undefined || row.fiscalYear === null || row.fiscalYear === "" ? undefined : String(row.fiscalYear))
+const holderDate = (row: Row) => isoDay(row.reportPeriod)
+const holderYear = (row: Row) => holderDate(row)?.slice(0, 4)
 
-/** 跳过的分段写进 `_note`：相邻的日期段并成一个区间、连续的财年并成「财年 a–b」，从远古起查也只占一两项。 */
-function mergeSkipped(parts: Record<string, unknown>[]): string[] {
-  const runs: Array<[string | number, string | number]> = []
-  for (const b of parts) {
-    const dated = b.startDate !== undefined
-    const [from, to] = dated ? [b.startDate as string, b.endDate as string] : [Number((b.fiscalYear as unknown[])[0]), Number((b.fiscalYear as unknown[])[0])]
-    const prev = runs[runs.length - 1]
-    if (prev && (dated ? addDays(prev[1] as string, 1) === from : (prev[1] as number) + 1 === from)) prev[1] = to
-    else runs.push([from, to])
-  }
-  return runs.map(([from, to]) => (typeof from === "string" ? `${from}～${to}` : from === to ? `财年 ${from}` : `财年 ${from}–${to}`))
-}
-
-/** 三表共用：本接口的多期结果不按报告期排序，这里按 endDate 降序排（最新在前）；美股按 usStatementBodies 拆开请求再合并，
- *  整段在账号范围外的分段跳过并写进 `_note`（与不拆分时的语义一致），全部在外才照常报错。 */
+/** 三表共用：本接口多期按 endDate 升序返回，这里改成降序（最新在前）；latest 取到范围外、区间开头被账号可查范围截断时写 `_note`。 */
 async function callStatement(client: GangtiseClient, endpointKey: string, body: Record<string, unknown>): Promise<unknown> {
-  const bodies = US_STATEMENTS.has(endpointKey) ? usStatementBodies(body) : [body]
-  if (bodies.length === 1) {
-    const part = normalizeRows(await client.call(endpointKey, bodies[0])) as Record<string, unknown>
-    return Array.isArray(part?.list) ? withUnlabeledNote({ ...part, list: [...part.list].sort(byEndDateDesc) }) : part
+  const deadline = Date.now() + PROBE_BUDGET_MS
+  const stop = new AbortController()
+  const start = body.startDate as string | undefined
+  const startCut = start !== undefined && start !== body.endDate ? probeUntil(deadline, stop.signal, false, () => beforeWindow(client, endpointKey, body, { startDate: start, endDate: start })) : undefined
+  let result: unknown
+  try {
+    result = normalizeRows(await client.call(endpointKey, body))
+  } catch (error) {
+    stop.abort()
+    throw error
   }
-  const settled = await Promise.allSettled(bodies.map((b) => client.call(endpointKey, b)))
-  const outOfRange = (r: PromiseSettledResult<unknown>) => r.status === "rejected" && r.reason instanceof ApiError && r.reason.code === OUT_OF_RANGE
-  const failed = settled.find((r) => r.status === "rejected" && !outOfRange(r)) ?? (settled.every(outOfRange) ? settled[0] : undefined)
-  if (failed) throw (failed as PromiseRejectedResult).reason
-  const rows = settled.flatMap((r) => (r.status === "fulfilled" ? rowsOf(r.value) : [])).sort(byEndDateDesc)
-  const skipped = mergeSkipped(bodies.filter((_, i) => outOfRange(settled[i])))
-  return { total: rows.length, list: rows, ...(skipped.length > 0 ? { _note: `美股报表按财年 / 区间分段请求，其中 ${skipped.join("、")} 超出账号可取的时间范围（110003），没有返回。` } : {}) }
+  const list = listOf(result)
+  if (!list) return result
+  const sorted = [...list].sort(byEndDateDesc)
+  const rows = sorted.filter(isRow)
+  const shaped = Array.isArray(result) ? { list: sorted } : { ...(result as Row), list: sorted }
+  const cutNote = startCut ? startCutNote(rows, body, await startCut) : await yearsCutNote(client, endpointKey, body, rows, deadline, stop.signal)
+  return withNote(shaped, latestOutsideNote(rows, body, statementDate, statementYear), cutNote)
+}
+
+/** 十大股东：latest 取到范围外时写 `_note`（按年份取不受账号可查下界约束）；区间开头被截断问不出，不判，空结果提示写明。 */
+async function callTopHolders(client: GangtiseClient, endpointKey: string, body: Record<string, unknown>): Promise<unknown> {
+  const result = normalizeRows(await client.call(endpointKey, body))
+  const list = listOf(result)
+  if (!list) return result
+  const rows = list.filter(isRow)
+  return withNote(Array.isArray(result) ? { list } : { ...(result as Row), list }, latestOutsideNote(rows, body, holderDate, holderYear, false))
 }
 
 function requirePeriodWithRange(body: Record<string, unknown>): Record<string, unknown> {
@@ -342,6 +413,8 @@ export const specs: JsonToolSpec[] = [
       period: periodEnum,
     },
     transformBody: requirePeriodWithRange,
+    call: callTopHolders,
+    emptyHint: "0 行结果：可能该条件下确无数据；按日期区间查时，整段早于账号可查的历史范围也是空结果、不报错，把区间往后挪再查；也可能是代码不对——本工具只查 A 股（代码含 .SH / .SZ / .BJ 后缀），可用 gangtise_securities_search 核实。",
   },
   {
     name: "gangtise_earning_forecast",
@@ -371,7 +444,7 @@ export const specs: JsonToolSpec[] = [
     inputSchema: {
       securityCode: securityCodeHk,
       ...dateRange,
-      fiscalYear: fiscalYearHk,
+      fiscalYear: fiscalYearOverseas,
       period: hkPeriodEnum,
       reportType: reportTypeEnum,
       fieldList,
@@ -388,7 +461,7 @@ export const specs: JsonToolSpec[] = [
     inputSchema: {
       securityCode: securityCodeHk,
       ...dateRange,
-      fiscalYear: fiscalYearHk,
+      fiscalYear: fiscalYearOverseas,
       period: hkPeriodEnum,
       reportType: reportTypeEnum,
       fieldList,
@@ -405,7 +478,7 @@ export const specs: JsonToolSpec[] = [
     inputSchema: {
       securityCode: securityCodeHk,
       ...dateRange,
-      fiscalYear: fiscalYearHk,
+      fiscalYear: fiscalYearOverseas,
       period: hkPeriodEnum,
       reportType: reportTypeEnum,
       fieldList,
@@ -422,7 +495,7 @@ export const specs: JsonToolSpec[] = [
     inputSchema: {
       securityCode: securityCodeUs,
       ...dateRange,
-      fiscalYear: fiscalYearWithUs,
+      fiscalYear: fiscalYearOverseas,
       period: usPeriodEnum,
       reportType: reportTypeEnum,
       fieldList,
@@ -439,7 +512,7 @@ export const specs: JsonToolSpec[] = [
     inputSchema: {
       securityCode: securityCodeUs,
       ...dateRange,
-      fiscalYear: fiscalYearWithUs,
+      fiscalYear: fiscalYearOverseas,
       period: usPeriodEnum,
       reportType: reportTypeEnum,
       fieldList,
@@ -456,7 +529,7 @@ export const specs: JsonToolSpec[] = [
     inputSchema: {
       securityCode: securityCodeUs,
       ...dateRange,
-      fiscalYear: fiscalYearWithUs,
+      fiscalYear: fiscalYearOverseas,
       period: usPeriodEnum,
       reportType: reportTypeEnum,
       fieldList,

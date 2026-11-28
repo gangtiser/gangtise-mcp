@@ -1,0 +1,8 @@
+{
+  "isError": false,
+  "result": {
+    "total": 0,
+    "list": [],
+    "_hint": "0 行结果：可能该条件下确无数据；按日期区间查时，整段早于账号可查的历史范围也是空结果、不报错，把区间往后挪再查；也可能是代码不对——本工具只查 A 股（代码含 .SH / .SZ / .BJ 后缀），可用 gangtise_securities_search 核实。"
+  }
+}

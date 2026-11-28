@@ -1545,6 +1545,19 @@ describe("EDE nested date parameters get the same validation as the top-level da
   })
 })
 
+// 会让结论出错的指标口径（server-open.md A44–A46）：减值准备正负号不统一、金融类公司附注分项与合计口径不同、
+// 非指数基金也有「跟踪标的」。服务端修好前这几句不能删。
+describe("indicator_search warns about indicators that give wrong totals or labels", () => {
+  it("names gdwl_imp_note, the financial companies' expense notes and fund_track_idx_code", async () => {
+    const mcp = await connect(makeMockClient())
+    const description = (await mcp.listTools()).tools.find((t) => t.name === "gangtise_indicator_search")?.description ?? ""
+    expect(description).toMatch(/gdwl_imp_note 的正负号不统一.*取绝对值/)
+    expect(description).toMatch(/gdwl_bv_note 与「原值 − 减值」对不上/)
+    expect(description).toMatch(/金融类公司管理费用附注的分项与合计不是同一口径/)
+    expect(description).toMatch(/fund_track_idx_code 对非指数基金也有值.*isIndexFund/)
+  })
+})
+
 // EDE 的 flow_* 与 gangtise_fund_flow 是同一套数，但前者按单元格计费、后者免费。
 // 模型搜「资金流」就能搜到 EDE 的码，不点名就会为免费数据付费。
 describe("indicator_search routes fund flow to the free tool", () => {

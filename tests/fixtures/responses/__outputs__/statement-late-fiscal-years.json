@@ -1,0 +1,15 @@
+{
+  "isError": false,
+  "result": {
+    "total": 1,
+    "_note": "fiscalYear 2015 早于账号可查的历史范围，本接口对范围外的年份不返回、不报错；返回的最早是 2016。",
+    "list": [
+      {
+        "securityCode": "00700.HK",
+        "endDate": "20161231",
+        "fiscalYear": "2016",
+        "period": "2016年度报告"
+      }
+    ]
+  }
+}

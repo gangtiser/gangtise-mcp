@@ -1,0 +1,21 @@
+{
+  "isError": false,
+  "result": {
+    "total": 2,
+    "_note": "期末 2026-09-30 的报告期不在所问的 fiscalYear 内：period 里的 latest 不受年份与日期约束，取的是全部报告里的最新一期。只要所问范围就去掉 latest。",
+    "list": [
+      {
+        "securityCode": "600519.SH",
+        "endDate": "20260930",
+        "fiscalYear": "2026",
+        "period": "2026年三季报"
+      },
+      {
+        "securityCode": "600519.SH",
+        "endDate": "20201231",
+        "fiscalYear": "2020",
+        "period": "2020年年报"
+      }
+    ]
+  }
+}
